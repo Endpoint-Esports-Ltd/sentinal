@@ -1,0 +1,5 @@
+node_modules/
+plugin/hooks/dist/
+*.tsbuildinfo
+.DS_Store
+.sentinal/

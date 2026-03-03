@@ -1,0 +1,22 @@
+{
+  "name": "sentinal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code quality plugin for TypeScript, Angular, and NestJS",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "bun test",
+    "test:watch": "bun test --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "bun-types": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}

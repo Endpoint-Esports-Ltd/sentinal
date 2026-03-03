@@ -1,0 +1,10 @@
+{
+  "name": "sentinal",
+  "version": "0.1.0",
+  "description": "Claude Code quality plugin for TypeScript, Angular, and NestJS",
+  "author": {
+    "name": "Sentinal"
+  },
+  "license": "MIT",
+  "keywords": ["sentinal", "typescript", "angular", "nestjs", "quality"]
+}
