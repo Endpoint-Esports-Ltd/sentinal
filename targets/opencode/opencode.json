@@ -5,11 +5,10 @@
     ".opencode/plugins/sentinal.ts"
   ],
 
-  "mcpServers": {
+  "mcp": {
     "context7": {
       "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"],
-      "timeout": 60000
+      "command": ["npx", "-y", "@upstash/context7-mcp"]
     },
     "web-search": {
       "type": "local", 
@@ -18,25 +17,21 @@
         "MODE": "stdio",
         "DEFAULT_SEARCH_ENGINE": "duckduckgo",
         "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
-      },
-      "timeout": 30000
+      }
     },
     "grep-mcp": {
       "type": "remote",
-      "url": "https://mcp.grep.app",
-      "timeout": 30000
+      "url": "https://mcp.grep.app"
     },
     "web-fetch": {
       "type": "local",
-      "command": ["npx", "-y", "fetcher-mcp"],
-      "timeout": 60000
+      "command": ["npx", "-y", "fetcher-mcp"]
     }
   },
 
   "lsp": {
     "typescript": {
-      "command": "typescript-language-server",
-      "args": ["--stdio"]
+      "command": ["typescript-language-server", "--stdio"]
     }
   }
 }
