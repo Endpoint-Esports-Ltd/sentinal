@@ -2,18 +2,22 @@
   "name": "sentinal",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude Code quality plugin for TypeScript, Angular, and NestJS",
+  "description": "Quality plugin for TypeScript, Angular, and NestJS - supports Claude Code and OpenCode",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "build:opencode": "bun build targets/opencode/plugins/sentinal.ts --outdir targets/opencode/dist --target bun",
     "test": "bun test",
-    "test:watch": "bun test --watch"
+    "test:watch": "bun test --watch",
+    "install:claude-code": "./install.sh",
+    "install:opencode": "./targets/opencode/install.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
     "@types/node": "^22.0.0",
-    "bun-types": "^1.2.0"
+    "bun-types": "^1.2.0",
+    "zod": "^3.24.0"
   },
   "engines": {
     "node": ">=18.0.0",

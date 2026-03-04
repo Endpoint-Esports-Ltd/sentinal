@@ -1,0 +1,68 @@
+---
+description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR
+model: sonnet
+user-invocable: false
+argument-hint: "<path/to/plan.md>"
+---
+
+# Implementation Phase
+
+**You are the spec-implement skill. Execute each task in the plan using strict TDD.**
+
+ARGUMENTS: $ARGUMENTS
+
+## Setup
+
+1. Read the plan file from ARGUMENTS
+2. Verify `Status: PENDING` and `Approved: Yes`
+3. Create tasks from the plan using TaskCreate
+4. Start with the first uncompleted task
+
+## TDD Loop (per task)
+
+### 1. RED — Write Failing Test
+
+- Write the minimal test that captures the desired behavior
+- For Angular: use `TestBed`, component harness, or Playwright
+- For NestJS: use `@nestjs/testing`, mock repositories
+- **Naming:** `describe("ComponentName", () => { it("should behavior when condition") })`
+
+### 2. VERIFY RED
+
+Run the test and confirm it FAILS because the feature doesn't exist:
+
+- Jest: `npx jest --testPathPattern=<test-file> --verbose`
+- Vitest: `npx vitest run <test-file>`
+- Angular: `npx ng test --include=<test-file> --watch=false`
+- Bun: `bun test <test-file>`
+
+Expected: FAIL with meaningful error (not syntax error)
+
+### 3. GREEN — Write Minimal Implementation
+
+- Write the simplest code that passes the test
+- Follow the coding standards rules (they'll be enforced by hooks automatically)
+- No extras, no refactoring — just make it pass
+
+### 4. VERIFY GREEN
+
+Run ALL tests, not just the new one. Expected: ALL tests PASS
+
+### 5. REFACTOR (if needed)
+
+- Clean up code while keeping tests green
+- Extract shared logic, improve naming, remove duplication
+- Run tests again to confirm still green
+
+### 6. Update Plan
+
+After each task completes:
+- Update plan file: `[ ]` → `[x]`
+- Increment Done count, decrement Left count
+- Mark task as completed via TaskUpdate
+
+## Completion
+
+After all tasks complete:
+- Update plan `Status:` to `COMPLETE`
+- The dispatcher will route to the appropriate verification skill

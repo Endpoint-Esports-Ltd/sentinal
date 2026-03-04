@@ -1,0 +1,91 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "instructions": [
+    ".opencode/rules/standards-typescript.md",
+    ".opencode/rules/standards-angular.md",
+    ".opencode/rules/standards-nestjs.md",
+    ".opencode/rules/standards-frontend.md",
+    ".opencode/rules/standards-backend.md"
+  ],
+
+  "plugin": [
+    ".opencode/plugins/sentinal.ts"
+  ],
+
+  "mcp": {
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "timeout": 60
+    },
+    "web-search": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "open-websearch"],
+      "env": {
+        "MODE": "stdio",
+        "DEFAULT_SEARCH_ENGINE": "duckduckgo",
+        "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
+      },
+      "timeout": 30
+    },
+    "grep-mcp": {
+      "type": "http",
+      "url": "https://mcp.grep.app",
+      "timeout": 30
+    },
+    "web-fetch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "fetcher-mcp"],
+      "timeout": 60
+    }
+  },
+
+  "lsp": {
+    "typescript": {
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "enabled": true
+    }
+  },
+
+  "permissions": {
+    "allowed_tools": [
+      "read",
+      "write",
+      "edit",
+      "patch",
+      "bash",
+      "glob",
+      "grep",
+      "ls",
+      "view",
+      "diagnostics",
+      "agent",
+      "mcp_context7_resolve-library-id",
+      "mcp_context7_get-library-docs",
+      "mcp_web-search_search",
+      "mcp_web-fetch_fetch",
+      "mcp_grep-mcp_search"
+    ]
+  },
+
+  "formatter": {
+    "prettier": {
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".css", ".scss", ".html"]
+    },
+    "biome": {
+      "disabled": true
+    }
+  },
+
+  "options": {
+    "context_paths": [
+      "AGENTS.md",
+      "docs/plans/"
+    ]
+  }
+}

@@ -1,20 +1,28 @@
 # Sentinal
 
-A Claude Code plugin that enforces production-grade quality standards for TypeScript, Angular, and NestJS projects.
+Quality enforcement plugin for TypeScript, Angular, and NestJS projects — supports **Claude Code** and **OpenCode**.
 
-Sentinal runs as an intelligent hook pipeline inside Claude Code, automatically checking every file edit against framework-specific rules, running formatters and linters, enforcing TDD practices, and providing structured development workflows.
+Sentinal runs as an intelligent hook pipeline inside Claude Code or OpenCode, automatically checking every file edit against framework-specific rules, running formatters and linters, enforcing TDD practices, and providing structured development workflows.
+
+## Supported AI Assistants
+
+| Assistant | Status | Installation |
+|-----------|--------|--------------|
+| **Claude Code** | Primary | `./install.sh` |
+| **OpenCode** | Supported | `./targets/opencode/install.sh` |
+
+Both assistants can be used simultaneously — Sentinal detects which environment is running.
 
 ## Features
 
-- **Automatic Quality Checks** — Prettier, ESLint, and `tsc --noEmit` run on every file edit via hooks
+- **Automatic Quality Checks** — Prettier, ESLint, and `tsc --noEmit` run on every file edit (Claude Code: via hooks, OpenCode: built-in + plugin)
 - **Framework-Specific Rules** — Targeted standards for Angular 17+ (standalone, signals, control flow) and NestJS (DTOs, guards, Swagger)
 - **TDD Enforcement** — Warns when implementation files lack companion test files
 - **File Length Guardrails** — Warns at 400 lines, blocks at 600 lines (test files exempt)
-- **Structured `/spec` Workflow** — Plan-implement-verify cycle with optional sub-agents for code review
+- **Structured `/spec` Workflow** — Plan-implement-verify cycle
 - **Context Monitoring** — Tracks context usage and suggests knowledge extraction at thresholds
-- **Tool Redirection** — Blocks built-in WebSearch/WebFetch in favor of MCP alternatives, blocks `EnterPlanMode` in favor of `/spec`
+- **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
-- **Spec Stop Guard** — Prevents accidental session exit during active `/spec` workflows
 - **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), and web-fetch
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 
@@ -22,9 +30,11 @@ Sentinal runs as an intelligent hook pipeline inside Claude Code, automatically 
 
 - **Node.js** 18+
 - **Bun** 1.0+
-- **Claude Code** with plugin support
+- **Claude Code** or **OpenCode**
 
 ## Installation
+
+### Claude Code
 
 ```bash
 git clone <repo-url> sentinal
@@ -46,8 +56,82 @@ claude plugins add ~/.claude/plugins/sentinal
 
 Then run `/sync` in a Claude Code session within your project to generate project-specific rules.
 
+### OpenCode
+
+```bash
+git clone <repo-url> sentinal
+cd sentinal
+bash targets/opencode/install.sh
+```
+
+The OpenCode installer:
+1. Verifies OpenCode is installed
+2. Copies the plugin to `~/.config/opencode/plugins/`
+3. Installs commands to `~/.config/opencode/commands/`
+4. Copies rules to `~/.config/opencode/rules/`
+5. Creates global `AGENTS.md` with rule references
+6. Configures MCP servers and permissions
+
+Then run `/sync` in an OpenCode session within your project:
+
+```bash
+opencode
+/sync
+```
+
+### Both Assistants
+
+Claude Code and OpenCode can coexist! Each uses separate config directories:
+- Claude Code: `~/.claude/plugins/sentinal/`
+- OpenCode: `~/.config/opencode/plugins/sentinal.ts`
+
 ## Project Structure
 
+```
+sentinal/
+├── src/                          # TypeScript source (shared)
+│   ├── hooks/                    # 6 lifecycle hooks (Claude Code)
+│   │   ├── tool-redirect.ts      # PreToolUse: block/redirect tools
+│   │   ├── file-checker.ts       # PostToolUse: quality checks on file edits
+│   │   ├── context-monitor.ts    # PostToolUse: track context usage %
+│   │   ├── spec-stop-guard.ts    # Stop: prevent exit during /spec
+│   │   ├── pre-compact.ts        # PreCompact: save plan state
+│   │   ├── post-compact-restore.ts  # SessionStart: restore after compaction
+│   │   └── session-end.ts        # SessionEnd: cleanup
+│   ├── checkers/                 # Framework detection & validation
+│   │   ├── detect.ts             # Auto-detect package manager, test runner, frameworks
+│   │   ├── typescript.ts         # Prettier, ESLint, tsc checks
+│   │   ├── angular.ts            # Angular template/compiler checks
+│   │   └── nestjs.ts            # NestJS pattern checks (decorators, DTOs)
+│   └── utils/                    # Shared utilities
+│       ├── hook-output.ts        # JSON I/O helpers for hooks
+│       ├── file-length.ts        # Line count enforcement
+│       ├── tdd.ts               # Test file detection
+│       └── git.ts               # Git root detection
+│
+├── targets/
+│   ├── claude-code/              # Claude Code target (original)
+│   │   ├── plugin/               # Plugin structure
+│   │   │   ├── hooks/            # Hook pipeline
+│   │   │   ├── rules/            # Coding standards
+│   │   │   ├── commands/         # Slash commands
+│   │   │   └── ...
+│   │   └── install.sh
+│   │
+│   └── opencode/                 # OpenCode target (NEW)
+│       ├── plugins/
+│       │   └── sentinal.ts       # Plugin with hooks
+│       ├── tools/
+│       │   └── sentinal-check.ts # Custom quality check tool
+│       ├── commands/              # Slash commands
+│       ├── rules/                 # Coding standards
+│       ├── opencode.json         # MCP, LSP, permissions
+│       └── install.sh            # OpenCode installer
+│
+├── plugin/                       # Legacy (Claude Code)
+├── install.sh                    # Claude Code installer
+├── package.json
+└── tsconfig.json
 ```
 sentinal/
 ├── src/                          # TypeScript source
@@ -88,7 +172,7 @@ sentinal/
 
 ## How It Works
 
-### Hook Pipeline
+### Claude Code Hook Pipeline
 
 Sentinal registers 6 lifecycle hooks that intercept Claude Code events:
 
@@ -115,6 +199,40 @@ When Claude edits a TypeScript file, the `file-checker` hook:
 8. Checks for companion test file — warns if missing
 
 All feedback is returned as structured hints that Claude acts on automatically.
+
+### OpenCode Implementation
+
+OpenCode has a different architecture that provides some advantages:
+
+| Feature | Claude Code | OpenCode |
+|---------|-------------|----------|
+| **Hook system** | 6 lifecycle events | Plugin events |
+| **Formatters** | Manual in hooks | Built-in automatically |
+| **TypeScript** | Compiled JS | Native execution |
+| **Tool blocking** | Exit code 2 | Throw Error |
+| **Compaction** | Save to file | Inject context directly |
+
+#### OpenCode Plugin Events
+
+The OpenCode plugin (`targets/opencode/plugins/sentinal.ts`) implements:
+
+| Event | What It Does |
+|-------|-------------|
+| `tool.execute.before` | Hints on better tool choices |
+| `tool.execute.after` | Quality checks on file edits (file length, TDD, NestJS patterns, tsc) |
+| `experimental.session.compacting` | Inject /spec plan state into context summary |
+| `session.created` | Restore state after session start |
+| `session.idle` | Warn about incomplete /spec plans |
+
+#### Key Differences
+
+1. **Built-in Formatters**: OpenCode automatically runs Prettier, ESLint, gofmt, etc. on every file write. No manual formatter execution needed.
+
+2. **Native TypeScript**: OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required.
+
+3. **Better Compaction**: The `experimental.session.compacting` hook can directly inject context into the summary, rather than saving to a file.
+
+4. **Tool Hints**: OpenCode can't fully block tools, but can log warnings/hints that are shown to the user.
 
 ### Framework Detection
 
@@ -290,6 +408,26 @@ Hooks are compiled to JavaScript in `plugin/hooks/dist/` and executed by Bun at 
 2. Add detection logic to `src/checkers/detect.ts`
 3. Call the checker from `src/hooks/file-checker.ts`
 4. Add tests and build
+
+### OpenCode Development
+
+The OpenCode target is located in `targets/opencode/`:
+
+```bash
+# Install for OpenCode
+bash targets/opencode/install.sh
+
+# Test quality checks locally
+node targets/opencode/tests/run-checks.js
+```
+
+OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required.
+
+### Adding a New OpenCode Feature
+
+1. Edit `targets/opencode/plugins/sentinal.ts` to add new hooks
+2. Test with `node targets/opencode/tests/run-checks.js`
+3. Reinstall: `bash targets/opencode/install.sh`
 
 ## Settings
 
