@@ -91,20 +91,20 @@ Type: Feature
 
 ## Progress Tracking
 
-- [~] Task 1: CLI binary scaffold + build pipeline (partial — CLI dispatcher, greet, install, uninstall, build:cli done; serve, run, tsconfig.cli.json, build separation remaining)
-- [~] Task 2: SQLite database module + schema (partial — observations/sessions tables, migrations, WAL done; plans/settings tables remaining)
+- [~] Task 1: CLI binary scaffold + build pipeline (partial — CLI dispatcher, greet, install, uninstall, spec, build:cli done; serve, run, tsconfig.cli.json, build separation remaining)
+- [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks tables, migrations v1+v2, WAL done; plans/settings tables remaining)
 - [x] Task 3: Memory system (observations CRUD, search, timeline)
-- [ ] Task 4: Session management + check-context
+- [~] Task 4: Session management + check-context (partial — session insert/end in SQLite via hooks, context estimation function with rescaling done; CLI commands `sessions`/`check-context`, active session listing, stale cleanup, transcript_path storage remaining)
 - [ ] Task 5: Plan registration + worktree commands
-- [ ] Task 6: Hook integration — replace legacy dependency + context rescaling
-- [x] Task 7: Memory MCP server
+- [~] Task 6: Hook integration — replace legacy dependency + context rescaling (partial — legacy refs removed, native context estimation, rescaling, session-start/end hooks done; context bar visualization, `Bash(sentinal:*)` permission, session-start test, notification on session-end, server kill on last session remaining)
+- [x] Task 7: Memory MCP server (refactored to src/mcp/server.ts with modular tool registration; 5 memory tools + spec_status tool)
 - [ ] Task 8: Console dashboard — server + layout + Dashboard view
 - [ ] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views
 - [ ] Task 10: Model routing configuration
 - [ ] Task 11: Shell integration + auto-updater
 - [~] Task 12: Installer improvements (curl, rollback, devcontainer, conditional rules) (partial — conditional rule activation done; shell scripts replaced by TypeScript CLI; curl installer, rollback, devcontainer remaining)
 
-**Total Tasks:** 12 | **Completed:** 2 | **Partial:** 3 | **Remaining:** 7
+**Total Tasks:** 12 | **Completed:** 2 | **Partial:** 5 | **Remaining:** 5
 
 ## Implementation Tasks
 
@@ -143,7 +143,8 @@ Type: Feature
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
-- `src/cli/index.ts` — Commander.js dispatcher with commands: `mcp-server`, `memory`, `greet`, `install`, `uninstall`
+- `src/cli/index.ts` — Commander.js dispatcher with commands: `mcp-server`, `memory`, `greet`, `spec`, `install`, `uninstall`
+- `src/cli/commands/spec.ts` — `sentinal spec list/current/sync` subcommands for spec workflow management
 - `src/cli/commands/greet.ts` — ASCII art banner with version display
 - `src/cli/commands/install.ts` — Full install logic for Claude Code (marketplace-based) and OpenCode (global + local); replaces all 3 install shell scripts; auto-detects assistants; interactive prompt via `node:readline`; native JSON config merging (no `jq` dependency); string-aware JSONC comment stripping
 - `src/cli/commands/uninstall.ts` — Full uninstall logic for both targets; replaces all 3 uninstall shell scripts; detects installed artifacts; config cleanup with "effectively empty" check
@@ -194,7 +195,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 
 **Definition of Done:**
 - [x] Database created at `~/.sentinal/sentinal.db` on first access (actual path: `~/.sentinal/memory.db`)
-- [~] All tables created with correct schemas (`observations`, `sessions`, `observations_fts` done; `plans` and `settings` tables not yet created)
+- [~] All tables created with correct schemas (`observations`, `sessions`, `observations_fts`, `specs`, `spec_tasks` done via v1+v2 migrations; `plans` and `settings` tables not yet created)
 - [x] Migration runner handles version upgrades (`schema_version` table with sequential migration functions)
 - [x] WAL mode enabled (`PRAGMA journal_mode = WAL` in store constructor)
 - [x] Unit tests verify table creation, basic CRUD, migration ordering (`store.test.ts` — 261 lines)
@@ -207,9 +208,10 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 - Uses `schema_version` table (not `_migrations`)
 - FTS5 virtual table with sync triggers included in schema
 - Vector store support via `sqlite-vec` extension
+- V2 migration adds `specs` and `spec_tasks` tables (for spec workflow tracking)
 
 **Not yet implemented from plan:**
-- `plans` table (id, path, status, session_id, registered_at) — needed for Task 5
+- `plans` table (id, path, status, session_id, registered_at) — needed for Task 5 (note: `specs` table partially covers this)
 - `settings` table (key/value store) — needed for Task 10
 
 **Verify:**
@@ -293,13 +295,30 @@ bun test src/memory/
 - Stale session cleanup: sessions older than 24h without activity marked as ended
 
 **Definition of Done:**
-- [ ] Sessions created/updated/ended correctly in SQLite
+- [~] Sessions created/updated/ended correctly in SQLite (insert/end works via hooks; no `status` column, no `transcript_path` storage, no `getActiveSessions()` query)
 - [ ] `sentinal sessions --json` returns count and session list
 - [ ] `sentinal check-context --json` returns `{"percent": N}`
-- [ ] Context estimation works with real transcript files
+- [x] Context estimation works with real transcript files (`src/sessions/context.ts` — file size based, env-var configurable, rescaling applied)
 - [ ] Stale session cleanup runs on `sessions` command
-- [ ] All tests pass
+- [x] All tests pass (`src/sessions/context.test.ts` — 7 tests; session CRUD tested in `src/memory/store.test.ts`)
 - [ ] No diagnostics errors
+
+**What was implemented (differs from plan):**
+- Session CRUD lives in `src/memory/store.ts` (not a standalone `src/sessions/manager.ts`) — `insertSession()`, `endSession()`, `getSession()`
+- Session start/end hooks: `src/hooks/session-start.ts` and `src/hooks/session-end.ts` call the store methods
+- `src/sessions/context.ts` (63 lines) — `estimateContextUsage(transcriptPath)` with file-size estimation, bytes-per-token ratio (default 3), context window (default 200K), compaction buffer rescaling (raw / 0.835)
+- `src/sessions/context.test.ts` (99 lines) — 7 tests covering missing file, empty file, known size, cap at 100%, env var overrides
+- OpenCode plugin parity: session insert/end integrated into `targets/opencode/plugins/sentinal.ts` event handlers
+- Context estimation used by `src/hooks/context-monitor.ts` (replaces broken `legacy check-context` dependency)
+
+**Not yet implemented from plan:**
+- `src/sessions/manager.ts` — Standalone session manager module (CRUD lives in store.ts instead)
+- `src/cli/commands/sessions.ts` — `sentinal sessions --json` command
+- `src/cli/commands/check-context.ts` — `sentinal check-context --json` command
+- `getActiveSessions()` method — No way to list sessions where `end_time IS NULL`
+- `transcript_path` storage in sessions table
+- `status` column in sessions table (`active`/`ended` — currently implied by `end_time IS NULL`)
+- Stale session cleanup (24h threshold)
 
 **Verify:**
 ```bash
@@ -374,15 +393,32 @@ bun test src/worktree/ && ./dist/sentinal register-plan "/tmp/test.md" "PENDING"
 - Update hooks.json to add SessionStart hook (not matcher "compact" — all starts)
 
 **Definition of Done:**
-- [ ] No references to `~/.legacy/bin/legacy` remain in hook source code
-- [ ] Context monitor, when invoked with mock stdin, calls `sentinal check-context` and returns valid rescaled percentage
-- [ ] SessionStart hook registers sessions in SQLite
-- [ ] SessionEnd hook ends sessions, sends notification, kills server if last session
-- [ ] pre-compact.ts saves state to both compact-state.json AND SQLite
+- [x] No references to `~/.legacy/bin/legacy` remain in hook source code
+- [x] Context monitor uses native estimation with valid rescaled percentage (calls `estimateContextUsage()` directly instead of shelling out)
+- [x] SessionStart hook registers sessions in SQLite (`src/hooks/session-start.ts` — `store.insertSession()`)
+- [~] SessionEnd hook ends sessions, sends notification, kills server if last session (ends session done; notification and server kill not implemented)
+- [~] pre-compact.ts saves state to both compact-state.json AND SQLite (JSON file + spec sync to SQLite via `SpecStore.syncFromPlanFile()` done; compact event notification to SQLite not done)
 - [ ] Context bar visualization includes buffer indicator
 - [ ] `Bash(sentinal:*)` added to settings.json permissions
-- [ ] All existing tests pass, new hook tests added
+- [x] All existing tests pass, new hook tests added (`context-monitor.test.ts` recalibrated for 80/90/95% thresholds — 6 tests; `spec-stop-guard.test.ts` — 4 tests)
 - [ ] No diagnostics errors
+- [ ] `src/hooks/session-start.test.ts` created
+
+**What was implemented (differs from plan):**
+- `src/hooks/context-monitor.ts` — REWRITTEN: replaced `legacy check-context` with native `estimateContextUsage()` from `src/sessions/context.ts`. Thresholds: 80%/90%/95% effective. Plain text warnings (no visualization bar).
+- `src/hooks/session-start.ts` — NEW: reads `session_id`/`cwd` from stdin, calls `store.insertSession()` directly (not via CLI subcommand as plan specified)
+- `src/hooks/session-end.ts` — Updated: calls `store.endSession()` + cleans up event buffer file
+- `src/hooks/pre-compact.ts` — Refactored: uses shared `findActivePlan()` from `src/spec/detect.ts`, syncs active spec to SQLite via `SpecStore.syncFromPlanFile()`, writes compact-state.json
+- `src/hooks/spec-stop-guard.ts` — Refactored: uses shared `findActivePlan()` + `shouldBlockStop()` from `src/spec/detect.ts`
+- `targets/claude-code/hooks/hooks.json` — SessionStart hook added (non-compact entry); memory-observer matcher includes `Bash`
+- OpenCode parity: all hook features mirrored in `targets/opencode/plugins/sentinal.ts` (session tracking, spec detection, bash memory capture)
+
+**Not yet implemented from plan:**
+- Context bar visualization (`▓`/`░` blocks with buffer indicator)
+- `Bash(sentinal:*)` permission in `targets/claude-code/settings.json`
+- `src/hooks/session-start.test.ts` — test file for session start hook
+- Notification on session end (dashboard integration, depends on Task 8)
+- Kill dashboard server on last session end (depends on Task 8)
 
 **Verify:**
 ```bash
@@ -417,19 +453,22 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 **Definition of Done:**
 - [x] MCP server starts and responds to initialize/list_tools (verified with JSON-RPC initialize)
 - [x] All tools callable and return correct data (5 tools: `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_stats` — plan said 4, `memory_stats` is an addition)
-- [x] Server configured in `.mcp.json` for both targets (Claude Code: `${CLAUDE_PLUGIN_ROOT}/hooks/dist/memory/mcp-server.js`; OpenCode: `sentinal mcp-server`)
+- [x] Server configured in `.mcp.json` for both targets (Claude Code: `"sentinal": { "command": "sentinal", "args": ["mcp-server"] }`; OpenCode: `sentinal mcp-server`)
 - [x] Compatible with existing workflow (MCP SDK handles protocol automatically)
-- [x] Integration test: save → search → timeline → get works end-to-end (`mcp-server.test.ts` — 345 lines)
+- [x] Integration test: save → search → timeline → get works end-to-end (`src/mcp/server.test.ts` — 20 tests)
 - [ ] No diagnostics errors (pre-existing Bun type LSP issues only)
 
 **What was implemented (differs from plan):**
-- Server lives at `src/memory/mcp-server.ts` (not `src/mcp/memory-server.ts`)
+- Originally built at `src/memory/mcp-server.ts`; subsequently refactored to `src/mcp/server.ts` as a universal MCP entrypoint with modular tool registration
+- `src/mcp/server.ts` (67 lines) — `createSentinalServer()`, server name `"sentinal"` v0.2.0
+- `src/memory/mcp-tools.ts` (233 lines) — 5 memory tools extracted: `registerMemoryTools(server, store)`
+- `src/spec/mcp-tools.ts` (70 lines) — `registerSpecTools()` with `spec_status` tool (6th tool added)
 - No separate `src/mcp/types.ts` — uses `@modelcontextprotocol/sdk` types directly
-- 5 tools instead of 4 (added `memory_stats`)
-- Tool names use `memory_` prefix: `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_stats`
+- 6 tools total: `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_stats`, `spec_status`
 - Server invocation via unified CLI: `sentinal mcp-server` routes to `main()` export
 - `main()` exported for CLI dispatcher; `__SENTINAL_CLI` env var prevents double-execution in compiled binary
 - `isMemoryEnabled()` config check before startup (opt-out via `~/.sentinal/config.json`)
+- Old files deleted: `src/memory/mcp-server.ts`, `src/memory/mcp-server.test.ts`, `bin/sentinal-memory.sh`
 
 **Verify:**
 ```bash
@@ -701,11 +740,11 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 
 ### Artifacts
 1. `dist/sentinal` — compiled CLI binary
-2. `~/.sentinal/sentinal.db` — SQLite database
-3. `src/mcp/memory-server.ts` — MCP server for mem-search
-4. `src/dashboard/server.ts` — Dashboard HTTP server
+2. `~/.sentinal/memory.db` — SQLite database (plan said `sentinal.db`, actual is `memory.db`)
+3. `src/mcp/server.ts` — Universal MCP server entrypoint (plan said `src/mcp/memory-server.ts`)
+4. `src/dashboard/server.ts` — Dashboard HTTP server (not yet implemented)
 5. `src/cli/commands/` — All CLI commands
-6. `install-remote.sh` — Curl-installable script
+6. `install-remote.sh` — Curl-installable script (not yet implemented)
 
 ### Key Links
 1. CLI binary → SQLite database (all commands read/write)
