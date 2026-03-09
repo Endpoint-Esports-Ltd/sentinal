@@ -1,5 +1,5 @@
 {
-  "description": "Sentinal hooks - quality enforcement for TypeScript/Angular/NestJS",
+  "description": "Sentinal hooks - quality enforcement + persistent memory for TypeScript/Angular/NestJS",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,15 @@
           {
             "type": "command",
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/post-compact-restore.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-restore.js\"",
             "timeout": 5
           }
         ]
@@ -32,6 +41,16 @@
             "type": "command",
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/file-checker.js\"",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-observer.js\"",
+            "timeout": 5
           }
         ]
       },

@@ -3,7 +3,7 @@
  *
  * Quality enforcement plugin for TypeScript, Angular, and NestJS projects.
  * Provides automatic quality checks on file edits, tool redirection hints,
- * and session state management across context compaction.
+ * session state management across context compaction, and persistent memory.
  *
  * Features:
  * - File length enforcement (warn at 400, block at 600 lines)
@@ -13,6 +13,7 @@
  * - TypeScript type checking (tsc --noEmit)
  * - Tool redirection hints (semantic search suggestions)
  * - Session state preservation across compaction
+ * - Persistent memory: auto-capture learning moments + restore at session start
  *
  * NOTE: Prettier and ESLint are handled automatically by OpenCode's
  * built-in formatter system - we don't need to run them manually!
@@ -25,6 +26,10 @@
 import { isTestFile, getExpectedTestPaths, checkNestPatterns, isNestFile } from "../src/index.ts";
 import { isAngularFile } from "../src/checkers/angular.ts";
 import { detectFramework, detectPackageManager } from "../src/checkers/detect.ts";
+import { MemoryStore, MemoryService } from "../src/index.ts";
+import { isMemoryEnabled } from "../src/memory/config.ts";
+import { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, type ToolEvent } from "../src/memory/capture.ts";
+import { restoreContext } from "../src/memory/restore.ts";
 
 // Type definitions for OpenCode plugin system
 interface PluginContext {
@@ -62,6 +67,7 @@ const VAGUE_GREP_INDICATORS = [
 
 interface CompactState {
   activePlan: string | null;
+  memoryContext: string | null;
   timestamp: string;
   cwd: string;
 }
@@ -88,6 +94,20 @@ function checkFileLength(lineCount: number, filePath: string): { severity: "warn
 
 export const SentinalPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
   const projectRoot = worktree || directory;
+
+  // Memory system: event buffer for pattern detection
+  const eventBuffer = new EventBuffer(20);
+  let memoryService: MemoryService | null = null;
+  let sessionId: string | null = null;
+
+  if (isMemoryEnabled()) {
+    try {
+      const store = new MemoryStore();
+      memoryService = new MemoryService(store);
+    } catch {
+      // Memory unavailable, continue without it
+    }
+  }
 
   await client.app.log({
     body: {
@@ -202,6 +222,38 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           throw new Error(`[Sentinal] Blocking due to critical issues:\n${issues.join("\n")}`);
         }
       }
+
+      // Memory capture: analyze tool event for learning moments
+      if (memoryService && sessionId) {
+        try {
+          const event: ToolEvent = {
+            toolName: input.tool,
+            filePath: typeof filePath === "string" ? filePath : undefined,
+            success: !shouldBlock,
+            output: issues.length > 0 ? issues.join("\n").slice(0, 500) : undefined,
+            timestamp: Date.now(),
+          };
+
+          eventBuffer.push(event);
+          const decision = analyzeEvent(event, eventBuffer);
+
+          if (decision.shouldCapture && decision.confidence >= MIN_CAPTURE_CONFIDENCE) {
+            memoryService.addObservation({
+              sessionId,
+              projectPath: projectRoot,
+              timestamp: Date.now(),
+              type: decision.type,
+              title: decision.title,
+              content: decision.content,
+              filePaths: decision.filePaths,
+              tags: decision.tags,
+              metadata: { source: "auto-capture", confidence: decision.confidence, toolName: input.tool },
+            });
+          }
+        } catch {
+          // Memory capture failure is non-fatal
+        }
+      }
     },
 
     "experimental.session.compacting": async (input, output) => {
@@ -230,16 +282,32 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
         }
       }
 
-      if (activePlan) {
-        const stateDir = join(projectRoot, ".sentinal");
-        mkdirSync(stateDir, { recursive: true });
-        const state: CompactState = {
-          activePlan,
-          timestamp: new Date().toISOString(),
-          cwd: projectRoot,
-        };
-        writeFileSync(join(stateDir, "compact-state.json"), JSON.stringify(state, null, 2));
+      // Save memory context for post-compact restoration
+      let memoryContext: string | null = null;
+      if (memoryService) {
+        try {
+          const restored = restoreContext(memoryService, { projectPath: projectRoot });
+          if (restored.hasMemory) {
+            memoryContext = restored.markdown;
+          }
+        } catch {
+          // Memory unavailable, continue without it
+        }
+      }
 
+      // Persist state to disk for session restoration
+      const stateDir = join(projectRoot, ".sentinal");
+      mkdirSync(stateDir, { recursive: true });
+      const state: CompactState = {
+        activePlan,
+        memoryContext,
+        timestamp: new Date().toISOString(),
+        cwd: projectRoot,
+      };
+      writeFileSync(join(stateDir, "compact-state.json"), JSON.stringify(state, null, 2));
+
+      // Inject spec plan context into compacted prompt
+      if (activePlan) {
         output.context.push(`## Sentinal /spec Workflow State
 
 **Active Plan:** ${activePlan}
@@ -251,10 +319,37 @@ Resume the /spec workflow by reading the plan file and continuing from where you
 
 Use \`/spec ${activePlan}\` to resume the workflow.`);
       }
+
+      // Inject memory context into compacted prompt
+      if (memoryContext) {
+        output.context.push(memoryContext);
+      }
     },
 
     event: async ({ event }) => {
       if (event.type === "session.created") {
+        // Track session ID for memory capture
+        sessionId = event.sessionID ?? `opencode-${Date.now()}`;
+
+        // Restore memory context at session start
+        if (memoryService) {
+          try {
+            const restored = restoreContext(memoryService, { projectPath: projectRoot });
+            if (restored.hasMemory && restored.markdown) {
+              await client.app.log({
+                body: {
+                  service: "sentinal",
+                  level: "info",
+                  message: restored.markdown,
+                },
+              });
+            }
+          } catch {
+            // Memory restore failure is non-fatal
+          }
+        }
+
+        // Restore spec plan state from previous compaction
         const stateFile = join(projectRoot, ".sentinal", "compact-state.json");
         if (existsSync(stateFile)) {
           try {

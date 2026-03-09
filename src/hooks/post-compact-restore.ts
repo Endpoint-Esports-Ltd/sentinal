@@ -11,7 +11,17 @@ async function main(): Promise<void> {
   try {
     const state = JSON.parse(readFileSync(stateFile, "utf-8"));
     const msgs: string[] = ["Session restored after compaction."];
-    if (state.activePlan) { msgs.push(`Active plan: ${state.activePlan}`); msgs.push("Resume the /spec workflow by reading the plan file and continuing from where you left off."); }
+
+    if (state.activePlan) {
+      msgs.push(`Active plan: ${state.activePlan}`);
+      msgs.push("Resume the /spec workflow by reading the plan file and continuing from where you left off.");
+    }
+
+    if (state.memoryContext) {
+      msgs.push("");
+      msgs.push(state.memoryContext);
+    }
+
     output(hint("PostToolUse", msgs.join("\n")));
   } catch { /* corrupted state */ }
 }

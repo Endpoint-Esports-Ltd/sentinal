@@ -1,0 +1,475 @@
+/**
+ * Memory Store
+ *
+ * SQLite database layer for the persistent memory system.
+ * Handles connection management, schema migrations, and raw queries.
+ */
+
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+import { mkdirSync, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import type {
+  Observation,
+  CreateObservation,
+  Session,
+  SearchFilters,
+  MemoryStats,
+  ObservationType,
+} from "./types.js";
+import { DB_CONSTANTS, SEARCH_CONSTANTS } from "./types.js";
+import { backupDatabase } from "./maintenance.js";
+
+// ─── Database Path ────────────────────────────────────────────────────────────
+
+export function getDbPath(): string {
+  const dir = join(homedir(), DB_CONSTANTS.DB_DIR);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return join(dir, DB_CONSTANTS.DB_NAME);
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+export class MemoryStore {
+  private db: Database;
+  private dbPath: string;
+
+  constructor(dbPath?: string) {
+    this.dbPath = dbPath ?? getDbPath();
+    this.db = new Database(this.dbPath, { create: true });
+    this.db.run("PRAGMA journal_mode = WAL");
+    this.db.run("PRAGMA foreign_keys = ON");
+    this.runMigrations();
+  }
+
+  // ─── Migrations ───────────────────────────────────────────────────────
+
+  private runMigrations(): void {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
+      );
+    `);
+
+    const row = this.db
+      .prepare("SELECT version FROM schema_version LIMIT 1")
+      .get() as { version: number } | null;
+    const currentVersion = row?.version ?? 0;
+
+    // Backup before applying migrations (skip for fresh databases)
+    if (currentVersion > 0 && currentVersion < DB_CONSTANTS.SCHEMA_VERSION) {
+      try {
+        backupDatabase(this.dbPath);
+      } catch {
+        // Backup failure should not block migration
+      }
+    }
+
+    if (currentVersion < 1) {
+      this.migrateV1();
+    }
+  }
+
+  private migrateV1(): void {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        file_paths TEXT DEFAULT '[]',
+        tags TEXT DEFAULT '[]',
+        metadata TEXT DEFAULT '{}'
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        start_time INTEGER NOT NULL,
+        end_time INTEGER,
+        project_path TEXT NOT NULL,
+        assistant TEXT NOT NULL,
+        observation_count INTEGER DEFAULT 0,
+        summary TEXT
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+        title, content, tags, content=observations, content_rowid=id
+      );
+
+      -- FTS triggers to keep index in sync
+      CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
+        INSERT INTO observations_fts(rowid, title, content, tags)
+        VALUES (new.id, new.title, new.content, new.tags);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
+        INSERT INTO observations_fts(observations_fts, rowid, title, content, tags)
+        VALUES ('delete', old.id, old.title, old.content, old.tags);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
+        INSERT INTO observations_fts(observations_fts, rowid, title, content, tags)
+        VALUES ('delete', old.id, old.title, old.content, old.tags);
+        INSERT INTO observations_fts(rowid, title, content, tags)
+        VALUES (new.id, new.title, new.content, new.tags);
+      END;
+
+      CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project_path);
+      CREATE INDEX IF NOT EXISTS idx_obs_type ON observations(type);
+      CREATE INDEX IF NOT EXISTS idx_obs_timestamp ON observations(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_path);
+
+      INSERT OR REPLACE INTO schema_version (version) VALUES (1);
+    `);
+  }
+
+  // ─── Observations CRUD ────────────────────────────────────────────────
+
+  insertObservation(obs: CreateObservation): Observation {
+    const stmt = this.db.prepare(`
+      INSERT INTO observations (session_id, project_path, timestamp, type, title, content, file_paths, tags, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      obs.sessionId,
+      obs.projectPath,
+      obs.timestamp,
+      obs.type,
+      obs.title,
+      obs.content,
+      JSON.stringify(obs.filePaths),
+      JSON.stringify(obs.tags),
+      JSON.stringify(obs.metadata),
+    );
+
+    return this.getObservation(Number(result.lastInsertRowid))!;
+  }
+
+  getObservation(id: number): Observation | null {
+    const row = this.db
+      .prepare("SELECT * FROM observations WHERE id = ?")
+      .get(id) as RawObservation | null;
+    return row ? this.deserializeObservation(row) : null;
+  }
+
+  getObservations(ids: number[]): Observation[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM observations WHERE id IN (${placeholders})`)
+      .all(...ids) as RawObservation[];
+    return rows.map((r) => this.deserializeObservation(r));
+  }
+
+  deleteObservation(id: number): boolean {
+    // Check existence first because bun:sqlite result.changes includes trigger-generated changes (FTS)
+    const exists = this.db
+      .prepare("SELECT 1 FROM observations WHERE id = ?")
+      .get(id);
+    if (!exists) return false;
+    this.db.prepare("DELETE FROM observations WHERE id = ?").run(id);
+    return true;
+  }
+
+  getRecentForProject(
+    projectPath: string,
+    limit: number = SEARCH_CONSTANTS.DEFAULT_LIMIT,
+  ): Observation[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM observations WHERE project_path = ? ORDER BY timestamp DESC LIMIT ?",
+      )
+      .all(projectPath, limit) as RawObservation[];
+    return rows.map((r) => this.deserializeObservation(r));
+  }
+
+  // ─── FTS Search ───────────────────────────────────────────────────────
+
+  searchFTS(query: string, filters: SearchFilters): Observation[] {
+    let sql = `
+      SELECT o.*, rank
+      FROM observations_fts fts
+      JOIN observations o ON o.id = fts.rowid
+      WHERE observations_fts MATCH ?
+    `;
+    const params: unknown[] = [query];
+
+    sql += this.buildFilterClauses(filters, params);
+    sql += ` ORDER BY ${filters.orderBy === "date_desc" ? "o.timestamp DESC" : filters.orderBy === "date_asc" ? "o.timestamp ASC" : "rank"} `;
+    sql += ` LIMIT ? OFFSET ?`;
+    params.push(filters.limit, filters.offset);
+
+    const rows = this.db.prepare(sql).all(...params) as RawObservation[];
+    return rows.map((r) => this.deserializeObservation(r));
+  }
+
+  // ─── Filter-Only Search ───────────────────────────────────────────────
+
+  searchFilters(filters: SearchFilters): Observation[] {
+    let sql = `SELECT * FROM observations o WHERE 1=1`;
+    const params: unknown[] = [];
+
+    sql += this.buildFilterClauses(filters, params);
+    sql += ` ORDER BY ${filters.orderBy === "date_asc" ? "o.timestamp ASC" : "o.timestamp DESC"} `;
+    sql += ` LIMIT ? OFFSET ?`;
+    params.push(filters.limit, filters.offset);
+
+    const rows = this.db.prepare(sql).all(...params) as RawObservation[];
+    return rows.map((r) => this.deserializeObservation(r));
+  }
+
+  // ─── Timeline ─────────────────────────────────────────────────────────
+
+  getTimelineAround(
+    anchorId: number,
+    depthBefore: number = 10,
+    depthAfter: number = 10,
+    projectPath?: string,
+  ): { anchor: Observation | null; before: Observation[]; after: Observation[] } {
+    const anchor = this.getObservation(anchorId);
+    if (!anchor) return { anchor: null, before: [], after: [] };
+
+    let beforeSql = `SELECT * FROM observations WHERE timestamp < ? `;
+    let afterSql = `SELECT * FROM observations WHERE timestamp > ? `;
+    const beforeParams: unknown[] = [anchor.timestamp];
+    const afterParams: unknown[] = [anchor.timestamp];
+
+    if (projectPath) {
+      beforeSql += ` AND project_path = ?`;
+      afterSql += ` AND project_path = ?`;
+      beforeParams.push(projectPath);
+      afterParams.push(projectPath);
+    }
+
+    beforeSql += ` ORDER BY timestamp DESC LIMIT ?`;
+    afterSql += ` ORDER BY timestamp ASC LIMIT ?`;
+    beforeParams.push(depthBefore);
+    afterParams.push(depthAfter);
+
+    const before = (
+      this.db.prepare(beforeSql).all(...beforeParams) as RawObservation[]
+    )
+      .map((r) => this.deserializeObservation(r))
+      .reverse();
+
+    const after = (
+      this.db.prepare(afterSql).all(...afterParams) as RawObservation[]
+    ).map((r) => this.deserializeObservation(r));
+
+    return { anchor, before, after };
+  }
+
+  // ─── Sessions ─────────────────────────────────────────────────────────
+
+  insertSession(session: Omit<Session, "observationCount">): Session {
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, start_time, end_time, project_path, assistant, summary)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        session.id,
+        session.startTime,
+        session.endTime,
+        session.projectPath,
+        session.assistant,
+        session.summary,
+      );
+
+    return this.getSession(session.id)!;
+  }
+
+  getSession(id: string): Session | null {
+    const row = this.db
+      .prepare("SELECT * FROM sessions WHERE id = ?")
+      .get(id) as RawSession | null;
+    return row ? this.deserializeSession(row) : null;
+  }
+
+  endSession(id: string, summary?: string): void {
+    const obsCount = this.db
+      .prepare(
+        "SELECT COUNT(*) as count FROM observations WHERE session_id = ?",
+      )
+      .get(id) as { count: number };
+
+    this.db
+      .prepare(
+        `UPDATE sessions SET end_time = ?, summary = ?, observation_count = ? WHERE id = ?`,
+      )
+      .run(Date.now(), summary ?? null, obsCount.count, id);
+  }
+
+  // ─── Stats ────────────────────────────────────────────────────────────
+
+  getStats(): MemoryStats {
+    const total = this.db
+      .prepare("SELECT COUNT(*) as count FROM observations")
+      .get() as { count: number };
+    const sessions = this.db
+      .prepare("SELECT COUNT(*) as count FROM sessions")
+      .get() as { count: number };
+
+    const byTypeRows = this.db
+      .prepare(
+        "SELECT type, COUNT(*) as count FROM observations GROUP BY type",
+      )
+      .all() as { type: ObservationType; count: number }[];
+    const byType = Object.fromEntries(
+      byTypeRows.map((r) => [r.type, r.count]),
+    ) as Record<ObservationType, number>;
+
+    const byProjectRows = this.db
+      .prepare(
+        "SELECT project_path, COUNT(*) as count FROM observations GROUP BY project_path",
+      )
+      .all() as { project_path: string; count: number }[];
+    const byProject = Object.fromEntries(
+      byProjectRows.map((r) => [r.project_path, r.count]),
+    );
+
+    const range = this.db
+      .prepare(
+        "SELECT MIN(timestamp) as oldest, MAX(timestamp) as newest FROM observations",
+      )
+      .get() as { oldest: number | null; newest: number | null };
+
+    let databaseSizeBytes = 0;
+    try {
+      databaseSizeBytes = statSync(this.dbPath).size;
+    } catch {
+      // DB might be in-memory
+    }
+
+    return {
+      totalObservations: total.count,
+      totalSessions: sessions.count,
+      byType,
+      byProject,
+      oldestTimestamp: range.oldest,
+      newestTimestamp: range.newest,
+      databaseSizeBytes,
+    };
+  }
+
+  // ─── Maintenance ──────────────────────────────────────────────────────
+
+  prune(olderThanMs: number): number {
+    const cutoff = Date.now() - olderThanMs;
+    // Count first because bun:sqlite result.changes includes trigger-generated changes (FTS)
+    const { count } = this.db
+      .prepare("SELECT COUNT(*) as count FROM observations WHERE timestamp < ?")
+      .get(cutoff) as { count: number };
+    if (count > 0) {
+      this.db.prepare("DELETE FROM observations WHERE timestamp < ?").run(cutoff);
+    }
+    return count;
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  /** Expose the raw database for extensions (e.g., sqlite-vec) */
+  getRawDb(): Database {
+    return this.db;
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────
+
+  private buildFilterClauses(
+    filters: SearchFilters,
+    params: unknown[],
+  ): string {
+    let sql = "";
+
+    if (filters.project) {
+      sql += ` AND o.project_path = ?`;
+      params.push(filters.project);
+    }
+    if (filters.type) {
+      sql += ` AND o.type = ?`;
+      params.push(filters.type);
+    }
+    if (filters.types && filters.types.length > 0) {
+      const placeholders = filters.types.map(() => "?").join(",");
+      sql += ` AND o.type IN (${placeholders})`;
+      params.push(...filters.types);
+    }
+    if (filters.dateStart) {
+      sql += ` AND o.timestamp >= ?`;
+      params.push(filters.dateStart);
+    }
+    if (filters.dateEnd) {
+      sql += ` AND o.timestamp <= ?`;
+      params.push(filters.dateEnd);
+    }
+    if (filters.tags && filters.tags.length > 0) {
+      for (const tag of filters.tags) {
+        sql += ` AND o.tags LIKE ?`;
+        params.push(`%"${tag}"%`);
+      }
+    }
+
+    return sql;
+  }
+
+  private deserializeObservation(row: RawObservation): Observation {
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      projectPath: row.project_path,
+      timestamp: row.timestamp,
+      type: row.type as ObservationType,
+      title: row.title,
+      content: row.content,
+      filePaths: JSON.parse(row.file_paths || "[]"),
+      tags: JSON.parse(row.tags || "[]"),
+      metadata: JSON.parse(row.metadata || "{}"),
+    };
+  }
+
+  private deserializeSession(row: RawSession): Session {
+    return {
+      id: row.id,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      projectPath: row.project_path,
+      assistant: row.assistant as Session["assistant"],
+      observationCount: row.observation_count,
+      summary: row.summary,
+    };
+  }
+}
+
+// ─── Raw DB Row Types ─────────────────────────────────────────────────────────
+
+interface RawObservation {
+  id: number;
+  session_id: string;
+  project_path: string;
+  timestamp: number;
+  type: string;
+  title: string;
+  content: string;
+  file_paths: string;
+  tags: string;
+  metadata: string;
+}
+
+interface RawSession {
+  id: string;
+  start_time: number;
+  end_time: number | null;
+  project_path: string;
+  assistant: string;
+  observation_count: number;
+  summary: string | null;
+}
