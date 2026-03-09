@@ -5,8 +5,8 @@ SENTINAL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLAUDE_TARGET="$SENTINAL_ROOT/targets/claude-code"
 PLUGIN_DEST="$HOME/.claude/plugins/sentinal"
 
-echo "Sentinal — TypeScript/Angular/NestJS Guard for Claude Code"
-echo "==========================================================="
+echo "Sentinal for Claude Code — TypeScript/Angular/NestJS Quality Enforcement"
+echo "========================================================================="
 echo ""
 
 # Check Node.js 18+

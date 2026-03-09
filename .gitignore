@@ -1,5 +1,5 @@
 node_modules/
-plugin/hooks/dist/
+targets/claude-code/hooks/dist/
 *.tsbuildinfo
 .DS_Store
 .sentinal/

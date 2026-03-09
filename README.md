@@ -8,10 +8,10 @@ Sentinal runs as an intelligent hook pipeline inside Claude Code or OpenCode, au
 
 | Assistant | Status | Installation |
 |-----------|--------|--------------|
-| **Claude Code** | Primary | `./install.sh` |
-| **OpenCode** | Supported | `./targets/opencode/install.sh` |
+| **Claude Code** | Full support | `./install.sh claude` |
+| **OpenCode** | Full support | `./install.sh opencode` |
 
-Both assistants can be used simultaneously — Sentinal detects which environment is running.
+Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `./install.sh` with no argument auto-detects available assistants.
 
 ## Features
 
@@ -23,13 +23,14 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Context Monitoring** — Tracks context usage and suggests knowledge extraction at thresholds
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), and web-fetch
+- **Persistent Memory** — Vector-based knowledge storage with automatic capture/restore across sessions
+- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal-memory
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 
 ## Requirements
 
+- **Bun** 1.0+ (required runtime)
 - **Node.js** 18+
-- **Bun** 1.0+
 - **Claude Code** or **OpenCode**
 
 ## Installation
@@ -39,7 +40,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 ```bash
 git clone <repo-url> sentinal
 cd sentinal
-bash install.sh
+./install.sh claude
 ```
 
 The installer:
@@ -61,16 +62,15 @@ Then run `/sync` in a Claude Code session within your project to generate projec
 ```bash
 git clone <repo-url> sentinal
 cd sentinal
-bash targets/opencode/install.sh
+./install.sh opencode
 ```
 
-The OpenCode installer:
-1. Verifies OpenCode is installed
-2. Copies the plugin to `~/.config/opencode/plugins/`
-3. Installs commands to `~/.config/opencode/commands/`
-4. Copies rules to `~/.config/opencode/rules/`
+The installer:
+1. Verifies OpenCode, Bun, and `jq` are installed
+2. Installs `@endpoint/sentinal` as a package dependency via `bun add`
+3. Merges plugin config, commands, and rules into OpenCode's config directory using `jq`
+4. Configures MCP servers (including `sentinal-memory` via `bunx`)
 5. Creates global `AGENTS.md` with rule references
-6. Configures MCP servers and permissions
 
 Then run `/sync` in an OpenCode session within your project:
 
@@ -81,140 +81,120 @@ opencode
 
 ### Both Assistants
 
-Claude Code and OpenCode can coexist! Each uses separate config directories:
+Claude Code and OpenCode can coexist. Each uses separate config directories:
 - Claude Code: `~/.claude/plugins/sentinal/`
-- OpenCode: `~/.config/opencode/plugins/sentinal.ts`
+- OpenCode: `~/.config/opencode/` (plugin, commands, rules merged into existing config)
+
+Install for both at once:
+
+```bash
+./install.sh both
+```
 
 ## Project Structure
 
 ```
 sentinal/
-├── src/                          # TypeScript source (shared)
-│   ├── hooks/                    # 6 lifecycle hooks (Claude Code)
-│   │   ├── tool-redirect.ts      # PreToolUse: block/redirect tools
-│   │   ├── file-checker.ts       # PostToolUse: quality checks on file edits
-│   │   ├── context-monitor.ts    # PostToolUse: track context usage %
-│   │   ├── spec-stop-guard.ts    # Stop: prevent exit during /spec
-│   │   ├── pre-compact.ts        # PreCompact: save plan state
-│   │   ├── post-compact-restore.ts  # SessionStart: restore after compaction
-│   │   └── session-end.ts        # SessionEnd: cleanup
-│   ├── checkers/                 # Framework detection & validation
-│   │   ├── detect.ts             # Auto-detect package manager, test runner, frameworks
-│   │   ├── typescript.ts         # Prettier, ESLint, tsc checks
-│   │   ├── angular.ts            # Angular template/compiler checks
-│   │   └── nestjs.ts            # NestJS pattern checks (decorators, DTOs)
-│   └── utils/                    # Shared utilities
-│       ├── hook-output.ts        # JSON I/O helpers for hooks
-│       ├── file-length.ts        # Line count enforcement
-│       ├── tdd.ts               # Test file detection
-│       └── git.ts               # Git root detection
+├── src/                              # Shared TypeScript source
+│   ├── index.ts                      # Barrel exports (API surface)
+│   ├── hooks/                        # Claude Code lifecycle hooks
+│   │   ├── tool-redirect.ts          # PreToolUse: block/redirect tools
+│   │   ├── file-checker.ts           # PostToolUse: quality checks on file edits
+│   │   ├── context-monitor.ts        # PostToolUse: track context usage %
+│   │   ├── spec-stop-guard.ts        # Stop: prevent exit during /spec
+│   │   ├── pre-compact.ts            # PreCompact: save plan state
+│   │   ├── post-compact-restore.ts   # SessionStart: restore after compaction
+│   │   ├── session-end.ts            # SessionEnd: cleanup
+│   │   └── memory-observer.ts        # PostToolUse: capture memories from edits
+│   ├── checkers/                     # Framework detection & validation
+│   │   ├── detect.ts                 # Auto-detect package manager, test runner, frameworks
+│   │   ├── typescript.ts             # Prettier, ESLint, tsc checks
+│   │   ├── angular.ts                # Angular template/compiler checks
+│   │   └── nestjs.ts                 # NestJS pattern checks (decorators, DTOs)
+│   ├── memory/                       # Persistent memory system
+│   │   ├── store.ts                  # SQLite + sqlite-vec storage
+│   │   ├── vector-store.ts           # Vector similarity search
+│   │   ├── embeddings.ts             # @xenova/transformers 384-dim embeddings
+│   │   ├── service.ts                # High-level memory service
+│   │   ├── capture.ts                # Automatic memory capture from sessions
+│   │   ├── restore.ts                # Memory restore on session start
+│   │   ├── mcp-server.ts             # MCP server (5 tools)
+│   │   └── cli.ts                    # CLI for memory management
+│   ├── utils/                        # Shared utilities
+│   │   ├── hook-output.ts            # JSON I/O helpers for hooks
+│   │   ├── file-length.ts            # Line count enforcement
+│   │   ├── tdd.ts                    # Test file detection
+│   │   └── git.ts                    # Git root detection
+│   └── db/                           # Database utilities
+│       ├── database.ts               # SQLite connection management
+│       └── schema.ts                 # Schema definitions
+│
+├── bin/
+│   └── sentinal-memory.sh            # Shell shim for `bunx sentinal-memory`
 │
 ├── targets/
-│   ├── claude-code/              # Claude Code target (original)
-│   │   ├── plugin/               # Plugin structure
-│   │   │   ├── hooks/            # Hook pipeline
-│   │   │   ├── rules/            # Coding standards
-│   │   │   ├── commands/         # Slash commands
-│   │   │   └── ...
-│   │   └── install.sh
+│   ├── claude-code/                  # Claude Code target
+│   │   ├── tsconfig.json             # TypeScript config (builds to hooks/dist/)
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json           # Plugin metadata
+│   │   ├── hooks/
+│   │   │   ├── hooks.json            # Hook pipeline definition
+│   │   │   └── dist/                 # Compiled JS (build output, gitignored)
+│   │   ├── rules/                    # 5 coding standards rule sets
+│   │   ├── commands/                 # Slash commands (/spec, /sync, /learn)
+│   │   ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer)
+│   │   ├── settings.json             # Claude Code settings & permissions
+│   │   ├── .mcp.json                 # MCP server configuration
+│   │   ├── .lsp.json                 # Language server configuration
+│   │   ├── install.sh                # Claude Code installer
+│   │   └── uninstall.sh              # Claude Code uninstaller
 │   │
-│   └── opencode/                 # OpenCode target (NEW)
+│   └── opencode/                     # OpenCode target
 │       ├── plugins/
-│       │   └── sentinal.ts       # Plugin with hooks
-│       ├── tools/
-│       │   └── sentinal-check.ts # Custom quality check tool
-│       ├── commands/              # Slash commands
-│       ├── rules/                 # Coding standards
-│       ├── opencode.json         # MCP, LSP, permissions
-│       └── install.sh            # OpenCode installer
+│       │   └── sentinal.ts           # Plugin (imports from @endpoint/sentinal)
+│       ├── commands/                  # Slash commands
+│       ├── rules/                    # Coding standards
+│       ├── opencode.json             # MCP, LSP, permissions config
+│       ├── install.sh                # OpenCode installer (jq-based config merging)
+│       └── uninstall.sh              # OpenCode uninstaller
 │
-├── plugin/                       # Legacy (Claude Code)
-├── install.sh                    # Claude Code installer
-├── package.json
-└── tsconfig.json
-```
-sentinal/
-├── src/                          # TypeScript source
-│   ├── hooks/                    # 6 lifecycle hooks
-│   │   ├── tool-redirect.ts      # PreToolUse: block/redirect tools
-│   │   ├── file-checker.ts       # PostToolUse: quality checks on file edits
-│   │   ├── context-monitor.ts    # PostToolUse: track context usage %
-│   │   ├── spec-stop-guard.ts    # Stop: prevent exit during /spec
-│   │   ├── pre-compact.ts        # PreCompact: save plan state
-│   │   ├── post-compact-restore.ts  # SessionStart: restore after compaction
-│   │   └── session-end.ts        # SessionEnd: cleanup
-│   ├── checkers/                 # Framework detection & validation
-│   │   ├── detect.ts             # Auto-detect package manager, test runner, frameworks
-│   │   ├── typescript.ts         # Prettier, ESLint, tsc checks
-│   │   ├── angular.ts            # Angular template/compiler checks
-│   │   └── nestjs.ts             # NestJS pattern checks (decorators, DTOs)
-│   └── utils/                    # Shared utilities
-│       ├── hook-output.ts        # JSON I/O helpers for hooks
-│       ├── file-length.ts        # Line count enforcement
-│       ├── tdd.ts                # Test file detection
-│       └── git.ts                # Git root detection
-├── plugin/                       # Installed plugin structure
-│   ├── .claude-plugin/
-│   │   └── plugin.json           # Plugin metadata
-│   ├── hooks/
-│   │   ├── hooks.json            # Hook pipeline definition
-│   │   └── dist/                 # Compiled JS (generated by build)
-│   ├── rules/                    # 5 coding standards rule sets
-│   ├── commands/                 # Slash commands (/spec, /sync, /learn)
-│   ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer)
-│   ├── settings.json             # Claude Code settings & permissions
-│   ├── .mcp.json                 # MCP server configuration
-│   └── .lsp.json                 # Language server configuration
-├── install.sh                    # One-step installer
-├── package.json
-└── tsconfig.json
+├── templates/
+│   └── commands/                     # Command templates with {{model}} placeholders
+│
+├── scripts/
+│   └── generate-commands.js          # Generates target-specific commands from templates
+│
+├── install.sh                        # Multi-target dispatcher
+├── uninstall.sh                      # Multi-target dispatcher
+├── package.json                      # @endpoint/sentinal (private registry)
+└── bunfig.toml                       # Bun test configuration
 ```
 
 ## How It Works
 
-### Claude Code Hook Pipeline
+Sentinal integrates with each assistant through its native extension mechanism. Both targets share the same core logic (`src/`), with target-specific wrappers in `targets/`.
 
-Sentinal registers 6 lifecycle hooks that intercept Claude Code events:
+### Claude Code: Hook Pipeline
+
+Claude Code uses compiled TypeScript hooks that intercept lifecycle events:
 
 | Event | Hook | What It Does |
 |-------|------|-------------|
 | `SessionStart` | post-compact-restore | Restores the active `/spec` plan path after context compaction |
+| `SessionStart` | memory-restore | Restores relevant memories for the current project |
 | `PreToolUse` | tool-redirect | Denies `WebSearch`/`WebFetch` (use MCP instead), blocks `EnterPlanMode` (use `/spec`), hints on vague Grep patterns |
 | `PostToolUse` | file-checker | Runs Prettier, ESLint, `tsc`, framework-specific checks, file length enforcement, and TDD checks on every `Write`/`Edit` |
+| `PostToolUse` | memory-observer | Captures significant patterns and solutions from edits |
 | `PostToolUse` | context-monitor | Monitors context window usage %, warns at 65/75/85%+ thresholds |
 | `PreCompact` | pre-compact | Saves active plan path and metadata to `.sentinal/compact-state.json` |
 | `Stop` | spec-stop-guard | Blocks session exit if a `/spec` plan is in PENDING or COMPLETE state |
+| `SessionEnd` | session-end | Captures end-of-session memories and cleanup |
 
-### File Edit Flow
+Hooks are compiled from `src/` to `targets/claude-code/hooks/dist/` and executed by Bun at runtime. The hook I/O protocol uses JSON on stdin/stdout (see [Hook I/O Protocol](#hook-io-protocol) below).
 
-When Claude edits a TypeScript file, the `file-checker` hook:
+### OpenCode: Plugin Events
 
-1. Checks line count (warns at 400+, blocks at 600+)
-2. Detects the project's package manager from lockfiles (pnpm, yarn, bun, or npm)
-3. Runs **Prettier** — auto-formats if needed
-4. Runs **ESLint** — auto-fixes lint issues
-5. Runs **TypeScript** — `tsc --noEmit` for type errors
-6. If Angular file detected — runs `ng build --dry-run` for template/compiler errors
-7. If NestJS file detected — checks for `@ApiTags`, `class-validator`, `@Entity` decorators
-8. Checks for companion test file — warns if missing
-
-All feedback is returned as structured hints that Claude acts on automatically.
-
-### OpenCode Implementation
-
-OpenCode has a different architecture that provides some advantages:
-
-| Feature | Claude Code | OpenCode |
-|---------|-------------|----------|
-| **Hook system** | 6 lifecycle events | Plugin events |
-| **Formatters** | Manual in hooks | Built-in automatically |
-| **TypeScript** | Compiled JS | Native execution |
-| **Tool blocking** | Exit code 2 | Throw Error |
-| **Compaction** | Save to file | Inject context directly |
-
-#### OpenCode Plugin Events
-
-The OpenCode plugin (`targets/opencode/plugins/sentinal.ts`) implements:
+OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) executed natively by Bun:
 
 | Event | What It Does |
 |-------|-------------|
@@ -224,15 +204,46 @@ The OpenCode plugin (`targets/opencode/plugins/sentinal.ts`) implements:
 | `session.created` | Restore state after session start |
 | `session.idle` | Warn about incomplete /spec plans |
 
-#### Key Differences
+The plugin imports shared checkers and utilities from the `@endpoint/sentinal` package, so the same quality logic runs in both targets.
 
-1. **Built-in Formatters**: OpenCode automatically runs Prettier, ESLint, gofmt, etc. on every file write. No manual formatter execution needed.
+### Architecture Comparison
 
-2. **Native TypeScript**: OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required.
+The two targets have different extension mechanisms but deliver the same quality enforcement:
 
-3. **Better Compaction**: The `experimental.session.compacting` hook can directly inject context into the summary, rather than saving to a file.
+| Feature | Claude Code | OpenCode |
+|---------|-------------|----------|
+| **Extension type** | Compiled hook scripts | Native TypeScript plugin |
+| **Hook system** | 6 lifecycle events | Plugin events |
+| **Formatters** | Explicit in hooks | Built-in automatically |
+| **Runtime** | Compiled JS executed by Bun | Native TypeScript via Bun |
+| **Tool blocking** | Exit code 2 | Throw Error |
+| **Compaction** | Save state to file | Inject context directly |
 
-4. **Tool Hints**: OpenCode can't fully block tools, but can log warnings/hints that are shown to the user.
+**Claude Code advantages:**
+- Full tool blocking/denial via exit codes
+- Fine-grained hook matchers (regex on tool names)
+- Sub-agents for background review tasks
+
+**OpenCode advantages:**
+- Built-in Prettier/ESLint on every file write (no manual execution)
+- Native TypeScript execution (no compilation step)
+- Direct context injection during compaction
+- Simpler plugin development cycle
+
+### File Edit Flow
+
+When the assistant edits a TypeScript file, quality checks run automatically:
+
+1. Checks line count (warns at 400+, blocks at 600+)
+2. Detects the project's package manager from lockfiles (pnpm, yarn, bun, or npm)
+3. Runs **Prettier** — auto-formats if needed (Claude Code only; OpenCode handles this built-in)
+4. Runs **ESLint** — auto-fixes lint issues (Claude Code only; OpenCode handles this built-in)
+5. Runs **TypeScript** — `tsc --noEmit` for type errors
+6. If Angular file detected — runs `ng build --dry-run` for template/compiler errors
+7. If NestJS file detected — checks for `@ApiTags`, `class-validator`, `@Entity` decorators
+8. Checks for companion test file — warns if missing
+
+All feedback is returned as structured hints that the assistant acts on automatically.
 
 ### Framework Detection
 
@@ -246,7 +257,7 @@ Sentinal auto-detects your project setup:
 
 ### Hook I/O Protocol
 
-Hooks receive JSON on stdin and output JSON to stdout:
+Claude Code hooks receive JSON on stdin and output JSON to stdout:
 
 ```typescript
 // Input (from Claude Code)
@@ -326,16 +337,16 @@ The primary workflow command. Provides a plan-implement-verify cycle for feature
 
 ```
 /spec <description>
-  → Detect type (feature vs bugfix)
-  → Plan phase (explore codebase, write plan, get approval)
-  → Implement phase (TDD loop per task)
-  → Verify phase (tests, execution, code review)
-  → VERIFIED
+  -> Detect type (feature vs bugfix)
+  -> Plan phase (explore codebase, write plan, get approval)
+  -> Implement phase (TDD loop per task)
+  -> Verify phase (tests, execution, code review)
+  -> VERIFIED
 ```
 
-Plan files are written to `docs/plans/YYYY-MM-DD-<slug>.md` with status tracking (PENDING → COMPLETE → VERIFIED).
+Plan files are written to `docs/plans/YYYY-MM-DD-<slug>.md` with status tracking (PENDING -> COMPLETE -> VERIFIED).
 
-**Sub-agents** (launched in background during verification):
+**Sub-agents** (Claude Code only, launched in background during verification):
 - **plan-reviewer** — Reviews feature plans with > 3 tasks for completeness
 - **spec-reviewer** — Reviews implementation for quality and standards compliance
 
@@ -349,7 +360,7 @@ Explores your codebase and generates project-specific rules tailored to your sta
 
 ### `/learn` — Extract Session Knowledge
 
-Captures non-obvious solutions, workarounds, and workflows from the current session for future reference.
+Captures non-obvious solutions, workarounds, and workflows from the current session into persistent memory for future sessions.
 
 ```
 /learn
@@ -357,7 +368,7 @@ Captures non-obvious solutions, workarounds, and workflows from the current sess
 
 ## MCP Servers
 
-Sentinal configures 4 MCP servers for enhanced capabilities:
+Sentinal configures 5 MCP servers for enhanced capabilities:
 
 | Server | Purpose | Package |
 |--------|---------|---------|
@@ -365,73 +376,81 @@ Sentinal configures 4 MCP servers for enhanced capabilities:
 | **web-search** | Web search via DuckDuckGo/Bing/Exa | `open-websearch` |
 | **grep-mcp** | GitHub code search across 1M+ public repos | `mcp.grep.app` |
 | **web-fetch** | Full web page fetching via Playwright | `fetcher-mcp` |
+| **sentinal-memory** | Persistent vector memory (save, search, list, delete, stats) | `@endpoint/sentinal` |
 
-These are preferred over Claude Code's built-in `WebSearch`/`WebFetch` tools (which the `tool-redirect` hook blocks).
+These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
 
 ## Development
 
 ### Build
 
 ```bash
-bun install          # Install dependencies
-bun run build        # Compile TypeScript to plugin/hooks/dist/
-bun run build:watch  # Watch mode
+bun install                # Install dependencies
+bun run build              # Compile Claude Code hooks to targets/claude-code/hooks/dist/
+bun run build:opencode     # Bundle OpenCode plugin to targets/opencode/dist/
+bun run build:all          # Build both targets
+bun run build:watch        # Watch mode (Claude Code hooks)
 ```
 
 ### Test
 
 ```bash
-bun test             # Run all tests (73 tests across 12 files)
+bun test             # Run all tests
 bun test:watch       # Watch mode
 ```
 
 ### Architecture
 
-The codebase is organized into three layers:
+The codebase is organized into shared layers consumed by both targets:
 
-- **Hooks** (`src/hooks/`) — Lifecycle event handlers. Each reads JSON from stdin, processes it, and outputs JSON to stdout. The hook pipeline is defined in `plugin/hooks/hooks.json`.
-- **Checkers** (`src/checkers/`) — Framework-specific validation logic. Called by the `file-checker` hook. Auto-detect project tooling and run appropriate checks.
+- **Hooks** (`src/hooks/`) — Lifecycle event handlers for Claude Code. Each reads JSON from stdin, processes it, and outputs JSON to stdout. The hook pipeline is defined in `targets/claude-code/hooks/hooks.json`.
+- **Checkers** (`src/checkers/`) — Framework-specific validation logic. Used by both Claude Code hooks and the OpenCode plugin. Auto-detect project tooling and run appropriate checks.
+- **Memory** (`src/memory/`) — Persistent vector-based knowledge storage using SQLite + sqlite-vec for embeddings. Exposed as an MCP server with 5 tools. Available to both targets.
 - **Utils** (`src/utils/`) — Shared helpers for hook I/O, file length checks, TDD enforcement, and git operations.
 
-Hooks are compiled to JavaScript in `plugin/hooks/dist/` and executed by Bun at runtime. The plugin structure under `plugin/` is what gets installed to `~/.claude/plugins/sentinal/`.
+### Claude Code Development
 
-### Adding a New Hook
+The Claude Code target is located in `targets/claude-code/`:
 
+```bash
+bun run build              # Compile hooks
+./install.sh claude        # Install to ~/.claude/plugins/sentinal/
+```
+
+**Adding a new hook:**
 1. Create `src/hooks/my-hook.ts` implementing the hook I/O protocol
 2. Add a test file `src/hooks/my-hook.test.ts`
-3. Register the hook in `plugin/hooks/hooks.json` with the appropriate event and matcher
-4. Build and reinstall: `bun run build && bash install.sh`
-
-### Adding a New Checker
-
-1. Create `src/checkers/my-framework.ts` with a check function
-2. Add detection logic to `src/checkers/detect.ts`
-3. Call the checker from `src/hooks/file-checker.ts`
-4. Add tests and build
+3. Register the hook in `targets/claude-code/hooks/hooks.json` with the appropriate event and matcher
+4. Build and reinstall: `bun run build && ./install.sh claude`
 
 ### OpenCode Development
 
 The OpenCode target is located in `targets/opencode/`:
 
 ```bash
-# Install for OpenCode
-bash targets/opencode/install.sh
-
-# Test quality checks locally
-node targets/opencode/tests/run-checks.js
+./install.sh opencode      # Install to ~/.config/opencode/
 ```
 
-OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required.
+OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required. The plugin imports shared logic from the `@endpoint/sentinal` package.
 
-### Adding a New OpenCode Feature
+**Adding a new feature:**
+1. Edit `targets/opencode/plugins/sentinal.ts` to add new plugin events
+2. Reinstall: `./install.sh opencode`
 
-1. Edit `targets/opencode/plugins/sentinal.ts` to add new hooks
-2. Test with `node targets/opencode/tests/run-checks.js`
-3. Reinstall: `bash targets/opencode/install.sh`
+### Adding a New Checker
+
+Checkers are shared between both targets:
+
+1. Create `src/checkers/my-framework.ts` with a check function
+2. Add detection logic to `src/checkers/detect.ts`
+3. Call the checker from `src/hooks/file-checker.ts` (Claude Code) and/or `targets/opencode/plugins/sentinal.ts` (OpenCode)
+4. Add tests and build
 
 ## Settings
 
-Sentinal configures these Claude Code settings via `plugin/settings.json`:
+### Claude Code
+
+Configured via `targets/claude-code/settings.json`:
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
@@ -443,6 +462,16 @@ Sentinal configures these Claude Code settings via `plugin/settings.json`:
 
 Pre-approved permissions include common dev tools (npm, bun, ng, nest, tsc, prettier, eslint, jest, vitest, git), file operations, MCP servers, `/spec` workflow skills, and sub-agents.
 
+### OpenCode
+
+Configured via `targets/opencode/opencode.json`:
+
+- **Plugin registration** — `sentinal.ts` added to the `plugin[]` array
+- **MCP servers** — All 5 MCP servers configured with appropriate transport types
+- **LSP** — TypeScript language server for code intelligence
+
+OpenCode settings are merged surgically into existing user config using `jq`, preserving any pre-existing configuration.
+
 ## License
 
-MIT
+Proprietary — UNLICENSED

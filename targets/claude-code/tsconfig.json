@@ -4,8 +4,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "outDir": "plugin/hooks/dist",
-    "rootDir": "src",
+    "outDir": "hooks/dist",
+    "rootDir": "../../src",
     "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,
@@ -17,6 +17,6 @@
     "sourceMap": true,
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "plugin", "**/*.test.ts"]
+  "include": ["../../src/**/*.ts"],
+  "exclude": ["../../node_modules", "hooks/dist", "../../**/*.test.ts"]
 }
