@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { shouldBlockStop } from "./spec-stop-guard";
+import { shouldBlockStop } from "../spec/detect";
 
 describe("spec-stop-guard", () => {
   it("should block PENDING", () => { const r = shouldBlockStop("PENDING"); expect(r).not.toBeNull(); expect(r).toContain("PENDING"); });

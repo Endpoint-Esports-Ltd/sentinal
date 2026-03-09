@@ -47,7 +47,7 @@ export { runCli, parseArgs } from "./memory/cli.js";
 
 // ─── Spec System ─────────────────────────────────────────────────────────────
 export { parsePlanFile, parsePlanContent, slugFromFilename } from "./spec/parser.js";
-export { findActivePlan, detectSpecType } from "./spec/detect.js";
+export { findActivePlan, shouldBlockStop, detectSpecType } from "./spec/detect.js";
 export { SpecStore } from "./spec/store.js";
 export { registerSpecTools } from "./spec/mcp-tools.js";
 export type { Spec, SpecTask, SpecStatus, SpecType, TaskStatus } from "./spec/types.js";

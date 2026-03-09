@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { findActivePlan, detectSpecType } from "./detect.js";
+import { findActivePlan, shouldBlockStop, detectSpecType } from "./detect.js";
 
 // --- findActivePlan ---
 
@@ -71,6 +71,34 @@ describe("findActivePlan", () => {
     expect(result).not.toBeNull();
     expect(result!.spec.id).toBe("2026-03-01-active");
     expect(result!.spec.status).toBe("COMPLETE");
+  });
+});
+
+// --- shouldBlockStop ---
+
+describe("shouldBlockStop", () => {
+  it("should return null for null status", () => {
+    expect(shouldBlockStop(null)).toBeNull();
+  });
+
+  it("should return null for terminal statuses", () => {
+    expect(shouldBlockStop("VERIFIED")).toBeNull();
+    expect(shouldBlockStop("CANCELLED")).toBeNull();
+    expect(shouldBlockStop("IN_PROGRESS")).toBeNull();
+  });
+
+  it("should block on PENDING status", () => {
+    const reason = shouldBlockStop("PENDING");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("PENDING");
+    expect(reason).toContain("/spec");
+  });
+
+  it("should block on COMPLETE status", () => {
+    const reason = shouldBlockStop("COMPLETE");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("COMPLETE");
+    expect(reason).toContain("verification");
   });
 });
 
