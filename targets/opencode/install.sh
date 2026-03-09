@@ -221,7 +221,46 @@ if [[ "$INSTALL_MODE" == "global" ]]; then
     echo "  To use Sentinal MCP servers, manually merge from:"
     echo "  $SCRIPT_DIR/opencode.json"
   else
-    cp "$SCRIPT_DIR/opencode.json" "$TARGET_DIR/"
+    # Copy config and fix plugin path for global install
+    cat > "$TARGET_DIR/opencode.json" << EOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+
+  "plugin": [
+    "$PLUGINS_DIR/sentinal.ts"
+  ],
+
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"]
+    },
+    "web-search": {
+      "type": "local", 
+      "command": ["npx", "-y", "open-websearch"],
+      "environment": {
+        "MODE": "stdio",
+        "DEFAULT_SEARCH_ENGINE": "duckduckgo",
+        "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
+      }
+    },
+    "grep-mcp": {
+      "type": "remote",
+      "url": "https://mcp.grep.app"
+    },
+    "web-fetch": {
+      "type": "local",
+      "command": ["npx", "-y", "fetcher-mcp"]
+    }
+  },
+
+  "lsp": {
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"]
+    }
+  }
+}
+EOF
     echo -e "${GREEN}✓ OpenCode configuration created${NC}"
   fi
 fi
