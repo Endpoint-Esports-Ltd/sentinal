@@ -29,6 +29,7 @@ async function main(): Promise<void> {
       projectPath: input.cwd,
       assistant: detectAssistant(),
       summary: null,
+      transcriptPath: input.transcript_path ?? null,
     });
 
     store.close();

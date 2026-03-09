@@ -16,8 +16,9 @@ import type {
   SearchFilters,
   MemoryStats,
   ObservationType,
+  ListSessionsOptions,
 } from "./types.js";
-import { DB_CONSTANTS, SEARCH_CONSTANTS } from "./types.js";
+import { DB_CONSTANTS, SEARCH_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./types.js";
 import { backupDatabase } from "./maintenance.js";
 
 // ─── Database Path ────────────────────────────────────────────────────────────
@@ -75,6 +76,9 @@ export class MemoryStore {
     }
     if (currentVersion < 3) {
       this.migrateV3();
+    }
+    if (currentVersion < 4) {
+      this.migrateV4();
     }
   }
 
@@ -179,6 +183,19 @@ export class MemoryStore {
 
       INSERT OR REPLACE INTO schema_version (version) VALUES (3);
     `);
+  }
+
+  private migrateV4(): void {
+    // Add transcript_path column to sessions table
+    // ALTER TABLE ADD COLUMN defaults to NULL for existing rows
+    // Check if column already exists before altering (idempotent)
+    const cols = this.db
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "transcript_path")) {
+      this.db.run("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
+    }
+    this.db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (4)");
   }
 
   // ─── Settings CRUD ────────────────────────────────────────────────────
@@ -351,8 +368,8 @@ export class MemoryStore {
   insertSession(session: Omit<Session, "observationCount">): Session {
     this.db
       .prepare(
-        `INSERT INTO sessions (id, start_time, end_time, project_path, assistant, summary)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions (id, start_time, end_time, project_path, assistant, summary, transcript_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         session.id,
@@ -361,6 +378,7 @@ export class MemoryStore {
         session.projectPath,
         session.assistant,
         session.summary,
+        session.transcriptPath,
       );
 
     return this.getSession(session.id)!;
@@ -385,6 +403,31 @@ export class MemoryStore {
         `UPDATE sessions SET end_time = ?, summary = ?, observation_count = ? WHERE id = ?`,
       )
       .run(Date.now(), summary ?? null, obsCount.count, id);
+  }
+
+  getActiveSessions(): Session[] {
+    return this.listSessions({ active: true });
+  }
+
+  listSessions(opts: ListSessionsOptions = {}): Session[] {
+    const clauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+    if (opts.active === true) clauses.push("end_time IS NULL");
+    else if (opts.active === false) clauses.push("end_time IS NOT NULL");
+    if (opts.project) { clauses.push("project_path = ?"); params.push(opts.project); }
+    if (opts.assistant) { clauses.push("assistant = ?"); params.push(opts.assistant); }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM sessions ${where} ORDER BY start_time DESC LIMIT ? OFFSET ?`)
+      .all(...params, opts.limit ?? 50, opts.offset ?? 0) as RawSession[];
+    return rows.map((r) => this.deserializeSession(r));
+  }
+
+  cleanupStaleSessions(thresholdMs: number = STALE_SESSION_THRESHOLD_MS): number {
+    const cutoff = Date.now() - thresholdMs;
+    return this.db
+      .prepare("UPDATE sessions SET end_time = ? WHERE end_time IS NULL AND start_time < ?")
+      .run(Date.now(), cutoff).changes;
   }
 
   // ─── Stats ────────────────────────────────────────────────────────────
@@ -525,6 +568,7 @@ export class MemoryStore {
       assistant: row.assistant as Session["assistant"],
       observationCount: row.observation_count,
       summary: row.summary,
+      transcriptPath: row.transcript_path,
     };
   }
 }
@@ -552,4 +596,5 @@ interface RawSession {
   assistant: string;
   observation_count: number;
   summary: string | null;
+  transcript_path: string | null;
 }

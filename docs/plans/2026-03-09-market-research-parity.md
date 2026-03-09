@@ -94,7 +94,7 @@ Type: Feature
 - [~] Task 1: CLI binary scaffold + build pipeline (partial — CLI dispatcher, greet, install, uninstall, spec, build:cli done; serve, run, tsconfig.cli.json, build separation remaining)
 - [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks/settings tables, migrations v1+v2+v3, WAL done; plans table remaining)
 - [x] Task 3: Memory system (observations CRUD, search, timeline)
-- [~] Task 4: Session management + check-context (partial — session insert/end in SQLite via hooks, context estimation function with rescaling done; CLI commands `sessions`/`check-context`, active session listing, stale cleanup, transcript_path storage remaining)
+- [x] Task 4: Session management + check-context (complete — session CRUD, transcript_path via v4 migration, getActiveSessions/listSessions/cleanupStaleSessions, CLI commands `sessions list/cleanup` + `check-context`, full test coverage)
 - [ ] Task 5: Plan registration + worktree commands
 - [~] Task 6: Hook integration — replace legacy dependency + context rescaling (partial — legacy refs removed, native context estimation, rescaling, session-start/end hooks done; context bar visualization, `Bash(sentinal:*)` permission, session-start test, notification on session-end, server kill on last session remaining)
 - [x] Task 7: Memory MCP server (refactored to src/mcp/server.ts with modular tool registration; 5 memory tools + spec_status tool)
@@ -104,7 +104,7 @@ Type: Feature
 - [ ] Task 11: Shell integration + auto-updater
 - [~] Task 12: Installer improvements (curl, rollback, devcontainer, conditional rules) (partial — conditional rule activation done; shell scripts replaced by TypeScript CLI; curl installer, rollback, devcontainer remaining)
 
-**Total Tasks:** 12 | **Completed:** 3 | **Partial:** 5 | **Remaining:** 4
+**Total Tasks:** 12 | **Completed:** 4 | **Partial:** 4 | **Remaining:** 4
 
 ## Implementation Tasks
 
@@ -294,30 +294,31 @@ bun test src/memory/
 - Stale session cleanup: sessions older than 24h without activity marked as ended
 
 **Definition of Done:**
-- [~] Sessions created/updated/ended correctly in SQLite (insert/end works via hooks; no `status` column, no `transcript_path` storage, no `getActiveSessions()` query)
-- [ ] `sentinal sessions --json` returns count and session list
-- [ ] `sentinal check-context --json` returns `{"percent": N}`
+- [x] Sessions created/updated/ended correctly in SQLite (`insertSession()`, `endSession()`, `getSession()`, `getActiveSessions()`, `listSessions()` all work; `transcript_path` stored via v4 migration)
+- [x] `sentinal sessions list --json` returns session list with filters (`--active`, `--project`)
+- [x] `sentinal check-context --json` returns `{"percent": N, "tokens": N, "fileBytes": N}` (supports `--session <id>` for transcript lookup)
 - [x] Context estimation works with real transcript files (`src/sessions/context.ts` — file size based, env-var configurable, rescaling applied)
-- [ ] Stale session cleanup runs on `sessions` command
-- [x] All tests pass (`src/sessions/context.test.ts` — 7 tests; session CRUD tested in `src/memory/store.test.ts`)
+- [x] Stale session cleanup via `sentinal sessions cleanup` (default 24h threshold, `--threshold <hours>` override)
+- [x] All tests pass (344 tests total; session CRUD + queries tested in `src/memory/store.test.ts`)
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
-- Session CRUD lives in `src/memory/store.ts` (not a standalone `src/sessions/manager.ts`) — `insertSession()`, `endSession()`, `getSession()`
+- Session CRUD lives in `src/memory/store.ts` (not a standalone `src/sessions/manager.ts`) — `insertSession()`, `endSession()`, `getSession()`, `getActiveSessions()`, `listSessions()`, `cleanupStaleSessions()`
 - Session start/end hooks: `src/hooks/session-start.ts` and `src/hooks/session-end.ts` call the store methods
 - `src/sessions/context.ts` (63 lines) — `estimateContextUsage(transcriptPath)` with file-size estimation, bytes-per-token ratio (default 3), context window (default 200K), compaction buffer rescaling (raw / 0.835)
 - `src/sessions/context.test.ts` (99 lines) — 7 tests covering missing file, empty file, known size, cap at 100%, env var overrides
 - OpenCode plugin parity: session insert/end integrated into `targets/opencode/plugins/sentinal.ts` event handlers
 - Context estimation used by `src/hooks/context-monitor.ts` (replaces broken `legacy check-context` dependency)
+- Schema v4 migration: `transcript_path TEXT` column added to sessions table (idempotent via PRAGMA check)
+- `src/cli/commands/sessions.ts` — `sentinal sessions list/cleanup` with `--active`, `--project`, `--json`, `--threshold` flags
+- `src/cli/commands/check-context.ts` — `sentinal check-context <path>` or `--session <id>` with `--json` flag
+- `src/index.ts` — Barrel exports for `ListSessionsOptions` and `STALE_SESSION_THRESHOLD_MS`
+- Detailed plan: `docs/plans/2026-03-09-session-management-completion.md` (Status: COMPLETE)
 
-**Not yet implemented from plan:**
-- `src/sessions/manager.ts` — Standalone session manager module (CRUD lives in store.ts instead)
-- `src/cli/commands/sessions.ts` — `sentinal sessions --json` command
-- `src/cli/commands/check-context.ts` — `sentinal check-context --json` command
-- `getActiveSessions()` method — No way to list sessions where `end_time IS NULL`
-- `transcript_path` storage in sessions table
-- `status` column in sessions table (`active`/`ended` — currently implied by `end_time IS NULL`)
-- Stale session cleanup (24h threshold)
+**Design decisions (differs from original plan):**
+- No `status` column — `end_time IS NULL` is the canonical active check. Redundant column avoided.
+- No standalone `sessions/manager.ts` — CRUD stays on `MemoryStore` (consistent with settings, specs)
+- `transcript_path` nullable — OpenCode passes `null` (no transcript concept)
 
 **Verify:**
 ```bash

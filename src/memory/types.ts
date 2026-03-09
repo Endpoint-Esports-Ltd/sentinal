@@ -46,7 +46,18 @@ export const SessionSchema = z.object({
   assistant: z.enum(ASSISTANT_TYPES),
   observationCount: z.number().default(0),
   summary: z.string().nullable(),
+  transcriptPath: z.string().nullable().default(null),
 });
+
+export interface ListSessionsOptions {
+  project?: string;
+  assistant?: AssistantType;
+  active?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export const STALE_SESSION_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const SearchFiltersSchema = z.object({
   project: z.string().optional(),
@@ -119,5 +130,5 @@ export const SEARCH_CONSTANTS = {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 3,
+  SCHEMA_VERSION: 4,
 } as const;

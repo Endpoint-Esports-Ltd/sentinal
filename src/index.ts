@@ -34,8 +34,9 @@ export type {
   MemoryStats,
   ObservationType,
   AssistantType,
+  ListSessionsOptions,
 } from "./memory/types.js";
-export { OBSERVATION_TYPES, ASSISTANT_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS } from "./memory/types.js";
+export { OBSERVATION_TYPES, ASSISTANT_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./memory/types.js";
 
 // ─── Maintenance ─────────────────────────────────────────────────────────────
 export { rebuildFtsIndex, rebuildVectorIndex, backupDatabase, checkIntegrity } from "./memory/maintenance.js";

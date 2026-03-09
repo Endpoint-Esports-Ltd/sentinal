@@ -336,6 +336,7 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
               projectPath: projectRoot,
               assistant: "opencode" as AssistantType,
               summary: null,
+              transcriptPath: null,
             });
           } catch {
             // Non-fatal — session tracking is supplementary

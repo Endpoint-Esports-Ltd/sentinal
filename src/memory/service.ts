@@ -188,7 +188,7 @@ export class MemoryService {
 
   // ─── Sessions ─────────────────────────────────────────────────────────
 
-  startSession(projectPath: string, assistant: AssistantType): Session {
+  startSession(projectPath: string, assistant: AssistantType, transcriptPath?: string): Session {
     return this.store.insertSession({
       id: randomUUID(),
       startTime: Date.now(),
@@ -196,6 +196,7 @@ export class MemoryService {
       projectPath,
       assistant,
       summary: null,
+      transcriptPath: transcriptPath ?? null,
     });
   }
 

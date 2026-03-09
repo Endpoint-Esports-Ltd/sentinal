@@ -26,6 +26,8 @@ import { registerInstallCommand } from "./commands/install.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
 import { registerSpecCommand } from "./commands/spec.js";
 import { registerConfigCommand } from "./commands/config.js";
+import { registerSessionsCommand } from "./commands/sessions.js";
+import { registerCheckContextCommand } from "./commands/check-context.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -101,6 +103,14 @@ registerSpecCommand(program);
 // ─── config ─────────────────────────────────────────────────────────────────
 
 registerConfigCommand(program);
+
+// ─── sessions ───────────────────────────────────────────────────────────────
+
+registerSessionsCommand(program);
+
+// ─── check-context ──────────────────────────────────────────────────────────
+
+registerCheckContextCommand(program);
 
 // ─── install / uninstall ─────────────────────────────────────────────────────
 
