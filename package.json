@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "sentinal-memory": "./bin/sentinal-memory.sh"
+    "sentinal-memory": "bin/sentinal-memory.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -19,7 +19,8 @@
     "bun": ">=1.0.0"
   },
   "publishConfig": {
-    "registry": "https://npm.cloud.endpoint.gg/"
+    "registry": "https://npm.cloud.endpoint.gg/",
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
