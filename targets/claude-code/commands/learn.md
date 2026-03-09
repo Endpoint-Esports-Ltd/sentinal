@@ -1,8 +1,6 @@
 ---
 description: Extract reusable knowledge from the current session
-model: sonnet
-user-invocable: true
-argument-hint: "<topic>"
+argument-hint: <topic>
 ---
 
 # /learn — Knowledge Extraction

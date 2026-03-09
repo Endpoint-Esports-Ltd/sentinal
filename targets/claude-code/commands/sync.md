@@ -1,8 +1,5 @@
 ---
 description: Sync project rules and generate AGENTS.md from codebase analysis
-model: sonnet
-user-invocable: true
-argument-hint: ""
 ---
 
 # /sync — Codebase Sync

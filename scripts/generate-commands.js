@@ -27,13 +27,9 @@ const OUTPUT_DIRS = {
 // Variables for each target
 const VARIANTS = {
   claude: {
-    model: "sonnet",
-    userInvocable: "true",
-    argumentHint: '"<task description>" or "<path/to/plan.md>"',
     routeSkill: (name, args) => `Skill(skill='${name}', args='${args}')`,
   },
   opencode: {
-    model: "anthropic/claude-sonnet-4-20250514",
     routeSkill: (name, args) => `/${name} ${args}`,
   },
 };
@@ -46,11 +42,8 @@ function processTemplate(templatePath, variant) {
   
   // Replace variables in frontmatter
   content = content.replace(/{{description}}/g, getDescription(filename));
-  content = content.replace(/{{model}}/g, vars.model);
   content = content.replace(/{{agent}}/g, "");
   content = content.replace(/{{subtask}}/g, "");
-  content = content.replace(/{{userInvocable}}/g, vars.userInvocable || "");
-  content = content.replace(/{{argumentHint}}/g, vars.argumentHint || "");
   
   // Process route replacements
   content = content.replace(/Skill\(skill='(\w+)', args='([^']+)'\)/g, (_, name, args) => {

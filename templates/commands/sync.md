@@ -1,8 +1,5 @@
 ---
 description: {{description}}
-model: {{model}}
-user-invocable: true
-argument-hint: ""
 ---
 
 # /sync — Codebase Sync

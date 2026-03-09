@@ -1,8 +1,6 @@
 ---
 description: Feature verification phase - tests, automated checks, code review, E2E
-model: sonnet
-user-invocable: false
-argument-hint: "<path/to/plan.md>"
+argument-hint: <path/to/plan.md>
 ---
 
 # Feature Verification Phase

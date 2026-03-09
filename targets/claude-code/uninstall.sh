@@ -1,56 +1,64 @@
 #!/usr/bin/env bash
-#
-# Sentinal for Claude Code - Uninstallation Script
-#
-# This script removes Sentinal quality enforcement plugin from Claude Code.
-#
-# Usage:
-#   ./uninstall.sh
-#
-
 set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+MARKETPLACE_DIR="$HOME/.claude/plugins/sentinal-marketplace"
+MARKETPLACE_NAME="sentinal-marketplace"
+PLUGIN_NAME="sentinal"
 
-PLUGIN_DEST="$HOME/.claude/plugins/sentinal"
-
-echo -e "${BLUE}"
-echo "╔════════════════════════════════════════════════════════════════════╗"
-echo "║                                                                    ║"
-echo "║   ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗ █████╗ ██╗     ║"
-echo "║   ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔══██╗██║     ║"
-echo "║   ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║███████║██║     ║"
-echo "║   ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══██║██║     ║"
-echo "║   ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║██║  ██║███████╗║"
-echo "║   ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝║"
-echo "║                                                                    ║"
-echo "║   Uninstalling Sentinal for Claude Code                           ║"
-echo "║                                                                    ║"
-echo "╚════════════════════════════════════════════════════════════════════╝"
-echo -e "${NC}"
+echo "Sentinal for Claude Code — Uninstaller"
+echo "======================================="
 echo ""
 
-# Check if plugin exists
-if [[ ! -d "$PLUGIN_DEST" ]]; then
-  echo -e "${YELLOW}Sentinal plugin not found at $PLUGIN_DEST${NC}"
-  echo "Nothing to uninstall."
-  exit 0
+if ! command -v claude &>/dev/null; then
+  echo "ERROR: Claude Code CLI not found. Cannot uninstall."
+  exit 1
 fi
 
-# Remove plugin directory
-echo -e "${YELLOW}Removing Sentinal plugin...${NC}"
-rm -rf "$PLUGIN_DEST"
-echo -e "${GREEN}✓ Plugin removed: $PLUGIN_DEST${NC}"
+# ── Uninstall plugin ─────────────────────────────────────────────────────────
+
+FOUND_SOMETHING=false
+
+if claude plugin list 2>/dev/null | grep -q "$PLUGIN_NAME@$MARKETPLACE_NAME"; then
+  echo "Uninstalling plugin..."
+  claude plugin uninstall "$PLUGIN_NAME@$MARKETPLACE_NAME"
+  echo "[OK] Plugin uninstalled: $PLUGIN_NAME@$MARKETPLACE_NAME"
+  FOUND_SOMETHING=true
+else
+  echo "[--] Plugin not installed, skipping."
+fi
+
+# ── Remove marketplace ───────────────────────────────────────────────────────
+
+if claude plugin marketplace list 2>/dev/null | grep -q "$MARKETPLACE_NAME"; then
+  echo "Removing marketplace..."
+  claude plugin marketplace remove "$MARKETPLACE_NAME"
+  echo "[OK] Marketplace removed: $MARKETPLACE_NAME"
+  FOUND_SOMETHING=true
+else
+  echo "[--] Marketplace not registered, skipping."
+fi
+
+# ── Clean up local marketplace directory ─────────────────────────────────────
+
+if [[ -d "$MARKETPLACE_DIR" ]]; then
+  echo "Removing marketplace directory..."
+  rm -rf "$MARKETPLACE_DIR"
+  echo "[OK] Removed: $MARKETPLACE_DIR"
+  FOUND_SOMETHING=true
+else
+  echo "[--] Marketplace directory not found, skipping."
+fi
+
+# ── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "${GREEN}════════════════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Sentinal for Claude Code uninstalled successfully!${NC}"
-echo -e "${GREEN}════════════════════════════════════════════════════════════════════${NC}"
-echo ""
-echo -e "${BLUE}Note:${NC} You may also want to remove Sentinal from Claude Code settings:"
-echo "  claude plugins remove sentinal"
+if [[ "$FOUND_SOMETHING" == true ]]; then
+  echo "======================================="
+  echo "  Sentinal for Claude Code uninstalled."
+  echo "======================================="
+  echo ""
+  echo "  Restart Claude Code to complete removal."
+else
+  echo "  Nothing to uninstall — Sentinal was not found."
+fi
 echo ""

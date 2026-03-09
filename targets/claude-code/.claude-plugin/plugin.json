@@ -5,6 +5,6 @@
   "author": {
     "name": "Sentinal"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
   "keywords": ["sentinal", "typescript", "angular", "nestjs", "quality"]
 }

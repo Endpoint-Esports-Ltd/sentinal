@@ -1,8 +1,6 @@
 ---
 description: Feature planning phase - explore codebase, design plan, get approval
-model: sonnet
-user-invocable: false
-argument-hint: "<task description>" or "<path/to/existing-plan.md>"
+argument-hint: <task> or <path/to/plan.md>
 ---
 
 # Feature Planning Phase

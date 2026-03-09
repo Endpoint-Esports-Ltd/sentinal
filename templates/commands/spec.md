@@ -1,14 +1,6 @@
 ---
 description: {{description}}
-{{#if model}}
-model: {{model}}
-{{/if}}
-{{#if userInvocable}}
-user-invocable: {{userInvocable}}
-{{/if}}
-{{#if argumentHint}}
-argument-hint: {{argumentHint}}
-{{/if}}
+argument-hint: <task> or <path/to/plan.md>
 ---
 
 # /spec - Unified Spec-Driven Development

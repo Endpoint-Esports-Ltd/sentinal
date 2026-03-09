@@ -1,14 +1,6 @@
 ---
 description: Spec-driven development - plan, implement, verify workflow
-{{#if model}}
-model: anthropic/claude-sonnet-4-20250514
-{{/if}}
-{{#if userInvocable}}
-user-invocable: 
-{{/if}}
-{{#if argumentHint}}
-argument-hint: 
-{{/if}}
+argument-hint: <task> or <path/to/plan.md>
 ---
 
 # /spec - Unified Spec-Driven Development

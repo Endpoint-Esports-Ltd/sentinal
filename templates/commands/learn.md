@@ -1,8 +1,6 @@
 ---
 description: {{description}}
-model: {{model}}
-user-invocable: true
-argument-hint: "<topic>"
+argument-hint: <topic>
 ---
 
 # /learn — Knowledge Extraction

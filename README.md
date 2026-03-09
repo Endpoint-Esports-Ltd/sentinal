@@ -44,18 +44,13 @@ cd sentinal
 ```
 
 The installer:
-1. Verifies Node.js 18+ and Bun are installed
+1. Verifies Node.js 18+, Bun, and Claude Code CLI are installed
 2. Installs dependencies via `bun install`
 3. Compiles TypeScript hooks via `bun run build`
-4. Copies the plugin to `~/.claude/plugins/sentinal/`
+4. Creates a local plugin marketplace at `~/.claude/plugins/sentinal-marketplace/`
+5. Registers the marketplace and installs the plugin via `claude plugin install`
 
-After installation, register the plugin:
-
-```bash
-claude plugins add ~/.claude/plugins/sentinal
-```
-
-Then run `/sync` in a Claude Code session within your project to generate project-specific rules.
+After installation, restart Claude Code and run `/sentinal:sync` in your project to generate project-specific rules.
 
 ### OpenCode
 
@@ -82,7 +77,7 @@ opencode
 ### Both Assistants
 
 Claude Code and OpenCode can coexist. Each uses separate config directories:
-- Claude Code: `~/.claude/plugins/sentinal/`
+- Claude Code: installed via marketplace to `~/.claude/plugins/cache/` (managed by `claude plugin`)
 - OpenCode: `~/.config/opencode/` (plugin, commands, rules merged into existing config)
 
 Install for both at once:
@@ -159,7 +154,7 @@ sentinal/
 │       └── uninstall.sh              # OpenCode uninstaller
 │
 ├── templates/
-│   └── commands/                     # Command templates with {{model}} placeholders
+│   └── commands/                     # Command templates with {{description}} placeholders
 │
 ├── scripts/
 │   └── generate-commands.js          # Generates target-specific commands from templates
@@ -414,14 +409,14 @@ The Claude Code target is located in `targets/claude-code/`:
 
 ```bash
 bun run build              # Compile hooks
-./install.sh claude        # Install to ~/.claude/plugins/sentinal/
+./install.sh claude        # Build, create marketplace, install plugin
 ```
 
 **Adding a new hook:**
 1. Create `src/hooks/my-hook.ts` implementing the hook I/O protocol
 2. Add a test file `src/hooks/my-hook.test.ts`
 3. Register the hook in `targets/claude-code/hooks/hooks.json` with the appropriate event and matcher
-4. Build and reinstall: `bun run build && ./install.sh claude`
+4. Build and reinstall: `./install.sh claude` (builds and installs via marketplace)
 
 ### OpenCode Development
 

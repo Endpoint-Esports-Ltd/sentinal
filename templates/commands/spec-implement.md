@@ -1,8 +1,6 @@
 ---
 description: {{description}}
-model: {{model}}
-user-invocable: false
-argument-hint: "<path/to/plan.md>"
+argument-hint: <path/to/plan.md>
 ---
 
 # Implementation Phase

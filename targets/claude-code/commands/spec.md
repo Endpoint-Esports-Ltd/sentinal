@@ -1,14 +1,6 @@
 ---
 description: Spec-driven development - plan, implement, verify workflow
-{{#if model}}
-model: sonnet
-{{/if}}
-{{#if userInvocable}}
-user-invocable: true
-{{/if}}
-{{#if argumentHint}}
-argument-hint: "<task description>" or "<path/to/plan.md>"
-{{/if}}
+argument-hint: <task> or <path/to/plan.md>
 ---
 
 # /spec - Unified Spec-Driven Development

@@ -1,8 +1,6 @@
 ---
 description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR
-model: sonnet
-user-invocable: false
-argument-hint: "<path/to/plan.md>"
+argument-hint: <path/to/plan.md>
 ---
 
 # Implementation Phase
