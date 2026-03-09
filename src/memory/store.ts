@@ -5,7 +5,7 @@
  * Handles connection management, schema migrations, and raw queries.
  */
 
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { join } from "node:path";
 import { mkdirSync, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -199,7 +199,7 @@ export class MemoryStore {
       JOIN observations o ON o.id = fts.rowid
       WHERE observations_fts MATCH ?
     `;
-    const params: unknown[] = [query];
+    const params: SQLQueryBindings[] = [query];
 
     sql += this.buildFilterClauses(filters, params);
     sql += ` ORDER BY ${filters.orderBy === "date_desc" ? "o.timestamp DESC" : filters.orderBy === "date_asc" ? "o.timestamp ASC" : "rank"} `;
@@ -214,7 +214,7 @@ export class MemoryStore {
 
   searchFilters(filters: SearchFilters): Observation[] {
     let sql = `SELECT * FROM observations o WHERE 1=1`;
-    const params: unknown[] = [];
+    const params: SQLQueryBindings[] = [];
 
     sql += this.buildFilterClauses(filters, params);
     sql += ` ORDER BY ${filters.orderBy === "date_asc" ? "o.timestamp ASC" : "o.timestamp DESC"} `;
@@ -238,8 +238,8 @@ export class MemoryStore {
 
     let beforeSql = `SELECT * FROM observations WHERE timestamp < ? `;
     let afterSql = `SELECT * FROM observations WHERE timestamp > ? `;
-    const beforeParams: unknown[] = [anchor.timestamp];
-    const afterParams: unknown[] = [anchor.timestamp];
+    const beforeParams: SQLQueryBindings[] = [anchor.timestamp];
+    const afterParams: SQLQueryBindings[] = [anchor.timestamp];
 
     if (projectPath) {
       beforeSql += ` AND project_path = ?`;
@@ -386,7 +386,7 @@ export class MemoryStore {
 
   private buildFilterClauses(
     filters: SearchFilters,
-    params: unknown[],
+    params: SQLQueryBindings[],
   ): string {
     let sql = "";
 
