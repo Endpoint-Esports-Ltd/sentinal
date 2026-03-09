@@ -92,7 +92,7 @@ Type: Feature
 ## Progress Tracking
 
 - [~] Task 1: CLI binary scaffold + build pipeline (partial — CLI dispatcher, greet, install, uninstall, spec, build:cli done; serve, run, tsconfig.cli.json, build separation remaining)
-- [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks tables, migrations v1+v2, WAL done; plans/settings tables remaining)
+- [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks/settings tables, migrations v1+v2+v3, WAL done; plans table remaining)
 - [x] Task 3: Memory system (observations CRUD, search, timeline)
 - [~] Task 4: Session management + check-context (partial — session insert/end in SQLite via hooks, context estimation function with rescaling done; CLI commands `sessions`/`check-context`, active session listing, stale cleanup, transcript_path storage remaining)
 - [ ] Task 5: Plan registration + worktree commands
@@ -100,11 +100,11 @@ Type: Feature
 - [x] Task 7: Memory MCP server (refactored to src/mcp/server.ts with modular tool registration; 5 memory tools + spec_status tool)
 - [ ] Task 8: Console dashboard — server + layout + Dashboard view
 - [ ] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views
-- [ ] Task 10: Model routing configuration
+- [x] Task 10: Model routing configuration
 - [ ] Task 11: Shell integration + auto-updater
 - [~] Task 12: Installer improvements (curl, rollback, devcontainer, conditional rules) (partial — conditional rule activation done; shell scripts replaced by TypeScript CLI; curl installer, rollback, devcontainer remaining)
 
-**Total Tasks:** 12 | **Completed:** 2 | **Partial:** 5 | **Remaining:** 5
+**Total Tasks:** 12 | **Completed:** 3 | **Partial:** 5 | **Remaining:** 4
 
 ## Implementation Tasks
 
@@ -195,7 +195,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 
 **Definition of Done:**
 - [x] Database created at `~/.sentinal/sentinal.db` on first access (actual path: `~/.sentinal/memory.db`)
-- [~] All tables created with correct schemas (`observations`, `sessions`, `observations_fts`, `specs`, `spec_tasks` done via v1+v2 migrations; `plans` and `settings` tables not yet created)
+- [~] All tables created with correct schemas (`observations`, `sessions`, `observations_fts`, `specs`, `spec_tasks` done via v1+v2 migrations; `settings` done via v3 migration; `plans` table not yet created)
 - [x] Migration runner handles version upgrades (`schema_version` table with sequential migration functions)
 - [x] WAL mode enabled (`PRAGMA journal_mode = WAL` in store constructor)
 - [x] Unit tests verify table creation, basic CRUD, migration ordering (`store.test.ts` — 261 lines)
@@ -212,7 +212,6 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 
 **Not yet implemented from plan:**
 - `plans` table (id, path, status, session_id, registered_at) — needed for Task 5 (note: `specs` table partially covers this)
-- `settings` table (key/value store) — needed for Task 10
 
 **Verify:**
 ```bash
@@ -587,13 +586,26 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Regenerate commands after template changes via `node scripts/generate-commands.js`
 
 **Definition of Done:**
-- [ ] Settings manager reads/writes model routing from SQLite
-- [ ] Default model routing set on first access
-- [ ] Command templates include model routing hints
-- [ ] `sentinal config` subcommand works for get/set
-- [ ] Generated commands (both targets) include model hints
-- [ ] Tests cover settings CRUD and default initialization
+- [x] Settings manager reads/writes model routing from SQLite (`MemoryStore.getSetting/setSetting/deleteSetting/listSettings` + `getModelRouting/setModelRouting/resetModelRouting`)
+- [x] Default model routing set on first access (Zod defaults: opus for planning, sonnet for rest)
+- [x] Command templates include model routing hints (all 10 templates — 4 Opus planning, 6 Sonnet implement/verify)
+- [x] `sentinal config` subcommand works for get/set (`sentinal config list/get/set/reset` with `--json` and dot-path support)
+- [x] Generated commands (both targets) include model hints (Claude Code + OpenCode, all spec-* commands)
+- [x] Tests cover settings CRUD and default initialization (9 settings tests + 9 model-routing tests = 18 new tests)
 - [ ] No diagnostics errors
+
+**What was implemented:**
+- `src/memory/types.ts` — `SCHEMA_VERSION` bumped from 2 to 3
+- `src/memory/store.ts` — `migrateV3()` creating `settings` table, plus `getSetting/setSetting/deleteSetting/listSettings` CRUD methods
+- `src/config/types.ts` — `ModelRouting` interface, `ModelRoutingSchema` (Zod), `DEFAULT_MODEL_ROUTING`, `MODEL_ROUTING_KEY`
+- `src/config/model-routing.ts` — `getModelRouting()`, `setModelRouting()`, `resetModelRouting()` convenience accessors
+- `src/config/model-routing.test.ts` — 9 tests
+- `src/memory/store.test.ts` — 9 new settings CRUD tests
+- `src/cli/commands/config.ts` — `registerConfigCommand(program)` with list/get/set/reset subcommands, `--json` flag, dot-path notation
+- `src/cli/index.ts` — Registered config command
+- `src/index.ts` — Barrel exports for all config types and functions
+- All 10 command templates updated with model hints (both `targets/claude-code/commands/` and `targets/opencode/commands/`)
+- Detailed plan: `docs/plans/2026-03-09-model-routing-config.md` (Status: COMPLETE)
 
 **Verify:**
 ```bash

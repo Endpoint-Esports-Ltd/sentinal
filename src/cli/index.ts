@@ -25,6 +25,7 @@ import { greet } from "./commands/greet.js";
 import { registerInstallCommand } from "./commands/install.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
 import { registerSpecCommand } from "./commands/spec.js";
+import { registerConfigCommand } from "./commands/config.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,10 @@ program
 // ─── spec ────────────────────────────────────────────────────────────────────
 
 registerSpecCommand(program);
+
+// ─── config ─────────────────────────────────────────────────────────────────
+
+registerConfigCommand(program);
 
 // ─── install / uninstall ─────────────────────────────────────────────────────
 

@@ -7,6 +7,8 @@ argument-hint: <path/to/plan.md>
 
 **You are the spec-verify skill. Verify the implementation meets the plan's requirements.**
 
+> **Model:** Sonnet recommended for verification phases. Switch with /model if needed.
+
 ARGUMENTS: $ARGUMENTS
 
 ## Phase 1: Launch Spec Reviewer (Background)

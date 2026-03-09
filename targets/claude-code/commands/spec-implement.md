@@ -7,6 +7,8 @@ argument-hint: <path/to/plan.md>
 
 **You are the spec-implement skill. Execute each task in the plan using strict TDD.**
 
+> **Model:** Sonnet recommended for implementation phases. Switch with /model if needed.
+
 ARGUMENTS: $ARGUMENTS
 
 ## Setup

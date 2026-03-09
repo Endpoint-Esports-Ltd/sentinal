@@ -7,6 +7,8 @@ argument-hint: <path/to/plan.md>
 
 **You are the spec-bugfix-verify skill. Verify the bugfix satisfies the Behavior Contract.**
 
+> **Model:** Sonnet recommended for verification phases. Switch with /model if needed.
+
 ARGUMENTS: $ARGUMENTS
 
 ## Phase 1: Behavior Contract Audit

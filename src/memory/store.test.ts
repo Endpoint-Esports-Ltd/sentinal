@@ -258,4 +258,68 @@ describe("MemoryStore", () => {
       expect(stats.totalObservations).toBe(2);
     });
   });
+
+  describe("settings", () => {
+    it("should return null for nonexistent key", () => {
+      expect(store.getSetting("nonexistent")).toBeNull();
+    });
+
+    it("should set and get a string value", () => {
+      store.setSetting("theme", '"dark"');
+      expect(store.getSetting("theme")).toBe('"dark"');
+    });
+
+    it("should set and get a JSON object", () => {
+      const routing = JSON.stringify({ planning: "opus", implementation: "sonnet" });
+      store.setSetting("model_routing", routing);
+      const result = JSON.parse(store.getSetting("model_routing")!);
+      expect(result.planning).toBe("opus");
+      expect(result.implementation).toBe("sonnet");
+    });
+
+    it("should overwrite existing value", () => {
+      store.setSetting("key", '"value1"');
+      store.setSetting("key", '"value2"');
+      expect(store.getSetting("key")).toBe('"value2"');
+    });
+
+    it("should delete a setting", () => {
+      store.setSetting("to_delete", '"temp"');
+      expect(store.getSetting("to_delete")).not.toBeNull();
+      store.deleteSetting("to_delete");
+      expect(store.getSetting("to_delete")).toBeNull();
+    });
+
+    it("should delete nonexistent key without error", () => {
+      expect(() => store.deleteSetting("nonexistent")).not.toThrow();
+    });
+
+    it("should list all settings", () => {
+      store.setSetting("alpha", '"a"');
+      store.setSetting("beta", '"b"');
+      const list = store.listSettings();
+      expect(list.length).toBeGreaterThanOrEqual(2);
+      const keys = list.map((s) => s.key);
+      expect(keys).toContain("alpha");
+      expect(keys).toContain("beta");
+    });
+
+    it("should return empty list when no settings exist", () => {
+      // Fresh store — any settings from previous tests were in the same store instance
+      // Create a fresh store to test empty state
+      const freshStore = new MemoryStore(":memory:");
+      const list = freshStore.listSettings();
+      expect(list).toEqual([]);
+      freshStore.close();
+    });
+
+    it("should include updatedAt timestamp", () => {
+      const before = Date.now();
+      store.setSetting("timed", '"value"');
+      const list = store.listSettings();
+      const setting = list.find((s) => s.key === "timed");
+      expect(setting).toBeDefined();
+      expect(setting!.updatedAt).toBeGreaterThanOrEqual(before);
+    });
+  });
 });

@@ -7,6 +7,8 @@ argument-hint: <bug description> or <path/to/plan.md>
 
 **You are the spec-bugfix-plan skill. Your job: trace the bug to its root cause, create a Behavior Contract, and get user approval.**
 
+> **Model:** Opus recommended for planning phases. Switch with /model if needed.
+
 ARGUMENTS: $ARGUMENTS
 
 ## Phase 1: Bug Analysis

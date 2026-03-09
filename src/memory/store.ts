@@ -73,6 +73,9 @@ export class MemoryStore {
     if (currentVersion < 2) {
       this.migrateV2();
     }
+    if (currentVersion < 3) {
+      this.migrateV3();
+    }
   }
 
   private migrateV1(): void {
@@ -164,6 +167,46 @@ export class MemoryStore {
 
       INSERT OR REPLACE INTO schema_version (version) VALUES (2);
     `);
+  }
+
+  private migrateV3(): void {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      INSERT OR REPLACE INTO schema_version (version) VALUES (3);
+    `);
+  }
+
+  // ─── Settings CRUD ────────────────────────────────────────────────────
+
+  getSetting(key: string): string | null {
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE key = ?")
+      .get(key) as { value: string } | null;
+    return row?.value ?? null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+      )
+      .run(key, value, Date.now());
+  }
+
+  deleteSetting(key: string): void {
+    this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+  }
+
+  listSettings(): Array<{ key: string; value: string; updatedAt: number }> {
+    const rows = this.db
+      .prepare("SELECT key, value, updated_at FROM settings ORDER BY key")
+      .all() as Array<{ key: string; value: string; updated_at: number }>;
+    return rows.map((r) => ({ key: r.key, value: r.value, updatedAt: r.updated_at }));
   }
 
   // ─── Observations CRUD ────────────────────────────────────────────────

@@ -53,5 +53,10 @@ export { registerSpecTools } from "./spec/mcp-tools.js";
 export type { Spec, SpecTask, SpecStatus, SpecType, TaskStatus } from "./spec/types.js";
 export { SPEC_STATUSES, SPEC_TYPES, TASK_STATUSES, ACTIVE_STATUSES, TERMINAL_STATUSES } from "./spec/types.js";
 
+// ─── Config ──────────────────────────────────────────────────────────────────
+export { getModelRouting, setModelRouting, resetModelRouting } from "./config/model-routing.js";
+export { ModelRoutingSchema, DEFAULT_MODEL_ROUTING, MODEL_ROUTING_KEY } from "./config/types.js";
+export type { ModelRouting } from "./config/types.js";
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 export { estimateContextUsage, type ContextUsage } from "./sessions/context.js";
