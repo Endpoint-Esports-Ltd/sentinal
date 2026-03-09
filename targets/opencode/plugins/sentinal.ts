@@ -20,6 +20,8 @@
  * This plugin imports shared utilities from src/ for deduplication with Claude Code.
  */
 
+// Import paths work for both development (symlink) and installed (copied) scenarios
+// The parent directory contains src/ in both cases
 import { isTestFile, getExpectedTestPaths, checkNestPatterns, isNestFile } from "../src/index.ts";
 import { isAngularFile } from "../src/checkers/angular.ts";
 import { detectFramework, detectPackageManager } from "../src/checkers/detect.ts";
