@@ -1,6 +1,7 @@
 {
-  "name": "sentinal",
-  "version": "0.1.0",
+  "name": "@endpoint/sentinal",
+  "version": "1.0.0",
+  "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "bun-types": "^1.2.0",
@@ -12,7 +13,9 @@
     "node": ">=18.0.0",
     "bun": ">=1.0.0"
   },
-  "private": true,
+  "publishConfig": {
+    "registry": "https://npm.cloud.endpoint.gg/"
+  },
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -22,7 +25,8 @@
     "install:claude-code": "./install.sh",
     "install:opencode": "./targets/opencode/install.sh",
     "memory": "bun src/memory/cli.ts",
-    "memory:mcp": "bun src/memory/mcp-server.ts"
+    "memory:mcp": "bun src/memory/mcp-server.ts",
+    "publish": "npm publish --registry https://npm.cloud.endpoint.gg/"
   },
   "type": "module",
   "dependencies": {
