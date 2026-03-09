@@ -117,6 +117,32 @@ export interface MemoryStats {
   databaseSizeBytes: number;
 }
 
+// ─── Raw DB Row Types ─────────────────────────────────────────────────────────
+
+export interface RawObservation {
+  id: number;
+  session_id: string;
+  project_path: string;
+  timestamp: number;
+  type: string;
+  title: string;
+  content: string;
+  file_paths: string;
+  tags: string;
+  metadata: string;
+}
+
+export interface RawSession {
+  id: string;
+  start_time: number;
+  end_time: number | null;
+  project_path: string;
+  assistant: string;
+  observation_count: number;
+  summary: string | null;
+  transcript_path: string | null;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const SEARCH_CONSTANTS = {
@@ -130,5 +156,5 @@ export const SEARCH_CONSTANTS = {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 4,
+  SCHEMA_VERSION: 5,
 } as const;

@@ -55,6 +55,7 @@ export const SpecSchema = z.object({
   approved: z.boolean().default(false),
   planFile: z.string().min(1),
   created: z.string().optional(),
+  sessionId: z.string().nullable().optional(),
   tasks: z.array(SpecTaskSchema).default([]),
   metadata: z
     .object({

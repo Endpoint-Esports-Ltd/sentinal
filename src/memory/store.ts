@@ -2,7 +2,8 @@
  * Memory Store
  *
  * SQLite database layer for the persistent memory system.
- * Handles connection management, schema migrations, and raw queries.
+ * Handles connection management and raw queries.
+ * Migrations are in ./migrations.ts.
  */
 
 import { Database, type SQLQueryBindings } from "bun:sqlite";
@@ -17,9 +18,11 @@ import type {
   MemoryStats,
   ObservationType,
   ListSessionsOptions,
+  RawObservation,
+  RawSession,
 } from "./types.js";
 import { DB_CONSTANTS, SEARCH_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./types.js";
-import { backupDatabase } from "./maintenance.js";
+import { runMigrations } from "./migrations.js";
 
 // ─── Database Path ────────────────────────────────────────────────────────────
 
@@ -42,160 +45,7 @@ export class MemoryStore {
     this.db = new Database(this.dbPath, { create: true });
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA foreign_keys = ON");
-    this.runMigrations();
-  }
-
-  // ─── Migrations ───────────────────────────────────────────────────────
-
-  private runMigrations(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS schema_version (
-        version INTEGER PRIMARY KEY
-      );
-    `);
-
-    const row = this.db
-      .prepare("SELECT version FROM schema_version LIMIT 1")
-      .get() as { version: number } | null;
-    const currentVersion = row?.version ?? 0;
-
-    // Backup before applying migrations (skip for fresh databases)
-    if (currentVersion > 0 && currentVersion < DB_CONSTANTS.SCHEMA_VERSION) {
-      try {
-        backupDatabase(this.dbPath);
-      } catch {
-        // Backup failure should not block migration
-      }
-    }
-
-    if (currentVersion < 1) {
-      this.migrateV1();
-    }
-    if (currentVersion < 2) {
-      this.migrateV2();
-    }
-    if (currentVersion < 3) {
-      this.migrateV3();
-    }
-    if (currentVersion < 4) {
-      this.migrateV4();
-    }
-  }
-
-  private migrateV1(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS observations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        project_path TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        file_paths TEXT DEFAULT '[]',
-        tags TEXT DEFAULT '[]',
-        metadata TEXT DEFAULT '{}'
-      );
-
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        start_time INTEGER NOT NULL,
-        end_time INTEGER,
-        project_path TEXT NOT NULL,
-        assistant TEXT NOT NULL,
-        observation_count INTEGER DEFAULT 0,
-        summary TEXT
-      );
-
-      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
-        title, content, tags, content=observations, content_rowid=id
-      );
-
-      -- FTS triggers to keep index in sync
-      CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
-        INSERT INTO observations_fts(rowid, title, content, tags)
-        VALUES (new.id, new.title, new.content, new.tags);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
-        INSERT INTO observations_fts(observations_fts, rowid, title, content, tags)
-        VALUES ('delete', old.id, old.title, old.content, old.tags);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
-        INSERT INTO observations_fts(observations_fts, rowid, title, content, tags)
-        VALUES ('delete', old.id, old.title, old.content, old.tags);
-        INSERT INTO observations_fts(rowid, title, content, tags)
-        VALUES (new.id, new.title, new.content, new.tags);
-      END;
-
-      CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
-      CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project_path);
-      CREATE INDEX IF NOT EXISTS idx_obs_type ON observations(type);
-      CREATE INDEX IF NOT EXISTS idx_obs_timestamp ON observations(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_path);
-
-      INSERT OR REPLACE INTO schema_version (version) VALUES (1);
-    `);
-  }
-
-  private migrateV2(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS specs (
-        id TEXT PRIMARY KEY,
-        project_path TEXT NOT NULL,
-        title TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        type TEXT NOT NULL,
-        status TEXT NOT NULL,
-        approved INTEGER DEFAULT 0,
-        plan_file TEXT NOT NULL,
-        task_count INTEGER DEFAULT 0,
-        tasks_done INTEGER DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS spec_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
-        position INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        status TEXT NOT NULL,
-        UNIQUE(spec_id, position)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_path);
-      CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
-      CREATE INDEX IF NOT EXISTS idx_spec_tasks_spec ON spec_tasks(spec_id);
-
-      INSERT OR REPLACE INTO schema_version (version) VALUES (2);
-    `);
-  }
-
-  private migrateV3(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      INSERT OR REPLACE INTO schema_version (version) VALUES (3);
-    `);
-  }
-
-  private migrateV4(): void {
-    // Add transcript_path column to sessions table
-    // ALTER TABLE ADD COLUMN defaults to NULL for existing rows
-    // Check if column already exists before altering (idempotent)
-    const cols = this.db
-      .prepare("PRAGMA table_info(sessions)")
-      .all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === "transcript_path")) {
-      this.db.run("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
-    }
-    this.db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (4)");
+    runMigrations(this.db, this.dbPath);
   }
 
   // ─── Settings CRUD ────────────────────────────────────────────────────
@@ -573,28 +423,4 @@ export class MemoryStore {
   }
 }
 
-// ─── Raw DB Row Types ─────────────────────────────────────────────────────────
 
-interface RawObservation {
-  id: number;
-  session_id: string;
-  project_path: string;
-  timestamp: number;
-  type: string;
-  title: string;
-  content: string;
-  file_paths: string;
-  tags: string;
-  metadata: string;
-}
-
-interface RawSession {
-  id: string;
-  start_time: number;
-  end_time: number | null;
-  project_path: string;
-  assistant: string;
-  observation_count: number;
-  summary: string | null;
-  transcript_path: string | null;
-}

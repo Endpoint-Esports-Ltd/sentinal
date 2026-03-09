@@ -28,6 +28,8 @@ import { registerSpecCommand } from "./commands/spec.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerCheckContextCommand } from "./commands/check-context.js";
+import { registerRegisterPlanCommand } from "./commands/register-plan.js";
+import { registerWorktreeCommand } from "./commands/worktree.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -111,6 +113,14 @@ registerSessionsCommand(program);
 // ─── check-context ──────────────────────────────────────────────────────────
 
 registerCheckContextCommand(program);
+
+// ─── register-plan ──────────────────────────────────────────────────────────
+
+registerRegisterPlanCommand(program);
+
+// ─── worktree ───────────────────────────────────────────────────────────────
+
+registerWorktreeCommand(program);
 
 // ─── install / uninstall ─────────────────────────────────────────────────────
 

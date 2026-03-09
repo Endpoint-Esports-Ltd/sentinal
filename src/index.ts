@@ -61,3 +61,15 @@ export type { ModelRouting } from "./config/types.js";
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 export { estimateContextUsage, type ContextUsage } from "./sessions/context.js";
+
+// ─── Git / Worktree ──────────────────────────────────────────────────────────
+export { WorktreeStore } from "./git/worktree-store.js";
+export { WorktreeManager } from "./git/worktree-manager.js";
+export {
+  gitExec, gitExecOrThrow, getCurrentBranch, detectBaseBranch,
+  branchExists, getRepoRoot, getCurrentCommit, getGitVersion,
+  checkGitVersion, slugify, randomHex,
+} from "./git/utils.js";
+export type { Worktree, WorktreeConfig, DiffSummary, DiffFileSummary } from "./git/types.js";
+export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema, DEFAULT_WORKTREE_CONFIG } from "./git/types.js";
+export type { WorktreeStatus } from "./git/types.js";

@@ -28,6 +28,8 @@ interface RawSpec {
   tasks_done: number;
   created_at: number;
   updated_at: number;
+  session_id: string | null;
+  metadata: string | null;
 }
 
 interface RawSpecTask {
@@ -48,18 +50,20 @@ export class SpecStore {
   }
 
   /** Sync a single plan file into the SQLite index. */
-  syncFromPlanFile(planFile: string, projectPath: string): Spec {
+  syncFromPlanFile(planFile: string, projectPath: string, sessionId?: string): Spec {
     const spec = parsePlanFile(planFile);
     const now = Date.now();
     const tasksDone = spec.tasks.filter((t) => t.status === "complete").length;
+    const metadataJson = JSON.stringify(spec.metadata ?? {});
 
     const upsertSpec = this.db.prepare(
-      `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     upsertSpec.run(
       spec.id, projectPath, spec.title, spec.id, spec.type, spec.status,
       spec.approved ? 1 : 0, planFile, spec.tasks.length, tasksDone, now, now,
+      sessionId ?? null, metadataJson,
     );
 
     // Sync tasks — delete existing then re-insert
@@ -135,6 +139,12 @@ export class SpecStore {
 
   private deserializeSpec(row: RawSpec): Spec {
     const tasks = this.getTasksForSpec(row.id);
+    let metadata: Spec["metadata"] = {};
+    try {
+      metadata = row.metadata ? JSON.parse(row.metadata) : {};
+    } catch {
+      // Malformed JSON — fall back to empty
+    }
     return {
       id: row.id,
       title: row.title,
@@ -142,8 +152,9 @@ export class SpecStore {
       type: row.type as Spec["type"],
       approved: row.approved === 1,
       planFile: row.plan_file,
+      sessionId: row.session_id ?? undefined,
       tasks,
-      metadata: {},
+      metadata,
     };
   }
 }
