@@ -23,11 +23,11 @@
     "registry": "https://npm.cloud.endpoint.gg/"
   },
   "scripts": {
-    "build": "tsc -p targets/claude-code/tsconfig.json",
-    "build:watch": "tsc -p targets/claude-code/tsconfig.json --watch",
+    "build:claude": "tsc -p targets/claude-code/tsconfig.json",
+    "build:claude:watch": "tsc -p targets/claude-code/tsconfig.json --watch",
     "build:opencode": "bun build targets/opencode/plugins/sentinal.ts --outdir targets/opencode/dist --target bun",
     "build:cli": "bun build --compile src/cli/index.ts --outfile dist/sentinal --define __SENTINAL_VERSION__=\"'$(node -p \"require('./package.json').version\")'\"",
-    "build:all": "bun run build && bun run build:opencode",
+    "build:all": "bun run build:claude && bun run build:opencode",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "install:claude-code": "bun src/cli/index.ts install claude",

@@ -31,7 +31,6 @@ import {
   promptMenu,
   stripJsoncComments,
 } from "../../utils/shell.js";
-import { greet } from "./greet.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -111,8 +110,8 @@ async function uninstallDispatcher(
   }
 
   // Auto-detect mode — detect INSTALLED artifacts, not CLI binaries
-  greet();
-  note("  Uninstaller");
+  console.log("Sentinal — Uninstaller");
+  console.log("======================");
   console.log("");
 
   info("Detecting Sentinal installations...");
@@ -242,8 +241,8 @@ async function uninstallClaudeCode(): Promise<void> {
 // ─── OpenCode uninstaller ───────────────────────────────────────────────────
 
 async function uninstallOpenCode(local: boolean): Promise<void> {
-  greet();
-  note("  Uninstalling Sentinal for OpenCode");
+  console.log("Sentinal for OpenCode — Uninstaller");
+  console.log("====================================");
   console.log("");
 
   // ── Determine target directories ──

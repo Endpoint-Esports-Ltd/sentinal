@@ -8,10 +8,10 @@ Sentinal runs as an intelligent hook pipeline inside Claude Code or OpenCode, au
 
 | Assistant | Status | Installation |
 |-----------|--------|--------------|
-| **Claude Code** | Full support | `./install.sh claude` |
-| **OpenCode** | Full support | `./install.sh opencode` |
+| **Claude Code** | Full support | `sentinal install claude` |
+| **OpenCode** | Full support | `sentinal install opencode` |
 
-Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `./install.sh` with no argument auto-detects available assistants.
+Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `sentinal install` with no argument auto-detects available assistants and prompts interactively if both are found.
 
 ## Features
 
@@ -41,6 +41,10 @@ Sentinal provides a unified `sentinal` CLI binary for both direct usage and MCP 
 sentinal --help              # Show available commands
 sentinal --version           # Print version
 sentinal greet               # Display the Sentinal banner
+sentinal install [target]    # Install for claude, opencode, or both
+sentinal install --local     # Install OpenCode to current project only
+sentinal uninstall [target]  # Uninstall from claude, opencode, or both
+sentinal uninstall --local   # Uninstall OpenCode from current project only
 sentinal mcp-server          # Start the MCP memory server (stdio)
 sentinal memory search <q>   # Search persistent memory
 sentinal memory list         # List recent observations
@@ -67,15 +71,20 @@ bun run build:cli    # Produces dist/sentinal (compiled Bun binary)
 ```bash
 git clone <repo-url> sentinal
 cd sentinal
-./install.sh claude
+bun src/cli/index.ts install claude
+```
+
+Or if `sentinal` is already on your PATH:
+
+```bash
+sentinal install claude
 ```
 
 The installer:
 1. Verifies Node.js 18+, Bun, and Claude Code CLI are installed
-2. Installs dependencies via `bun install`
-3. Compiles TypeScript hooks via `bun run build`
-4. Creates a local plugin marketplace at `~/.claude/plugins/sentinal-marketplace/`
-5. Registers the marketplace and installs the plugin via `claude plugin install`
+2. Installs dependencies and compiles hooks (skipped for global installs)
+3. Creates a local plugin marketplace at `~/.claude/plugins/sentinal-marketplace/`
+4. Registers the marketplace and installs the plugin via `claude plugin install`
 
 After installation, restart Claude Code and run `/sentinal:sync` in your project to generate project-specific rules.
 
@@ -84,15 +93,28 @@ After installation, restart Claude Code and run `/sentinal:sync` in your project
 ```bash
 git clone <repo-url> sentinal
 cd sentinal
-./install.sh opencode
+bun src/cli/index.ts install opencode
+```
+
+Or if `sentinal` is already on your PATH:
+
+```bash
+sentinal install opencode
 ```
 
 The installer:
-1. Verifies OpenCode, Bun, and `jq` are installed
-2. Installs `@endpoint/sentinal` as a package dependency via `bun add`
-3. Merges plugin config, commands, and rules into OpenCode's config directory using `jq`
-4. Configures MCP servers (including `sentinal-memory` via `sentinal mcp-server`)
-5. Creates global `AGENTS.md` with rule references
+1. Verifies OpenCode, Bun, and Node.js are installed
+2. Checks `~/.npmrc` for `@endpoint:registry` scoped registry config
+3. Installs `@endpoint/sentinal` globally via `bun add -g`
+4. Copies plugin, commands, rules, and tools to `~/.config/opencode/`
+5. Creates or merges `opencode.json` config with MCP servers (native JSON — no `jq` dependency)
+6. Creates global `AGENTS.md` with rule references
+
+For project-local installs instead of global:
+
+```bash
+sentinal install opencode --local
+```
 
 Then run `/sync` in an OpenCode session within your project:
 
@@ -110,7 +132,7 @@ Claude Code and OpenCode can coexist. Each uses separate config directories:
 Install for both at once:
 
 ```bash
-./install.sh both
+sentinal install both
 ```
 
 ## Project Structure
@@ -122,7 +144,9 @@ sentinal/
 │   ├── cli/                          # Unified CLI entry point
 │   │   ├── index.ts                  # Commander.js dispatcher (sentinal binary)
 │   │   └── commands/
-│   │       └── greet.ts              # ASCII banner command
+│   │       ├── greet.ts              # ASCII banner command
+│   │       ├── install.ts            # Install for Claude Code and/or OpenCode
+│   │       └── uninstall.ts          # Uninstall from Claude Code and/or OpenCode
 │   ├── hooks/                        # Claude Code lifecycle hooks
 │   │   ├── tool-redirect.ts          # PreToolUse: block/redirect tools
 │   │   ├── file-checker.ts           # PostToolUse: quality checks on file edits
@@ -146,21 +170,19 @@ sentinal/
 │   │   ├── restore.ts                # Memory restore on session start
 │   │   ├── mcp-server.ts             # MCP server (5 tools)
 │   │   └── cli.ts                    # CLI for memory management
-│   ├── utils/                        # Shared utilities
-│   │   ├── hook-output.ts            # JSON I/O helpers for hooks
-│   │   ├── file-length.ts            # Line count enforcement
-│   │   ├── tdd.ts                    # Test file detection
-│   │   └── git.ts                    # Git root detection
-│   └── db/                           # Database utilities
-│       ├── database.ts               # SQLite connection management
-│       └── schema.ts                 # Schema definitions
+│   └── utils/                        # Shared utilities
+│       ├── shell.ts                  # Shell execution, path resolution, prompts
+│       ├── hook-output.ts            # JSON I/O helpers for hooks
+│       ├── file-length.ts            # Line count enforcement
+│       ├── tdd.ts                    # Test file detection
+│       └── git.ts                    # Git root detection
 │
 ├── bin/
-│   ├── sentinal.sh                    # Shell shim for `sentinal` CLI
+│   ├── sentinal.sh                   # Shell shim for `sentinal` CLI
 │   └── sentinal-memory.sh            # Shell shim for MCP server (backward compat)
 │
 ├── targets/
-│   ├── claude-code/                  # Claude Code target
+│   ├── claude-code/                  # Claude Code target (assets copied by installer)
 │   │   ├── tsconfig.json             # TypeScript config (builds to hooks/dist/)
 │   │   ├── .claude-plugin/
 │   │   │   └── plugin.json           # Plugin metadata
@@ -172,18 +194,16 @@ sentinal/
 │   │   ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer)
 │   │   ├── settings.json             # Claude Code settings & permissions
 │   │   ├── .mcp.json                 # MCP server configuration
-│   │   ├── .lsp.json                 # Language server configuration
-│   │   ├── install.sh                # Claude Code installer
-│   │   └── uninstall.sh              # Claude Code uninstaller
+│   │   └── .lsp.json                 # Language server configuration
 │   │
-│   └── opencode/                     # OpenCode target
+│   └── opencode/                     # OpenCode target (assets copied by installer)
 │       ├── plugins/
 │       │   └── sentinal.ts           # Plugin (imports from @endpoint/sentinal)
 │       ├── commands/                  # Slash commands
 │       ├── rules/                    # Coding standards
-│       ├── opencode.json             # MCP, LSP, permissions config
-│       ├── install.sh                # OpenCode installer (jq-based config merging)
-│       └── uninstall.sh              # OpenCode uninstaller
+│       ├── tools/
+│       │   └── sentinal-check.ts     # Custom quality check tool
+│       └── opencode.json             # MCP, LSP config template
 │
 ├── templates/
 │   └── commands/                     # Command templates with {{description}} placeholders
@@ -191,8 +211,6 @@ sentinal/
 ├── scripts/
 │   └── generate-commands.js          # Generates target-specific commands from templates
 │
-├── install.sh                        # Multi-target dispatcher
-├── uninstall.sh                      # Multi-target dispatcher
 ├── package.json                      # @endpoint/sentinal (private registry)
 └── bunfig.toml                       # Bun test configuration
 ```
@@ -413,10 +431,10 @@ These are preferred over built-in web tools. In Claude Code, the `tool-redirect`
 
 ```bash
 bun install                # Install dependencies
-bun run build              # Compile Claude Code hooks to targets/claude-code/hooks/dist/
+bun run build:claude       # Compile Claude Code hooks to targets/claude-code/hooks/dist/
 bun run build:opencode     # Bundle OpenCode plugin to targets/opencode/dist/
 bun run build:all          # Build both targets
-bun run build:watch        # Watch mode (Claude Code hooks)
+bun run build:claude:watch # Watch mode (Claude Code hooks)
 ```
 
 ### Test
@@ -440,29 +458,30 @@ The codebase is organized into shared layers consumed by both targets:
 The Claude Code target is located in `targets/claude-code/`:
 
 ```bash
-bun run build              # Compile hooks
-./install.sh claude        # Build, create marketplace, install plugin
+bun run build:claude                   # Compile hooks
+bun src/cli/index.ts install claude    # Build, create marketplace, install plugin
 ```
 
 **Adding a new hook:**
 1. Create `src/hooks/my-hook.ts` implementing the hook I/O protocol
 2. Add a test file `src/hooks/my-hook.test.ts`
 3. Register the hook in `targets/claude-code/hooks/hooks.json` with the appropriate event and matcher
-4. Build and reinstall: `./install.sh claude` (builds and installs via marketplace)
+4. Build and reinstall: `bun src/cli/index.ts install claude`
 
 ### OpenCode Development
 
 The OpenCode target is located in `targets/opencode/`:
 
 ```bash
-./install.sh opencode      # Install to ~/.config/opencode/
+bun src/cli/index.ts install opencode         # Install to ~/.config/opencode/
+bun src/cli/index.ts install opencode --local  # Install to .opencode/ in current project
 ```
 
 OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required. The plugin imports shared logic from the `@endpoint/sentinal` package.
 
 **Adding a new feature:**
 1. Edit `targets/opencode/plugins/sentinal.ts` to add new plugin events
-2. Reinstall: `./install.sh opencode`
+2. Reinstall: `bun src/cli/index.ts install opencode`
 
 ### Adding a New Checker
 
@@ -497,7 +516,7 @@ Configured via `targets/opencode/opencode.json`:
 - **MCP servers** — All 5 MCP servers configured with appropriate transport types
 - **LSP** — TypeScript language server for code intelligence
 
-OpenCode settings are merged surgically into existing user config using `jq`, preserving any pre-existing configuration.
+OpenCode settings are merged natively in TypeScript into existing user config, preserving any pre-existing configuration. Existing MCP server entries and other user settings take precedence over Sentinal defaults. JSONC files (with `//` comments) are handled automatically.
 
 ## License
 

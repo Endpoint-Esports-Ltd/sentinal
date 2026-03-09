@@ -279,7 +279,7 @@ async function installClaudeCode(): Promise<void> {
 
     console.log("");
     info("Building hooks...");
-    const buildResult = run(["bun", "run", "build"], { cwd: sentinalRoot });
+    const buildResult = run(["bun", "run", "build:claude"], { cwd: sentinalRoot });
     if (!buildResult.ok) {
       err(`Failed to build: ${buildResult.stderr}`);
       process.exit(1);
