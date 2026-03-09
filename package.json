@@ -1,6 +1,6 @@
 {
   "name": "@endpoint/sentinal",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "UNLICENSED",
   "description": "Quality plugin for TypeScript, Angular, and NestJS - supports Claude Code and OpenCode",
   "exports": {
@@ -19,8 +19,7 @@
     "bun": ">=1.0.0"
   },
   "publishConfig": {
-    "registry": "https://npm.cloud.endpoint.gg/",
-    "access": "public"
+    "registry": "https://npm.cloud.endpoint.gg/"
   },
   "scripts": {
     "build": "tsc",
@@ -31,8 +30,7 @@
     "install:claude-code": "./install.sh",
     "install:opencode": "./targets/opencode/install.sh",
     "memory": "bun src/memory/cli.ts",
-    "memory:mcp": "bun src/memory/mcp-server.ts",
-    "publish": "npm publish --registry https://npm.cloud.endpoint.gg/"
+    "memory:mcp": "bun src/memory/mcp-server.ts"
   },
   "type": "module",
   "dependencies": {
