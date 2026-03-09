@@ -8,12 +8,12 @@
         "@modelcontextprotocol/sdk": "^1.27.1",
         "@xenova/transformers": "^2.17.2",
         "sqlite-vec": "^0.1.7-alpha.2",
+        "zod": "^3.24.0",
       },
       "devDependencies": {
         "@types/node": "^22.0.0",
         "bun-types": "^1.2.0",
         "typescript": "^5.7.0",
-        "zod": "^3.24.0",
       },
     },
   },

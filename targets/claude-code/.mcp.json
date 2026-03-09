@@ -22,8 +22,8 @@
       "args": ["-y", "fetcher-mcp"]
     },
     "sentinal-memory": {
-      "command": "bun",
-      "args": ["run", "<SENTINAL_ROOT>/src/memory/mcp-server.ts"]
+      "command": "bunx",
+      "args": ["--bun", "sentinal-memory"]
     }
   }
 }

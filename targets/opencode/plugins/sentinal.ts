@@ -21,15 +21,13 @@
  * This plugin imports shared utilities from src/ for deduplication with Claude Code.
  */
 
-// Import paths work for both development (symlink) and installed (copied) scenarios
-// The parent directory contains src/ in both cases
-import { isTestFile, getExpectedTestPaths, checkNestPatterns, isNestFile } from "../src/index.ts";
-import { isAngularFile } from "../src/checkers/angular.ts";
-import { detectFramework, detectPackageManager } from "../src/checkers/detect.ts";
-import { MemoryStore, MemoryService } from "../src/index.ts";
-import { isMemoryEnabled } from "../src/memory/config.ts";
-import { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, type ToolEvent } from "../src/memory/capture.ts";
-import { restoreContext } from "../src/memory/restore.ts";
+import {
+  isTestFile, getExpectedTestPaths, checkNestPatterns, isNestFile,
+  isAngularFile, detectFramework, detectPackageManager,
+  MemoryStore, MemoryService, isMemoryEnabled,
+  analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, type ToolEvent,
+  restoreContext,
+} from "@endpoint/sentinal";
 
 // Type definitions for OpenCode plugin system
 interface PluginContext {

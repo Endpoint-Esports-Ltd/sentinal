@@ -109,13 +109,13 @@ else
   echo -e "${YELLOW}! Tool not found${NC}"
 fi
 
-# Remove shared library
-echo -e "${YELLOW}Removing shared library...${NC}"
-if [[ -d "$TARGET_DIR/src" ]]; then
-  rm -rf "$TARGET_DIR/src"
-  echo -e "${GREEN}✓ Shared library removed${NC}"
+# Remove @endpoint/sentinal package
+echo -e "${YELLOW}Removing @endpoint/sentinal package...${NC}"
+if command -v bun &> /dev/null && bun pm ls 2>/dev/null | grep -q "@endpoint/sentinal"; then
+  bun remove @endpoint/sentinal 2>/dev/null || true
+  echo -e "${GREEN}✓ @endpoint/sentinal removed${NC}"
 else
-  echo -e "${YELLOW}! Shared library not found${NC}"
+  echo -e "${YELLOW}! @endpoint/sentinal not found or bun unavailable${NC}"
 fi
 
 # Remove AGENTS.md (only if global and it appears to be Sentinal's)

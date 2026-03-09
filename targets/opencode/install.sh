@@ -29,7 +29,7 @@ OPENCODE_GLOBAL_PLUGINS="$OPENCODE_GLOBAL_CONFIG/plugins"
 OPENCODE_GLOBAL_COMMANDS="$OPENCODE_GLOBAL_CONFIG/commands"
 OPENCODE_GLOBAL_RULES="$OPENCODE_GLOBAL_CONFIG/rules"
 OPENCODE_GLOBAL_TOOLS="$OPENCODE_GLOBAL_CONFIG/tools"
-SENTINAL_SHARED_LIB="$SENTINAL_ROOT/src"
+ENDPOINT_REGISTRY="https://npm.cloud.endpoint.gg/"
 
 # Parse arguments
 INSTALL_MODE="global"
@@ -68,13 +68,13 @@ if ! command -v opencode &> /dev/null; then
 fi
 echo -e "${GREEN}✓ OpenCode found${NC}"
 
-# Check for Bun (required for plugin execution)
+# Check for Bun (required for plugin and MCP server)
 if ! command -v bun &> /dev/null; then
-  echo -e "${YELLOW}! Bun not found (optional but recommended)${NC}"
-  echo "  Install from https://bun.sh for best performance"
-else
-  echo -e "${GREEN}✓ Bun found${NC}"
+  echo -e "${RED}✗ Bun not found${NC}"
+  echo "  Install from https://bun.sh"
+  exit 1
 fi
+echo -e "${GREEN}✓ Bun found${NC}"
 
 # Check for Node.js (fallback)
 if ! command -v node &> /dev/null; then
@@ -124,13 +124,16 @@ mkdir -p "$PLUGINS_DIR"
 mkdir -p "$COMMANDS_DIR"
 mkdir -p "$RULES_DIR"
 mkdir -p "$TOOLS_DIR"
-mkdir -p "$TARGET_DIR/src"
 echo -e "${GREEN}✓ Directories created${NC}"
 
-# Install shared library (required by plugin)
-echo -e "${YELLOW}Installing shared library...${NC}"
-cp -r "$SENTINAL_SHARED_LIB" "$TARGET_DIR/"
-echo -e "${GREEN}✓ Shared library installed: $TARGET_DIR/src${NC}"
+# Install @endpoint/sentinal package (required by plugin)
+echo -e "${YELLOW}Installing @endpoint/sentinal package...${NC}"
+if bun pm ls 2>/dev/null | grep -q "@endpoint/sentinal"; then
+  echo -e "${GREEN}✓ @endpoint/sentinal already installed${NC}"
+else
+  bun add @endpoint/sentinal --registry "$ENDPOINT_REGISTRY"
+  echo -e "${GREEN}✓ @endpoint/sentinal installed${NC}"
+fi
 
 # Install plugin
 echo -e "${YELLOW}Installing Sentinal plugin...${NC}"
@@ -249,8 +252,7 @@ elif [[ -f "$CONFIG_DIR/opencode.jsonc" ]]; then
 fi
 
 # MCP server configurations to merge
-MCP_SERVER_SCRIPT="$SENTINAL_ROOT/src/memory/mcp-server.ts"
-MCP_SERVERS=$(jq -n --arg mcp_script "$MCP_SERVER_SCRIPT" '{
+MCP_SERVERS=$(jq -n '{
   "context7": {
     "type": "local",
     "command": ["npx", "-y", "@upstash/context7-mcp"]
@@ -274,7 +276,7 @@ MCP_SERVERS=$(jq -n --arg mcp_script "$MCP_SERVER_SCRIPT" '{
   },
   "sentinal-memory": {
     "type": "local",
-    "command": ["bun", "run", $mcp_script]
+    "command": ["bunx", "--bun", "sentinal-memory"]
   }
 }')
 
@@ -342,6 +344,7 @@ echo -e "${GREEN}  Sentinal for OpenCode installed successfully!${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${BLUE}What was installed:${NC}"
+echo "  • Package:  @endpoint/sentinal"
 echo "  • Plugin:   $PLUGINS_DIR/sentinal.ts"
 echo "  • Commands: $COMMANDS_DIR/*.md"
 echo "  • Rules:    $RULES_DIR/*.md"
