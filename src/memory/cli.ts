@@ -320,10 +320,12 @@ export async function runCli(argv: string[]): Promise<string> {
   }
 }
 
-// Only run main when executed directly
-const isMainModule = typeof Bun !== "undefined"
-  ? Bun.main === import.meta.path
-  : import.meta.url === `file://${process.argv[1]}`;
+// Only run main when executed directly (not when imported by the CLI dispatcher)
+const isMainModule = !process.env.__SENTINAL_CLI && (
+  typeof Bun !== "undefined"
+    ? Bun.main === import.meta.path
+    : import.meta.url === `file://${process.argv[1]}`
+);
 
 if (isMainModule) {
   const argv = process.argv.slice(2);

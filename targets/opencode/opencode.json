@@ -29,7 +29,7 @@
     },
     "sentinal-memory": {
       "type": "local",
-      "command": ["bunx", "--bun", "sentinal-memory"]
+      "command": ["sentinal", "mcp-server"]
     }
   },
 

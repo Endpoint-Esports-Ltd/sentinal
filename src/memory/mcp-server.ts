@@ -262,7 +262,7 @@ function registerStatsTool(server: McpServer, service: MemoryService): void {
 
 // ─── Main (stdio transport) ─────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   if (!isMemoryEnabled()) {
     console.error("Sentinal memory is disabled via config. Exiting.");
     process.exit(0);
@@ -274,10 +274,12 @@ async function main(): Promise<void> {
   console.error("Sentinal Memory MCP Server running on stdio");
 }
 
-// Only run main when executed directly
-const isMainModule = typeof Bun !== "undefined"
-  ? Bun.main === import.meta.path
-  : import.meta.url === `file://${process.argv[1]}`;
+// Only run main when executed directly (not when imported by the CLI dispatcher)
+const isMainModule = !process.env.__SENTINAL_CLI && (
+  typeof Bun !== "undefined"
+    ? Bun.main === import.meta.path
+    : import.meta.url === `file://${process.argv[1]}`
+);
 
 if (isMainModule) {
   main().catch((err) => {

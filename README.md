@@ -33,6 +33,33 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Node.js** 18+
 - **Claude Code** or **OpenCode**
 
+## CLI
+
+Sentinal provides a unified `sentinal` CLI binary for both direct usage and MCP server mode.
+
+```bash
+sentinal --help              # Show available commands
+sentinal --version           # Print version
+sentinal greet               # Display the Sentinal banner
+sentinal mcp-server          # Start the MCP memory server (stdio)
+sentinal memory search <q>   # Search persistent memory
+sentinal memory list         # List recent observations
+sentinal memory stats        # Database statistics
+sentinal memory get <id>     # Full observation details
+sentinal memory prune        # Remove old observations
+sentinal memory export       # Export observations (JSON/markdown)
+sentinal memory repair       # Integrity check + index rebuild
+```
+
+The CLI is installed globally via `bun add -g @endpoint/sentinal` (done automatically by the OpenCode installer) or available via `bun src/cli/index.ts` during development.
+
+### Building a Standalone Binary
+
+```bash
+bun run build:cli    # Produces dist/sentinal (compiled Bun binary)
+./dist/sentinal --help
+```
+
 ## Installation
 
 ### Claude Code
@@ -64,7 +91,7 @@ The installer:
 1. Verifies OpenCode, Bun, and `jq` are installed
 2. Installs `@endpoint/sentinal` as a package dependency via `bun add`
 3. Merges plugin config, commands, and rules into OpenCode's config directory using `jq`
-4. Configures MCP servers (including `sentinal-memory` via `bunx`)
+4. Configures MCP servers (including `sentinal-memory` via `sentinal mcp-server`)
 5. Creates global `AGENTS.md` with rule references
 
 Then run `/sync` in an OpenCode session within your project:
@@ -92,6 +119,10 @@ Install for both at once:
 sentinal/
 ├── src/                              # Shared TypeScript source
 │   ├── index.ts                      # Barrel exports (API surface)
+│   ├── cli/                          # Unified CLI entry point
+│   │   ├── index.ts                  # Commander.js dispatcher (sentinal binary)
+│   │   └── commands/
+│   │       └── greet.ts              # ASCII banner command
 │   ├── hooks/                        # Claude Code lifecycle hooks
 │   │   ├── tool-redirect.ts          # PreToolUse: block/redirect tools
 │   │   ├── file-checker.ts           # PostToolUse: quality checks on file edits
@@ -125,7 +156,8 @@ sentinal/
 │       └── schema.ts                 # Schema definitions
 │
 ├── bin/
-│   └── sentinal-memory.sh            # Shell shim for `bunx sentinal-memory`
+│   ├── sentinal.sh                    # Shell shim for `sentinal` CLI
+│   └── sentinal-memory.sh            # Shell shim for MCP server (backward compat)
 │
 ├── targets/
 │   ├── claude-code/                  # Claude Code target

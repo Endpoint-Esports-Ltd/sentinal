@@ -1,4 +1,5 @@
 node_modules/
+dist/
 targets/claude-code/hooks/dist/
 *.tsbuildinfo
 .DS_Store
