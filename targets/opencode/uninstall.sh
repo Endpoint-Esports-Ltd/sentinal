@@ -131,17 +131,65 @@ if [[ "$INSTALL_MODE" == "global" ]]; then
   fi
 fi
 
-# Remove opencode.json (only if global and it appears to be Sentinal's)
-if [[ "$INSTALL_MODE" == "global" ]]; then
-  echo -e "${YELLOW}Removing opencode.json...${NC}"
-  if [[ -f "$TARGET_DIR/opencode.json" ]]; then
-    if grep -q "sentinal" "$TARGET_DIR/opencode.json" 2>/dev/null; then
-      rm -f "$TARGET_DIR/opencode.json"
-      echo -e "${GREEN}✓ opencode.json removed${NC}"
-    else
-      echo -e "${YELLOW}! opencode.json not created by Sentinal, skipping${NC}"
-    fi
+# Remove Sentinal entries from opencode.json / opencode.jsonc
+echo -e "${YELLOW}Cleaning opencode config...${NC}"
+if [[ "$INSTALL_MODE" == "local" ]]; then
+  CONFIG_DIR="$(pwd)"
+  PLUGIN_PATH=".opencode/plugins/sentinal.ts"
+else
+  CONFIG_DIR="$TARGET_DIR"
+  PLUGIN_PATH="$OPENCODE_GLOBAL_PLUGINS/sentinal.ts"
+fi
+
+# Find the config file
+CONFIG_FILE=""
+if [[ -f "$CONFIG_DIR/opencode.json" ]]; then
+  CONFIG_FILE="$CONFIG_DIR/opencode.json"
+elif [[ -f "$CONFIG_DIR/opencode.jsonc" ]]; then
+  CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
+fi
+
+if [[ -n "$CONFIG_FILE" ]] && command -v jq &> /dev/null; then
+  # Read content (strip comments for .jsonc)
+  if [[ "$CONFIG_FILE" == *.jsonc ]]; then
+    CONFIG_CONTENT=$(sed 's|//.*$||' "$CONFIG_FILE" | sed '/^\s*$/d')
+  else
+    CONFIG_CONTENT=$(cat "$CONFIG_FILE")
   fi
+
+  if echo "$CONFIG_CONTENT" | jq empty 2>/dev/null; then
+    UPDATED="$CONFIG_CONTENT"
+
+    # Remove Sentinal plugin from plugin array
+    UPDATED=$(echo "$UPDATED" | jq --arg p "$PLUGIN_PATH" '.plugin = ([(.plugin // [])[] | select(. != $p)])')
+
+    # Remove Sentinal MCP servers
+    SENTINAL_MCP_KEYS=("context7" "web-search" "grep-mcp" "web-fetch" "sentinal-memory")
+    for key in "${SENTINAL_MCP_KEYS[@]}"; do
+      UPDATED=$(echo "$UPDATED" | jq --arg k "$key" 'if .mcp then .mcp |= del(.[$k]) else . end')
+    done
+
+    # Check if config is now essentially empty (only schema, empty plugin, empty mcp, empty lsp)
+    REMAINING=$(echo "$UPDATED" | jq '[
+      (if (.plugin // []) | length > 0 then 1 else 0 end),
+      (if (.mcp // {}) | keys | length > 0 then 1 else 0 end),
+      (if (del(."$schema") | del(.plugin) | del(.mcp) | del(.lsp)) | keys | length > 0 then 1 else 0 end)
+    ] | add')
+
+    if [[ "$REMAINING" == "0" ]]; then
+      rm -f "$CONFIG_FILE"
+      echo -e "${GREEN}✓ Config was Sentinal-only, removed: $CONFIG_FILE${NC}"
+    else
+      echo "$UPDATED" | jq '.' > "$CONFIG_FILE"
+      echo -e "${GREEN}✓ Sentinal entries removed from config${NC}"
+    fi
+  else
+    echo -e "${YELLOW}! Config has invalid JSON, skipping: $CONFIG_FILE${NC}"
+  fi
+elif [[ -n "$CONFIG_FILE" ]]; then
+  echo -e "${YELLOW}! jq not found, cannot clean config. Manually remove Sentinal entries from: $CONFIG_FILE${NC}"
+else
+  echo -e "${YELLOW}! No opencode config found${NC}"
 fi
 
 # Clean up empty directories

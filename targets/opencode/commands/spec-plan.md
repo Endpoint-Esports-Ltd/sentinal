@@ -1,6 +1,6 @@
 ---
 description: Feature planning phase - explore codebase, design plan, get approval
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: false
 argument-hint: "<task description>" or "<path/to/existing-plan.md>"
 ---

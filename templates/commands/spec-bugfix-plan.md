@@ -1,6 +1,6 @@
 ---
 description: {{description}}
-model: sonnet
+model: {{model}}
 user-invocable: false
 argument-hint: "<bug description>" or "<path/to/existing-plan.md>"
 ---

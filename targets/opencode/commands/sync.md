@@ -1,6 +1,6 @@
 ---
 description: Sync project rules and generate AGENTS.md from codebase analysis
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: true
 argument-hint: ""
 ---

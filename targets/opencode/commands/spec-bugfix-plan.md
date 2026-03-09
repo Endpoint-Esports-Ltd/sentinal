@@ -1,6 +1,6 @@
 ---
 description: Bugfix planning phase - analyze bug, design fix, get approval
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: false
 argument-hint: "<bug description>" or "<path/to/existing-plan.md>"
 ---

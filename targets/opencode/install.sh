@@ -84,6 +84,19 @@ if ! command -v node &> /dev/null; then
 fi
 echo -e "${GREEN}✓ Node.js found${NC}"
 
+# Check for jq (required for config merging)
+if ! command -v jq &> /dev/null; then
+  echo -e "${RED}✗ jq not found (required for config merging)${NC}"
+  echo ""
+  echo "Install jq:"
+  echo "  macOS:  brew install jq"
+  echo "  Ubuntu: sudo apt-get install jq"
+  echo "  Other:  https://jqlang.github.io/jq/download/"
+  echo ""
+  exit 1
+fi
+echo -e "${GREEN}✓ jq found${NC}"
+
 echo ""
 
 # Determine target directories
@@ -212,57 +225,115 @@ EOF
   fi
 fi
 
-# Create opencode.json config if global install
-if [[ "$INSTALL_MODE" == "global" ]]; then
-  echo -e "${YELLOW}Creating OpenCode configuration...${NC}"
-  
-  if [[ -f "$TARGET_DIR/opencode.json" ]]; then
-    echo -e "${YELLOW}! Existing opencode.json found - not overwriting${NC}"
-    echo "  To use Sentinal MCP servers, manually merge from:"
-    echo "  $SCRIPT_DIR/opencode.json"
-  else
-    # Copy config and fix plugin path for global install
-    cat > "$TARGET_DIR/opencode.json" << EOF
-{
-  "\$schema": "https://opencode.ai/config.json",
+# Create or update opencode.json config
+echo -e "${YELLOW}Configuring OpenCode...${NC}"
 
-  "plugin": [
-    "$PLUGINS_DIR/sentinal.ts"
-  ],
+# Determine the plugin path: prefer relative for local installs, absolute for global
+if [[ "$INSTALL_MODE" == "local" ]]; then
+  PLUGIN_PATH=".opencode/plugins/sentinal.ts"
+  CONFIG_DIR="$(pwd)"
+else
+  PLUGIN_PATH="$PLUGINS_DIR/sentinal.ts"
+  CONFIG_DIR="$TARGET_DIR"
+fi
 
-  "mcp": {
-    "context7": {
-      "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"]
-    },
-    "web-search": {
-      "type": "local", 
-      "command": ["npx", "-y", "open-websearch"],
-      "environment": {
-        "MODE": "stdio",
-        "DEFAULT_SEARCH_ENGINE": "duckduckgo",
-        "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
-      }
-    },
-    "grep-mcp": {
-      "type": "remote",
-      "url": "https://mcp.grep.app"
-    },
-    "web-fetch": {
-      "type": "local",
-      "command": ["npx", "-y", "fetcher-mcp"]
+# Detect existing config file (prefer .json over .jsonc)
+EXISTING_CONFIG=""
+CONFIG_FILE="$CONFIG_DIR/opencode.json"
+if [[ -f "$CONFIG_DIR/opencode.json" ]]; then
+  EXISTING_CONFIG="$CONFIG_DIR/opencode.json"
+  CONFIG_FILE="$CONFIG_DIR/opencode.json"
+elif [[ -f "$CONFIG_DIR/opencode.jsonc" ]]; then
+  EXISTING_CONFIG="$CONFIG_DIR/opencode.jsonc"
+  CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
+fi
+
+# MCP server configurations to merge
+MCP_SERVER_SCRIPT="$SENTINAL_ROOT/src/memory/mcp-server.ts"
+MCP_SERVERS=$(jq -n --arg mcp_script "$MCP_SERVER_SCRIPT" '{
+  "context7": {
+    "type": "local",
+    "command": ["npx", "-y", "@upstash/context7-mcp"]
+  },
+  "web-search": {
+    "type": "local",
+    "command": ["npx", "-y", "open-websearch"],
+    "environment": {
+      "MODE": "stdio",
+      "DEFAULT_SEARCH_ENGINE": "duckduckgo",
+      "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
     }
   },
-
-  "lsp": {
-    "typescript": {
-      "command": ["typescript-language-server", "--stdio"]
-    }
+  "grep-mcp": {
+    "type": "remote",
+    "url": "https://mcp.grep.app"
+  },
+  "web-fetch": {
+    "type": "local",
+    "command": ["npx", "-y", "fetcher-mcp"]
+  },
+  "sentinal-memory": {
+    "type": "local",
+    "command": ["bun", "run", $mcp_script]
   }
-}
-EOF
-    echo -e "${GREEN}✓ OpenCode configuration created${NC}"
+}')
+
+if [[ -n "$EXISTING_CONFIG" ]]; then
+  echo -e "${YELLOW}  Found existing config: $EXISTING_CONFIG${NC}"
+
+  # For .jsonc files, strip comments before parsing
+  if [[ "$EXISTING_CONFIG" == *.jsonc ]]; then
+    CONFIG_CONTENT=$(sed 's|//.*$||' "$EXISTING_CONFIG" | sed '/^\s*$/d')
+  else
+    CONFIG_CONTENT=$(cat "$EXISTING_CONFIG")
   fi
+
+  # Validate JSON
+  if ! echo "$CONFIG_CONTENT" | jq empty 2>/dev/null; then
+    echo -e "${RED}✗ Existing config has invalid JSON syntax${NC}"
+    echo "  Please fix: $EXISTING_CONFIG"
+    exit 1
+  fi
+
+  UPDATED="$CONFIG_CONTENT"
+
+  # Add plugin path to plugin array if not already present
+  if echo "$UPDATED" | jq -e --arg p "$PLUGIN_PATH" '.plugin // [] | map(select(. == $p)) | length > 0' >/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓ Sentinal plugin already in config${NC}"
+  else
+    echo -e "${YELLOW}  Adding Sentinal plugin...${NC}"
+    UPDATED=$(echo "$UPDATED" | jq --arg p "$PLUGIN_PATH" '.plugin = ((.plugin // []) + [$p])')
+    echo -e "${GREEN}  ✓ Plugin added${NC}"
+  fi
+
+  # Merge MCP servers (existing keys are preserved, new keys are added)
+  echo -e "${YELLOW}  Merging MCP server configurations...${NC}"
+  UPDATED=$(echo "$UPDATED" | jq --argjson new_mcp "$MCP_SERVERS" '.mcp = ($new_mcp * (.mcp // {}))')
+  echo -e "${GREEN}  ✓ MCP servers merged${NC}"
+
+  # Write back
+  echo "$UPDATED" | jq '.' > "$CONFIG_FILE"
+  echo -e "${GREEN}✓ OpenCode configuration updated${NC}"
+else
+  echo -e "${YELLOW}  No existing config found, creating new one...${NC}"
+
+  # Build config from scratch using jq for proper JSON
+  jq -n \
+    --arg schema "https://opencode.ai/config.json" \
+    --arg plugin "$PLUGIN_PATH" \
+    --argjson mcp "$MCP_SERVERS" \
+    '{
+      "$schema": $schema,
+      "plugin": [$plugin],
+      "mcp": $mcp,
+      "lsp": {
+        "typescript": {
+          "command": ["typescript-language-server", "--stdio"]
+        }
+      }
+    }' > "$CONFIG_FILE"
+
+  echo -e "${GREEN}✓ OpenCode configuration created: $CONFIG_FILE${NC}"
 fi
 
 echo ""
@@ -275,9 +346,7 @@ echo "  • Plugin:   $PLUGINS_DIR/sentinal.ts"
 echo "  • Commands: $COMMANDS_DIR/*.md"
 echo "  • Rules:    $RULES_DIR/*.md"
 echo "  • Tools:    $TOOLS_DIR/sentinal-check.ts"
-if [[ "$INSTALL_MODE" == "global" ]]; then
-  echo "  • Config:   $TARGET_DIR/opencode.json"
-fi
+echo "  • Config:   $CONFIG_FILE"
 echo ""
 echo -e "${BLUE}Get started:${NC}"
 echo "  1. Navigate to a project:  cd /path/to/project"

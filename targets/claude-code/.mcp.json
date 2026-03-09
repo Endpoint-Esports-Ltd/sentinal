@@ -20,6 +20,10 @@
     "web-fetch": {
       "command": "npx",
       "args": ["-y", "fetcher-mcp"]
+    },
+    "sentinal-memory": {
+      "command": "bun",
+      "args": ["run", "<SENTINAL_ROOT>/src/memory/mcp-server.ts"]
     }
   }
 }

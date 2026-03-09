@@ -1,6 +1,6 @@
 ---
 description: Feature verification phase - tests, automated checks, code review, E2E
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: false
 argument-hint: "<path/to/plan.md>"
 ---

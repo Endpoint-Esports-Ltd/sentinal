@@ -26,6 +26,10 @@
     "web-fetch": {
       "type": "local",
       "command": ["npx", "-y", "fetcher-mcp"]
+    },
+    "sentinal-memory": {
+      "type": "local",
+      "command": ["bun", "run", "<SENTINAL_ROOT>/src/memory/mcp-server.ts"]
     }
   },
 

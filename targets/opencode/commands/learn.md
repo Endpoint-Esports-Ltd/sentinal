@@ -1,6 +1,6 @@
 ---
 description: Extract reusable knowledge from the current session
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: true
 argument-hint: "<topic>"
 ---

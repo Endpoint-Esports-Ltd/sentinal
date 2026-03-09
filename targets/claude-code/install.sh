@@ -49,6 +49,9 @@ mkdir -p "$PLUGIN_DEST"
 # Copy plugin structure from targets/claude-code
 cp -r "$CLAUDE_TARGET/"* "$PLUGIN_DEST/"
 
+# Template SENTINAL_ROOT path into .mcp.json for the memory MCP server
+sed -i '' "s|<SENTINAL_ROOT>|$SENTINAL_ROOT|g" "$PLUGIN_DEST/.mcp.json"
+
 echo ""
 echo "Sentinal installed successfully!"
 echo ""

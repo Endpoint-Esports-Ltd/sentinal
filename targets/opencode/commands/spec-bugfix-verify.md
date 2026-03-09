@@ -1,6 +1,6 @@
 ---
 description: Bugfix verification phase - Behavior Contract audit, tests, process compliance
-model: sonnet
+model: anthropic/claude-sonnet-4-20250514
 user-invocable: false
 argument-hint: "<path/to/plan.md>"
 ---

@@ -41,6 +41,7 @@
       "mcp__plugin_sentinal_web-search__*",
       "mcp__plugin_sentinal_web-fetch__*",
       "mcp__plugin_sentinal_grep-mcp__*",
+      "mcp__plugin_sentinal_sentinal-memory__*",
       "Skill(spec)",
       "Skill(spec-plan)",
       "Skill(spec-implement)",

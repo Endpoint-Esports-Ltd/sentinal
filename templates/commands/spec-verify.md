@@ -1,6 +1,6 @@
 ---
 description: {{description}}
-model: sonnet
+model: {{model}}
 user-invocable: false
 argument-hint: "<path/to/plan.md>"
 ---
