@@ -20,6 +20,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/session-start.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [

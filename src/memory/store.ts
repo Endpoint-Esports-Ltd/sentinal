@@ -70,6 +70,9 @@ export class MemoryStore {
     if (currentVersion < 1) {
       this.migrateV1();
     }
+    if (currentVersion < 2) {
+      this.migrateV2();
+    }
   }
 
   private migrateV1(): void {
@@ -126,6 +129,40 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_path);
 
       INSERT OR REPLACE INTO schema_version (version) VALUES (1);
+    `);
+  }
+
+  private migrateV2(): void {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS specs (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        approved INTEGER DEFAULT 0,
+        plan_file TEXT NOT NULL,
+        task_count INTEGER DEFAULT 0,
+        tasks_done INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS spec_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        UNIQUE(spec_id, position)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_path);
+      CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
+      CREATE INDEX IF NOT EXISTS idx_spec_tasks_spec ON spec_tasks(spec_id);
+
+      INSERT OR REPLACE INTO schema_version (version) VALUES (2);
     `);
   }
 

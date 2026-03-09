@@ -7,8 +7,7 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "sentinal": "bin/sentinal.sh",
-    "sentinal-memory": "bin/sentinal-memory.sh"
+    "sentinal": "bin/sentinal.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -34,7 +33,7 @@
     "install:opencode": "bun src/cli/index.ts install opencode",
     "cli": "bun src/cli/index.ts",
     "memory": "bun src/memory/cli.ts",
-    "memory:mcp": "bun src/memory/mcp-server.ts"
+    "mcp": "bun src/mcp/server.ts"
   },
   "type": "module",
   "dependencies": {

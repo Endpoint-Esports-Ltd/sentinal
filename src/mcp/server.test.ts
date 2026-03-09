@@ -1,26 +1,28 @@
 /**
  * MCP Server Tests
  *
- * Tests the memory MCP server tool registration and tool logic
- * by calling the underlying service methods that tools delegate to.
- * Also validates that createMemoryServer() produces a working server.
+ * Tests the unified Sentinal MCP server including:
+ * - Server creation with all tool modules
+ * - Memory tools (search, timeline, get, save, stats)
+ * - Spec tools (spec_status)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
-import { createMemoryServer } from "./mcp-server.js";
-import { MemoryStore } from "./store.js";
-import { MemoryService } from "./service.js";
-import type { CreateObservation } from "./types.js";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { createSentinalServer } from "./server.js";
+import { MemoryStore } from "../memory/store.js";
+import { MemoryService } from "../memory/service.js";
+import { SpecStore } from "../spec/store.js";
+import type { CreateObservation } from "../memory/types.js";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// --- Helpers ---
 
-function makeTmpDb(): string {
+function makeTmpDir(): string {
   const dir = join(tmpdir(), `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
-  return join(dir, "test.db");
+  return dir;
 }
 
 function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
@@ -38,58 +40,52 @@ function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObse
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// --- Server Creation Tests ---
 
-describe("createMemoryServer", () => {
-  let dbPath: string;
+describe("createSentinalServer", () => {
+  let tmpDir: string;
   let store: MemoryStore;
-  let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
-    service = new MemoryService(store);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
   });
 
   afterEach(() => {
-    service.close();
-    try {
-      rmSync(dbPath, { force: true });
-      rmSync(dbPath + "-wal", { force: true });
-      rmSync(dbPath + "-shm", { force: true });
-    } catch {
-      // ignore
-    }
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should create a server and service", () => {
-    const result = createMemoryServer(service);
+  it("should create a server and store", () => {
+    const result = createSentinalServer(store);
     expect(result.server).toBeDefined();
-    expect(result.service).toBe(service);
+    expect(result.store).toBe(store);
   });
 
-  it("should create a server with default service when none provided", () => {
-    const result = createMemoryServer();
+  it("should create a server with default store when none provided", () => {
+    const result = createSentinalServer();
     expect(result.server).toBeDefined();
-    expect(result.service).toBeInstanceOf(MemoryService);
-    result.service.close();
+    expect(result.store).toBeInstanceOf(MemoryStore);
+    result.store.close();
   });
 });
 
+// --- Memory Tool Logic Tests ---
+
 describe("memory_search tool logic", () => {
-  let dbPath: string;
+  let tmpDir: string;
   let store: MemoryStore;
   let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
     service = new MemoryService(store);
   });
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("should return empty results for no matches", async () => {
@@ -144,19 +140,19 @@ describe("memory_search tool logic", () => {
 });
 
 describe("memory_timeline tool logic", () => {
-  let dbPath: string;
+  let tmpDir: string;
   let store: MemoryStore;
   let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
     service = new MemoryService(store);
   });
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("should return empty entries for nonexistent anchor", () => {
@@ -176,7 +172,7 @@ describe("memory_timeline tool logic", () => {
     }
 
     const result = service.timeline(obs[2], 2, 2);
-    expect(result.entries.length).toBe(5); // 2 before + anchor + 2 after
+    expect(result.entries.length).toBe(5);
     expect(result.entries.find((e) => e.isAnchor)?.id).toBe(obs[2]);
   });
 
@@ -207,19 +203,19 @@ describe("memory_timeline tool logic", () => {
 });
 
 describe("memory_get tool logic", () => {
-  let dbPath: string;
+  let tmpDir: string;
   let store: MemoryStore;
   let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
     service = new MemoryService(store);
   });
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("should return empty for nonexistent IDs", () => {
@@ -256,19 +252,19 @@ describe("memory_get tool logic", () => {
 });
 
 describe("memory_save tool logic", () => {
-  let dbPath: string;
+  let tmpDir: string;
   let store: MemoryStore;
   let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
     service = new MemoryService(store);
   });
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("should save an observation", () => {
@@ -301,19 +297,19 @@ describe("memory_save tool logic", () => {
 });
 
 describe("memory_stats tool logic", () => {
-  let dbPath: string;
+  let tmpDir: string;
   let store: MemoryStore;
   let service: MemoryService;
 
   beforeEach(() => {
-    dbPath = makeTmpDb();
-    store = new MemoryStore(dbPath);
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
     service = new MemoryService(store);
   });
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("should return stats for empty database", () => {
@@ -341,5 +337,61 @@ describe("memory_stats tool logic", () => {
     const stats = service.getStats();
     expect(stats.byProject["/proj/a"]).toBe(2);
     expect(stats.byProject["/proj/b"]).toBe(1);
+  });
+});
+
+// --- Spec Tool Logic Tests ---
+
+describe("spec_status tool logic", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let specStore: SpecStore;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    specStore = new SpecStore(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return null when no active spec", () => {
+    const current = specStore.getCurrentSpec("/test/project");
+    expect(current).toBeNull();
+  });
+
+  it("should return current spec with task breakdown", () => {
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    const planFile = join(plansDir, "2026-03-09-feature.md");
+    writeFileSync(planFile, `# Feature Plan
+
+Status: IN PROGRESS
+Type: Feature
+
+## Progress Tracking
+
+- [x] Task 1: Setup
+- [~] Task 2: Implementation
+- [ ] Task 3: Testing
+`);
+
+    specStore.syncFromPlanFile(planFile, "/test/project");
+    const spec = specStore.getCurrentSpec("/test/project");
+
+    expect(spec).not.toBeNull();
+    expect(spec!.title).toBe("Feature Plan");
+    expect(spec!.status).toBe("IN_PROGRESS");
+    expect(spec!.tasks).toHaveLength(3);
+
+    const done = spec!.tasks.filter((t) => t.status === "complete").length;
+    const inProg = spec!.tasks.filter((t) => t.status === "in-progress").length;
+    const pending = spec!.tasks.filter((t) => t.status === "pending").length;
+    expect(done).toBe(1);
+    expect(inProg).toBe(1);
+    expect(pending).toBe(1);
   });
 });

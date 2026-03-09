@@ -21,9 +21,9 @@
       "command": "npx",
       "args": ["-y", "fetcher-mcp"]
     },
-    "sentinal-memory": {
-      "command": "bun",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/dist/memory/mcp-server.js"]
+    "sentinal": {
+      "command": "sentinal",
+      "args": ["mcp-server"]
     }
   }
 }

@@ -1,18 +1,22 @@
 import { readStdin, hint, output } from "../utils/hook-output.js";
+import { estimateContextUsage } from "../sessions/context.js";
 
-export function getContextWarning(rawPercent: number): string | null {
-  if (rawPercent >= 85) return `Context ~${Math.round(rawPercent * 1.2)}%+ effective. Complete current task — auto-compaction imminent. Run /learn if this session has extractable knowledge.`;
-  if (rawPercent >= 75) return `Context ~90% effective. Complete current work, don't start complex new tasks. Consider running /learn.`;
-  if (rawPercent >= 65) return `Context ~80% effective. Work normally — auto-compaction handles the rest. Consider running /learn if valuable.`;
+/**
+ * Get a context warning message based on effective usage percentage.
+ * Thresholds: 80% (info), 90% (warning), 95%+ (urgent).
+ */
+export function getContextWarning(effectivePercent: number): string | null {
+  if (effectivePercent >= 95) return `Context ~${effectivePercent}% effective. Complete current task — auto-compaction imminent. Run /learn if this session has extractable knowledge.`;
+  if (effectivePercent >= 90) return `Context ~${effectivePercent}% effective. Complete current work, don't start complex new tasks. Consider running /learn.`;
+  if (effectivePercent >= 80) return `Context ~${effectivePercent}% effective. Work normally — auto-compaction handles the rest. Consider running /learn if valuable.`;
   return null;
 }
 
 async function main(): Promise<void> {
   try {
-    const proc = Bun.spawnSync(["sh", "-c", "~/.legacy/bin/legacy check-context --json 2>/dev/null"], { stdout: "pipe", stderr: "pipe", timeout: 5000 });
-    if (proc.exitCode !== 0) return;
-    const data = JSON.parse(proc.stdout.toString());
-    const warning = getContextWarning(data.percent ?? 0);
+    const input = await readStdin();
+    const usage = estimateContextUsage(input.transcript_path);
+    const warning = getContextWarning(usage.percent);
     if (warning) output(hint("PostToolUse", warning));
   } catch { return; }
 }

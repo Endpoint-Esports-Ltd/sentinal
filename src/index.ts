@@ -41,5 +41,17 @@ export { OBSERVATION_TYPES, ASSISTANT_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS } fr
 export { rebuildFtsIndex, rebuildVectorIndex, backupDatabase, checkIntegrity } from "./memory/maintenance.js";
 
 // ─── MCP Server & CLI ────────────────────────────────────────────────────────
-export { createMemoryServer } from "./memory/mcp-server.js";
+export { createSentinalServer } from "./mcp/server.js";
+export { registerMemoryTools } from "./memory/mcp-tools.js";
 export { runCli, parseArgs } from "./memory/cli.js";
+
+// ─── Spec System ─────────────────────────────────────────────────────────────
+export { parsePlanFile, parsePlanContent, slugFromFilename } from "./spec/parser.js";
+export { findActivePlan, detectSpecType } from "./spec/detect.js";
+export { SpecStore } from "./spec/store.js";
+export { registerSpecTools } from "./spec/mcp-tools.js";
+export type { Spec, SpecTask, SpecStatus, SpecType, TaskStatus } from "./spec/types.js";
+export { SPEC_STATUSES, SPEC_TYPES, TASK_STATUSES, ACTIVE_STATUSES, TERMINAL_STATUSES } from "./spec/types.js";
+
+// ─── Sessions ────────────────────────────────────────────────────────────────
+export { estimateContextUsage, type ContextUsage } from "./sessions/context.js";

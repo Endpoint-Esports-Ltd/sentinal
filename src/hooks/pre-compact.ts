@@ -1,10 +1,12 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { readStdin } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { restoreContext } from "../memory/restore.js";
+import { findActivePlan } from "../spec/detect.js";
+import { SpecStore } from "../spec/store.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -18,19 +20,9 @@ async function main(): Promise<void> {
   const gitRoot = await findGitRoot(input.cwd);
   const searchDir = gitRoot ?? input.cwd;
 
-  // Find active spec plan
-  let activePlan: string | null = null;
-  const plansDir = join(searchDir, "docs", "plans");
-  if (existsSync(plansDir)) {
-    const files = readdirSync(plansDir).filter((f: string) => f.endsWith(".md")).sort().reverse();
-    for (const file of files) {
-      const content = readFileSync(join(plansDir, file), "utf-8");
-      if (content.includes("PENDING") || content.includes("COMPLETE")) {
-        activePlan = join(plansDir, file);
-        break;
-      }
-    }
-  }
+  // Find active spec plan using the shared parser
+  const active = findActivePlan(searchDir);
+  const activePlan = active?.filePath ?? null;
 
   // Save memory context for post-compact restoration
   let memoryContext: string | null = null;
@@ -41,6 +33,13 @@ async function main(): Promise<void> {
     if (restored.hasMemory) {
       memoryContext = restored.markdown;
     }
+
+    // Sync active spec to SQLite index before compaction
+    if (active) {
+      const specStore = new SpecStore(store);
+      specStore.syncFromPlanFile(active.filePath, input.cwd);
+    }
+
     service.close();
   } catch {
     // Memory unavailable, continue without it

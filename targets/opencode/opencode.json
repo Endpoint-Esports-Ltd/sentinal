@@ -27,7 +27,7 @@
       "type": "local",
       "command": ["npx", "-y", "fetcher-mcp"]
     },
-    "sentinal-memory": {
+    "sentinal": {
       "type": "local",
       "command": ["sentinal", "mcp-server"]
     }

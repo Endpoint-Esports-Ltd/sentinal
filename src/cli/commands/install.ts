@@ -64,7 +64,7 @@ const MCP_SERVERS_OPENCODE = {
     type: "local" as const,
     command: ["npx", "-y", "fetcher-mcp"],
   },
-  "sentinal-memory": {
+  sentinal: {
     type: "local" as const,
     command: ["sentinal", "mcp-server"],
   },

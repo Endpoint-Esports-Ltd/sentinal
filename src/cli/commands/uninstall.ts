@@ -60,7 +60,7 @@ const RULE_FILES = [
 ];
 
 /** MCP server keys managed by Sentinal. */
-const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal-memory"];
+const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal", "sentinal-memory"];
 
 // ─── Register command ───────────────────────────────────────────────────────
 

@@ -6,8 +6,9 @@
  * Routes subcommands to the appropriate module.
  *
  * Usage:
- *   sentinal mcp-server          Start the MCP memory server (stdio)
+ *   sentinal mcp-server          Start the MCP server (stdio)
  *   sentinal memory <subcommand> Memory CLI (search, list, get, stats, etc.)
+ *   sentinal spec <subcommand>   Spec CLI (list, current, sync)
  *   sentinal greet               Display the Sentinal banner
  *   sentinal --version           Print version
  *   sentinal --help              Show help
@@ -23,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { greet } from "./commands/greet.js";
 import { registerInstallCommand } from "./commands/install.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
+import { registerSpecCommand } from "./commands/spec.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -60,9 +62,9 @@ const program = new Command()
 
 program
   .command("mcp-server")
-  .description("Start the MCP memory server (stdio transport)")
+  .description("Start the Sentinal MCP server (stdio transport)")
   .action(async () => {
-    const { main } = await import("../memory/mcp-server.js");
+    const { main } = await import("../mcp/server.js");
     await main();
   });
 
@@ -90,6 +92,10 @@ program
   .action(() => {
     greet(version);
   });
+
+// ─── spec ────────────────────────────────────────────────────────────────────
+
+registerSpecCommand(program);
 
 // ─── install / uninstall ─────────────────────────────────────────────────────
 

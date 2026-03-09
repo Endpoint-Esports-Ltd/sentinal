@@ -119,5 +119,5 @@ export const SEARCH_CONSTANTS = {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 1,
+  SCHEMA_VERSION: 2,
 } as const;

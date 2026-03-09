@@ -1,59 +1,35 @@
 /**
- * Memory MCP Server
+ * Memory MCP Tools
  *
- * Exposes persistent memory via Model Context Protocol tools.
+ * Registers persistent memory tools on an MCP server.
  * Implements 3-layer progressive disclosure:
- *   1. memory_search  → compact index with IDs (~50-100 tokens/result)
- *   2. memory_timeline → context window around an anchor
- *   3. memory_get     → full details for filtered IDs
- *   4. memory_save    → manually persist an observation
- *   5. memory_stats   → database statistics
- *
- * Run: bun src/memory/mcp-server.ts
+ *   1. memory_search  -> compact index with IDs (~50-100 tokens/result)
+ *   2. memory_timeline -> context window around an anchor
+ *   3. memory_get     -> full details for filtered IDs
+ *   4. memory_save    -> manually persist an observation
+ *   5. memory_stats   -> database statistics
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { MemoryStore } from "./store.js";
+import type { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
-import { isMemoryEnabled } from "./config.js";
 import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 
-// ─── Server Factory ──────────────────────────────────────────────────────────
+// --- Public API ---
 
-/**
- * Create the MCP server with all memory tools registered.
- * Exported for testing — call `createMemoryServer()` then `server.connect(transport)`.
- */
-export function createMemoryServer(service?: MemoryService): {
-  server: McpServer;
-  service: MemoryService;
-} {
-  const svc = service ?? new MemoryService(new MemoryStore());
-
-  const server = new McpServer({
-    name: "sentinal-memory",
-    version: "0.1.0",
-  });
-
-  registerTools(server, svc);
-
-  return { server, service: svc };
-}
-
-// ─── Tool Registration ───────────────────────────────────────────────────────
-
-function registerTools(server: McpServer, service: MemoryService): void {
+export function registerMemoryTools(server: McpServer, store: MemoryStore): MemoryService {
+  const service = new MemoryService(store);
   registerSearchTool(server, service);
   registerTimelineTool(server, service);
   registerGetTool(server, service);
   registerSaveTool(server, service);
   registerStatsTool(server, service);
+  return service;
 }
 
-// ─── Layer 1: Search (compact index) ─────────────────────────────────────────
+// --- Layer 1: Search (compact index) ---
 
 function registerSearchTool(server: McpServer, service: MemoryService): void {
   server.tool(
@@ -98,7 +74,7 @@ function registerSearchTool(server: McpServer, service: MemoryService): void {
   );
 }
 
-// ─── Layer 2: Timeline (context around anchor) ──────────────────────────────
+// --- Layer 2: Timeline (context around anchor) ---
 
 function registerTimelineTool(server: McpServer, service: MemoryService): void {
   server.tool(
@@ -135,7 +111,7 @@ function registerTimelineTool(server: McpServer, service: MemoryService): void {
   );
 }
 
-// ─── Layer 3: Get (full details) ─────────────────────────────────────────────
+// --- Layer 3: Get (full details) ---
 
 function registerGetTool(server: McpServer, service: MemoryService): void {
   server.tool(
@@ -178,7 +154,7 @@ function registerGetTool(server: McpServer, service: MemoryService): void {
   );
 }
 
-// ─── Save ────────────────────────────────────────────────────────────────────
+// --- Save ---
 
 function registerSaveTool(server: McpServer, service: MemoryService): void {
   server.tool(
@@ -215,7 +191,7 @@ function registerSaveTool(server: McpServer, service: MemoryService): void {
   );
 }
 
-// ─── Stats ───────────────────────────────────────────────────────────────────
+// --- Stats ---
 
 function registerStatsTool(server: McpServer, service: MemoryService): void {
   server.tool(
@@ -258,32 +234,4 @@ function registerStatsTool(server: McpServer, service: MemoryService): void {
       return { content: [{ type: "text", text: lines.join("\n") }] };
     },
   );
-}
-
-// ─── Main (stdio transport) ─────────────────────────────────────────────────
-
-export async function main(): Promise<void> {
-  if (!isMemoryEnabled()) {
-    console.error("Sentinal memory is disabled via config. Exiting.");
-    process.exit(0);
-  }
-
-  const { server } = createMemoryServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Sentinal Memory MCP Server running on stdio");
-}
-
-// Only run main when executed directly (not when imported by the CLI dispatcher)
-const isMainModule = !process.env.__SENTINAL_CLI && (
-  typeof Bun !== "undefined"
-    ? Bun.main === import.meta.path
-    : import.meta.url === `file://${process.argv[1]}`
-);
-
-if (isMainModule) {
-  main().catch((err) => {
-    console.error("Fatal error:", err);
-    process.exit(1);
-  });
 }

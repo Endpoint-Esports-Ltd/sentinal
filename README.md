@@ -24,7 +24,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
 - **Persistent Memory** — Vector-based knowledge storage with automatic capture/restore across sessions
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal-memory
+- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (memory + spec tools)
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 
 ## Requirements
@@ -45,7 +45,10 @@ sentinal install [target]    # Install for claude, opencode, or both
 sentinal install --local     # Install OpenCode to current project only
 sentinal uninstall [target]  # Uninstall from claude, opencode, or both
 sentinal uninstall --local   # Uninstall OpenCode from current project only
-sentinal mcp-server          # Start the MCP memory server (stdio)
+sentinal mcp-server          # Start the Sentinal MCP server (stdio)
+sentinal spec list           # List all tracked specs
+sentinal spec current        # Show the current active spec
+sentinal spec sync           # Sync plan files to SQLite index
 sentinal memory search <q>   # Search persistent memory
 sentinal memory list         # List recent observations
 sentinal memory stats        # Database statistics
@@ -154,13 +157,16 @@ sentinal/
 │   │   ├── spec-stop-guard.ts        # Stop: prevent exit during /spec
 │   │   ├── pre-compact.ts            # PreCompact: save plan state
 │   │   ├── post-compact-restore.ts   # SessionStart: restore after compaction
-│   │   ├── session-end.ts            # SessionEnd: cleanup
+│   │   ├── session-start.ts           # SessionStart: create session record
+│   │   ├── session-end.ts            # SessionEnd: end session + cleanup
 │   │   └── memory-observer.ts        # PostToolUse: capture memories from edits
 │   ├── checkers/                     # Framework detection & validation
 │   │   ├── detect.ts                 # Auto-detect package manager, test runner, frameworks
 │   │   ├── typescript.ts             # Prettier, ESLint, tsc checks
 │   │   ├── angular.ts                # Angular template/compiler checks
 │   │   └── nestjs.ts                 # NestJS pattern checks (decorators, DTOs)
+│   ├── mcp/                          # MCP server (universal entrypoint)
+│   │   └── server.ts                 # Creates McpServer, registers all tool modules
 │   ├── memory/                       # Persistent memory system
 │   │   ├── store.ts                  # SQLite + sqlite-vec storage
 │   │   ├── vector-store.ts           # Vector similarity search
@@ -168,8 +174,16 @@ sentinal/
 │   │   ├── service.ts                # High-level memory service
 │   │   ├── capture.ts                # Automatic memory capture from sessions
 │   │   ├── restore.ts                # Memory restore on session start
-│   │   ├── mcp-server.ts             # MCP server (5 tools)
+│   │   ├── mcp-tools.ts              # Memory MCP tools (5 tools)
 │   │   └── cli.ts                    # CLI for memory management
+│   ├── spec/                         # Spec workflow engine
+│   │   ├── types.ts                  # Enums, interfaces, Zod schemas
+│   │   ├── parser.ts                 # Markdown plan file parser
+│   │   ├── detect.ts                 # Active plan detection, type classification
+│   │   ├── store.ts                  # SQLite persistence for specs
+│   │   └── mcp-tools.ts              # Spec MCP tools (spec_status)
+│   ├── sessions/                     # Session management
+│   │   └── context.ts                # Context window usage estimation
 │   └── utils/                        # Shared utilities
 │       ├── shell.ts                  # Shell execution, path resolution, prompts
 │       ├── hook-output.ts            # JSON I/O helpers for hooks
@@ -178,8 +192,7 @@ sentinal/
 │       └── git.ts                    # Git root detection
 │
 ├── bin/
-│   ├── sentinal.sh                   # Shell shim for `sentinal` CLI
-│   └── sentinal-memory.sh            # Shell shim for MCP server (backward compat)
+│   └── sentinal.sh                   # Shell shim for `sentinal` CLI
 │
 ├── targets/
 │   ├── claude-code/                  # Claude Code target (assets copied by installer)
@@ -421,7 +434,7 @@ Sentinal configures 5 MCP servers for enhanced capabilities:
 | **web-search** | Web search via DuckDuckGo/Bing/Exa | `open-websearch` |
 | **grep-mcp** | GitHub code search across 1M+ public repos | `mcp.grep.app` |
 | **web-fetch** | Full web page fetching via Playwright | `fetcher-mcp` |
-| **sentinal-memory** | Persistent vector memory (save, search, list, delete, stats) | `@endpoint/sentinal` |
+| **sentinal** | Persistent memory + spec workflow tools | `@endpoint/sentinal` |
 
 These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
 
