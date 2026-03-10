@@ -1,6 +1,6 @@
 {
   "name": "@endpoint/sentinal",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "license": "UNLICENSED",
   "description": "Quality plugin for TypeScript, Angular, and NestJS - supports Claude Code and OpenCode",
   "exports": {
@@ -17,6 +17,10 @@
   "engines": {
     "node": ">=18.0.0",
     "bun": ">=1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Endpoint-Esports-Ltd/sentinal.git"
   },
   "publishConfig": {
     "registry": "https://npm.cloud.endpoint.gg/"

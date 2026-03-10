@@ -31,6 +31,9 @@ import { registerCheckContextCommand } from "./commands/check-context.js";
 import { registerRegisterPlanCommand } from "./commands/register-plan.js";
 import { registerWorktreeCommand } from "./commands/worktree.js";
 import { registerServeCommand } from "./commands/serve.js";
+import { registerUpdateCommand } from "./commands/update.js";
+import { registerCompletionCommand } from "./commands/completion.js";
+import { registerShellInitCommand } from "./commands/shell-init.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -62,7 +65,8 @@ const version = getVersion();
 const program = new Command()
   .name("sentinal")
   .description("Quality enforcement for TypeScript, Angular, and NestJS")
-  .version(version, "-v, --version");
+  .version(version, "-v, --version")
+  .option("--skip-update-check", "Skip automatic update check");
 
 // ─── mcp-server ──────────────────────────────────────────────────────────────
 
@@ -132,6 +136,38 @@ registerServeCommand(program);
 registerInstallCommand(program);
 registerUninstallCommand(program);
 
+// ─── update / completion / shell-init ────────────────────────────────────────
+
+registerUpdateCommand(program);
+registerCompletionCommand(program);
+registerShellInitCommand(program);
+
+// ─── Update check (non-blocking) ────────────────────────────────────────────
+
+async function maybeCheckForUpdate(): Promise<void> {
+  // Skip for commands that shouldn't trigger update checks
+  const skipCommands = ["update", "completion", "mcp-server", "help", "--help", "-h"];
+  const firstArg = process.argv[2];
+  if (!firstArg || skipCommands.includes(firstArg)) return;
+
+  // Skip if --skip-update-check is present
+  if (process.argv.includes("--skip-update-check")) return;
+
+  try {
+    const { checkForUpdate } = await import("./commands/update.js");
+    const result = await checkForUpdate(version);
+    if (result.updateAvailable && result.latestVersion) {
+      console.error(
+        `\x1b[33mUpdate available: v${version} → v${result.latestVersion}. Run 'sentinal update' to upgrade.\x1b[0m`,
+      );
+    }
+  } catch {
+    // Silently ignore update check failures — never block CLI usage
+  }
+}
+
 // ─── Parse ───────────────────────────────────────────────────────────────────
 
+// Fire update check in background (non-blocking), then parse commands
+maybeCheckForUpdate().finally(() => {});
 program.parse();

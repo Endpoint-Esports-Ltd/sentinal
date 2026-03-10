@@ -13,7 +13,7 @@
  */
 
 import type { Command } from "commander";
-import { existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -35,92 +35,16 @@ import {
   stripJsoncComments,
 } from "../../utils/shell.js";
 import { greet } from "./greet.js";
-
-// ─── Constants ──────────────────────────────────────────────────────────────
-
-const MARKETPLACE_DIR = join(homedir(), ".claude", "plugins", "sentinal-marketplace");
-const MARKETPLACE_NAME = "sentinal-marketplace";
-const PLUGIN_NAME = "sentinal";
-
-const MCP_SERVERS_OPENCODE = {
-  context7: {
-    type: "local" as const,
-    command: ["npx", "-y", "@upstash/context7-mcp"],
-  },
-  "web-search": {
-    type: "local" as const,
-    command: ["npx", "-y", "open-websearch"],
-    environment: {
-      MODE: "stdio",
-      DEFAULT_SEARCH_ENGINE: "duckduckgo",
-      ALLOWED_SEARCH_ENGINES: "duckduckgo,bing,exa",
-    },
-  },
-  "grep-mcp": {
-    type: "remote" as const,
-    url: "https://mcp.grep.app",
-  },
-  "web-fetch": {
-    type: "local" as const,
-    command: ["npx", "-y", "fetcher-mcp"],
-  },
-  sentinal: {
-    type: "local" as const,
-    command: ["sentinal", "mcp-server"],
-  },
-};
-
-const AGENTS_MD_GLOBAL = `# Sentinal Global Standards
-
-This file is automatically loaded by OpenCode for all projects.
-
-## Quality Enforcement
-
-Sentinal automatically enforces quality standards on every file edit:
-- **File length:** Warn at 400 lines, block at 600 lines (test files exempt)
-- **TDD:** Check for companion test files on implementation files
-- **NestJS:** Validate decorators on controllers, DTOs, and entities
-- **TypeScript:** Run tsc --noEmit for type checking
-
-Note: Prettier and ESLint are handled automatically by OpenCode's built-in formatter system.
-
-## Commands
-
-- \`/spec <task>\` - Start a spec-driven plan-implement-verify workflow
-- \`/spec <plan.md>\` - Resume an existing plan
-- \`/sync\` - Analyze codebase and generate project-specific rules
-- \`/learn\` - Extract reusable knowledge from this session
-
-## Rule Files
-
-The following rule files are loaded based on project context. Read them on a need-to-know basis:
-
-- \`standards-typescript.md\` - TypeScript best practices
-- \`standards-angular.md\` - Angular 17+ patterns (signals, control flow, standalone)
-- \`standards-nestjs.md\` - NestJS patterns (DTOs, guards, Swagger)
-- \`standards-frontend.md\` - Tailwind CSS, accessibility, responsive design
-- \`standards-backend.md\` - REST API, security, database patterns
-`;
-
-const AGENTS_MD_LOCAL_TEMPLATE = `# Project Name
-
-TODO: Add project description.
-
-## Sentinal Quality Enforcement
-
-This project uses Sentinal for quality enforcement. See \`.opencode/rules/\` for coding standards.
-
-## Commands
-
-- \`/spec <task>\` - Start a spec-driven plan-implement-verify workflow
-- \`/sync\` - Analyze codebase and generate project-specific rules
-`;
-
-const AGENTS_MD_APPEND = `
-## Sentinal Quality Enforcement
-
-This project uses Sentinal for quality enforcement. See \`.opencode/rules/\` for coding standards.
-`;
+import { detectShell, applyShellInit } from "./shell-init.js";
+import {
+  MARKETPLACE_DIR,
+  MARKETPLACE_NAME,
+  PLUGIN_NAME,
+  MCP_SERVERS_OPENCODE,
+  AGENTS_MD_GLOBAL,
+  AGENTS_MD_LOCAL_TEMPLATE,
+  AGENTS_MD_APPEND,
+} from "./install-constants.js";
 
 // ─── Register command ───────────────────────────────────────────────────────
 
@@ -225,6 +149,9 @@ async function installDispatcher(
         return;
     }
   }
+
+  // ── Shell integration ──
+  setupShellIntegration();
 
   console.log("");
   ok("Installation complete!");
@@ -374,25 +301,12 @@ async function installClaudeCode(): Promise<void> {
 
   // ── Done ──
 
-  console.log("");
-  console.log("=========================================================================");
-  ok("  Sentinal for Claude Code installed successfully!");
-  console.log("=========================================================================");
-  console.log("");
+  console.log(`\n${"=".repeat(60)}`);
+  ok("Sentinal for Claude Code installed successfully!");
+  console.log(`${"=".repeat(60)}`);
   console.log(`  Plugin: ${PLUGIN_NAME}@${MARKETPLACE_NAME}`);
-  console.log("");
-  console.log("  Available commands:");
-  console.log("    /sentinal:spec              Spec-driven development workflow");
-  console.log("    /sentinal:spec-plan         Feature planning phase");
-  console.log("    /sentinal:spec-bugfix-plan  Bugfix planning phase");
-  console.log("    /sentinal:spec-implement    TDD implementation phase");
-  console.log("    /sentinal:spec-verify       Feature verification");
-  console.log("    /sentinal:spec-bugfix-verify Bugfix verification");
-  console.log("    /sentinal:sync              Sync project rules");
-  console.log("    /sentinal:learn             Extract session knowledge");
-  console.log("");
-  console.log("  Restart Claude Code to activate the plugin.");
-  console.log("");
+  console.log("  Commands: /sentinal:spec, /sentinal:sync, /sentinal:learn");
+  console.log("  Restart Claude Code to activate the plugin.\n");
 }
 
 // ─── OpenCode installer ─────────────────────────────────────────────────────
@@ -429,13 +343,9 @@ async function installOpenCode(local: boolean): Promise<void> {
     process.exit(1);
   }
   ok("  Node.js found");
-
-  // NOTE: No jq check — we do JSON natively in TypeScript!
-
   console.log("");
 
   // ── Determine target directories ──
-
   const xdgConfig = resolveXdgConfig();
   const globalConfig = join(xdgConfig, "opencode");
 
@@ -463,17 +373,12 @@ async function installOpenCode(local: boolean): Promise<void> {
 
   console.log("");
 
-  // ── Create directories ──
-
-  info("Creating directories...");
+  // ── Create directories & install globally ──
   mkdirp(pluginsDir);
   mkdirp(commandsDir);
   mkdirp(rulesDir);
   mkdirp(toolsDir);
   ok("  Directories created");
-
-  // ── Install @endpoint/sentinal globally ──
-
   info("Installing @endpoint/sentinal globally...");
 
   // Check scoped registry
@@ -485,10 +390,7 @@ async function installOpenCode(local: boolean): Promise<void> {
   }
   if (!hasRegistry) {
     err("x Scoped registry not configured for @endpoint packages");
-    console.log("");
-    console.log("Add the following to ~/.npmrc:");
-    console.log("  @endpoint:registry=https://npm.cloud.endpoint.gg/");
-    console.log("");
+    console.log("  Add to ~/.npmrc: @endpoint:registry=https://npm.cloud.endpoint.gg/");
     process.exit(1);
   }
 
@@ -503,12 +405,8 @@ async function installOpenCode(local: boolean): Promise<void> {
     ok("  @endpoint/sentinal installed globally");
   }
 
-  // Verify sentinal binary is available
   if (!commandExists("sentinal")) {
-    info("  ! sentinal binary not found in PATH");
-    console.log('  You may need to add ~/.bun/bin to your PATH:');
-    console.log('    export PATH="$HOME/.bun/bin:$PATH"');
-    console.log("");
+    info('  ! sentinal not in PATH — add: export PATH="$HOME/.bun/bin:$PATH"');
   }
 
   // ── Copy assets ──
@@ -652,32 +550,16 @@ async function installOpenCode(local: boolean): Promise<void> {
 
   // ── Success ──
 
+  console.log(`\n${colors.green}${"=".repeat(60)}${colors.nc}`);
+  ok("Sentinal for OpenCode installed successfully!");
+  console.log(`${colors.green}${"=".repeat(60)}${colors.nc}`);
+  note("Installed:");
+  console.log(`  Plugin:   ${pluginsDir}/sentinal.ts`);
+  console.log(`  Commands: ${commandsDir}/*.md`);
+  console.log(`  Rules:    ${rulesDir}/*.md`);
+  console.log(`  Config:   ${configFile}`);
   console.log("");
-  console.log(`${colors.green}${"=".repeat(68)}${colors.nc}`);
-  ok("  Sentinal for OpenCode installed successfully!");
-  console.log(`${colors.green}${"=".repeat(68)}${colors.nc}`);
-  console.log("");
-  note("What was installed:");
-  console.log(`  * Package:  @endpoint/sentinal`);
-  console.log(`  * Plugin:   ${pluginsDir}/sentinal.ts`);
-  console.log(`  * Commands: ${commandsDir}/*.md`);
-  console.log(`  * Rules:    ${rulesDir}/*.md`);
-  console.log(`  * Tools:    ${toolsDir}/sentinal-check.ts`);
-  console.log(`  * Config:   ${configFile}`);
-  console.log("");
-  note("Get started:");
-  console.log("  1. Navigate to a project:  cd /path/to/project");
-  console.log("  2. Run OpenCode:           opencode");
-  console.log("  3. Initialize project:     /init");
-  console.log("  4. Sync project rules:     /sync");
-  console.log("  5. Start a workflow:       /spec 'add user authentication'");
-  console.log("");
-  note("Features:");
-  console.log("  * Automatic quality checks on every file edit");
-  console.log("  * TypeScript, Angular 17+, and NestJS standards");
-  console.log("  * Spec-driven development with /spec workflow");
-  console.log("  * File length enforcement (400 warn, 600 block)");
-  console.log("  * TDD enforcement with companion test file checks");
+  note("Get started: opencode → /init → /sync → /spec 'your task'");
   console.log("");
 }
 
@@ -689,5 +571,26 @@ function readdirSyncSafe(dir: string): string[] {
     return readdirSync(dir);
   } catch {
     return [];
+  }
+}
+
+/** Set up shell aliases, PATH, and completions after install. */
+function setupShellIntegration(): void {
+  const shell = detectShell();
+  if (!shell) return;
+  try {
+    const result = applyShellInit(shell);
+    ok(`  Shell: ${result.action} (${result.configPath})`);
+    // Copy binary to ~/.sentinal/bin/ if dist/sentinal exists
+    const distBin = join(resolveSentinalRoot(), "dist", "sentinal");
+    const binDir = join(homedir(), ".sentinal", "bin");
+    if (existsSync(distBin)) {
+      mkdirp(binDir);
+      copyFileSync(distBin, join(binDir, "sentinal"));
+      chmodSync(join(binDir, "sentinal"), 0o755);
+      ok(`  Binary installed to ${binDir}/sentinal`);
+    }
+  } catch {
+    info("  Shell integration skipped (run 'sentinal shell-init' manually)");
   }
 }

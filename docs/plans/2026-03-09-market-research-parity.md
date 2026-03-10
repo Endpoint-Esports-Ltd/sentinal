@@ -643,9 +643,11 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 
 ---
 
-### Task 11: Shell Integration + Auto-Updater
+### Task 11: Shell Integration + Auto-Updater ✅ COMPLETE
 
 **Objective:** Add shell aliases for `sentinal` command and implement git-based auto-update checking on CLI launch.
+
+> **Implementation Notes (2026-03-10):** Implemented as binary-download updater from GitHub Releases (not git-based). Added `sentinal completion bash|zsh|fish` for tab completions. Added `sentinal shell-init` for shell config management. GitHub Actions CI/CD cross-compiles 4 platform binaries from single runner. See `docs/plans/2026-03-10-shell-integration-updater-ci.md`.
 
 **Dependencies:** Task 1
 
@@ -671,13 +673,15 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - Also add alias `snt` as shortcut
 
 **Definition of Done:**
-- [ ] `sentinal update` pulls latest and rebuilds
-- [ ] Update check runs on `sentinal` launch (max once per 24h)
-- [ ] `sentinal run --skip-update-check` works
-- [ ] Shell integration adds aliases to detected shell config
-- [ ] Installer runs shell integration automatically
-- [ ] Tests cover: version comparison, update check caching, shell detection, missing remote tags (no error)
-- [ ] No diagnostics errors
+- [x] `sentinal update` downloads latest binary from GitHub Releases
+- [x] Update check runs on `sentinal` launch (max once per 24h)
+- [x] `sentinal --skip-update-check` bypasses the check
+- [x] Shell integration adds aliases to detected shell config
+- [x] Installer runs shell integration automatically
+- [x] Tests cover: version comparison, update check caching, shell detection, missing remote tags (no error)
+- [x] No diagnostics errors
+- [x] GitHub Actions release workflow (.github/workflows/release.yml)
+- [x] Tab completions for bash/zsh/fish
 
 **Verify:**
 ```bash

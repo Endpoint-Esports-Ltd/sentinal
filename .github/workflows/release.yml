@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-release:
+    name: Test & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile binaries
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          DEFINE="--define __SENTINAL_VERSION__=\"'${VERSION}'\""
+
+          echo "Building sentinal v${VERSION} for 4 platforms..."
+
+          bun build --compile --target=bun-linux-x64 \
+            src/cli/index.ts --outfile dist/sentinal-linux-x64 \
+            $DEFINE
+
+          bun build --compile --target=bun-linux-arm64 \
+            src/cli/index.ts --outfile dist/sentinal-linux-arm64 \
+            $DEFINE
+
+          bun build --compile --target=bun-darwin-x64 \
+            src/cli/index.ts --outfile dist/sentinal-darwin-x64 \
+            $DEFINE
+
+          bun build --compile --target=bun-darwin-arm64 \
+            src/cli/index.ts --outfile dist/sentinal-darwin-arm64 \
+            $DEFINE
+
+          echo "Build complete. Artifacts:"
+          ls -lh dist/sentinal-*
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum sentinal-linux-x64 sentinal-linux-arm64 \
+            sentinal-darwin-x64 sentinal-darwin-arm64 > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Sentinal ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/sentinal-linux-x64
+            dist/sentinal-linux-arm64
+            dist/sentinal-darwin-x64
+            dist/sentinal-darwin-arm64
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
