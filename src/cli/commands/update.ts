@@ -27,6 +27,26 @@ const BIN_PATH = join(BIN_DIR, "sentinal");
 const SETTINGS_KEY_LAST_CHECK = "update_last_check";
 const SETTINGS_KEY_LATEST_VERSION = "update_latest_version";
 
+// ─── GitHub auth ─────────────────────────────────────────────────────────────
+
+/** Read a GitHub token from the environment (GITHUB_TOKEN or GH_TOKEN). */
+function getGitHubToken(): string | null {
+  return process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? null;
+}
+
+/** Build common headers for GitHub API requests, with auth if available. */
+function getGitHubHeaders(accept = "application/vnd.github.v3+json"): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: accept,
+    "User-Agent": "sentinal-updater",
+  };
+  const token = getGitHubToken();
+  if (token) {
+    headers["Authorization"] = `token ${token}`;
+  }
+  return headers;
+}
+
 // ─── Platform mapping ────────────────────────────────────────────────────────
 
 /** Map Node.js platform/arch to GitHub Release asset name. */
@@ -59,13 +79,21 @@ interface GitHubRelease {
 export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
     const response = await fetch(RELEASE_URL, {
-      headers: {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "sentinal-updater",
-      },
+      headers: getGitHubHeaders(),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        if (!getGitHubToken()) {
+          console.error(
+            "GitHub API returned " + response.status + ". " +
+            "For private repos, set GITHUB_TOKEN or GH_TOKEN with 'repo' scope.\n" +
+            "  Create a token at: https://github.com/settings/tokens",
+          );
+        }
+      }
+      return null;
+    }
 
     return (await response.json()) as GitHubRelease;
   } catch {
@@ -195,10 +223,7 @@ export async function downloadAndInstall(currentVersion: string): Promise<boolea
 
   try {
     const response = await fetch(asset.browser_download_url, {
-      headers: {
-        Accept: "application/octet-stream",
-        "User-Agent": "sentinal-updater",
-      },
+      headers: getGitHubHeaders("application/octet-stream"),
     });
 
     if (!response.ok) {
