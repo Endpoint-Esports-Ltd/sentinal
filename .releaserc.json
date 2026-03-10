@@ -1,0 +1,35 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "echo ${nextRelease.version} > VERSION && node scripts/release-build.mjs ${nextRelease.version}"
+      }
+    ],
+    "@semantic-release/npm",
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["package.json", "VERSION", "CHANGELOG.md"],
+        "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "dist/sentinal-linux-x64", "label": "sentinal-linux-x64" },
+          { "path": "dist/sentinal-linux-arm64", "label": "sentinal-linux-arm64" },
+          { "path": "dist/sentinal-darwin-x64", "label": "sentinal-darwin-x64" },
+          { "path": "dist/sentinal-darwin-arm64", "label": "sentinal-darwin-arm64" },
+          { "path": "dist/checksums.txt", "label": "checksums.txt" }
+        ]
+      }
+    ]
+  ]
+}

@@ -120,16 +120,26 @@ async function handleCreateSession(req: Request, ctx: SidecarContext): Promise<R
     transcriptPath?: string | null;
   }>(req);
 
-  const session = ctx.store.insertSession({
-    id: body.id,
-    startTime: Date.now(),
-    endTime: null,
-    projectPath: body.projectPath,
-    assistant: body.assistant as AssistantType,
-    summary: null,
-    transcriptPath: body.transcriptPath ?? null,
-  });
-  return ok(session);
+  try {
+    const session = ctx.store.insertSession({
+      id: body.id,
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: body.projectPath,
+      assistant: body.assistant as AssistantType,
+      summary: null,
+      transcriptPath: body.transcriptPath ?? null,
+    });
+    return ok(session);
+  } catch (e) {
+    // UNIQUE constraint — session already exists, return it from the store
+    const msg = e instanceof Error ? e.message : "";
+    if (msg.includes("UNIQUE constraint")) {
+      const existing = ctx.store.getActiveSessions().find((s) => s.id === body.id);
+      if (existing) return ok(existing);
+    }
+    throw e;
+  }
 }
 
 async function handleEndSession(

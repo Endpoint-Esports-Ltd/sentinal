@@ -99,6 +99,7 @@ export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema,
 export type { WorktreeStatus } from "./git/types.js";
 
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
+export { getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath } from "./sidecar/paths.js";
 export { SidecarClient, withSidecarOrDirect } from "./sidecar/client.js";
 export { autoStartSidecar, isSidecarRunning, getSidecarStatus, stopSidecarProcess } from "./sidecar/lifecycle.js";
 export { startSidecar, stopSidecar } from "./sidecar/server.js";

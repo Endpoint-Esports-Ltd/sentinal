@@ -7,30 +7,18 @@
  * OpenCode plugin to avoid per-invocation SQLite cold starts.
  */
 
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
-import { DB_CONSTANTS } from "../memory/types.js";
 import { handleSidecarRequest } from "./routes.js";
 
-export const SIDECAR_SOCKET = "sidecar.sock";
-export const SIDECAR_PORT_FILE = "sidecar.port";
-export const SIDECAR_PID_FILE = "sidecar.pid";
-
-export function getSidecarSocketPath(): string {
-  return join(homedir(), DB_CONSTANTS.DB_DIR, SIDECAR_SOCKET);
-}
-
-export function getSidecarPortPath(): string {
-  return join(homedir(), DB_CONSTANTS.DB_DIR, SIDECAR_PORT_FILE);
-}
-
-export function getSidecarPidPath(): string {
-  return join(homedir(), DB_CONSTANTS.DB_DIR, SIDECAR_PID_FILE);
-}
+// Re-export path helpers for backward compatibility
+export {
+  SIDECAR_SOCKET, SIDECAR_PORT_FILE, SIDECAR_PID_FILE,
+  getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath,
+} from "./paths.js";
+import { getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath } from "./paths.js";
 
 export interface SidecarContext {
   store: MemoryStore;
@@ -55,6 +43,7 @@ export interface SidecarServerOptions {
  */
 export function startSidecar(opts: SidecarServerOptions = {}): {
   server: ReturnType<typeof Bun.serve>;
+  httpServer?: ReturnType<typeof Bun.serve>;
   ctx: SidecarContext;
   transport: "unix" | "http";
 } {
@@ -76,15 +65,20 @@ export function startSidecar(opts: SidecarServerOptions = {}): {
   if (useUnix) {
     try {
       const server = Bun.serve({ unix: socketPath, fetch: fetchHandler });
-      // Write port file as supplementary info (value: "unix")
-      writeFileSync(getSidecarPortPath(), "unix", "utf-8");
-      return { server, ctx, transport: "unix" };
+      // Also bind HTTP for non-Bun clients (e.g. OpenCode's Node.js runtime)
+      const httpServer = Bun.serve({
+        port: opts.port ?? 0,
+        hostname: "127.0.0.1",
+        fetch: fetchHandler,
+      });
+      writeFileSync(getSidecarPortPath(), String(httpServer.port), "utf-8");
+      return { server, httpServer, ctx, transport: "unix" };
     } catch {
-      // Unix socket failed — fall through to HTTP
+      // Unix socket failed — fall through to HTTP-only
     }
   }
 
-  // HTTP fallback
+  // HTTP fallback (or httpOnly mode)
   const server = Bun.serve({
     port: opts.port ?? 0,
     hostname: "127.0.0.1",
@@ -100,8 +94,10 @@ export function startSidecar(opts: SidecarServerOptions = {}): {
 export function stopSidecar(
   server: ReturnType<typeof Bun.serve>,
   ctx: SidecarContext,
+  httpServer?: ReturnType<typeof Bun.serve>,
 ): void {
   server.stop(true);
+  if (httpServer) httpServer.stop(true);
   ctx.store.close();
 
   for (const path of [getSidecarSocketPath(), getSidecarPortPath(), getSidecarPidPath()]) {

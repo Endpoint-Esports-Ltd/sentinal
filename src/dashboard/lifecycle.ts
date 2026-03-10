@@ -82,10 +82,9 @@ export function autoStartDashboard(): void {
   if (isServerRunning()) return;
 
   try {
-    const sentinalBin = findSentinalBin();
-    if (!sentinalBin) return;
-
-    Bun.spawn(["bun", sentinalBin, "serve"], {
+    const cmd = findSentinalCmd();
+    if (!cmd) return;
+    Bun.spawn([...cmd, "serve"], {
       stdio: ["ignore", "ignore", "ignore"],
     }).unref();
   } catch {
@@ -94,22 +93,29 @@ export function autoStartDashboard(): void {
 }
 
 /**
- * Find the sentinal CLI binary. Prefers the compiled global install,
- * falls back to running from source (development mode).
+ * Find the sentinal CLI as a spawn-ready command array.
+ * Compiled binary: ["/path/to/sentinal"]
+ * Source/dev mode: ["bun", "/path/to/src/cli/index.ts"]
  */
-export function findSentinalBin(): string | null {
+export function findSentinalCmd(): string[] | null {
   const binPath = join(homedir(), DB_CONSTANTS.DB_DIR, "bin", "sentinal");
-  if (existsSync(binPath)) return binPath;
+  if (existsSync(binPath)) return [binPath];
 
-  // Fallback to src CLI (development mode)
+  // Fallback to src CLI (development mode — needs bun to run .ts)
   try {
     const srcPath = join(__dirname, "..", "cli", "index.ts");
-    if (existsSync(srcPath)) return srcPath;
+    if (existsSync(srcPath)) return ["bun", srcPath];
   } catch {
     // __dirname may not be available in all contexts
   }
 
   return null;
+}
+
+/** @deprecated Use findSentinalCmd() instead */
+export function findSentinalBin(): string | null {
+  const cmd = findSentinalCmd();
+  return cmd ? cmd[cmd.length - 1] : null;
 }
 
 /**

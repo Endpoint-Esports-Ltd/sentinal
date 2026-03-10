@@ -11,7 +11,7 @@ import {
   getSidecarPidPath,
   getSidecarSocketPath,
   getSidecarPortPath,
-} from "./server.js";
+} from "./paths.js";
 
 // ─── PID helpers ─────────────────────────────────────────────────────────────
 
@@ -96,27 +96,6 @@ export function getSidecarStatus(): SidecarStatus {
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 /**
- * Find the sentinal CLI binary. Prefers compiled global install,
- * falls back to running from source (development mode).
- */
-function findSentinalBin(): string | null {
-  const { join } = require("node:path");
-  const { homedir } = require("node:os");
-  const { DB_CONSTANTS } = require("../memory/types.js");
-
-  const binPath = join(homedir(), DB_CONSTANTS.DB_DIR, "bin", "sentinal");
-  if (existsSync(binPath)) return binPath;
-
-  // Development mode: run from source
-  try {
-    const srcPath = join(__dirname, "..", "cli", "index.ts");
-    if (existsSync(srcPath)) return srcPath;
-  } catch { /* __dirname may not be available */ }
-
-  return null;
-}
-
-/**
  * Auto-start the sidecar if not already running.
  * Spawns `sentinal sidecar start` as a detached background process.
  * Non-fatal — callers should fall back to direct MemoryStore access.
@@ -125,10 +104,11 @@ export function autoStartSidecar(): void {
   if (isSidecarRunning()) return;
 
   try {
-    const sentinalBin = findSentinalBin();
-    if (!sentinalBin) return;
+    const { findSentinalCmd } = require("../dashboard/lifecycle.js");
+    const cmd: string[] | null = findSentinalCmd();
+    if (!cmd) return;
 
-    Bun.spawn(["bun", sentinalBin, "sidecar", "start"], {
+    Bun.spawn([...cmd, "sidecar", "start"], {
       stdio: ["ignore", "ignore", "ignore"],
     }).unref();
   } catch {

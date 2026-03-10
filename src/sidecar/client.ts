@@ -7,7 +7,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { getSidecarSocketPath, getSidecarPortPath } from "./server.js";
+import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
 
 export class SidecarClient {
   private constructor(
@@ -25,6 +25,28 @@ export class SidecarClient {
    * Tries Unix socket first, then HTTP port file fallback.
    */
   static async connect(): Promise<SidecarClient | null> {
+    return SidecarClient.tryConnect();
+  }
+
+  /**
+   * Connect with retry. Use after autoStartSidecar() to wait for the
+   * sidecar to come up. Retries `attempts` times with `delayMs` between.
+   */
+  static async connectWithRetry(
+    attempts = 10,
+    delayMs = 200,
+  ): Promise<SidecarClient | null> {
+    for (let i = 0; i < attempts; i++) {
+      const client = await SidecarClient.tryConnect();
+      if (client) return client;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    return null;
+  }
+
+  private static async tryConnect(): Promise<SidecarClient | null> {
     // Try Unix socket
     const socketPath = getSidecarSocketPath();
     if (existsSync(socketPath)) {

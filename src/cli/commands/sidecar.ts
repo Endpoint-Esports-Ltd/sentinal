@@ -54,17 +54,17 @@ export function registerSidecarCommand(program: Command): void {
       const result = startSidecar({ httpOnly: opts.httpOnly, port });
 
       writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
-      const addr =
-        result.transport === "unix"
-          ? "unix socket"
-          : `http://127.0.0.1:${(result.server as any).port}`;
+      const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;
+      const addr = result.transport === "unix"
+        ? `unix socket + http://127.0.0.1:${httpPort}`
+        : `http://127.0.0.1:${httpPort}`;
       console.log(`Sidecar started (PID: ${process.pid}, transport: ${result.transport})`);
       console.log(`Listening on ${addr}`);
       console.log("Press Ctrl+C to stop");
 
       const shutdown = () => {
         console.log("\nShutting down sidecar...");
-        stopSidecar(result.server, result.ctx);
+        stopSidecar(result.server, result.ctx, result.httpServer);
         process.exit(0);
       };
 
@@ -127,17 +127,17 @@ export function registerSidecarCommand(program: Command): void {
       const result = startSidecar({ httpOnly: opts.httpOnly });
       writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
 
-      const addr =
-        result.transport === "unix"
-          ? "unix socket"
-          : `http://127.0.0.1:${(result.server as any).port}`;
+      const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;
+      const addr = result.transport === "unix"
+        ? `unix socket + http://127.0.0.1:${httpPort}`
+        : `http://127.0.0.1:${httpPort}`;
       console.log(`Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`);
       console.log(`Listening on ${addr}`);
       console.log("Press Ctrl+C to stop");
 
       const shutdown = () => {
         console.log("\nShutting down sidecar...");
-        stopSidecar(result.server, result.ctx);
+        stopSidecar(result.server, result.ctx, result.httpServer);
         process.exit(0);
       };
 
@@ -146,13 +146,26 @@ export function registerSidecarCommand(program: Command): void {
     });
 }
 
+/**
+ * Build a spawn command that works for both compiled binaries and source mode.
+ * Compiled Bun binaries have argv[1] starting with `/$bunfs/` (virtual FS).
+ */
+function buildSpawnCmd(subArgs: string[]): string[] {
+  const argv1 = process.argv[1] ?? "";
+  if (argv1.startsWith("/$bunfs/")) {
+    // Compiled binary — use process.execPath which is the real binary
+    return [process.execPath, ...subArgs];
+  }
+  // Source mode — need bun prefix
+  return ["bun", argv1, ...subArgs];
+}
+
 async function startBackground(httpOnly?: boolean, port?: string): Promise<void> {
-  const sentinalBin = process.argv[1];
   const args = ["sidecar", "start"];
   if (httpOnly) args.push("--http-only");
   if (port) args.push("--port", port);
 
-  const proc = Bun.spawn(["bun", sentinalBin, ...args], {
+  const proc = Bun.spawn(buildSpawnCmd(args), {
     stdio: ["ignore", "ignore", "ignore"],
     env: { ...process.env },
   });

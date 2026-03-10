@@ -61,16 +61,17 @@ export function registerServeCommand(program: Command): void {
 }
 
 async function startBackground(port: number, host: string): Promise<void> {
-  const sentinalBin = process.argv[1];
   const args = ["serve", "--port", String(port), "--host", host];
+  const argv1 = process.argv[1] ?? "";
+  // Compiled Bun binaries have argv[1] in virtual FS (/$bunfs/)
+  const cmd = argv1.startsWith("/$bunfs/")
+    ? [process.execPath, ...args]
+    : ["bun", argv1, ...args];
 
-  // Use Bun.spawn to detach the process
-  const proc = Bun.spawn(["bun", sentinalBin, ...args], {
+  const proc = Bun.spawn(cmd, {
     stdio: ["ignore", "ignore", "ignore"],
     env: { ...process.env },
   });
-
-  // Detach by unreffing
   proc.unref();
 
   console.log(`Dashboard started in background (PID: ${proc.pid})`);

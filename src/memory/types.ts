@@ -33,7 +33,7 @@ export const ObservationSchema = z.object({
   content: z.string().min(1),
   filePaths: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const CreateObservationSchema = ObservationSchema.omit({ id: true });
