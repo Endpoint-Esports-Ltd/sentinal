@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.3.1...v1.4.0) (2026-03-10)
+
+
+### Features
+
+* **cli:** add usage stats statusline and detailed usage report ([3c626dd](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3c626dd0e3ff8223161077f3c3c145e64349aa86))
+
 ## [1.3.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.3.0...v1.3.1) (2026-03-10)
 
 
