@@ -111,6 +111,14 @@ export class SpecStore {
     return rows.map((r) => this.deserializeSpec(r));
   }
 
+  /** List all specs across all projects, ordered by most recent first. */
+  listAllSpecs(limit: number = 100): Spec[] {
+    const rows = this.db
+      .prepare("SELECT * FROM specs ORDER BY updated_at DESC LIMIT ?")
+      .all(limit) as RawSpec[];
+    return rows.map((r) => this.deserializeSpec(r));
+  }
+
   /** Get the current (most recently updated) active spec for a project. */
   getCurrentSpec(projectPath: string): Spec | null {
     const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");

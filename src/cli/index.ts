@@ -30,6 +30,7 @@ import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerCheckContextCommand } from "./commands/check-context.js";
 import { registerRegisterPlanCommand } from "./commands/register-plan.js";
 import { registerWorktreeCommand } from "./commands/worktree.js";
+import { registerServeCommand } from "./commands/serve.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,10 @@ registerRegisterPlanCommand(program);
 // ─── worktree ───────────────────────────────────────────────────────────────
 
 registerWorktreeCommand(program);
+
+// ─── serve ──────────────────────────────────────────────────────────────────
+
+registerServeCommand(program);
 
 // ─── install / uninstall ─────────────────────────────────────────────────────
 

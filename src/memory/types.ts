@@ -153,8 +153,37 @@ export const SEARCH_CONSTANTS = {
   SNIPPET_LENGTH: 200,
 } as const;
 
+export const NOTIFICATION_TYPES = ["info", "warning", "error", "success"] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const NotificationSchema = z.object({
+  id: z.number(),
+  type: z.enum(NOTIFICATION_TYPES),
+  title: z.string().min(1),
+  message: z.string().nullable(),
+  source: z.string().nullable(),
+  specId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  read: z.boolean(),
+  createdAt: z.number(),
+});
+
+export type Notification = z.infer<typeof NotificationSchema>;
+
+export interface RawNotification {
+  id: number;
+  type: string;
+  title: string;
+  message: string | null;
+  source: string | null;
+  spec_id: string | null;
+  session_id: string | null;
+  read: number;
+  created_at: number;
+}
+
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 5,
+  SCHEMA_VERSION: 6,
 } as const;

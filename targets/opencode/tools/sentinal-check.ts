@@ -13,6 +13,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { z } from "zod";
+import {
+  isTestFile,
+  getExpectedTestPaths,
+  checkFileLength,
+  isNestFile,
+  checkNestPatterns,
+} from "@endpoint/sentinal";
 
 // Tool helper for OpenCode custom tools
 // Once @opencode-ai/plugin is published, replace with: import { tool } from "@opencode-ai/plugin"
@@ -38,49 +45,14 @@ function tool<T extends z.ZodRawShape>(def: ToolDefinition<T>): ToolDefinition<T
 (tool as any).schema = z;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Constants (duplicated from plugin for standalone tool)
+// Constants
 // ═══════════════════════════════════════════════════════════════════════════
-
-const WARN_THRESHOLD = 400;
-const BLOCK_THRESHOLD = 600;
-
-const TEST_FILE_PATTERNS = [/\.spec\.ts$/, /\.test\.ts$/, /\.spec\.js$/, /\.test\.js$/, /\.e2e-spec\.ts$/];
-
-const SKIP_TEST_PATTERNS = [
-  /\.module\.ts$/, /\.dto\.ts$/, /\.entity\.ts$/, /\.interface\.ts$/,
-  /\.enum\.ts$/, /\.constant\.ts$/, /\.config\.ts$/, /\.model\.ts$/,
-  /index\.ts$/, /main\.ts$/, /environment\.ts$/,
-];
-
-const NEST_FILE_PATTERNS = [
-  /\.controller\.ts$/, /\.service\.ts$/, /\.module\.ts$/,
-  /\.guard\.ts$/, /\.interceptor\.ts$/, /\.dto\.ts$/,
-  /\.entity\.ts$/, /\.pipe\.ts$/, /\.filter\.ts$/, /\.middleware\.ts$/,
-];
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Utility Functions
+// Check Logic
 // ═══════════════════════════════════════════════════════════════════════════
-
-function isTestFile(filePath: string): boolean {
-  return TEST_FILE_PATTERNS.some((p) => p.test(filePath));
-}
-
-function getExpectedTestPaths(filePath: string): string[] {
-  if (isTestFile(filePath)) return [];
-  if (!filePath.endsWith(".ts") && !filePath.endsWith(".js")) return [];
-  if (SKIP_TEST_PATTERNS.some((p) => p.test(filePath))) return [];
-
-  const ext = filePath.endsWith(".ts") ? ".ts" : ".js";
-  const base = filePath.slice(0, -ext.length);
-  return [`${base}.spec${ext}`, `${base}.test${ext}`];
-}
-
-function isNestFile(filePath: string): boolean {
-  return NEST_FILE_PATTERNS.some((p) => p.test(filePath));
-}
 
 interface CheckResult {
   file: string;
@@ -95,27 +67,22 @@ function checkFile(filePath: string): CheckResult {
     const content = readFileSync(filePath, "utf-8");
     const lineCount = content.split("\n").length;
 
-    // File length check
-    if (lineCount > BLOCK_THRESHOLD && !isTestFile(filePath)) {
-      issues.push(`BLOCK: File exceeds ${BLOCK_THRESHOLD} lines (${lineCount})`);
-    } else if (lineCount > WARN_THRESHOLD && !isTestFile(filePath)) {
-      issues.push(`WARN: File has ${lineCount} lines (threshold: ${WARN_THRESHOLD})`);
+    // File length check (shared)
+    const lengthResult = checkFileLength(filePath, lineCount);
+    if (lengthResult) {
+      const prefix = lengthResult.severity === "block" ? "BLOCK" : "WARN";
+      issues.push(`${prefix}: ${lengthResult.message}`);
     }
 
-    // NestJS patterns
+    // NestJS patterns (shared)
     if (isNestFile(filePath)) {
-      if (filePath.endsWith(".controller.ts") && !content.includes("@ApiTags")) {
-        issues.push("WARN: Controller missing @ApiTags decorator");
-      }
-      if (filePath.endsWith(".dto.ts") && !content.includes("class-validator") && !content.match(/@Is\w+\(/)) {
-        issues.push("WARN: DTO missing class-validator decorators");
-      }
-      if (filePath.endsWith(".entity.ts") && !content.includes("@Entity") && !content.includes("@model")) {
-        issues.push("WARN: Entity missing ORM decorator");
+      for (const r of checkNestPatterns(filePath, content)) {
+        const prefix = r.severity === "error" ? "ERROR" : "WARN";
+        issues.push(`${prefix}: ${r.message}`);
       }
     }
 
-    // TDD check
+    // TDD check (shared)
     if (!isTestFile(filePath)) {
       const testPaths = getExpectedTestPaths(filePath);
       if (testPaths.length > 0 && !testPaths.some((tp) => existsSync(tp))) {

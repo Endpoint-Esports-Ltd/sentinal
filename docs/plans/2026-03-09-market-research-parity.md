@@ -92,19 +92,19 @@ Type: Feature
 ## Progress Tracking
 
 - [~] Task 1: CLI binary scaffold + build pipeline (partial — CLI dispatcher, greet, install, uninstall, spec, build:cli done; serve, run, tsconfig.cli.json, build separation remaining)
-- [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks/settings/worktrees tables, migrations v1-v5, WAL done; session_id+metadata on specs done)
+- [~] Task 2: SQLite database module + schema (partial — observations/sessions/specs/spec_tasks/settings/worktrees/notifications tables, migrations v1-v6, WAL done; session_id+metadata on specs done)
 - [x] Task 3: Memory system (observations CRUD, search, timeline)
 - [x] Task 4: Session management + check-context (complete — session CRUD, transcript_path via v4 migration, getActiveSessions/listSessions/cleanupStaleSessions, CLI commands `sessions list/cleanup` + `check-context`, full test coverage)
 - [x] Task 5: Plan registration + worktree commands (complete — migrations extracted, V5 schema, git utils, WorktreeStore, WorktreeManager full lifecycle, register-plan CLI, worktree CLI with 6 subcommands)
-- [~] Task 6: Hook integration — replace legacy dependency + context rescaling (partial — legacy refs removed, native context estimation, rescaling, session-start/end hooks done, context bar visualization done for both Claude Code and OpenCode, `Bash(sentinal:*)` permission added, session-start test added, OpenCode context monitoring via SDK token aggregation; notification on session-end + server kill on last session deferred to Task 8/9)
+- [x] Task 6: Hook integration — replace legacy dependency + context rescaling (complete — legacy refs removed, native context estimation, rescaling, session-start/end hooks, context bar visualization for both targets, `Bash(sentinal:*)` permission, session-start test, OpenCode context monitoring via SDK, session-end notification + dashboard auto-stop on last session)
 - [x] Task 7: Memory MCP server (refactored to src/mcp/server.ts with modular tool registration; 5 memory tools + spec_status tool)
-- [ ] Task 8: Console dashboard — server + layout + Dashboard view
-- [ ] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views
+- [x] Task 8: Console dashboard — server + layout + Dashboard view (complete — V6 migration for notifications, notification CRUD, PID lifecycle, Bun.serve HTTP server + router, layout with htmx + Tailwind CDN, dashboard home view, `sentinal serve` CLI command)
+- [x] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views (complete — JSON API routes, specifications view with task progress, memories view with search + type filters + pagination, sessions view with active/past + cleanup, settings view with model routing form, hook auto-lifecycle)
 - [x] Task 10: Model routing configuration
 - [ ] Task 11: Shell integration + auto-updater
 - [~] Task 12: Installer improvements (curl, rollback, devcontainer, conditional rules) (partial — conditional rule activation done; shell scripts replaced by TypeScript CLI; curl installer, rollback, devcontainer remaining)
 
-**Total Tasks:** 12 | **Completed:** 5 | **Partial:** 4 | **Remaining:** 3
+**Total Tasks:** 12 | **Completed:** 8 | **Partial:** 3 | **Remaining:** 1
 
 ## Implementation Tasks
 

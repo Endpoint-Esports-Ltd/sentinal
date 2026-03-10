@@ -20,6 +20,9 @@ import type {
   ListSessionsOptions,
   RawObservation,
   RawSession,
+  Notification,
+  NotificationType,
+  RawNotification,
 } from "./types.js";
 import { DB_CONSTANTS, SEARCH_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./types.js";
 import { runMigrations } from "./migrations.js";
@@ -280,6 +283,82 @@ export class MemoryStore {
       .run(Date.now(), cutoff).changes;
   }
 
+  // ─── Notifications ────────────────────────────────────────────────────
+
+  insertNotification(notif: {
+    type: NotificationType;
+    title: string;
+    message?: string | null;
+    source?: string | null;
+    specId?: string | null;
+    sessionId?: string | null;
+  }): Notification {
+    const result = this.db
+      .prepare(
+        `INSERT INTO notifications (type, title, message, source, spec_id, session_id, read, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+      )
+      .run(
+        notif.type,
+        notif.title,
+        notif.message ?? null,
+        notif.source ?? null,
+        notif.specId ?? null,
+        notif.sessionId ?? null,
+        Date.now(),
+      );
+    return this.getNotification(Number(result.lastInsertRowid))!;
+  }
+
+  private getNotification(id: number): Notification | null {
+    const row = this.db
+      .prepare("SELECT * FROM notifications WHERE id = ?")
+      .get(id) as RawNotification | null;
+    return row ? this.deserializeNotification(row) : null;
+  }
+
+  getNotifications(opts: {
+    unread?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}): Notification[] {
+    const clauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+    if (opts.unread === true) { clauses.push("read = 0"); }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(opts.limit ?? 50, opts.offset ?? 0);
+    const rows = this.db
+      .prepare(`SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+      .all(...params) as RawNotification[];
+    return rows.map((r) => this.deserializeNotification(r));
+  }
+
+  markNotificationRead(id: number): void {
+    this.db.prepare("UPDATE notifications SET read = 1 WHERE id = ?").run(id);
+  }
+
+  markAllNotificationsRead(): void {
+    this.db.prepare("UPDATE notifications SET read = 1 WHERE read = 0").run();
+  }
+
+  getUnreadNotificationCount(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM notifications WHERE read = 0")
+      .get() as { count: number };
+    return row.count;
+  }
+
+  deleteOldNotifications(olderThanMs: number): number {
+    const cutoff = Date.now() - olderThanMs;
+    const { count } = this.db
+      .prepare("SELECT COUNT(*) as count FROM notifications WHERE created_at < ?")
+      .get(cutoff) as { count: number };
+    if (count > 0) {
+      this.db.prepare("DELETE FROM notifications WHERE created_at < ?").run(cutoff);
+    }
+    return count;
+  }
+
   // ─── Stats ────────────────────────────────────────────────────────────
 
   getStats(): MemoryStats {
@@ -406,6 +485,20 @@ export class MemoryStore {
       filePaths: JSON.parse(row.file_paths || "[]"),
       tags: JSON.parse(row.tags || "[]"),
       metadata: JSON.parse(row.metadata || "{}"),
+    };
+  }
+
+  private deserializeNotification(row: RawNotification): Notification {
+    return {
+      id: row.id,
+      type: row.type as NotificationType,
+      title: row.title,
+      message: row.message,
+      source: row.source,
+      specId: row.spec_id,
+      sessionId: row.session_id,
+      read: row.read === 1,
+      createdAt: row.created_at,
     };
   }
 

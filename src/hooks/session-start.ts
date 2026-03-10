@@ -3,6 +3,7 @@
  *
  * Creates a session record in the SQLite database when a new session begins.
  * Detects the assistant type from the environment.
+ * Auto-starts the dashboard server if not already running.
  *
  * Runs on: SessionStart (non-compact)
  */
@@ -10,12 +11,16 @@
 import { readStdin } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import type { AssistantType } from "../memory/types.js";
+import { autoStartDashboard } from "../dashboard/lifecycle.js";
 
 export function detectAssistant(): AssistantType {
   // CLAUDE_PLUGIN_ROOT is set when running within a Claude Code plugin
   if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
   return "opencode";
 }
+
+// Re-export for backwards compatibility with tests
+export { autoStartDashboard } from "../dashboard/lifecycle.js";
 
 async function main(): Promise<void> {
   try {
@@ -33,6 +38,9 @@ async function main(): Promise<void> {
     });
 
     store.close();
+
+    // Auto-start dashboard if not running
+    autoStartDashboard();
   } catch {
     // Non-fatal — session tracking is supplementary
   }

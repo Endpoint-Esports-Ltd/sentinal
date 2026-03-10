@@ -35,8 +35,10 @@ export type {
   ObservationType,
   AssistantType,
   ListSessionsOptions,
+  Notification,
+  NotificationType,
 } from "./memory/types.js";
-export { OBSERVATION_TYPES, ASSISTANT_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./memory/types.js";
+export { OBSERVATION_TYPES, ASSISTANT_TYPES, NOTIFICATION_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./memory/types.js";
 
 // ─── Maintenance ─────────────────────────────────────────────────────────────
 export { rebuildFtsIndex, rebuildVectorIndex, backupDatabase, checkIntegrity } from "./memory/maintenance.js";
@@ -64,6 +66,15 @@ export { estimateContextUsage, type ContextUsage } from "./sessions/context.js";
 export { formatTokens, formatContextBar, getContextWarning } from "./sessions/context-display.js";
 export { aggregateTokenUsage, CONTEXT_CHECK_INTERVAL } from "./sessions/token-usage.js";
 export type { SessionMessage, MessageTokens } from "./sessions/token-usage.js";
+
+// ─── Git / Worktree ──────────────────────────────────────────────────────────
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+export { startServer, type ServerOptions } from "./dashboard/server.js";
+export {
+  writePidFile, readPidFile, removePidFile,
+  isServerRunning, isProcessAlive, stopServer, getPidFilePath,
+  autoStartDashboard, findSentinalBin,
+} from "./dashboard/lifecycle.js";
 
 // ─── Git / Worktree ──────────────────────────────────────────────────────────
 export { WorktreeStore } from "./git/worktree-store.js";

@@ -37,6 +37,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 3) migrateV3(db);
   if (currentVersion < 4) migrateV4(db);
   if (currentVersion < 5) migrateV5(db);
+  if (currentVersion < 6) migrateV6(db);
 }
 
 // ─── V1: Core tables (observations, sessions, FTS) ───────────────────────────
@@ -158,6 +159,29 @@ function migrateV4(db: Database): void {
     db.run("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
   }
   db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (4)");
+}
+
+// ─── V6: Notifications table ────────────────────────────────────────────────
+
+function migrateV6(db: Database): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT,
+      source TEXT,
+      spec_id TEXT REFERENCES specs(id),
+      session_id TEXT,
+      read INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(read);
+    CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
+
+    INSERT OR REPLACE INTO schema_version (version) VALUES (6);
+  `);
 }
 
 // ─── V5: session_id + metadata on specs, worktrees table ────────────────────

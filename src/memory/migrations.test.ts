@@ -83,6 +83,30 @@ describe("runMigrations", () => {
     expect(cols.some((c) => c.name === "transcript_path")).toBe(true);
   });
 
+  it("should create notifications table (V6)", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'")
+      .all();
+    expect(tables).toHaveLength(1);
+
+    const cols = db.prepare("PRAGMA table_info(notifications)").all() as Array<{ name: string }>;
+    const colNames = cols.map((c) => c.name);
+    expect(colNames).toContain("id");
+    expect(colNames).toContain("type");
+    expect(colNames).toContain("title");
+    expect(colNames).toContain("message");
+    expect(colNames).toContain("source");
+    expect(colNames).toContain("spec_id");
+    expect(colNames).toContain("session_id");
+    expect(colNames).toContain("read");
+    expect(colNames).toContain("created_at");
+  });
+
   it("should create indexes", () => {
     tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, "test.db");

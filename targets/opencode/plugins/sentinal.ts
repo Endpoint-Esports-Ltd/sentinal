@@ -25,11 +25,13 @@
 import {
   isTestFile, getExpectedTestPaths, checkNestPatterns, isNestFile,
   isAngularFile, detectFramework, detectPackageManager,
+  checkFileLength,
   MemoryStore, MemoryService, isMemoryEnabled,
   analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, type ToolEvent,
   restoreContext,
   findActivePlan, shouldBlockStop, SpecStore,
   aggregateTokenUsage, getContextWarning, CONTEXT_CHECK_INTERVAL,
+  autoStartDashboard, stopServer,
   type AssistantType, type SessionMessage,
 } from "@endpoint/sentinal";
 
@@ -58,11 +60,9 @@ interface PluginHooks {
   event?: (input: { event: { type: string; sessionID?: string } }) => Promise<void>;
 }
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-const WARN_THRESHOLD = 400;
-const BLOCK_THRESHOLD = 600;
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 
 const VAGUE_GREP_INDICATORS = [
@@ -75,26 +75,6 @@ interface CompactState {
   memoryContext: string | null;
   timestamp: string;
   cwd: string;
-}
-
-function checkFileLength(lineCount: number, filePath: string): { severity: "warn" | "block"; message: string } | null {
-  if (isTestFile(filePath)) return null;
-
-  if (lineCount > BLOCK_THRESHOLD) {
-    return {
-      severity: "block",
-      message: `File exceeds ${BLOCK_THRESHOLD} lines (${lineCount}). Split into smaller modules.`
-    };
-  }
-
-  if (lineCount > WARN_THRESHOLD) {
-    return {
-      severity: "warn",
-      message: `File has ${lineCount} lines (warning threshold: ${WARN_THRESHOLD}). Consider splitting.`
-    };
-  }
-
-  return null;
 }
 
 export const SentinalPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
@@ -192,7 +172,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
             const content = readFileSync(filePath, "utf-8");
             const lineCount = content.split("\n").length;
 
-            const lengthResult = checkFileLength(lineCount, filePath);
+            const lengthResult = checkFileLength(filePath, lineCount);
             if (lengthResult) {
               issues.push(lengthResult.message);
               if (lengthResult.severity === "block") shouldBlock = true;
@@ -371,6 +351,13 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           }
         }
 
+        // Auto-start dashboard if not running
+        try {
+          autoStartDashboard();
+        } catch {
+          // Non-fatal — dashboard is supplementary
+        }
+
         // Restore memory context at session start
         if (memoryService) {
           try {
@@ -410,13 +397,38 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
       }
 
       if (event.type === "session.deleted") {
-        // End session record in SQLite
         if (memoryStore && sessionId) {
           try {
+            // End session record in SQLite
             memoryStore.endSession(sessionId);
+
+            // Create session-end notification
+            memoryStore.insertNotification({
+              type: "info",
+              title: "Session ended",
+              message: `Session ${sessionId.slice(0, 8)} ended`,
+              source: "session-end",
+              sessionId,
+            });
+
+            // Auto-stop dashboard if no active sessions remain
+            const activeSessions = memoryStore.getActiveSessions();
+            if (activeSessions.length === 0) {
+              stopServer();
+            }
           } catch {
             // Non-fatal — session may not have been started
           }
+        }
+
+        // Clean up event buffer (no longer needed after session ends)
+        const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
+        try {
+          if (existsSync(bufferPath)) {
+            unlinkSync(bufferPath);
+          }
+        } catch {
+          // Non-fatal cleanup
         }
       }
 
