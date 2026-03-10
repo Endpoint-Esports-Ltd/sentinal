@@ -14,28 +14,37 @@ import { MemoryStore } from "../memory/store.js";
 import { isMemoryEnabled } from "../memory/config.js";
 import { registerMemoryTools } from "../memory/mcp-tools.js";
 import { registerSpecTools } from "../spec/mcp-tools.js";
+import { SidecarClient } from "../sidecar/client.js";
+import { autoStartSidecar } from "../sidecar/lifecycle.js";
 
 // --- Server Factory ---
 
+export interface ServerOptions {
+  store?: MemoryStore;
+  client?: SidecarClient | null;
+}
+
 /**
  * Create the unified Sentinal MCP server with all tool modules registered.
- * Exported for testing — call `createSentinalServer()` then `server.connect(transport)`.
+ * When a sidecar client is provided, tools delegate DB ops to the sidecar.
+ * Falls back to direct MemoryStore when no client is available.
  */
-export function createSentinalServer(store?: MemoryStore): {
+export function createSentinalServer(opts: ServerOptions = {}): {
   server: McpServer;
-  store: MemoryStore;
+  store: MemoryStore | null;
 } {
-  const s = store ?? new MemoryStore();
+  const client = opts.client ?? null;
+  const store = client ? null : (opts.store ?? new MemoryStore());
 
   const server = new McpServer({
     name: "sentinal",
     version: "0.2.0",
   });
 
-  registerMemoryTools(server, s);
-  registerSpecTools(server, s);
+  registerMemoryTools(server, { client, store });
+  registerSpecTools(server, store);
 
-  return { server, store: s };
+  return { server, store };
 }
 
 // --- Main (stdio transport) ---
@@ -46,10 +55,15 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { server } = createSentinalServer();
+  autoStartSidecar();
+
+  // Try sidecar first, fall back to direct MemoryStore
+  const client = await SidecarClient.connect();
+  const { server } = createSentinalServer({ client });
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Sentinal MCP Server running on stdio");
+  console.error(`Sentinal MCP Server running on stdio (${client ? "sidecar" : "direct"} mode)`);
 }
 
 // Only run main when executed directly (not when imported by the CLI dispatcher)

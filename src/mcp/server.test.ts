@@ -57,7 +57,7 @@ describe("createSentinalServer", () => {
   });
 
   it("should create a server and store", () => {
-    const result = createSentinalServer(store);
+    const result = createSentinalServer({ store });
     expect(result.server).toBeDefined();
     expect(result.store).toBe(store);
   });
@@ -66,7 +66,7 @@ describe("createSentinalServer", () => {
     const result = createSentinalServer();
     expect(result.server).toBeDefined();
     expect(result.store).toBeInstanceOf(MemoryStore);
-    result.store.close();
+    result.store!.close();
   });
 });
 
@@ -293,6 +293,53 @@ describe("memory_save tool logic", () => {
     const retrieved = service.getObservation(obs.id);
     expect(retrieved).not.toBeNull();
     expect(retrieved!.title).toBe("Retrievable observation");
+  });
+
+  it("should use real session ID when exactly one active session exists", () => {
+    // Create a real session
+    store.insertSession({
+      id: "real-session-123",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test/project",
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    // Verify getActiveSessions returns it
+    const active = store.getActiveSessions();
+    expect(active.length).toBe(1);
+    expect(active[0].id).toBe("real-session-123");
+  });
+
+  it("should fall back to synthetic ID when no active sessions", () => {
+    const active = store.getActiveSessions();
+    expect(active.length).toBe(0);
+  });
+
+  it("should fall back to synthetic ID when multiple active sessions", () => {
+    store.insertSession({
+      id: "session-a",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test/project",
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+    store.insertSession({
+      id: "session-b",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test/project",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const active = store.getActiveSessions();
+    expect(active.length).toBe(2);
   });
 });
 

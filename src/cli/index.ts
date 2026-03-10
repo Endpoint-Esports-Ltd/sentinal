@@ -35,6 +35,7 @@ import { registerUpdateCommand } from "./commands/update.js";
 import { registerCompletionCommand } from "./commands/completion.js";
 import { registerShellInitCommand } from "./commands/shell-init.js";
 import { registerHookCommand } from "./commands/hook.js";
+import { registerSidecarCommand } from "./commands/sidecar.js";
 
 // ─── Version ─────────────────────────────────────────────────────────────────
 
@@ -147,11 +148,15 @@ registerShellInitCommand(program);
 
 registerHookCommand(program);
 
+// ─── sidecar ────────────────────────────────────────────────────────────────
+
+registerSidecarCommand(program);
+
 // ─── Update check (non-blocking) ────────────────────────────────────────────
 
 async function maybeCheckForUpdate(): Promise<void> {
   // Skip for commands that shouldn't trigger update checks
-  const skipCommands = ["update", "completion", "mcp-server", "hook", "help", "--help", "-h"];
+  const skipCommands = ["update", "completion", "mcp-server", "hook", "sidecar", "help", "--help", "-h"];
   const firstArg = process.argv[2];
   if (!firstArg || skipCommands.includes(firstArg)) return;
 

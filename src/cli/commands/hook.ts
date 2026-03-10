@@ -1,35 +1,24 @@
 /**
  * Hook Command — `sentinal hook shared|claude <name>`
- *
- * Dispatches Claude Code lifecycle hooks via the sentinal binary.
- * Each hook reads HookInput JSON from stdin and optionally writes
- * a response (deny/hint/block) JSON to stdout.
- *
- * Shared hooks: logic is target-agnostic, used by both Claude Code and OpenCode
- * Claude hooks: logic references Claude Code-specific tool names or conventions
+ * Dispatches lifecycle hooks. Each reads HookInput JSON from stdin.
+ * Shared hooks = target-agnostic; Claude hooks = Claude Code-specific.
  */
 
 import type { Command } from "commander";
 import { readStdin, output } from "../../utils/hook-output.js";
+import { SidecarClient } from "../../sidecar/client.js";
+import { autoStartSidecar } from "../../sidecar/lifecycle.js";
 
-// ─── Shared Hooks ────────────────────────────────────────────────────────────
+function extractFilePath(toolInput: Record<string, unknown>): string | undefined {
+  return (toolInput.file_path as string) ?? (toolInput.filePath as string) ?? (toolInput.path as string) ?? undefined;
+}
 
 async function runTddGuard(): Promise<void> {
   const { processTddGuard } = await import("../../hooks/tdd-guard.js");
   const input = await readStdin();
-  const toolName = input.tool_name ?? "";
-  const toolInput = input.tool_input ?? {};
-  const filePath =
-    (toolInput.file_path as string) ??
-    (toolInput.filePath as string) ??
-    (toolInput.path as string) ??
-    undefined;
-
-  const result = processTddGuard({ toolName, filePath, cwd: input.cwd });
-  if (result) {
-    output(result);
-    process.exit(2);
-  }
+  const filePath = extractFilePath(input.tool_input ?? {});
+  const result = processTddGuard({ toolName: input.tool_name ?? "", filePath, cwd: input.cwd });
+  if (result) { output(result); process.exit(2); }
 }
 
 async function runTddTracker(): Promise<void> {
@@ -37,87 +26,93 @@ async function runTddTracker(): Promise<void> {
   const input = await readStdin();
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
-  const filePath =
-    (toolInput.file_path as string) ??
-    (toolInput.filePath as string) ??
-    (toolInput.path as string) ??
-    undefined;
-  const bashOutput =
-    toolName === "Bash"
-      ? ((input.tool_response?.output as string) ?? (toolInput.output as string) ?? undefined)
-      : undefined;
-
+  const bashOutput = toolName === "Bash"
+    ? ((input.tool_response?.output as string) ?? (toolInput.output as string) ?? undefined)
+    : undefined;
   await processTddTracking({
-    toolName,
-    filePath,
-    bashOutput,
-    sessionId: input.session_id,
-    cwd: input.cwd,
+    toolName, filePath: extractFilePath(toolInput), bashOutput,
+    sessionId: input.session_id, cwd: input.cwd,
   });
 }
 
 async function runSessionStart(): Promise<void> {
-  const { MemoryStore } = await import("../../memory/store.js");
   const { autoStartDashboard } = await import("../../dashboard/lifecycle.js");
   const { detectAssistant } = await import("../../hooks/session-start.js");
   const input = await readStdin();
+  const assistant = detectAssistant();
 
+  autoStartSidecar();
+  autoStartDashboard();
+
+  try {
+    const client = await SidecarClient.connect();
+    if (client) {
+      await client.createSession({
+        id: input.session_id,
+        projectPath: input.cwd,
+        assistant,
+        transcriptPath: input.transcript_path ?? null,
+      });
+      return;
+    }
+  } catch { /* fall back to direct */ }
+
+  const { MemoryStore } = await import("../../memory/store.js");
   const store = new MemoryStore();
   store.insertSession({
     id: input.session_id,
     startTime: Date.now(),
     endTime: null,
     projectPath: input.cwd,
-    assistant: detectAssistant(),
+    assistant,
     summary: null,
     transcriptPath: input.transcript_path ?? null,
   });
   store.close();
-  autoStartDashboard();
 }
 
 async function runSessionEnd(): Promise<void> {
   const { unlinkSync, existsSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const { MemoryStore } = await import("../../memory/store.js");
   const { stopServer } = await import("../../dashboard/lifecycle.js");
   const input = await readStdin();
 
   try {
-    const store = new MemoryStore();
-    store.endSession(input.session_id);
-    store.insertNotification({
-      type: "info",
-      title: "Session ended",
-      message: `Session ${input.session_id.slice(0, 8)} ended`,
-      source: "session-end",
-      sessionId: input.session_id,
-    });
-    const active = store.getActiveSessions();
-    if (active.length === 0) {
-      stopServer();
+    const client = await SidecarClient.connect();
+    if (client) {
+      await client.endSession(input.session_id, { notification: true });
+      const active = await client.getActiveSessions();
+      if (active.length === 0) stopServer();
+    } else {
+      // Direct fallback
+      const { MemoryStore } = await import("../../memory/store.js");
+      const store = new MemoryStore();
+      store.endSession(input.session_id);
+      store.insertNotification({
+        type: "info",
+        title: "Session ended",
+        message: `Session ${input.session_id.slice(0, 8)} ended`,
+        source: "session-end",
+        sessionId: input.session_id,
+      });
+      const active = store.getActiveSessions();
+      if (active.length === 0) stopServer();
+      store.close();
     }
-    store.close();
   } catch {
     // Non-fatal
   }
 
   const bufferPath = join(input.cwd, ".sentinal", "event-buffer.json");
   try {
-    if (existsSync(bufferPath)) {
-      unlinkSync(bufferPath);
-    }
-  } catch {
-    // Non-fatal cleanup
-  }
+    if (existsSync(bufferPath)) unlinkSync(bufferPath);
+  } catch { /* non-fatal */ }
 }
 
 async function runMemoryObserver(): Promise<void> {
   const { isMemoryEnabled } = await import("../../memory/config.js");
   if (!isMemoryEnabled()) return;
 
-  const { MemoryStore } = await import("../../memory/store.js");
-  const { MemoryService } = await import("../../memory/service.js");
   const { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE } = await import("../../memory/capture.js");
   const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -125,15 +120,9 @@ async function runMemoryObserver(): Promise<void> {
   const input = await readStdin();
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
-  const filePath =
-    (toolInput.file_path as string) ??
-    (toolInput.filePath as string) ??
-    (toolInput.path as string) ??
-    undefined;
-
+  const filePath = extractFilePath(toolInput);
   const event = {
-    toolName,
-    filePath,
+    toolName, filePath,
     success: true,
     output: (toolInput.output as string)?.slice(0, 1000),
     timestamp: Date.now(),
@@ -159,24 +148,33 @@ async function runMemoryObserver(): Promise<void> {
 
   if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE) return;
 
+  const obsPayload = {
+    sessionId: input.session_id,
+    projectPath: input.cwd,
+    type: decision.type,
+    title: decision.title,
+    content: decision.content,
+    filePaths: decision.filePaths,
+    tags: decision.tags,
+    metadata: { source: "auto-capture", confidence: decision.confidence, toolName },
+  };
+
   try {
+    const client = await SidecarClient.connect();
+    if (client) {
+      await client.addObservation(obsPayload);
+      return;
+    }
+  } catch { /* fall back */ }
+
+  try {
+    const { MemoryStore } = await import("../../memory/store.js");
+    const { MemoryService } = await import("../../memory/service.js");
     const store = new MemoryStore();
     const service = new MemoryService(store);
-    service.addObservation({
-      sessionId: input.session_id,
-      projectPath: input.cwd,
-      timestamp: Date.now(),
-      type: decision.type,
-      title: decision.title,
-      content: decision.content,
-      filePaths: decision.filePaths,
-      tags: decision.tags,
-      metadata: { source: "auto-capture", confidence: decision.confidence, toolName },
-    });
+    service.addObservation({ ...obsPayload, timestamp: Date.now() });
     service.close();
-  } catch {
-    // Non-fatal
-  }
+  } catch { /* non-fatal */ }
 }
 
 async function runMemoryRestore(): Promise<void> {
@@ -184,12 +182,23 @@ async function runMemoryRestore(): Promise<void> {
   if (!isMemoryEnabled()) return;
 
   const { hint: hintFn } = await import("../../utils/hook-output.js");
-  const { MemoryStore } = await import("../../memory/store.js");
-  const { MemoryService } = await import("../../memory/service.js");
-  const { restoreContext } = await import("../../memory/restore.js");
   const input = await readStdin();
 
   try {
+    const client = await SidecarClient.connect();
+    if (client) {
+      const result = await client.restoreContext(input.cwd);
+      if (result.hasMemory && result.markdown) {
+        output(hintFn("SessionStart", result.markdown));
+      }
+      return;
+    }
+  } catch { /* fall back */ }
+
+  try {
+    const { MemoryStore } = await import("../../memory/store.js");
+    const { MemoryService } = await import("../../memory/service.js");
+    const { restoreContext } = await import("../../memory/restore.js");
     const store = new MemoryStore();
     const service = new MemoryService(store);
     const result = restoreContext(service, { projectPath: input.cwd });
@@ -197,9 +206,7 @@ async function runMemoryRestore(): Promise<void> {
     if (result.hasMemory && result.markdown) {
       output(hintFn("SessionStart", result.markdown));
     }
-  } catch {
-    // Non-fatal
-  }
+  } catch { /* non-fatal */ }
 }
 
 async function runSpecStopGuard(): Promise<void> {
@@ -221,11 +228,7 @@ async function runPreCompact(): Promise<void> {
   const { writeFileSync, mkdirSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { findGitRoot } = await import("../../utils/git.js");
-  const { MemoryStore } = await import("../../memory/store.js");
-  const { MemoryService } = await import("../../memory/service.js");
-  const { restoreContext } = await import("../../memory/restore.js");
   const { findActivePlan } = await import("../../spec/detect.js");
-  const { SpecStore } = await import("../../spec/store.js");
   const input = await readStdin();
 
   const gitRoot = await findGitRoot(input.cwd);
@@ -235,18 +238,28 @@ async function runPreCompact(): Promise<void> {
 
   let memoryContext: string | null = null;
   try {
-    const store = new MemoryStore();
-    const service = new MemoryService(store);
-    const restored = restoreContext(service, { projectPath: input.cwd });
-    if (restored.hasMemory) memoryContext = restored.markdown;
-    if (active) {
-      const specStore = new SpecStore(store);
-      specStore.syncFromPlanFile(active.filePath, input.cwd);
+    const client = await SidecarClient.connect();
+    if (client) {
+      const restored = await client.restoreContext(input.cwd);
+      if (restored.hasMemory) memoryContext = restored.markdown;
+      if (active) await client.syncSpec(active.filePath, input.cwd);
+    } else {
+      // Direct fallback
+      const { MemoryStore } = await import("../../memory/store.js");
+      const { MemoryService } = await import("../../memory/service.js");
+      const { restoreContext } = await import("../../memory/restore.js");
+      const { SpecStore } = await import("../../spec/store.js");
+      const store = new MemoryStore();
+      const service = new MemoryService(store);
+      const restored = restoreContext(service, { projectPath: input.cwd });
+      if (restored.hasMemory) memoryContext = restored.markdown;
+      if (active) {
+        const specStore = new SpecStore(store);
+        specStore.syncFromPlanFile(active.filePath, input.cwd);
+      }
+      service.close();
     }
-    service.close();
-  } catch {
-    // Non-fatal
-  }
+  } catch { /* non-fatal */ }
 
   const stateDir = join(searchDir, ".sentinal");
   mkdirSync(stateDir, { recursive: true });
@@ -284,8 +297,6 @@ async function runPostCompactRestore(): Promise<void> {
   }
 }
 
-// ─── Claude-Specific Hooks ───────────────────────────────────────────────────
-
 async function runToolRedirect(): Promise<void> {
   const { processToolRedirect } = await import("../../hooks/tool-redirect.js");
   const input = await readStdin();
@@ -322,8 +333,6 @@ async function runContextMonitor(): Promise<void> {
   if (warning) output(hintFn("PostToolUse", warning));
 }
 
-// ─── Dispatch Maps ───────────────────────────────────────────────────────────
-
 const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "tdd-guard": runTddGuard,
   "tdd-tracker": runTddTracker,
@@ -342,17 +351,14 @@ const CLAUDE_HOOKS: Record<string, () => Promise<void>> = {
   "context-monitor": runContextMonitor,
 };
 
-// ─── Registration ────────────────────────────────────────────────────────────
-
 export function registerHookCommand(program: Command): void {
   const hook = program
     .command("hook")
     .description("Execute lifecycle hooks (used by Claude Code and OpenCode)");
 
-  // sentinal hook shared <name>
-  const shared = hook
+  hook
     .command("shared")
-    .description("Target-agnostic hooks shared by both Claude Code and OpenCode")
+    .description("Target-agnostic hooks")
     .argument("<name>", `Hook name: ${Object.keys(SHARED_HOOKS).join(", ")}`)
     .action(async (name: string) => {
       const hookFn = SHARED_HOOKS[name];
@@ -363,8 +369,7 @@ export function registerHookCommand(program: Command): void {
       await hookFn();
     });
 
-  // sentinal hook claude <name>
-  const claude = hook
+  hook
     .command("claude")
     .description("Claude Code-specific hooks")
     .argument("<name>", `Hook name: ${Object.keys(CLAUDE_HOOKS).join(", ")}`)

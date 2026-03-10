@@ -98,6 +98,11 @@ export type { Worktree, WorktreeConfig, DiffSummary, DiffFileSummary } from "./g
 export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema, DEFAULT_WORKTREE_CONFIG } from "./git/types.js";
 export type { WorktreeStatus } from "./git/types.js";
 
+// ─── Sidecar ─────────────────────────────────────────────────────────────────
+export { SidecarClient, withSidecarOrDirect } from "./sidecar/client.js";
+export { autoStartSidecar, isSidecarRunning, getSidecarStatus, stopSidecarProcess } from "./sidecar/lifecycle.js";
+export { startSidecar, stopSidecar } from "./sidecar/server.js";
+
 // ─── OpenCode Plugin ────────────────────────────────────────────────────────
 // Re-exported as fallback if OpenCode doesn't support subpath imports.
 // Primary access is via `@endpoint/sentinal/opencode-plugin`.

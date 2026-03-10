@@ -35,6 +35,7 @@ import {
   type AssistantType, type SessionMessage,
   TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS,
   processTddGuard, processTddTracking,
+  SidecarClient, autoStartSidecar,
 } from "@endpoint/sentinal";
 
 // Type definitions for OpenCode plugin system
@@ -89,24 +90,48 @@ interface CompactState {
 export const SentinalPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
   const projectRoot = worktree || directory;
 
-  // Memory system: event buffer for pattern detection
   const eventBuffer = new EventBuffer(20);
   let memoryStore: MemoryStore | null = null;
   let memoryService: MemoryService | null = null;
   let specStore: SpecStore | null = null;
+  let sidecar: SidecarClient | null = null;
   let sessionId: string | null = null;
-
-  // Context monitoring: throttle checks to every N tool calls
   let toolCallCount = 0;
 
+  // Try sidecar first, then direct MemoryStore
+  try { autoStartSidecar(); } catch { /* non-fatal */ }
+  try { autoStartDashboard(); } catch { /* non-fatal */ }
+
   if (isMemoryEnabled()) {
-    try {
-      memoryStore = new MemoryStore();
-      memoryService = new MemoryService(memoryStore);
-      specStore = new SpecStore(memoryStore);
-    } catch {
-      // Memory unavailable, continue without it
+    try { sidecar = await SidecarClient.connect(); } catch { /* unavailable */ }
+    if (!sidecar) {
+      try {
+        memoryStore = new MemoryStore();
+        memoryService = new MemoryService(memoryStore);
+        specStore = new SpecStore(memoryStore);
+      } catch (e) {
+        console.error("[Sentinal] MemoryStore init failed:", e instanceof Error ? e.message : e);
+      }
     }
+  } else {
+    console.error("[Sentinal] Memory system disabled via config");
+  }
+
+  // Eager session creation (fallback if session.created never fires)
+  sessionId = `opencode-${Date.now()}`;
+  try {
+    if (sidecar) {
+      await sidecar.createSession({ id: sessionId, projectPath: projectRoot, assistant: "opencode" });
+    } else if (memoryStore) {
+      memoryStore.insertSession({
+        id: sessionId, startTime: Date.now(), endTime: null,
+        projectPath: projectRoot, assistant: "opencode" as AssistantType,
+        summary: null, transcriptPath: null,
+      });
+    }
+    console.error(`[Sentinal] Eager session created: ${sessionId} (${sidecar ? "sidecar" : "direct"})`);
+  } catch (e) {
+    console.error("[Sentinal] Eager session insert failed:", e instanceof Error ? e.message : e);
   }
 
   await client.app.log({
@@ -198,8 +223,8 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
               if (lengthResult.severity === "block") shouldBlock = true;
             }
 
-            if (checkNestPatterns(filePath, content).length > 0) {
-              const nestResults = checkNestPatterns(filePath, content);
+            const nestResults = checkNestPatterns(filePath, content);
+            if (nestResults.length > 0) {
               for (const r of nestResults) {
                 issues.push(`[NestJS] ${r.message}`);
                 if (r.severity === "error") shouldBlock = true;
@@ -269,12 +294,10 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           sessionId: sessionId ?? undefined,
           cwd: projectRoot,
         });
-      } catch {
-        // TDD tracker failure is non-fatal
-      }
+      } catch { /* non-fatal */ }
 
-      // Memory capture: analyze tool event for learning moments (runs for all MEMORY_TOOLS)
-      if (memoryService && sessionId) {
+      // Memory capture: analyze tool event for learning moments
+      if ((sidecar || memoryService) && sessionId) {
         try {
           const event: ToolEvent = {
             toolName: input.tool,
@@ -283,59 +306,45 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
             output: issues.length > 0 ? issues.join("\n").slice(0, 500) : undefined,
             timestamp: Date.now(),
           };
-
           eventBuffer.push(event);
           const decision = analyzeEvent(event, eventBuffer);
-
           if (decision.shouldCapture && decision.confidence >= MIN_CAPTURE_CONFIDENCE) {
-            memoryService.addObservation({
-              sessionId,
-              projectPath: projectRoot,
-              timestamp: Date.now(),
-              type: decision.type,
-              title: decision.title,
-              content: decision.content,
-              filePaths: decision.filePaths,
-              tags: decision.tags,
+            const obsPayload = {
+              sessionId, projectPath: projectRoot, type: decision.type,
+              title: decision.title, content: decision.content,
+              filePaths: decision.filePaths, tags: decision.tags,
               metadata: { source: "auto-capture", confidence: decision.confidence, toolName: input.tool },
-            });
+            };
+            if (sidecar) await sidecar.addObservation(obsPayload);
+            else memoryService!.addObservation({ ...obsPayload, timestamp: Date.now() });
           }
-        } catch {
-          // Memory capture failure is non-fatal
-        }
+        } catch { /* non-fatal */ }
       }
     },
 
     "experimental.session.compacting": async (input, output) => {
-      // Use shared spec detection (handles both metadata formats)
       const active = findActivePlan(projectRoot);
       const activePlan = active?.filePath ?? null;
       const planStatus = active?.spec.status ?? null;
 
-      // Sync active spec to SQLite index before compaction
-      if (active && memoryStore) {
-        try {
-          const specStore = new SpecStore(memoryStore);
-          specStore.syncFromPlanFile(active.filePath, projectRoot);
-        } catch {
-          // Spec sync failure is non-fatal
-        }
-      }
-
-      // Save memory context for post-compact restoration
       let memoryContext: string | null = null;
-      if (memoryService) {
-        try {
-          const restored = restoreContext(memoryService, { projectPath: projectRoot });
-          if (restored.hasMemory) {
-            memoryContext = restored.markdown;
+      try {
+        if (sidecar) {
+          if (active) await sidecar.syncSpec(active.filePath, projectRoot);
+          const restored = await sidecar.restoreContext(projectRoot);
+          if (restored.hasMemory) memoryContext = restored.markdown;
+        } else {
+          if (active && memoryStore) {
+            const ss = new SpecStore(memoryStore);
+            ss.syncFromPlanFile(active.filePath, projectRoot);
           }
-        } catch {
-          // Memory unavailable, continue without it
+          if (memoryService) {
+            const restored = restoreContext(memoryService, { projectPath: projectRoot });
+            if (restored.hasMemory) memoryContext = restored.markdown;
+          }
         }
-      }
+      } catch { /* non-fatal */ }
 
-      // Persist state to disk for session restoration
       const stateDir = join(projectRoot, ".sentinal");
       mkdirSync(stateDir, { recursive: true });
       const state: CompactState = {
@@ -346,7 +355,6 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
       };
       writeFileSync(join(stateDir, "compact-state.json"), JSON.stringify(state, null, 2));
 
-      // Inject spec plan context into compacted prompt
       if (activePlan) {
         output.context.push(`## Sentinal /spec Workflow State
 
@@ -360,7 +368,6 @@ Resume the /spec workflow by reading the plan file and continuing from where you
 Use \`/spec ${activePlan}\` to resume the workflow.`);
       }
 
-      // Inject memory context into compacted prompt
       if (memoryContext) {
         output.context.push(memoryContext);
       }
@@ -368,50 +375,46 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
 
     event: async ({ event }) => {
       if (event.type === "session.created") {
-        // Track session ID for memory capture
-        sessionId = event.sessionID ?? `opencode-${Date.now()}`;
+        const newSessionId = event.sessionID ?? `opencode-${Date.now()}`;
+        const previousSessionId = sessionId;
+        sessionId = newSessionId;
+        console.error(`[Sentinal] session.created: ${sessionId}${previousSessionId ? ` (replacing ${previousSessionId})` : ""}`);
 
-        // Create session record in SQLite
-        if (memoryStore) {
-          try {
-            memoryStore.insertSession({
-              id: sessionId,
-              startTime: Date.now(),
-              endTime: null,
-              projectPath: projectRoot,
-              assistant: "opencode" as AssistantType,
-              summary: null,
-              transcriptPath: null,
-            });
-          } catch {
-            // Non-fatal — session tracking is supplementary
-          }
-        }
-
-        // Auto-start dashboard if not running
         try {
-          autoStartDashboard();
-        } catch {
-          // Non-fatal — dashboard is supplementary
+          // End previous eager session if different ID
+          if (previousSessionId && previousSessionId !== newSessionId) {
+            if (sidecar) await sidecar.endSession(previousSessionId, { notification: false });
+            else if (memoryStore) try { memoryStore.endSession(previousSessionId); } catch { /* may not exist */ }
+          }
+          // Create real session
+          if (sidecar) {
+            await sidecar.createSession({ id: sessionId, projectPath: projectRoot, assistant: "opencode" });
+          } else if (memoryStore) {
+            memoryStore.insertSession({
+              id: sessionId, startTime: Date.now(), endTime: null,
+              projectPath: projectRoot, assistant: "opencode" as AssistantType,
+              summary: null, transcriptPath: null,
+            });
+          }
+          console.error(`[Sentinal] Session inserted: ${sessionId}`);
+        } catch (e) {
+          console.error("[Sentinal] insertSession failed:", e instanceof Error ? e.message : e);
         }
 
-        // Restore memory context at session start
-        if (memoryService) {
-          try {
+        // Restore memory context
+        try {
+          if (sidecar) {
+            const restored = await sidecar.restoreContext(projectRoot);
+            if (restored.hasMemory && restored.markdown) {
+              await client.app.log({ body: { service: "sentinal", level: "info", message: restored.markdown } });
+            }
+          } else if (memoryService) {
             const restored = restoreContext(memoryService, { projectPath: projectRoot });
             if (restored.hasMemory && restored.markdown) {
-              await client.app.log({
-                body: {
-                  service: "sentinal",
-                  level: "info",
-                  message: restored.markdown,
-                },
-              });
+              await client.app.log({ body: { service: "sentinal", level: "info", message: restored.markdown } });
             }
-          } catch {
-            // Memory restore failure is non-fatal
           }
-        }
+        } catch { /* non-fatal */ }
 
         // Restore spec plan state from previous compaction
         const stateFile = join(projectRoot, ".sentinal", "compact-state.json");
@@ -419,54 +422,36 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           try {
             const state: CompactState = JSON.parse(readFileSync(stateFile, "utf-8"));
             if (state.activePlan && existsSync(state.activePlan)) {
-              await client.app.log({
-                body: {
-                  service: "sentinal",
-                  level: "info",
-                  message: `[Sentinal] Session restored. Active plan: ${state.activePlan}\nResume with: /spec ${state.activePlan}`,
-                },
-              });
+              await client.app.log({ body: { service: "sentinal", level: "info", message: `[Sentinal] Session restored. Active plan: ${state.activePlan}\nResume with: /spec ${state.activePlan}` } });
             }
-          } catch {
-            // Ignore
-          }
+          } catch { /* ignore */ }
         }
       }
 
       if (event.type === "session.deleted") {
-        if (memoryStore && sessionId) {
+        if (sessionId) {
           try {
-            // End session record in SQLite
-            memoryStore.endSession(sessionId);
-
-            // Create session-end notification
-            memoryStore.insertNotification({
-              type: "info",
-              title: "Session ended",
-              message: `Session ${sessionId.slice(0, 8)} ended`,
-              source: "session-end",
-              sessionId,
-            });
-
-            // Auto-stop dashboard if no active sessions remain
-            const activeSessions = memoryStore.getActiveSessions();
-            if (activeSessions.length === 0) {
-              stopServer();
+            if (sidecar) {
+              await sidecar.endSession(sessionId, { notification: true });
+              const active = await sidecar.getActiveSessions();
+              if (active.length === 0) stopServer();
+            } else if (memoryStore) {
+              memoryStore.endSession(sessionId);
+              memoryStore.insertNotification({
+                type: "info", title: "Session ended",
+                message: `Session ${sessionId.slice(0, 8)} ended`,
+                source: "session-end", sessionId,
+              });
+              const active = memoryStore.getActiveSessions();
+              if (active.length === 0) stopServer();
             }
-          } catch {
-            // Non-fatal — session may not have been started
+            console.error(`[Sentinal] Session ended: ${sessionId}`);
+          } catch (e) {
+            console.error("[Sentinal] endSession failed:", e instanceof Error ? e.message : e);
           }
         }
-
-        // Clean up event buffer (no longer needed after session ends)
         const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
-        try {
-          if (existsSync(bufferPath)) {
-            unlinkSync(bufferPath);
-          }
-        } catch {
-          // Non-fatal cleanup
-        }
+        try { if (existsSync(bufferPath)) unlinkSync(bufferPath); } catch { /* non-fatal */ }
       }
 
       if (event.type === "session.idle") {

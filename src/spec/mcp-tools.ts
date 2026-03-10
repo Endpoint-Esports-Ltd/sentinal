@@ -8,13 +8,14 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { MemoryStore } from "../memory/store.js";
+import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
 
 // --- Public API ---
 
-export function registerSpecTools(server: McpServer, store: MemoryStore): void {
-  const specStore = new SpecStore(store);
+export function registerSpecTools(server: McpServer, store: MemoryStore | null): void {
+  const effectiveStore = store ?? new MemoryStore();
+  const specStore = new SpecStore(effectiveStore);
   registerSpecStatusTool(server, specStore);
 }
 
