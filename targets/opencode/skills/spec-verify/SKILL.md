@@ -1,6 +1,6 @@
 ---
+name: spec-verify
 description: Feature verification phase - tests, automated checks, code review, E2E
-argument-hint: <path/to/plan.md>
 ---
 
 # Feature Verification Phase
@@ -9,9 +9,9 @@ argument-hint: <path/to/plan.md>
 
 ARGUMENTS: $ARGUMENTS
 
-## Phase 1: Launch Spec Reviewer (Background)
+## Phase 1: Launch Spec Reviewer
 
-Launch the `spec-reviewer` sub-agent with the plan file path. It will write findings to a JSON file.
+Invoke the `@spec-reviewer` subagent with the plan file path. It will write findings to a JSON file.
 
 ## Phase 2: Automated Checks
 

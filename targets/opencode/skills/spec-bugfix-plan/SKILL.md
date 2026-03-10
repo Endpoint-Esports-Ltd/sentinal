@@ -1,6 +1,6 @@
 ---
+name: spec-bugfix-plan
 description: Bugfix planning phase - analyze bug, design fix, get approval
-argument-hint: <bug description> or <path/to/plan.md>
 ---
 
 # Bugfix Planning Phase
@@ -74,4 +74,4 @@ Done: 0 | Left: N
 
 Present the bug analysis, Behavior Contract, and plan. Ask for approval.
 
-After approval: update plan header to `Approved: Yes`, then invoke /spec-implement <plan-path>.
+After approval: update plan header to `Approved: Yes`, then load the `spec-implement` skill with the plan path.

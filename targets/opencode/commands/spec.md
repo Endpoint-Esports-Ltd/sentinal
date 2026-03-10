@@ -16,14 +16,14 @@ ARGUMENTS: $ARGUMENTS
 1. Read the plan file to get `Status:` and `Type:` headers
 2. Route based on status:
 
-| Status | Approved | Type | Next Command |
-|--------|----------|------|--------------|
-| PENDING | No | Feature (or absent) | Run `/spec-plan $ARGUMENTS` |
-| PENDING | No | Bugfix | Run `/spec-bugfix-plan $ARGUMENTS` |
-| PENDING | Yes | * | Run `/spec-implement $ARGUMENTS` |
-| COMPLETE | * | Feature (or absent) | Run `/spec-verify $ARGUMENTS` |
-| COMPLETE | * | Bugfix | Run `/spec-bugfix-verify $ARGUMENTS` |
-| VERIFIED | * | * | Report completion |
+| Status | Approved | Type | Next Action |
+|--------|----------|------|-------------|
+| PENDING | No | Feature (or absent) | Load skill `spec-plan` with $ARGUMENTS |
+| PENDING | No | Bugfix | Load skill `spec-bugfix-plan` with $ARGUMENTS |
+| PENDING | Yes | * | Load skill `spec-implement` with $ARGUMENTS |
+| COMPLETE | * | Feature (or absent) | Load skill `spec-verify` with $ARGUMENTS |
+| COMPLETE | * | Bugfix | Load skill `spec-bugfix-verify` with $ARGUMENTS |
+| VERIFIED | * | * | Run completion audit, then report completion |
 
 ### If ARGUMENTS is a task description (no .md path):
 
@@ -37,12 +37,19 @@ ARGUMENTS: $ARGUMENTS
    - "No" - direct implementation on current branch
 
 3. Route to the appropriate planning skill:
-   - Feature → /spec-plan $ARGUMENTS
-   - Bugfix → /spec-bugfix-plan $ARGUMENTS
+   - Feature → Load skill `spec-plan` with $ARGUMENTS
+   - Bugfix → Load skill `spec-bugfix-plan` with $ARGUMENTS
+
+### Completion Audit (VERIFIED status)
+
+When a spec reaches VERIFIED, run the `spec_status` MCP tool to check for any task state discrepancies between the plan `.md` file and the stored task states. Report:
+- Total tasks and how many are marked complete
+- Any tasks that are checked in the `.md` but not marked complete in the store (or vice versa)
+- Final status summary
 
 ## Rules
 
 - You are a DISPATCHER only - do NOT explore code, read files, or do substantive work
-- Only use `AskUserQuestion` and `/slash-commands`
+- Only use the `question` tool and the `skill` tool to route to sub-phases
 - Everything after `/spec` is the task description
 - Route to the correct skill and let it handle the work

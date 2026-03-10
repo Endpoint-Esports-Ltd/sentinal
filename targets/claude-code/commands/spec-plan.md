@@ -67,7 +67,7 @@ Done: 0 | Left: N
 
 ## Phase 4: Plan Review (Optional)
 
-If the plan has more than 3 tasks: launch the `plan-reviewer` sub-agent in background.
+If the plan has more than 3 tasks: launch the `plan-reviewer` sub-agent using `Task(plan-reviewer: "Review the plan at <plan-path> and write findings to <plan-path>.review.json")`.
 
 ## Phase 5: User Approval
 

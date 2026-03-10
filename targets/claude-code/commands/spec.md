@@ -23,7 +23,7 @@ ARGUMENTS: $ARGUMENTS
 | PENDING | Yes | * | Run `Skill(skill='spec-implement', args='$ARGUMENTS')` |
 | COMPLETE | * | Feature (or absent) | Run `Skill(skill='spec-verify', args='$ARGUMENTS')` |
 | COMPLETE | * | Bugfix | Run `Skill(skill='spec-bugfix-verify', args='$ARGUMENTS')` |
-| VERIFIED | * | * | Report completion |
+| VERIFIED | * | * | Run completion audit, then report completion |
 
 ### If ARGUMENTS is a task description (no .md path):
 

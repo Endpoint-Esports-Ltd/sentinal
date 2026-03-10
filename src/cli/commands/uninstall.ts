@@ -39,17 +39,8 @@ const MARKETPLACE_DIR = join(homedir(), ".claude", "plugins", "sentinal-marketpl
 const MARKETPLACE_NAME = "sentinal-marketplace";
 const PLUGIN_NAME = "sentinal";
 
-/** Hardcoded list of command files installed by Sentinal. */
-const COMMAND_FILES = [
-  "spec",
-  "spec-plan",
-  "spec-implement",
-  "spec-verify",
-  "spec-bugfix-plan",
-  "spec-bugfix-verify",
-  "sync",
-  "learn",
-];
+/** Command files installed by Sentinal (sub-phases removed — now skills). */
+const COMMAND_FILES = ["spec", "sync", "learn"];
 
 /** Hardcoded list of rule files installed by Sentinal. */
 const RULE_FILES = [
@@ -62,6 +53,12 @@ const RULE_FILES = [
 
 /** MCP server keys managed by Sentinal. */
 const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal"];
+
+/** Agent files installed by Sentinal. */
+const AGENT_FILES = ["plan-reviewer.md", "spec-reviewer.md"];
+
+/** Skill directory names installed by Sentinal. */
+const SKILL_DIRS = ["spec-plan", "spec-implement", "spec-verify", "spec-bugfix-plan", "spec-bugfix-verify"];
 
 /** All possible plugin filenames (deployed via different install paths). */
 const PLUGIN_FILENAMES = ["sentinal.mjs", "sentinal.ts", "sentinal.js"];
@@ -133,8 +130,10 @@ async function uninstallDispatcher(
 
   // Claude: check marketplace directory exists
   const hasClaude = existsSync(MARKETPLACE_DIR);
-  // OpenCode: check for any known plugin file variant
-  const hasOpencode = PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)));
+  // OpenCode: check for plugin files, agents, or skills
+  const hasOpencode = PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)))
+    || AGENT_FILES.some((f) => existsSync(join(xdgConfig, "opencode", "agents", f)))
+    || SKILL_DIRS.some((d) => existsSync(join(xdgConfig, "opencode", "skills", d)));
 
   if (hasClaude) ok("  Claude Code plugin found");
   else info("  ! Claude Code plugin not found");
@@ -319,6 +318,28 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
     }
   }
 
+  // ── Remove agents ──
+
+  const agentsDir = join(targetDir, "agents");
+  info("Removing agents...");
+  for (const agent of AGENT_FILES) {
+    if (removeFileIfExists(join(agentsDir, agent))) {
+      ok(`    ${agent}`);
+    }
+  }
+
+  // ── Remove skills ──
+
+  const skillsDir = join(targetDir, "skills");
+  info("Removing skills...");
+  for (const skill of SKILL_DIRS) {
+    const skillDir = join(skillsDir, skill);
+    if (existsSync(skillDir)) {
+      removeDirIfExists(skillDir);
+      ok(`    ${skill}/`);
+    }
+  }
+
   // ── Remove global package ──
 
   info("Removing @endpoint/sentinal (global)...");
@@ -396,6 +417,33 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
       }
       config.mcp = mcp;
 
+      // Remove sentinal permission entries (skill, edit rules for plan files)
+      const perm = config.permission as Record<string, unknown> | undefined;
+      if (perm) {
+        delete perm.skill;
+        if (typeof perm.edit === "object" && perm.edit) {
+          const edit = perm.edit as Record<string, string>;
+          for (const key of Object.keys(edit)) {
+            if (key.includes("docs/plans")) delete edit[key];
+          }
+          if (Object.keys(edit).length <= 1) delete perm.edit; // only "*" left
+        }
+        if (Object.keys(perm).length === 0) delete config.permission;
+      }
+
+      // Remove sentinal agent config entries
+      const agents = config.agent as Record<string, Record<string, unknown>> | undefined;
+      if (agents) {
+        for (const [name, agentCfg] of Object.entries(agents)) {
+          const taskPerm = (agentCfg.permission as Record<string, unknown>)?.task as Record<string, string> | undefined;
+          if (taskPerm) {
+            for (const key of [...AGENT_FILES.map(f => f.replace(".md", "")), "plan-reviewer", "spec-reviewer"]) {
+              delete taskPerm[key];
+            }
+          }
+        }
+      }
+
       // Check if config is now effectively empty
       if (isConfigEffectivelyEmpty(config)) {
         unlinkSync(configFile);
@@ -412,7 +460,7 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
   // ── Clean up empty directories ──
 
   info("Cleaning up empty directories...");
-  for (const dir of [pluginsDir, commandsDir, rulesDir]) {
+  for (const dir of [pluginsDir, commandsDir, rulesDir, agentsDir, skillsDir]) {
     removeDirIfEmpty(dir);
   }
   ok("  Cleanup complete");
@@ -483,7 +531,7 @@ function removeBinary(): void {
 function isConfigEffectivelyEmpty(config: Record<string, unknown>): boolean {
   const plugins = (config.plugin as string[]) ?? [];
   const mcp = (config.mcp as Record<string, unknown>) ?? {};
-  const knownKeys = new Set(["$schema", "plugin", "mcp", "lsp"]);
+  const knownKeys = new Set(["$schema", "plugin", "mcp", "lsp", "permission", "agent"]);
   const hasExtraKeys = Object.keys(config).some((k) => !knownKeys.has(k));
 
   return plugins.length === 0 && Object.keys(mcp).length === 0 && !hasExtraKeys;

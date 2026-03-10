@@ -35,9 +35,9 @@ If a `<topic>` argument is provided, focus extraction on that specific topic. Ot
    - **filePaths:** Related file paths (if applicable)
 
 4. **Optionally create a skill file** (only for multi-step workflows that will recur):
-   - Check existing skills in `.claude/skills/` to avoid duplication
-   - Create a new skill at `.claude/skills/<name>/SKILL.md`
-   - Or update an existing rule in `.claude/rules/`
+   - Check existing skills in `.opencode/skills/` to avoid duplication
+   - Create a new skill at `.opencode/skills/<name>/SKILL.md`
+   - Or update an existing rule in `.opencode/rules/`
 
 ## Skill Format
 
