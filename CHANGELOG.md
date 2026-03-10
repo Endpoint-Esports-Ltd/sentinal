@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.3.0...v1.3.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* opencode agents and overall skills being broken ([bc11bf1](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bc11bf184b2556d62b7381b52ee39c3c7faa5f74))
+
 # [1.3.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.2.3...v1.3.0) (2026-03-10)
 
 
