@@ -61,6 +61,9 @@ export type { ModelRouting } from "./config/types.js";
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 export { estimateContextUsage, type ContextUsage } from "./sessions/context.js";
+export { formatTokens, formatContextBar, getContextWarning } from "./sessions/context-display.js";
+export { aggregateTokenUsage, CONTEXT_CHECK_INTERVAL } from "./sessions/token-usage.js";
+export type { SessionMessage, MessageTokens } from "./sessions/token-usage.js";
 
 // ─── Git / Worktree ──────────────────────────────────────────────────────────
 export { WorktreeStore } from "./git/worktree-store.js";

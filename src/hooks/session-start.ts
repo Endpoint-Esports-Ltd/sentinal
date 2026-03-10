@@ -11,7 +11,7 @@ import { readStdin } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import type { AssistantType } from "../memory/types.js";
 
-function detectAssistant(): AssistantType {
+export function detectAssistant(): AssistantType {
   // CLAUDE_PLUGIN_ROOT is set when running within a Claude Code plugin
   if (process.env.CLAUDE_PLUGIN_ROOT) return "claude-code";
   return "opencode";

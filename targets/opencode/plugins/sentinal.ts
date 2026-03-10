@@ -12,6 +12,7 @@
  * - Angular 17+ pattern validation (standalone components, control flow)
  * - TypeScript type checking (tsc --noEmit)
  * - Tool redirection hints (semantic search suggestions)
+ * - Context usage monitoring with visual bar (▓/░ blocks)
  * - Session state preservation across compaction
  * - Persistent memory: auto-capture learning moments + restore at session start
  *
@@ -28,7 +29,8 @@ import {
   analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, type ToolEvent,
   restoreContext,
   findActivePlan, shouldBlockStop, SpecStore,
-  type AssistantType,
+  aggregateTokenUsage, getContextWarning, CONTEXT_CHECK_INTERVAL,
+  type AssistantType, type SessionMessage,
 } from "@endpoint/sentinal";
 
 // Type definitions for OpenCode plugin system
@@ -39,6 +41,9 @@ interface PluginContext {
   client: {
     app: {
       log(options: { body: { service: string; level: string; message: string } }): Promise<void>;
+    };
+    session: {
+      messages(options: { path: { id: string } }): Promise<unknown>;
     };
   };
   $: (strings: TemplateStringsArray, ...values: unknown[]) => any;
@@ -101,6 +106,9 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   let memoryService: MemoryService | null = null;
   let sessionId: string | null = null;
 
+  // Context monitoring: throttle checks to every N tool calls
+  let toolCallCount = 0;
+
   if (isMemoryEnabled()) {
     try {
       memoryStore = new MemoryStore();
@@ -149,6 +157,26 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
     "tool.execute.after": async (input, output) => {
       const QUALITY_TOOLS = ["write", "edit", "patch"];
       const MEMORY_TOOLS = ["write", "edit", "patch", "bash", "shell", "terminal"];
+
+      // Context monitoring: check every N tool calls (any tool, not just MEMORY_TOOLS)
+      toolCallCount++;
+      if (sessionId && toolCallCount % CONTEXT_CHECK_INTERVAL === 0) {
+        try {
+          const response = await client.session.messages({ path: { id: sessionId } });
+          const messages = ((response as any)?.data ?? response ?? []) as SessionMessage[];
+          if (Array.isArray(messages)) {
+            const usage = aggregateTokenUsage(messages);
+            const warning = getContextWarning(usage);
+            if (warning) {
+              await client.app.log({
+                body: { service: "sentinal", level: usage.percent >= 95 ? "error" : "warn", message: `[Sentinal] ${warning}` },
+              });
+            }
+          }
+        } catch {
+          // Context monitoring failure is non-fatal
+        }
+      }
 
       if (!MEMORY_TOOLS.includes(input.tool)) return;
 

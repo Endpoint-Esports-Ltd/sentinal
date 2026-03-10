@@ -96,7 +96,7 @@ Type: Feature
 - [x] Task 3: Memory system (observations CRUD, search, timeline)
 - [x] Task 4: Session management + check-context (complete — session CRUD, transcript_path via v4 migration, getActiveSessions/listSessions/cleanupStaleSessions, CLI commands `sessions list/cleanup` + `check-context`, full test coverage)
 - [x] Task 5: Plan registration + worktree commands (complete — migrations extracted, V5 schema, git utils, WorktreeStore, WorktreeManager full lifecycle, register-plan CLI, worktree CLI with 6 subcommands)
-- [~] Task 6: Hook integration — replace legacy dependency + context rescaling (partial — legacy refs removed, native context estimation, rescaling, session-start/end hooks done; context bar visualization, `Bash(sentinal:*)` permission, session-start test, notification on session-end, server kill on last session remaining)
+- [~] Task 6: Hook integration — replace legacy dependency + context rescaling (partial — legacy refs removed, native context estimation, rescaling, session-start/end hooks done, context bar visualization done for both Claude Code and OpenCode, `Bash(sentinal:*)` permission added, session-start test added, OpenCode context monitoring via SDK token aggregation; notification on session-end + server kill on last session deferred to Task 8/9)
 - [x] Task 7: Memory MCP server (refactored to src/mcp/server.ts with modular tool registration; 5 memory tools + spec_status tool)
 - [ ] Task 8: Console dashboard — server + layout + Dashboard view
 - [ ] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views
@@ -420,11 +420,11 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - [x] SessionStart hook registers sessions in SQLite (`src/hooks/session-start.ts` — `store.insertSession()`)
 - [~] SessionEnd hook ends sessions, sends notification, kills server if last session (ends session done; notification and server kill not implemented)
 - [~] pre-compact.ts saves state to both compact-state.json AND SQLite (JSON file + spec sync to SQLite via `SpecStore.syncFromPlanFile()` done; compact event notification to SQLite not done)
-- [ ] Context bar visualization includes buffer indicator
-- [ ] `Bash(sentinal:*)` added to settings.json permissions
-- [x] All existing tests pass, new hook tests added (`context-monitor.test.ts` recalibrated for 80/90/95% thresholds — 6 tests; `spec-stop-guard.test.ts` — 4 tests)
-- [ ] No diagnostics errors
-- [ ] `src/hooks/session-start.test.ts` created
+- [x] Context bar visualization includes buffer indicator
+- [x] `Bash(sentinal:*)` added to settings.json permissions
+- [x] All existing tests pass, new hook tests added (`context-monitor.test.ts` recalibrated for 80/90/95% thresholds — 6 tests; `spec-stop-guard.test.ts` — 4 tests; `session-start.test.ts` — 6 tests)
+- [x] No diagnostics errors
+- [x] `src/hooks/session-start.test.ts` created
 
 **What was implemented (differs from plan):**
 - `src/hooks/context-monitor.ts` — REWRITTEN: replaced `legacy check-context` with native `estimateContextUsage()` from `src/sessions/context.ts`. Thresholds: 80%/90%/95% effective. Plain text warnings (no visualization bar).
@@ -435,12 +435,18 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - `targets/claude-code/hooks/hooks.json` — SessionStart hook added (non-compact entry); memory-observer matcher includes `Bash`
 - OpenCode parity: all hook features mirrored in `targets/opencode/plugins/sentinal.ts` (session tracking, spec detection, bash memory capture)
 
-**Not yet implemented from plan:**
-- Context bar visualization (`▓`/`░` blocks with buffer indicator)
-- `Bash(sentinal:*)` permission in `targets/claude-code/settings.json`
-- `src/hooks/session-start.test.ts` — test file for session start hook
+**Not yet implemented from plan (deferred to Task 8/9 — dashboard dependency):**
 - Notification on session end (dashboard integration, depends on Task 8)
 - Kill dashboard server on last session end (depends on Task 8)
+
+**Implemented in follow-up (2026-03-09-hook-integration-completion.md):**
+- Context bar visualization (`▓`/`░` blocks with token count) in `context-monitor.ts`
+- `Bash(sentinal:*)` permission added to `targets/claude-code/settings.json`
+- `src/hooks/session-start.test.ts` created (6 tests), `detectAssistant()` exported
+- OpenCode context monitoring via SDK token aggregation (`aggregateTokenUsage()` in `src/sessions/token-usage.ts`)
+- Shared context display functions extracted to `src/sessions/context-display.ts` (used by both targets)
+- OpenCode PluginClient types extended with `session.messages()` for token data access
+- Throttled context checks every 5 tool calls to avoid API overhead
 
 **Verify:**
 ```bash

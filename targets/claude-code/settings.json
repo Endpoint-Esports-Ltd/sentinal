@@ -22,6 +22,7 @@
       "Bash(vitest:*)",
       "Bash(playwright:*)",
       "Bash(vexor:*)",
+      "Bash(sentinal:*)",
       "Bash(git:*)",
       "Bash(ls:*)",
       "Bash(find:*)",

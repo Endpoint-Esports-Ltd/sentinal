@@ -56,6 +56,37 @@ export interface PluginClient {
   app: {
     log(options: { body: LogBody }): Promise<void>;
   };
+  session: {
+    messages(options: { path: { id: string } }): Promise<SessionMessageResponse[]>;
+  };
+}
+
+/**
+ * Session message response from the SDK
+ */
+export interface SessionMessageResponse {
+  info: {
+    id: string;
+    role: string;
+    modelID?: string;
+    providerID?: string;
+    tokens?: SessionMessageTokens;
+    cost?: number;
+  };
+  parts: unknown[];
+}
+
+/**
+ * Token usage from an assistant message
+ */
+export interface SessionMessageTokens {
+  input: number;
+  output: number;
+  reasoning: number;
+  cache: {
+    read: number;
+    write: number;
+  };
 }
 
 export interface LogBody {
