@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.2.3...v1.3.0) (2026-03-10)
+
+
+### Features
+
+* **cli:** add support for GITHUB_TOKEN to the update CLI command ([5f20dde](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5f20dde6f0791870b2ed1771e15f7dd566aa65e7))
+
 ## [1.2.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.2.2...v1.2.3) (2026-03-10)
 
 
