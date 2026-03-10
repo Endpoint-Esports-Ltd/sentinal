@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.2.1...v1.2.2) (2026-03-10)
+
+
+### Bug Fixes
+
+* installer and uninstaller ([a0fedef](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a0fedef77c25719d512667fdf4bdb9806478a0f7))
+
 ## [1.2.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.2.0...v1.2.1) (2026-03-10)
 
 
