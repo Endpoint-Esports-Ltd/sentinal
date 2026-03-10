@@ -44,6 +44,19 @@ import {
   AGENTS_MD_LOCAL_TEMPLATE,
   AGENTS_MD_APPEND,
 } from "./install-constants.js";
+import {
+  EMBEDDED_OPENCODE_PLUGIN,
+  EMBEDDED_COMMANDS,
+  EMBEDDED_RULES,
+  EMBEDDED_CC_PLUGIN_JSON,
+  EMBEDDED_CC_LSP_JSON,
+  EMBEDDED_CC_MCP_JSON,
+  EMBEDDED_CC_SETTINGS_JSON,
+  EMBEDDED_CC_HOOKS_JSON,
+  EMBEDDED_CC_AGENTS,
+  EMBEDDED_CC_COMMANDS,
+  EMBEDDED_CC_RULES,
+} from "../embedded-assets.js";
 
 // ─── Register command ───────────────────────────────────────────────────────
 
@@ -243,13 +256,16 @@ async function installClaudeCode(): Promise<void> {
     JSON.stringify(marketplaceManifest, null, 2) + "\n",
   );
 
-  // Copy the entire claude-code target into the marketplace plugin dir
-  const assetsDir = resolveAssetsDir();
-  const claudeTarget = join(assetsDir, "claude-code");
-
-  copyDirRecursive(claudeTarget, pluginDir, {
-    exclude: ["install.sh", "uninstall.sh", "tsconfig.json", "dist"],
-  });
+  // Copy target assets into the marketplace plugin dir
+  if (isBinaryMode()) {
+    writeClaudeCodeEmbeddedAssets(pluginDir);
+  } else {
+    const assetsDir = resolveAssetsDir();
+    const claudeTarget = join(assetsDir, "claude-code");
+    copyDirRecursive(claudeTarget, pluginDir, {
+      exclude: ["install.sh", "uninstall.sh", "tsconfig.json", "dist"],
+    });
+  }
 
   ok(`[OK] Marketplace created at ${MARKETPLACE_DIR}`);
 
@@ -288,6 +304,64 @@ async function installClaudeCode(): Promise<void> {
   console.log("  Restart Claude Code to activate the plugin.\n");
 }
 
+// ─── Claude Code embedded asset writer ──────────────────────────────────────
+
+/** Write all Claude Code plugin files from embedded constants into pluginDir. */
+function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
+  // .claude-plugin/plugin.json
+  mkdirp(join(pluginDir, ".claude-plugin"));
+  writeFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), EMBEDDED_CC_PLUGIN_JSON);
+
+  // Top-level config files
+  writeFileSync(join(pluginDir, ".lsp.json"), EMBEDDED_CC_LSP_JSON);
+  writeFileSync(join(pluginDir, "settings.json"), EMBEDDED_CC_SETTINGS_JSON);
+
+  // .mcp.json — patch sentinal server command to use full binary path
+  const mcpConfig = JSON.parse(EMBEDDED_CC_MCP_JSON);
+  if (mcpConfig.mcpServers?.sentinal) {
+    const binPath = getSentinalBinPath();
+    mcpConfig.mcpServers.sentinal.command = binPath;
+    mcpConfig.mcpServers.sentinal.args = ["mcp-server"];
+  }
+  writeFileSync(join(pluginDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2) + "\n");
+
+  // hooks/hooks.json
+  mkdirp(join(pluginDir, "hooks"));
+  writeFileSync(join(pluginDir, "hooks", "hooks.json"), EMBEDDED_CC_HOOKS_JSON);
+
+  // agents/*.md
+  mkdirp(join(pluginDir, "agents"));
+  for (const [name, content] of Object.entries(EMBEDDED_CC_AGENTS) as [string, string][]) {
+    writeFileSync(join(pluginDir, "agents", name), content);
+  }
+
+  // commands/*.md
+  mkdirp(join(pluginDir, "commands"));
+  for (const [name, content] of Object.entries(EMBEDDED_CC_COMMANDS) as [string, string][]) {
+    writeFileSync(join(pluginDir, "commands", name), content);
+  }
+
+  // rules/*.md
+  mkdirp(join(pluginDir, "rules"));
+  for (const [name, content] of Object.entries(EMBEDDED_CC_RULES) as [string, string][]) {
+    writeFileSync(join(pluginDir, "rules", name), content);
+  }
+}
+
+// ─── Binary mode detection ──────────────────────────────────────────────────
+
+/** True when running from compiled binary (no source tree / npm package). */
+function isBinaryMode(): boolean {
+  return (process.argv[1] ?? "").startsWith("/$bunfs/");
+}
+
+/** Get the full path to the sentinal binary (for MCP server config). */
+function getSentinalBinPath(): string {
+  const installed = join(homedir(), ".sentinal", "bin", "sentinal");
+  if (existsSync(installed)) return installed;
+  return "sentinal"; // fallback to PATH
+}
+
 // ─── OpenCode installer ─────────────────────────────────────────────────────
 
 async function installOpenCode(local: boolean, bundled: boolean = false): Promise<void> {
@@ -295,145 +369,114 @@ async function installOpenCode(local: boolean, bundled: boolean = false): Promis
   note("  for OpenCode");
   console.log("");
 
+  const binary = isBinaryMode() || bundled;
+
   // ── Prerequisites ──
 
   info("Checking prerequisites...");
 
   if (!commandExists("opencode")) {
     err("x OpenCode not found");
-    console.log("");
-    console.log("Install OpenCode from https://opencode.ai:");
-    console.log("  curl -fsSL https://opencode.ai/install | bash");
-    console.log("");
+    console.log("  Install: curl -fsSL https://opencode.ai/install | bash");
     process.exit(1);
   }
   ok("  OpenCode found");
 
-  if (!commandExists("bun")) {
-    err("x Bun not found");
-    console.log("  Install from https://bun.sh");
-    process.exit(1);
+  if (!binary) {
+    if (!commandExists("bun")) { err("x Bun not found"); console.log("  Install from https://bun.sh"); process.exit(1); }
+    ok("  Bun found");
   }
-  ok("  Bun found");
 
-  if (!commandExists("node")) {
-    err("x Node.js not found");
-    console.log("  Install Node.js 18+ from https://nodejs.org");
-    process.exit(1);
-  }
+  if (!commandExists("node")) { err("x Node.js not found"); console.log("  Install Node.js 18+ from https://nodejs.org"); process.exit(1); }
   ok("  Node.js found");
   console.log("");
 
   // ── Determine target directories ──
   const xdgConfig = resolveXdgConfig();
   const globalConfig = join(xdgConfig, "opencode");
+  const targetDir = local ? join(process.cwd(), ".opencode") : globalConfig;
+  const commandsDir = join(targetDir, "commands");
+  const rulesDir = join(targetDir, "rules");
+  const pluginsDir = join(targetDir, "plugins");
 
-  let targetDir: string;
-  let commandsDir: string;
-  let rulesDir: string;
-
-  if (local) {
-    targetDir = join(process.cwd(), ".opencode");
-    commandsDir = join(targetDir, "commands");
-    rulesDir = join(targetDir, "rules");
-    note(`Installing to current project: ${targetDir}`);
-  } else {
-    targetDir = globalConfig;
-    commandsDir = join(globalConfig, "commands");
-    rulesDir = join(globalConfig, "rules");
-    note(`Installing globally: ${targetDir}`);
-  }
-
+  note(`Installing ${local ? "to current project" : "globally"}: ${targetDir}`);
   console.log("");
 
-  // ── Create directories & install globally ──
   mkdirp(commandsDir);
   mkdirp(rulesDir);
   ok("  Directories created");
-  info("Installing @endpoint/sentinal globally...");
 
-  // Check scoped registry
-  const npmrcPath = join(homedir(), ".npmrc");
-  let hasRegistry = false;
-  if (existsSync(npmrcPath)) {
-    const npmrc = readFileSync(npmrcPath, "utf-8");
-    hasRegistry = npmrc.includes("@endpoint:registry");
-  }
-  if (!hasRegistry) {
-    err("x Scoped registry not configured for @endpoint packages");
-    console.log("  Add to ~/.npmrc: @endpoint:registry=https://npm.cloud.endpoint.gg/");
-    process.exit(1);
-  }
+  // ── Install plugin ──
 
-  if (commandExists("sentinal")) {
-    ok("  @endpoint/sentinal already installed globally");
-  } else {
-    const installResult = run(["bun", "add", "-g", "@endpoint/sentinal"]);
-    if (!installResult.ok) {
-      err(`Failed to install @endpoint/sentinal: ${installResult.stderr}`);
-      process.exit(1);
-    }
-    ok("  @endpoint/sentinal installed globally");
-  }
-
-  if (!commandExists("sentinal")) {
-    info('  ! sentinal not in PATH — add: export PATH="$HOME/.bun/bin:$PATH"');
-  }
-
-  // ── Copy assets ──
-  const assetsDir = resolveAssetsDir();
-  const opencodeTarget = join(assetsDir, "opencode");
-
-  if (bundled) {
-    // Bundled mode: copy the pre-built .js bundle for offline/airgapped environments
-    const bundleSrc = join(opencodeTarget, "dist", "sentinal.js");
-    if (!existsSync(bundleSrc)) {
-      err("x Bundled plugin not found. Run `bun run build:opencode` first.");
-      process.exit(1);
-    }
-    const pluginsDir = join(targetDir, "plugins");
+  if (binary) {
+    // Binary mode: extract embedded plugin from compiled binary
+    info("Extracting embedded plugin...");
     mkdirp(pluginsDir);
-    copyFileSync(bundleSrc, join(pluginsDir, "sentinal.js"));
-    ok("  Bundled plugin installed (offline mode)");
+    writeFileSync(join(pluginsDir, "sentinal.mjs"), EMBEDDED_OPENCODE_PLUGIN);
+    ok("  Plugin extracted to plugins/sentinal.mjs");
   } else {
-    // Normal mode: plugin loaded from npm package — no file copy needed.
-    // sentinal-check tool is inlined in the plugin — no separate file needed.
-    info("Plugin: loaded from @endpoint/sentinal/opencode-plugin (npm package)");
+    // NPM mode: install package globally, plugin loads via package reference
+    info("Installing @endpoint/sentinal globally...");
+    const npmrcPath = join(homedir(), ".npmrc");
+    let hasRegistry = false;
+    if (existsSync(npmrcPath)) hasRegistry = readFileSync(npmrcPath, "utf-8").includes("@endpoint:registry");
+    if (!hasRegistry) {
+      err("x Scoped registry not configured for @endpoint packages");
+      console.log("  Add to ~/.npmrc: @endpoint:registry=https://npm.cloud.endpoint.gg/");
+      process.exit(1);
+    }
+    if (commandExists("sentinal")) {
+      ok("  @endpoint/sentinal already installed globally");
+    } else {
+      const installResult = run(["bun", "add", "-g", "@endpoint/sentinal"]);
+      if (!installResult.ok) { err(`Failed to install: ${installResult.stderr}`); process.exit(1); }
+      ok("  @endpoint/sentinal installed globally");
+    }
+    if (!commandExists("sentinal")) info('  ! sentinal not in PATH — add: export PATH="$HOME/.bun/bin:$PATH"');
   }
 
-  // Commands
+  // ── Install commands ──
+
   info("Installing commands...");
-  const cmdFiles = readdirSyncSafe(join(opencodeTarget, "commands")).filter((f) =>
-    f.endsWith(".md"),
-  );
-  for (const file of cmdFiles) {
-    copyFileSync(join(opencodeTarget, "commands", file), join(commandsDir, file));
-    ok(`    ${file}`);
+  if (binary) {
+    for (const [name, content] of Object.entries(EMBEDDED_COMMANDS)) {
+      writeFileSync(join(commandsDir, name), content);
+      ok(`    ${name}`);
+    }
+  } else {
+    const assetsDir = resolveAssetsDir();
+    for (const file of readdirSyncSafe(join(assetsDir, "opencode", "commands")).filter(f => f.endsWith(".md"))) {
+      copyFileSync(join(assetsDir, "opencode", "commands", file), join(commandsDir, file));
+      ok(`    ${file}`);
+    }
   }
 
-  // Rules
+  // ── Install rules ──
+
   info("Installing rules...");
-  const ruleFiles = readdirSyncSafe(join(opencodeTarget, "rules")).filter((f) =>
-    f.endsWith(".md"),
-  );
-  for (const file of ruleFiles) {
-    copyFileSync(join(opencodeTarget, "rules", file), join(rulesDir, file));
-    ok(`    ${file}`);
+  if (binary) {
+    for (const [name, content] of Object.entries(EMBEDDED_RULES)) {
+      writeFileSync(join(rulesDir, name), content);
+      ok(`    ${name}`);
+    }
+  } else {
+    const assetsDir = resolveAssetsDir();
+    for (const file of readdirSyncSafe(join(assetsDir, "opencode", "rules")).filter(f => f.endsWith(".md"))) {
+      copyFileSync(join(assetsDir, "opencode", "rules", file), join(rulesDir, file));
+      ok(`    ${file}`);
+    }
   }
 
   // ── AGENTS.md ──
 
   info("Creating AGENTS.md...");
   if (!local) {
-    // Global: write complete file
     writeFileSync(join(targetDir, "AGENTS.md"), AGENTS_MD_GLOBAL);
     ok("  Global AGENTS.md created");
   } else {
-    // Local: append or create
     const agentsPath = join(process.cwd(), "AGENTS.md");
     if (existsSync(agentsPath)) {
-      const existing = readFileSync(agentsPath, "utf-8");
-      writeFileSync(agentsPath, existing + AGENTS_MD_APPEND);
+      writeFileSync(agentsPath, readFileSync(agentsPath, "utf-8") + AGENTS_MD_APPEND);
       ok("  Updated existing AGENTS.md");
     } else {
       writeFileSync(agentsPath, AGENTS_MD_LOCAL_TEMPLATE);
@@ -441,81 +484,51 @@ async function installOpenCode(local: boolean, bundled: boolean = false): Promis
     }
   }
 
-  // ── opencode.json config ──
+  // ── opencode config ──
 
   info("Configuring OpenCode...");
 
-  const pluginPath = bundled
-    ? (local ? ".opencode/plugins/sentinal.js" : join(targetDir, "plugins", "sentinal.js"))
+  const pluginPath = binary
+    ? "./plugins/sentinal.mjs"
     : "@endpoint/sentinal/opencode-plugin";
 
-  const configDir = local ? process.cwd() : targetDir;
+  // In binary mode, use absolute binary path for MCP server command
+  const mcpServers = binary
+    ? { ...MCP_SERVERS_OPENCODE, sentinal: { type: "local" as const, command: [getSentinalBinPath(), "mcp-server"] } }
+    : MCP_SERVERS_OPENCODE;
 
-  // Detect existing config
+  const configDir = local ? process.cwd() : targetDir;
   let configFile = join(configDir, "opencode.json");
-  let existingConfig: string | null = null;
+  if (existsSync(join(configDir, "opencode.jsonc"))) configFile = join(configDir, "opencode.jsonc");
 
   if (existsSync(configFile)) {
-    existingConfig = configFile;
-  } else if (existsSync(join(configDir, "opencode.jsonc"))) {
-    existingConfig = join(configDir, "opencode.jsonc");
-    configFile = existingConfig;
-  }
+    let content = readFileSync(configFile, "utf-8");
+    if (configFile.endsWith(".jsonc")) content = stripJsoncComments(content);
 
-  if (existingConfig) {
-    info(`  Found existing config: ${existingConfig}`);
-
-    let content = readFileSync(existingConfig, "utf-8");
-
-    // Strip comments for .jsonc files
-    if (existingConfig.endsWith(".jsonc")) {
-      content = stripJsoncComments(content);
-    }
-
-    // Parse and validate
     let config: Record<string, unknown>;
-    try {
-      config = JSON.parse(content);
-    } catch {
-      err(`x Existing config has invalid JSON syntax`);
-      console.log(`  Please fix: ${existingConfig}`);
-      process.exit(1);
+    try { config = JSON.parse(content); } catch {
+      err(`x Config has invalid JSON: ${configFile}`); process.exit(1);
+      return; // unreachable but satisfies TypeScript
     }
 
-    // Add plugin path if not already present
-    const plugins = (config.plugin as string[]) ?? [];
-    if (plugins.includes(pluginPath)) {
-      ok("    Sentinal plugin already in config");
-    } else {
-      info("    Adding Sentinal plugin...");
-      config.plugin = [...plugins, pluginPath];
-      ok("    Plugin added");
-    }
+    // Remove any old sentinal plugin paths, then add the new one
+    const plugins = ((config.plugin as string[]) ?? []).filter(p => !p.includes("sentinal"));
+    config.plugin = [...plugins, pluginPath];
+    ok("    Plugin configured");
 
-    // Merge MCP servers (existing keys win — matches jq `$new * $existing` semantics)
-    info("    Merging MCP server configurations...");
     const existingMcp = (config.mcp as Record<string, unknown>) ?? {};
-    config.mcp = { ...MCP_SERVERS_OPENCODE, ...existingMcp };
+    config.mcp = { ...mcpServers, ...existingMcp, ...mcpServers };
     ok("    MCP servers merged");
 
-    // Write back
     writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
     ok("  OpenCode configuration updated");
   } else {
-    info("  No existing config found, creating new one...");
-
-    const config = {
+    writeFileSync(configFile, JSON.stringify({
       $schema: "https://opencode.ai/config.json",
       plugin: [pluginPath],
-      mcp: MCP_SERVERS_OPENCODE,
-      lsp: {
-        typescript: {
-          command: ["typescript-language-server", "--stdio"],
-        },
-      },
-    };
-
-    writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
+      mcp: mcpServers,
+      lsp: { typescript: { command: ["typescript-language-server", "--stdio"] } },
+    }, null, 2) + "\n");
     ok(`  OpenCode configuration created: ${configFile}`);
   }
 
@@ -525,12 +538,12 @@ async function installOpenCode(local: boolean, bundled: boolean = false): Promis
   ok("Sentinal for OpenCode installed successfully!");
   console.log(`${colors.green}${"=".repeat(60)}${colors.nc}`);
   note("Installed:");
-  console.log(`  Plugin:   ${bundled ? pluginPath + " (bundled)" : "@endpoint/sentinal/opencode-plugin (npm package)"}`);
+  console.log(`  Plugin:   ${pluginPath}${binary ? " (embedded)" : " (npm package)"}`);
   console.log(`  Commands: ${commandsDir}/*.md`);
   console.log(`  Rules:    ${rulesDir}/*.md`);
   console.log(`  Config:   ${configFile}`);
   console.log("");
-  note("Get started: opencode → /init → /sync → /spec 'your task'");
+  note("Get started: opencode → /sync → /spec 'your task'");
   console.log("");
 }
 

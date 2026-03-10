@@ -5,7 +5,7 @@
  * filesystem helpers, and interactive prompts.
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync, unlinkSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, unlinkSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -146,12 +146,16 @@ export function copyDirRecursive(
     throw new Error(`Failed to copy ${src} to ${dest}: ${result.stderr}`);
   }
 
-  // Remove excluded files
+  // Remove excluded entries (files or directories)
   if (opts?.exclude) {
     for (const file of opts.exclude) {
       const filePath = join(dest, file);
       if (existsSync(filePath)) {
-        unlinkSync(filePath);
+        if (lstatSync(filePath).isDirectory()) {
+          rmSync(filePath, { recursive: true, force: true });
+        } else {
+          unlinkSync(filePath);
+        }
       }
     }
   }
