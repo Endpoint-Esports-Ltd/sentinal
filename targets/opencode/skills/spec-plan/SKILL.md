@@ -1,6 +1,6 @@
 ---
+name: spec-plan
 description: Feature planning phase - explore codebase, design plan, get approval
-argument-hint: <task> or <path/to/plan.md>
 ---
 
 # Feature Planning Phase
@@ -67,10 +67,10 @@ Done: 0 | Left: N
 
 ## Phase 4: Plan Review (Optional)
 
-If the plan has more than 3 tasks: launch the `plan-reviewer` sub-agent in background.
+If the plan has more than 3 tasks: invoke the `@plan-reviewer` subagent to review the plan. It will write findings to a JSON file.
 
 ## Phase 5: User Approval
 
 Present the plan summary and ask for approval. This is the ONLY user interaction point in planning.
 
-After approval: update plan header to `Approved: Yes`, then invoke /spec-implement <plan-path>.
+After approval: update plan header to `Approved: Yes`, then load the `spec-implement` skill with the plan path.

@@ -38,6 +38,15 @@ function readFile(path) {
   return readFileSync(path, "utf-8");
 }
 
+/** Read skill directories: skills/<name>/SKILL.md → [{ name: "<name>/SKILL.md", content }] */
+function readSkillDirs(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((d) => existsSync(join(dir, d, "SKILL.md")))
+    .sort()
+    .map((d) => ({ name: `${d}/SKILL.md`, content: readFileSync(join(dir, d, "SKILL.md"), "utf-8") }));
+}
+
 function escapeForTemplate(s) {
   return s.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
 }
@@ -67,11 +76,17 @@ if (!existsSync(PLUGIN_BUNDLE)) {
 const pluginContent = readFileSync(PLUGIN_BUNDLE, "utf-8");
 const ocCommands = readDir(join(OPENCODE_DIR, "commands"));
 const ocRules = readDir(join(OPENCODE_DIR, "rules"));
+const ocAgents = readDir(join(OPENCODE_DIR, "agents"));
+const ocSkills = readSkillDirs(join(OPENCODE_DIR, "skills"));
+const ocConfigJson = readFile(join(OPENCODE_DIR, "opencode.json"));
 
 console.log("── OpenCode ──");
 console.log(`  Plugin bundle: ${(pluginContent.length / 1024).toFixed(1)} KB`);
 console.log(`  Commands: ${ocCommands.map((c) => c.name).join(", ")}`);
 console.log(`  Rules: ${ocRules.map((r) => r.name).join(", ")}`);
+console.log(`  Agents: ${ocAgents.map((a) => a.name).join(", ") || "(none)"}`);
+console.log(`  Skills: ${ocSkills.map((s) => s.name).join(", ") || "(none)"}`);
+console.log(`  Config: ${ocConfigJson ? "OK" : "MISSING"}`);
 
 // ── Read Claude Code assets ──
 
@@ -137,6 +152,20 @@ emitRecord(lines, "EMBEDDED_COMMANDS", ocCommands);
 lines.push("// ─── OpenCode Rules ─────────────────────────────────────────────────────────");
 lines.push("");
 emitRecord(lines, "EMBEDDED_RULES", ocRules);
+
+lines.push("// ─── OpenCode Agents ────────────────────────────────────────────────────────");
+lines.push("");
+emitRecord(lines, "EMBEDDED_OC_AGENTS", ocAgents);
+
+lines.push("// ─── OpenCode Skills ────────────────────────────────────────────────────────");
+lines.push("");
+emitRecord(lines, "EMBEDDED_OC_SKILLS", ocSkills);
+
+lines.push("// ─── OpenCode Config Template ───────────────────────────────────────────────");
+lines.push("");
+if (ocConfigJson) {
+  emitString(lines, "EMBEDDED_OC_CONFIG_JSON", ocConfigJson);
+}
 
 lines.push("// ═══════════════════════════════════════════════════════════════════════════════");
 lines.push("// Claude Code Assets");

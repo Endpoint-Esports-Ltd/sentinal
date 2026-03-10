@@ -11,7 +11,7 @@ ARGUMENTS: $ARGUMENTS
 
 ## Phase 1: Launch Spec Reviewer (Background)
 
-Launch the `spec-reviewer` sub-agent with the plan file path. It will write findings to a JSON file.
+Launch the `spec-reviewer` sub-agent using `Task(spec-reviewer: "Review the implementation for plan at <plan-path> and write findings to <plan-path>.review.json")`. It will write findings to a JSON file.
 
 ## Phase 2: Automated Checks
 

@@ -55,6 +55,8 @@ import {
   EMBEDDED_OPENCODE_PLUGIN,
   EMBEDDED_COMMANDS,
   EMBEDDED_RULES,
+  EMBEDDED_OC_AGENTS,
+  EMBEDDED_OC_SKILLS,
   EMBEDDED_CC_PLUGIN_JSON,
   EMBEDDED_CC_LSP_JSON,
   EMBEDDED_CC_MCP_JSON,
@@ -506,10 +508,6 @@ async function installOpenCode(
   note(`Installing ${local ? "to current project" : "globally"}: ${targetDir}`);
   console.log("");
 
-  mkdirp(commandsDir);
-  mkdirp(rulesDir);
-  ok("  Directories created");
-
   // ── Install plugin ──
 
   if (binary) {
@@ -550,45 +548,70 @@ async function installOpenCode(
       );
   }
 
-  // ── Install commands ──
+  // ── Install flat asset dirs (commands, rules, agents) ──
 
-  info("Installing commands...");
-  if (binary) {
-    for (const [name, content] of Object.entries(EMBEDDED_COMMANDS)) {
-      writeFileSync(join(commandsDir, name), content);
-      ok(`    ${name}`);
-    }
-  } else {
-    const assetsDir = resolveAssetsDir();
-    for (const file of readdirSyncSafe(
-      join(assetsDir, "opencode", "commands"),
-    ).filter((f) => f.endsWith(".md"))) {
-      copyFileSync(
-        join(assetsDir, "opencode", "commands", file),
-        join(commandsDir, file),
-      );
-      ok(`    ${file}`);
+  const agentsDir = join(targetDir, "agents");
+  const skillsDir = join(targetDir, "skills");
+  const flatDirs = [
+    {
+      label: "commands",
+      dest: commandsDir,
+      embedded: EMBEDDED_COMMANDS,
+      src: "commands",
+    },
+    { label: "rules", dest: rulesDir, embedded: EMBEDDED_RULES, src: "rules" },
+    {
+      label: "agents",
+      dest: agentsDir,
+      embedded: EMBEDDED_OC_AGENTS,
+      src: "agents",
+    },
+  ];
+  for (const { label, dest, embedded, src } of flatDirs) {
+    info(`Installing ${label}...`);
+    mkdirp(dest);
+    if (binary) {
+      for (const [name, content] of Object.entries(embedded) as [
+        string,
+        string,
+      ][]) {
+        writeFileSync(join(dest, name), content);
+        ok(`    ${name}`);
+      }
+    } else {
+      const srcDir = join(resolveAssetsDir(), "opencode", src);
+      for (const file of readdirSyncSafe(srcDir).filter((f) =>
+        f.endsWith(".md"),
+      )) {
+        copyFileSync(join(srcDir, file), join(dest, file));
+        ok(`    ${file}`);
+      }
     }
   }
 
-  // ── Install rules ──
+  // ── Install skills (nested dirs: skills/<name>/SKILL.md) ──
 
-  info("Installing rules...");
+  info("Installing skills...");
+  mkdirp(skillsDir);
   if (binary) {
-    for (const [name, content] of Object.entries(EMBEDDED_RULES)) {
-      writeFileSync(join(rulesDir, name), content);
-      ok(`    ${name}`);
+    for (const [path, content] of Object.entries(EMBEDDED_OC_SKILLS) as [
+      string,
+      string,
+    ][]) {
+      const dir = join(skillsDir, path.replace("/SKILL.md", ""));
+      mkdirp(dir);
+      writeFileSync(join(dir, "SKILL.md"), content);
+      ok(`    ${path}`);
     }
   } else {
-    const assetsDir = resolveAssetsDir();
-    for (const file of readdirSyncSafe(
-      join(assetsDir, "opencode", "rules"),
-    ).filter((f) => f.endsWith(".md"))) {
-      copyFileSync(
-        join(assetsDir, "opencode", "rules", file),
-        join(rulesDir, file),
-      );
-      ok(`    ${file}`);
+    const srcSkills = join(resolveAssetsDir(), "opencode", "skills");
+    for (const dir of readdirSyncSafe(srcSkills)) {
+      const skillMd = join(srcSkills, dir, "SKILL.md");
+      if (existsSync(skillMd)) {
+        mkdirp(join(skillsDir, dir));
+        copyFileSync(skillMd, join(skillsDir, dir, "SKILL.md"));
+        ok(`    ${dir}/SKILL.md`);
+      }
     }
   }
 
@@ -692,6 +715,8 @@ async function installOpenCode(
   );
   console.log(`  Commands: ${commandsDir}/*.md`);
   console.log(`  Rules:    ${rulesDir}/*.md`);
+  console.log(`  Agents:   ${agentsDir}/*.md`);
+  console.log(`  Skills:   ${skillsDir}/*/SKILL.md`);
   console.log(`  Config:   ${configFile}`);
   console.log("");
   note("Get started: opencode → /sync → /spec 'your task'");

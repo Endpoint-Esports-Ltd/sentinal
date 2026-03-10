@@ -8,13 +8,13 @@ description: Sync project rules and generate AGENTS.md from codebase analysis
 
 ## Process
 
-1. **Read existing rules** in `.claude/rules/` — understand what's already documented
+1. **Read existing rules** in `.opencode/rules/` — understand what's already documented
 2. **Explore the codebase** using Vexor and file browsing:
    - Detect frameworks (Angular, NestJS, or both)
    - Identify package manager, test runner, database ORM
    - Find key architectural patterns (folder structure, naming conventions)
    - Discover custom utilities and shared code
-3. **Generate/update `.claude/rules/project.md`** with:
+3. **Generate/update `.opencode/rules/project.md`** with:
    - Project overview (what it does, tech stack)
    - Key directories and their purposes
    - Custom conventions discovered

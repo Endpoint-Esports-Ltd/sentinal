@@ -5,6 +5,44 @@
     "@endpoint/sentinal/opencode-plugin"
   ],
 
+  "permission": {
+    "skill": {
+      "*": "allow",
+      "spec-*": "allow"
+    },
+    "edit": {
+      "*": "ask",
+      "docs/plans/*.md": "allow",
+      "docs/plans/**/*.md": "allow"
+    }
+  },
+
+  "agent": {
+    "build": {
+      "permission": {
+        "task": {
+          "*": "ask",
+          "plan-reviewer": "allow",
+          "spec-reviewer": "allow"
+        }
+      }
+    },
+    "plan": {
+      "permission": {
+        "task": {
+          "*": "ask",
+          "plan-reviewer": "allow",
+          "spec-reviewer": "allow"
+        },
+        "edit": {
+          "*": "ask",
+          "docs/plans/*.md": "allow",
+          "docs/plans/**/*.md": "allow"
+        }
+      }
+    }
+  },
+
   "mcp": {
     "context7": {
       "type": "local",

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
+import type { AuditResult } from "./store.js";
 
 // --- Helpers ---
 
@@ -342,6 +343,153 @@ Type: Feature
 
       expect(specStore.getSpecsForSession("sess-X")).toHaveLength(1);
       expect(specStore.getSpecsForSession("sess-Y")).toHaveLength(1);
+    });
+  });
+
+  describe("auditCompletion", () => {
+    it("reports in-sync when md and sqlite agree", () => {
+      const planFile = writePlan(tmpDir, "audit-sync.md", `# Audit Sync
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [x] Task 1: First task
+- [x] Task 2: Second task
+`);
+      specStore.syncFromPlanFile(planFile, "/test/project");
+      const result = specStore.auditCompletion("audit-sync");
+      expect(result.inSync).toBe(true);
+      expect(result.fixes).toHaveLength(0);
+      expect(result.totalTasks).toBe(2);
+      expect(result.completeTasks).toBe(2);
+    });
+
+    it("updates sqlite when md has [x] but sqlite has pending", () => {
+      // First sync with unchecked tasks
+      const planPath = join(tmpDir, "docs", "plans", "audit-md-ahead.md");
+      mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
+      writeFileSync(planPath, `# MD Ahead
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+`);
+      specStore.syncFromPlanFile(planPath, "/test/project");
+
+      // Now update the md to have [x] without re-syncing
+      writeFileSync(planPath, `# MD Ahead
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [x] Task 1: First task
+- [ ] Task 2: Second task
+`);
+
+      const result = specStore.auditCompletion("audit-md-ahead");
+      expect(result.inSync).toBe(false);
+      expect(result.fixes).toHaveLength(1);
+      expect(result.fixes[0].issue).toBe("md-ahead");
+      expect(result.fixes[0].taskPosition).toBe(1);
+      expect(result.fixes[0].action).toBe("updated-sqlite");
+
+      // Verify sqlite was updated
+      const tasks = specStore.getTasksForSpec("audit-md-ahead");
+      expect(tasks[0].status).toBe("complete");
+      expect(tasks[1].status).toBe("pending");
+    });
+
+    it("updates md when sqlite has complete but md has [ ]", () => {
+      const planPath = join(tmpDir, "docs", "plans", "audit-sqlite-ahead.md");
+      mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
+      writeFileSync(planPath, `# SQLite Ahead
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+`);
+      specStore.syncFromPlanFile(planPath, "/test/project");
+
+      // Manually mark task 2 as complete in sqlite
+      specStore.updateTaskStatus("audit-sqlite-ahead", 2, "complete", { completedAt: Date.now() });
+
+      const result = specStore.auditCompletion("audit-sqlite-ahead");
+      expect(result.inSync).toBe(false);
+      expect(result.fixes).toHaveLength(1);
+      expect(result.fixes[0].issue).toBe("sqlite-ahead");
+      expect(result.fixes[0].taskPosition).toBe(2);
+      expect(result.fixes[0].action).toBe("updated-md");
+
+      // Verify md was updated
+      const content = readFileSync(planPath, "utf-8");
+      expect(content).toContain("- [x] Task 2: Second task");
+      expect(content).toContain("- [ ] Task 1: First task");
+    });
+
+    it("handles mixed discrepancies", () => {
+      const planPath = join(tmpDir, "docs", "plans", "audit-mixed.md");
+      mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
+      writeFileSync(planPath, `# Mixed
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+- [ ] Task 3: Third task
+`);
+      specStore.syncFromPlanFile(planPath, "/test/project");
+
+      // Mark task 1 complete in sqlite (sqlite-ahead)
+      specStore.updateTaskStatus("audit-mixed", 1, "complete", { completedAt: Date.now() });
+
+      // Update md to check task 3 (md-ahead)
+      writeFileSync(planPath, `# Mixed
+Status: VERIFIED
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+- [x] Task 3: Third task
+`);
+
+      const result = specStore.auditCompletion("audit-mixed");
+      expect(result.inSync).toBe(false);
+      expect(result.fixes).toHaveLength(2);
+
+      const sqliteAhead = result.fixes.find((f) => f.issue === "sqlite-ahead");
+      const mdAhead = result.fixes.find((f) => f.issue === "md-ahead");
+      expect(sqliteAhead).toBeDefined();
+      expect(sqliteAhead!.taskPosition).toBe(1);
+      expect(mdAhead).toBeDefined();
+      expect(mdAhead!.taskPosition).toBe(3);
+
+      // Both should be synced now
+      const content = readFileSync(planPath, "utf-8");
+      expect(content).toContain("- [x] Task 1: First task");
+      expect(content).toContain("- [x] Task 3: Third task");
+
+      const tasks = specStore.getTasksForSpec("audit-mixed");
+      expect(tasks[0].status).toBe("complete");
+      expect(tasks[2].status).toBe("complete");
+    });
+
+    it("returns null-like result for unknown spec", () => {
+      const result = specStore.auditCompletion("nonexistent");
+      expect(result.totalTasks).toBe(0);
+      expect(result.inSync).toBe(true);
+      expect(result.fixes).toHaveLength(0);
     });
   });
 

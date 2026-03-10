@@ -1,6 +1,6 @@
 ---
+name: spec-implement
 description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR
-argument-hint: <path/to/plan.md>
 ---
 
 # Implementation Phase
@@ -19,7 +19,7 @@ ARGUMENTS: $ARGUMENTS
 
 1. Read the plan file from ARGUMENTS
 2. Verify `Status: PENDING` and `Approved: Yes`
-3. Create tasks from the plan using TaskCreate
+3. Create a todo list from the plan tasks using the todowrite tool
 4. Start with the first uncompleted task
 
 ## TDD Loop (per task)
@@ -63,7 +63,7 @@ Run ALL tests, not just the new one. Expected: ALL tests PASS
 After each task completes:
 - Update plan file: `[ ]` → `[x]`
 - Increment Done count, decrement Left count
-- Mark task as completed via TaskUpdate
+- Mark task as completed via the todowrite tool
 
 ## Completion
 

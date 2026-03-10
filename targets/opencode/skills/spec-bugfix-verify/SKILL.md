@@ -1,6 +1,6 @@
 ---
+name: spec-bugfix-verify
 description: Bugfix verification phase - Behavior Contract audit, tests, process compliance
-argument-hint: <path/to/plan.md>
 ---
 
 # Bugfix Verification Phase
