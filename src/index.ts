@@ -17,7 +17,7 @@ export { MemoryService, type MemoryServiceOptions } from "./memory/service.js";
 export { EmbeddingService, EMBEDDING_CONSTANTS } from "./memory/embeddings.js";
 export { VectorStore, loadCustomSqlite, type VectorResult, type VectorSearchOptions } from "./memory/vector-store.js";
 export { SearchOrchestrator } from "./memory/search/orchestrator.js";
-export { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE } from "./memory/capture.js";
+export { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS } from "./memory/capture.js";
 export type { ToolEvent, CaptureDecision } from "./memory/capture.js";
 export { sanitize, sanitizeObservationFields } from "./memory/sanitize.js";
 export { loadConfig, isMemoryEnabled, clearConfigCache, getConfigPath, type MemoryConfig } from "./memory/config.js";
@@ -37,8 +37,18 @@ export type {
   ListSessionsOptions,
   Notification,
   NotificationType,
+  TddCycle,
+  TddCycleState,
+  SpecEvent,
+  SpecEventType,
 } from "./memory/types.js";
-export { OBSERVATION_TYPES, ASSISTANT_TYPES, NOTIFICATION_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./memory/types.js";
+export { OBSERVATION_TYPES, ASSISTANT_TYPES, NOTIFICATION_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS, TDD_CYCLE_STATES, SPEC_EVENT_TYPES } from "./memory/types.js";
+
+// ─── TDD Enforcement ─────────────────────────────────────────────────────────
+export { readTddState } from "./memory/tdd-state.js";
+export { hasTestFailure, hasTestPass, getImplPathForTest } from "./hooks/tdd-tracker.js";
+export { processTddGuard, type TddGuardInput } from "./hooks/tdd-guard.js";
+export { processTddTracking, type TddTrackerInput } from "./hooks/tdd-tracker.js";
 
 // ─── Maintenance ─────────────────────────────────────────────────────────────
 export { rebuildFtsIndex, rebuildVectorIndex, backupDatabase, checkIntegrity } from "./memory/maintenance.js";

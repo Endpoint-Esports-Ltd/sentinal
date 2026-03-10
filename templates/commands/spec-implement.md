@@ -7,6 +7,12 @@ argument-hint: <path/to/plan.md>
 
 **You are the spec-implement skill. Execute each task in the plan using strict TDD.**
 
+> **Model:** Sonnet recommended for implementation phases. Switch with /model if needed.
+
+> **TDD Enforcement Active:** Sentinal hooks enforce RED-GREEN-REFACTOR automatically.
+> Editing an implementation file without a confirmed failing test will be **blocked**.
+> You MUST write a test, run it to confirm it FAILS, then edit the implementation.
+
 ARGUMENTS: $ARGUMENTS
 
 ## Setup

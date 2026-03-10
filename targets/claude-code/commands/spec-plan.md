@@ -7,8 +7,6 @@ argument-hint: <task> or <path/to/plan.md>
 
 **You are the spec-plan skill. Your job: explore the codebase, understand the problem, write a detailed plan, and get user approval.**
 
-> **Model:** Opus recommended for planning phases. Switch with /model if needed.
-
 ARGUMENTS: $ARGUMENTS
 
 ## Phase 1: Understand the Task

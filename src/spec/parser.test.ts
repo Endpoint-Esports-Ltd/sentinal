@@ -196,3 +196,104 @@ describe("parsePlanContent — edge cases", () => {
     expect(spec.status).toBe("CANCELLED");
   });
 });
+
+describe("parsePlanContent — rich task format (### N. Title)", () => {
+  const richContent = `# User Authentication Spec
+
+Created: 2026-03-10
+Status: IN PROGRESS
+Type: Feature
+
+## Implementation Tasks
+
+### 1. Create User entity and migration
+- **Status:** complete
+- **Test Strategy:** Unit test entity validation, integration test migration
+- **Definition of Done:** Entity created, migration runs, tests pass
+
+### 2. Create AuthModule with JWT strategy
+- **Status:** in-progress
+- **Test Strategy:** Unit test JWT service, mock strategy
+- **Definition of Done:** Module registers, JWT signs and verifies
+
+### 3. Implement login/register endpoints
+- **Status:** pending
+- **Test Strategy:** Integration test with supertest, happy + error paths
+- **Definition of Done:** POST /auth/login and POST /auth/register work
+
+### 4. Add AuthGuard to protected routes
+- **Status:** failed
+- **Test Strategy:** Unit test guard, integration test protected endpoints
+- **Definition of Done:** Unauthorized requests return 401
+`;
+
+  it("extracts tasks with rich format using ### N. Title heading", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(4);
+  });
+
+  it("extracts task positions correctly", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks[0].position).toBe(1);
+    expect(spec.tasks[1].position).toBe(2);
+    expect(spec.tasks[2].position).toBe(3);
+    expect(spec.tasks[3].position).toBe(4);
+  });
+
+  it("extracts task titles correctly", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks[0].title).toBe("Create User entity and migration");
+    expect(spec.tasks[1].title).toBe("Create AuthModule with JWT strategy");
+  });
+
+  it("extracts explicit status values", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks[0].status).toBe("complete");
+    expect(spec.tasks[1].status).toBe("in-progress");
+    expect(spec.tasks[2].status).toBe("pending");
+    expect(spec.tasks[3].status).toBe("failed");
+  });
+
+  it("extracts testStrategy from inline format", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks[0].testStrategy).toBe("Unit test entity validation, integration test migration");
+    expect(spec.tasks[1].testStrategy).toBe("Unit test JWT service, mock strategy");
+  });
+
+  it("extracts definitionOfDone from inline format", () => {
+    const spec = parsePlanContent(richContent, "/plans/test.md");
+    expect(spec.tasks[0].definitionOfDone).toBe("Entity created, migration runs, tests pass");
+    expect(spec.tasks[2].definitionOfDone).toBe("POST /auth/login and POST /auth/register work");
+  });
+});
+
+describe("parsePlanContent — mixed format (Progress Tracking + rich implementation)", () => {
+  const mixedContent = `# Mixed Plan
+
+Status: IN PROGRESS
+Type: Feature
+
+## Progress Tracking
+
+- [x] Task 1: Setup
+- [~] Task 2: Core logic
+- [ ] Task 3: Tests
+
+## Implementation Tasks
+
+### Task 1: Setup
+- **Status:** complete
+
+### Task 2: Core logic
+- **Status:** in-progress
+- **Test Strategy:** Unit tests for core logic
+`;
+
+  it("uses Progress Tracking tasks when present (takes priority)", () => {
+    const spec = parsePlanContent(mixedContent, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(3);
+    expect(spec.tasks[0].status).toBe("complete");
+    expect(spec.tasks[1].status).toBe("in-progress");
+    expect(spec.tasks[2].status).toBe("pending");
+  });
+});

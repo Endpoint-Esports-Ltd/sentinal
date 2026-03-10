@@ -23,6 +23,12 @@ import type {
   Notification,
   NotificationType,
   RawNotification,
+  TddCycle,
+  TddCycleState,
+  RawTddCycle,
+  SpecEvent,
+  SpecEventType,
+  RawSpecEvent,
 } from "./types.js";
 import { DB_CONSTANTS, SEARCH_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./types.js";
 import { runMigrations } from "./migrations.js";
@@ -429,6 +435,114 @@ export class MemoryStore {
     this.db.close();
   }
 
+  // ─── TDD Cycle State ──────────────────────────────────────────────────
+
+  /** Get TDD cycle state for a file path. Returns null if no record. */
+  getTddState(filePath: string): TddCycle | null {
+    const row = this.db
+      .prepare("SELECT * FROM tdd_cycles WHERE file_path = ?")
+      .get(filePath) as RawTddCycle | null;
+    return row ? this.deserializeTddCycle(row) : null;
+  }
+
+  /** Upsert TDD cycle state for a file path. */
+  setTddState(opts: {
+    filePath: string;
+    state: TddCycleState;
+    specId?: string | null;
+    taskPosition?: number | null;
+    testFilePath?: string | null;
+    lastFailOutput?: string | null;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO tdd_cycles (file_path, spec_id, task_position, state, test_file_path, last_fail_output, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(file_path) DO UPDATE SET
+           state = excluded.state,
+           spec_id = COALESCE(excluded.spec_id, spec_id),
+           task_position = COALESCE(excluded.task_position, task_position),
+           test_file_path = COALESCE(excluded.test_file_path, test_file_path),
+           last_fail_output = COALESCE(excluded.last_fail_output, last_fail_output),
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        opts.filePath,
+        opts.specId ?? null,
+        opts.taskPosition ?? null,
+        opts.state,
+        opts.testFilePath ?? null,
+        opts.lastFailOutput ?? null,
+        Date.now(),
+      );
+  }
+
+  /** Remove TDD cycle state for a specific file. */
+  clearTddState(filePath: string): void {
+    this.db
+      .prepare("DELETE FROM tdd_cycles WHERE file_path = ?")
+      .run(filePath);
+  }
+
+  /** Remove all TDD cycle states associated with a spec. */
+  clearTddStatesForSpec(specId: string): void {
+    this.db
+      .prepare("DELETE FROM tdd_cycles WHERE spec_id = ?")
+      .run(specId);
+  }
+
+  /** List all active (non-IDLE) TDD cycle states, optionally scoped to a spec. */
+  listActiveTddStates(specId?: string | null): TddCycle[] {
+    let rows: RawTddCycle[];
+    if (specId) {
+      rows = this.db
+        .prepare(
+          "SELECT * FROM tdd_cycles WHERE spec_id = ? AND state != 'IDLE' ORDER BY updated_at DESC",
+        )
+        .all(specId) as RawTddCycle[];
+    } else {
+      rows = this.db
+        .prepare(
+          "SELECT * FROM tdd_cycles WHERE state != 'IDLE' ORDER BY updated_at DESC",
+        )
+        .all() as RawTddCycle[];
+    }
+    return rows.map((r) => this.deserializeTddCycle(r));
+  }
+
+  // ─── Spec Events ──────────────────────────────────────────────────────
+
+  /** Log a spec lifecycle event. */
+  logSpecEvent(opts: {
+    specId: string;
+    sessionId?: string | null;
+    eventType: SpecEventType;
+    details: Record<string, unknown>;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO spec_events (spec_id, session_id, timestamp, event_type, details)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        opts.specId,
+        opts.sessionId ?? null,
+        Date.now(),
+        opts.eventType,
+        JSON.stringify(opts.details),
+      );
+  }
+
+  /** Get recent spec events, newest first. */
+  getSpecEvents(specId: string, limit: number = 50): SpecEvent[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM spec_events WHERE spec_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
+      )
+      .all(specId, limit) as RawSpecEvent[];
+    return rows.map((r) => this.deserializeSpecEvent(r));
+  }
+
   /** Expose the raw database for extensions (e.g., sqlite-vec) */
   getRawDb(): Database {
     return this.db;
@@ -471,6 +585,36 @@ export class MemoryStore {
     }
 
     return sql;
+  }
+
+  private deserializeTddCycle(row: RawTddCycle): TddCycle {
+    return {
+      id: row.id,
+      filePath: row.file_path,
+      specId: row.spec_id,
+      taskPosition: row.task_position,
+      state: row.state as TddCycleState,
+      testFilePath: row.test_file_path,
+      lastFailOutput: row.last_fail_output,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private deserializeSpecEvent(row: RawSpecEvent): SpecEvent {
+    let details: Record<string, unknown> = {};
+    try {
+      details = JSON.parse(row.details);
+    } catch {
+      // Malformed JSON — fall back to empty
+    }
+    return {
+      id: row.id,
+      specId: row.spec_id,
+      sessionId: row.session_id,
+      timestamp: row.timestamp,
+      eventType: row.event_type as SpecEventType,
+      details,
+    };
   }
 
   private deserializeObservation(row: RawObservation): Observation {

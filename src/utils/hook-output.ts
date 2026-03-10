@@ -6,6 +6,11 @@ export interface HookInput {
   hook_event_name: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  /** PostToolUse only: the tool's output/response */
+  tool_response?: {
+    output?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface DenyOutput {

@@ -101,10 +101,10 @@ Type: Feature
 - [x] Task 8: Console dashboard — server + layout + Dashboard view (complete — V6 migration for notifications, notification CRUD, PID lifecycle, Bun.serve HTTP server + router, layout with htmx + Tailwind CDN, dashboard home view, `sentinal serve` CLI command)
 - [x] Task 9: Console dashboard — Specs, Memories, Sessions, Settings views (complete — JSON API routes, specifications view with task progress, memories view with search + type filters + pagination, sessions view with active/past + cleanup, settings view with model routing form, hook auto-lifecycle)
 - [x] Task 10: Model routing configuration
-- [ ] Task 11: Shell integration + auto-updater
+- [x] Task 11: Shell integration + auto-updater (complete — binary download updater, shell-init, completion scripts, GitHub Actions CI/CD)
 - [~] Task 12: Installer improvements (curl, rollback, devcontainer, conditional rules) (partial — conditional rule activation done; shell scripts replaced by TypeScript CLI; curl installer, rollback, devcontainer remaining)
 
-**Total Tasks:** 12 | **Completed:** 8 | **Partial:** 3 | **Remaining:** 1
+**Total Tasks:** 12 | **Completed:** 9 | **Partial:** 2 | **Remaining:** 0 (Task 12 has 3 sub-items deferred)
 
 ## Implementation Tasks
 
@@ -533,16 +533,16 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - **Bundle htmx/tailwind as fallback:** Include htmx.min.js as string literal in server code for air-gapped environments. CDN is primary, inline fallback if CDN fetch fails.
 
 **Definition of Done:**
-- [ ] `sentinal serve` starts HTTP server on port 41778
-- [ ] Starting `sentinal serve` when server already running detects existing process and exits with message
-- [ ] PID file written to `~/.sentinal/server.pid` on start, removed on stop
-- [ ] `GET /` returns dashboard HTML with htmx
-- [ ] Dashboard shows active sessions, recent specs, notifications
-- [ ] Navigation links work between views (even if other views are placeholder)
-- [ ] `GET /api/health` returns `{"status": "ok"}`
-- [ ] Auto-refresh works via htmx polling
-- [ ] All tests pass
-- [ ] No diagnostics errors
+- [x] `sentinal serve` starts HTTP server on port 41778
+- [x] Starting `sentinal serve` when server already running detects existing process and exits with message
+- [x] PID file written to `~/.sentinal/server.pid` on start, removed on stop
+- [x] `GET /` returns dashboard HTML with htmx
+- [x] Dashboard shows active sessions, recent specs, notifications
+- [x] Navigation links work between views (even if other views are placeholder)
+- [x] `GET /api/health` returns `{"status": "ok"}`
+- [x] Auto-refresh works via htmx polling
+- [x] All tests pass
+- [x] No diagnostics errors
 
 **Verify:**
 ```bash
@@ -575,14 +575,14 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Spec detail API: `GET /api/specs/:filename` returns parsed plan data
 
 **Definition of Done:**
-- [ ] All 4 views render with real data from SQLite/filesystem
-- [ ] Specifications view shows plan status, task progress, iterations
-- [ ] Memories view supports search and type filtering
-- [ ] Sessions view shows active vs past sessions with duration
-- [ ] Settings view saves and loads model routing preferences
-- [ ] Navigation between all views works without full page reload
-- [ ] All tests pass
-- [ ] No diagnostics errors
+- [x] All 4 views render with real data from SQLite/filesystem
+- [x] Specifications view shows plan status, task progress, iterations
+- [x] Memories view supports search and type filtering
+- [x] Sessions view shows active vs past sessions with duration
+- [x] Settings view saves and loads model routing preferences
+- [x] Navigation between all views works without full page reload
+- [x] All tests pass
+- [x] No diagnostics errors
 
 **Verify:**
 ```bash

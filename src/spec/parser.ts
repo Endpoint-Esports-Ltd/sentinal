@@ -153,10 +153,12 @@ function extractProgressTasks(lines: string[]): SpecTask[] {
 }
 
 /**
- * Extract tasks from `### Task N: Title` headings.
+ * Extract tasks from `### Task N: Title` headings or `### N. Title` headings.
  * First looks within a `## Implementation Tasks` section, then falls
  * back to scanning the entire document for bare `### Task N:` headings.
- * Status determined by counting [x] vs [ ] in Definition of Done.
+ * Status determined by counting [x] vs [ ] in Definition of Done,
+ * or from an explicit `**Status:**` line within the task block.
+ * Also extracts `**Test Strategy:**` and `**Definition of Done:**` text.
  */
 function extractImplementationTasks(lines: string[]): SpecTask[] {
   // Try scoped extraction first
@@ -165,11 +167,22 @@ function extractImplementationTasks(lines: string[]): SpecTask[] {
   return tasks;
 }
 
+interface RawTask {
+  position: number;
+  title: string;
+  done: number;
+  total: number;
+  explicitStatus?: string;
+  testStrategy?: string;
+  definitionOfDone?: string;
+}
+
 function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[] {
   const tasks: SpecTask[] = [];
   let inSection = !scopedToSection; // If no section wrapper, start scanning immediately
-  let currentTask: { position: number; title: string; done: number; total: number } | null = null;
+  let currentTask: RawTask | null = null;
   let inDefinitionOfDone = false;
+  let inTestStrategy = false;
 
   for (const line of lines) {
     if (scopedToSection && line.trim().startsWith("## Implementation Tasks")) {
@@ -179,7 +192,7 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
     // Stop at next top-level section (only when scoped)
     if (scopedToSection && inSection && /^## [^#]/.test(line.trim())) {
       if (currentTask) {
-        tasks.push(taskFromCounts(currentTask));
+        tasks.push(taskFromRaw(currentTask));
         currentTask = null;
       }
       break;
@@ -187,11 +200,13 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
 
     if (!inSection) continue;
 
-    // New task heading
-    const taskMatch = line.match(/^###\s+Task\s+(\d+):\s*(.+)$/i);
+    // New task heading — supports both `### Task N: Title` and `### N. Title`
+    const taskMatch =
+      line.match(/^###\s+Task\s+(\d+):\s*(.+)$/i) ??
+      line.match(/^###\s+(\d+)\.\s+(.+)$/);
     if (taskMatch) {
       if (currentTask) {
-        tasks.push(taskFromCounts(currentTask));
+        tasks.push(taskFromRaw(currentTask));
       }
       currentTask = {
         position: parseInt(taskMatch[1], 10),
@@ -200,19 +215,65 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
         total: 0,
       };
       inDefinitionOfDone = false;
+      inTestStrategy = false;
       continue;
     }
 
     if (!currentTask) continue;
 
-    // Track Definition of Done section
-    if (line.trim().startsWith("**Definition of Done:**")) {
-      inDefinitionOfDone = true;
+    // Explicit status line: `- **Status:** in-progress`
+    const statusMatch = line.match(/^-\s+\*\*Status:\*\*\s*(.+)$/i);
+    if (statusMatch) {
+      currentTask.explicitStatus = statusMatch[1].trim().toLowerCase();
+      inDefinitionOfDone = false;
+      inTestStrategy = false;
       continue;
     }
-    // End of Definition of Done at next bold heading or subsection
-    if (inDefinitionOfDone && ((line.trim().startsWith("**") && !line.trim().startsWith("**Definition")) || line.trim().startsWith("### "))) {
+
+    // Test Strategy line: `- **Test Strategy:** description`
+    const testStrategyMatch = line.match(/^-\s+\*\*Test Strategy:\*\*\s*(.+)$/i);
+    if (testStrategyMatch) {
+      currentTask.testStrategy = testStrategyMatch[1].trim();
       inDefinitionOfDone = false;
+      inTestStrategy = false;
+      continue;
+    }
+
+    // Definition of Done line: `- **Definition of Done:** description`
+    const dodMatch = line.match(/^-\s+\*\*Definition of Done:\*\*\s*(.+)$/i);
+    if (dodMatch) {
+      currentTask.definitionOfDone = dodMatch[1].trim();
+      inDefinitionOfDone = false;
+      inTestStrategy = false;
+      continue;
+    }
+
+    // Block-style **Test Strategy:** or **Definition of Done:** heading
+    if (line.trim().startsWith("**Test Strategy:**")) {
+      inTestStrategy = true;
+      inDefinitionOfDone = false;
+      const inline = line.trim().replace(/^\*\*Test Strategy:\*\*\s*/, "").trim();
+      if (inline) currentTask.testStrategy = inline;
+      continue;
+    }
+    if (line.trim().startsWith("**Definition of Done:**")) {
+      inDefinitionOfDone = true;
+      inTestStrategy = false;
+      const inline = line.trim().replace(/^\*\*Definition of Done:\*\*\s*/, "").trim();
+      if (inline) currentTask.definitionOfDone = inline;
+      continue;
+    }
+
+    // End block sections at next bold heading or subsection
+    if (
+      (inDefinitionOfDone || inTestStrategy) &&
+      ((line.trim().startsWith("**") &&
+        !line.trim().startsWith("**Definition") &&
+        !line.trim().startsWith("**Test Strategy")) ||
+        line.trim().startsWith("### "))
+    ) {
+      inDefinitionOfDone = false;
+      inTestStrategy = false;
     }
 
     // Count checkboxes in Definition of Done
@@ -227,7 +288,7 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
 
   // Flush last task
   if (currentTask) {
-    tasks.push(taskFromCounts(currentTask));
+    tasks.push(taskFromRaw(currentTask));
   }
 
   return tasks;
@@ -241,14 +302,31 @@ function checkboxToStatus(marker: string): TaskStatus {
   return "pending";
 }
 
-function taskFromCounts(task: { position: number; title: string; done: number; total: number }): SpecTask {
+function taskFromRaw(task: RawTask): SpecTask {
   let status: TaskStatus;
-  if (task.total === 0) status = "pending";
-  else if (task.done >= task.total) status = "complete";
-  else if (task.done > 0) status = "in-progress";
-  else status = "pending";
 
-  return { position: task.position, title: task.title, status };
+  if (task.explicitStatus) {
+    // Normalize explicit status values
+    const s = task.explicitStatus;
+    if (s === "complete" || s === "done" || s === "finished") status = "complete";
+    else if (s === "in-progress" || s === "in progress" || s === "inprogress" || s === "active") status = "in-progress";
+    else if (s === "failed") status = "failed";
+    else status = "pending";
+  } else if (task.total > 0) {
+    if (task.done >= task.total) status = "complete";
+    else if (task.done > 0) status = "in-progress";
+    else status = "pending";
+  } else {
+    status = "pending";
+  }
+
+  return {
+    position: task.position,
+    title: task.title,
+    status,
+    ...(task.testStrategy && { testStrategy: task.testStrategy }),
+    ...(task.definitionOfDone && { definitionOfDone: task.definitionOfDone }),
+  };
 }
 
 function normalizeStatus(raw: string | undefined): SpecStatus {

@@ -33,6 +33,8 @@ import {
   aggregateTokenUsage, getContextWarning, CONTEXT_CHECK_INTERVAL,
   autoStartDashboard, stopServer,
   type AssistantType, type SessionMessage,
+  TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS,
+  processTddGuard, processTddTracking,
 } from "@endpoint/sentinal";
 
 // Type definitions for OpenCode plugin system
@@ -84,6 +86,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   const eventBuffer = new EventBuffer(20);
   let memoryStore: MemoryStore | null = null;
   let memoryService: MemoryService | null = null;
+  let specStore: SpecStore | null = null;
   let sessionId: string | null = null;
 
   // Context monitoring: throttle checks to every N tool calls
@@ -93,6 +96,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
     try {
       memoryStore = new MemoryStore();
       memoryService = new MemoryService(memoryStore);
+      specStore = new SpecStore(memoryStore);
     } catch {
       // Memory unavailable, continue without it
     }
@@ -110,6 +114,15 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
     "tool.execute.before": async (input, output) => {
       const { tool } = input;
       const args = output.args || {};
+
+      // TDD Guard: block implementation edits when no failing test confirmed
+      const filePath = args.file_path ?? args.filePath ?? args.path;
+      if (typeof filePath === "string") {
+        const guardResult = processTddGuard({ toolName: tool, filePath, cwd: projectRoot });
+        if (guardResult) {
+          throw new Error(guardResult.reason);
+        }
+      }
 
       if (tool === "grep" && typeof args.pattern === "string") {
         if (VAGUE_GREP_INDICATORS.some((r) => r.test(args.pattern as string))) {
@@ -234,6 +247,23 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
             }
           }
         }
+      }
+
+      // TDD Tracker: update TDD cycle state based on tool events
+      try {
+        const trackerFilePath = typeof filePath === "string" ? filePath : undefined;
+        const bashOutput = input.tool === "bash" || input.tool === "shell" || input.tool === "terminal"
+          ? (output.args?.output as string | undefined)
+          : undefined;
+        await processTddTracking({
+          toolName: input.tool,
+          filePath: trackerFilePath,
+          bashOutput,
+          sessionId: sessionId ?? undefined,
+          cwd: projectRoot,
+        });
+      } catch {
+        // TDD tracker failure is non-fatal
       }
 
       // Memory capture: analyze tool event for learning moments (runs for all MEMORY_TOOLS)

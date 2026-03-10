@@ -100,7 +100,7 @@ const FIX_INDICATORS = [
   /\bpatch\b/i,
 ];
 
-const TEST_FAIL_INDICATORS = [
+export const TEST_FAIL_INDICATORS = [
   /\d+\s+fail/i,
   /FAIL\s/,
   /tests?\s+failed/i,
@@ -109,7 +109,7 @@ const TEST_FAIL_INDICATORS = [
   /\btest\b.*\bfailed\b/i,
 ];
 
-const TEST_PASS_INDICATORS = [
+export const TEST_PASS_INDICATORS = [
   /\d+\s+pass/i,
   /tests?\s+passed/i,
   /\ball\s+tests?\s+pass/i,

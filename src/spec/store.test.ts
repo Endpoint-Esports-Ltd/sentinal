@@ -221,6 +221,130 @@ Iterations: 3
     });
   });
 
+  describe("getCurrentTask", () => {
+    it("returns null when spec has no tasks", () => {
+      const planFile = writePlan(tmpDir, "empty-tasks.md", `# Empty
+Status: IN PROGRESS
+Type: Feature
+`);
+      specStore.syncFromPlanFile(planFile, tmpDir);
+      expect(specStore.getCurrentTask("empty-tasks")).toBeNull();
+    });
+
+    it("returns the first in-progress task", () => {
+      const planFile = writePlan(tmpDir, "with-tasks.md", `# With Tasks
+Status: IN PROGRESS
+Type: Feature
+
+## Implementation Tasks
+
+### 1. First task
+- **Status:** complete
+
+### 2. Second task
+- **Status:** in-progress
+- **Test Strategy:** Write unit tests first
+
+### 3. Third task
+- **Status:** pending
+`);
+      specStore.syncFromPlanFile(planFile, tmpDir);
+      const task = specStore.getCurrentTask("with-tasks");
+      expect(task).not.toBeNull();
+      expect(task!.position).toBe(2);
+      expect(task!.status).toBe("in-progress");
+      expect(task!.testStrategy).toBe("Write unit tests first");
+    });
+
+    it("falls back to first pending when none in-progress", () => {
+      const planFile = writePlan(tmpDir, "pending-tasks.md", `# Pending
+Status: PENDING
+Type: Feature
+
+## Implementation Tasks
+
+### 1. First task
+- **Status:** pending
+
+### 2. Second task
+- **Status:** pending
+`);
+      specStore.syncFromPlanFile(planFile, tmpDir);
+      const task = specStore.getCurrentTask("pending-tasks");
+      expect(task).not.toBeNull();
+      expect(task!.position).toBe(1);
+    });
+  });
+
+  describe("updateTaskStatus", () => {
+    it("updates a task's status", () => {
+      const planFile = writePlan(tmpDir, "update-status.md", `# Update
+Status: IN PROGRESS
+Type: Feature
+
+## Implementation Tasks
+
+### 1. Task one
+- **Status:** pending
+`);
+      specStore.syncFromPlanFile(planFile, tmpDir);
+      specStore.updateTaskStatus("update-status", 1, "in-progress", { startedAt: 1000 });
+      const task = specStore.getCurrentTask("update-status");
+      expect(task!.status).toBe("in-progress");
+      expect(task!.startedAt).toBe(1000);
+    });
+  });
+
+  describe("syncFromPlanFile — rich task fields", () => {
+    it("persists testStrategy and definitionOfDone", () => {
+      const planFile = writePlan(tmpDir, "rich-fields.md", `# Rich Fields
+Status: IN PROGRESS
+Type: Feature
+
+## Implementation Tasks
+
+### 1. Create entity
+- **Status:** pending
+- **Test Strategy:** Unit test the entity schema
+- **Definition of Done:** Entity validates correctly
+`);
+      specStore.syncFromPlanFile(planFile, tmpDir);
+      const task = specStore.getCurrentTask("rich-fields");
+      expect(task).not.toBeNull();
+      expect(task!.testStrategy).toBe("Unit test the entity schema");
+      expect(task!.definitionOfDone).toBe("Entity validates correctly");
+    });
+  });
+
+  describe("getSpecsForSession", () => {
+    it("returns specs associated with a session", () => {
+      const planA = writePlan(tmpDir, "plan-a.md", `# Plan A\nStatus: IN PROGRESS\nType: Feature\n`);
+      const planB = writePlan(tmpDir, "plan-b.md", `# Plan B\nStatus: PENDING\nType: Feature\n`);
+      specStore.syncFromPlanFile(planA, tmpDir, "sess-1");
+      specStore.syncFromPlanFile(planB, tmpDir, "sess-1");
+
+      const specs = specStore.getSpecsForSession("sess-1");
+      expect(specs).toHaveLength(2);
+      const ids = specs.map((s) => s.id);
+      expect(ids).toContain("plan-a");
+      expect(ids).toContain("plan-b");
+    });
+
+    it("returns empty array for unknown session", () => {
+      expect(specStore.getSpecsForSession("no-such-session")).toEqual([]);
+    });
+
+    it("does not return specs from other sessions", () => {
+      const planA = writePlan(tmpDir, "sess-plan-a.md", `# A\nStatus: PENDING\nType: Feature\n`);
+      const planB = writePlan(tmpDir, "sess-plan-b.md", `# B\nStatus: PENDING\nType: Feature\n`);
+      specStore.syncFromPlanFile(planA, tmpDir, "sess-X");
+      specStore.syncFromPlanFile(planB, tmpDir, "sess-Y");
+
+      expect(specStore.getSpecsForSession("sess-X")).toHaveLength(1);
+      expect(specStore.getSpecsForSession("sess-Y")).toHaveLength(1);
+    });
+  });
+
   describe("V5 migration — worktrees table", () => {
     it("should have worktrees table available", () => {
       const db = memoryStore.getRawDb();

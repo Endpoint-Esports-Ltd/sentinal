@@ -33,6 +33,16 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/tdd-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash|WebSearch|WebFetch|Grep|EnterPlanMode|ExitPlanMode",
         "hooks": [
           {
@@ -43,6 +53,16 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/tdd-tracker.js\"",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [

@@ -93,10 +93,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 ```
 
 **Definition of Done:**
-- [ ] `migrateV6()` creates notifications table
-- [ ] `SCHEMA_VERSION` is 6
-- [ ] Migration is idempotent
-- [ ] Test verifies notifications table exists after migration
+- [x] `migrateV6()` creates notifications table
+- [x] `SCHEMA_VERSION` is 6
+- [x] Migration is idempotent
+- [x] Test verifies notifications table exists after migration
 
 ### Task 8.2: Notification CRUD on MemoryStore
 
@@ -108,9 +108,9 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Modify: `src/index.ts` — Export notification types
 
 **Definition of Done:**
-- [ ] All 6 notification methods work
-- [ ] Tests cover: insert, list, mark read, mark all read, unread count, delete old
-- [ ] Types exported from barrel
+- [x] All 6 notification methods work
+- [x] Tests cover: insert, list, mark read, mark all read, unread count, delete old
+- [x] Types exported from barrel
 
 ### Task 8.3: PID-Based Lifecycle Manager
 
@@ -121,11 +121,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Create: `src/dashboard/lifecycle.test.ts`
 
 **Definition of Done:**
-- [ ] PID file written on server start, removed on stop
-- [ ] `isServerRunning()` checks if PID process is alive
-- [ ] `stopServer()` sends SIGTERM to PID and removes PID file
-- [ ] Handles stale PID files (process no longer exists)
-- [ ] Tests cover: write/read/remove, stale PID, running check
+- [x] PID file written on server start, removed on stop
+- [x] `isServerRunning()` checks if PID process is alive
+- [x] `stopServer()` sends SIGTERM to PID and removes PID file
+- [x] Handles stale PID files (process no longer exists)
+- [x] Tests cover: write/read/remove, stale PID, running check
 
 ### Task 8.4: HTTP Server + Router
 
@@ -153,12 +153,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Fragment routes for htmx: `GET /fragments/*`
 
 **Definition of Done:**
-- [ ] Server starts on configurable port
-- [ ] All routes return correct content types
-- [ ] 404 for unknown routes
-- [ ] `X-Sentinal-Version` header on all responses
-- [ ] CORS headers for localhost
-- [ ] Tests cover: health endpoint, 404 handling, content types
+- [x] Server starts on configurable port
+- [x] All routes return correct content types
+- [x] 404 for unknown routes
+- [x] `X-Sentinal-Version` header on all responses
+- [x] CORS headers for localhost
+- [x] Tests cover: health endpoint, 404 handling, content types
 
 ### Task 8.5: Layout View
 
@@ -177,10 +177,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Responsive: mobile-friendly nav
 
 **Definition of Done:**
-- [ ] `layout(title, content, activePage)` returns complete HTML document
-- [ ] Navigation links to all pages
-- [ ] htmx and Tailwind loaded
-- [ ] Inline fallback for htmx (air-gapped environments)
+- [x] `layout(title, content, activePage)` returns complete HTML document
+- [x] Navigation links to all pages
+- [x] htmx and Tailwind loaded
+- [x] Inline fallback for htmx (air-gapped environments)
 
 ### Task 8.6: Dashboard (Home) View
 
@@ -197,11 +197,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Auto-refresh via htmx `hx-trigger="every 5s"` on the main content area
 
 **Definition of Done:**
-- [ ] Dashboard renders with real data
-- [ ] Session list shows active sessions
-- [ ] Spec progress bar accurate
-- [ ] Notifications displayed
-- [ ] Auto-refresh works via htmx polling
+- [x] Dashboard renders with real data
+- [x] Session list shows active sessions
+- [x] Spec progress bar accurate
+- [x] Notifications displayed
+- [x] Auto-refresh works via htmx polling
 
 ### Task 8.7: `sentinal serve` CLI Command
 
@@ -217,11 +217,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - `--background` / `-d` (detach as background process)
 
 **Definition of Done:**
-- [ ] `sentinal serve` starts the dashboard server
-- [ ] `sentinal serve --background` starts detached
-- [ ] Duplicate detection: exits if server already running
-- [ ] PID file lifecycle integrated
-- [ ] Graceful shutdown on SIGTERM/SIGINT
+- [x] `sentinal serve` starts the dashboard server
+- [x] `sentinal serve --background` starts detached
+- [x] Duplicate detection: exits if server already running
+- [x] PID file lifecycle integrated
+- [x] Graceful shutdown on SIGTERM/SIGINT
 
 ### Task 9.1: API Routes
 
@@ -244,10 +244,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - `POST /api/settings` — Upsert settings
 
 **Definition of Done:**
-- [ ] All endpoints return correct JSON
-- [ ] Query param filters work
-- [ ] Pagination works for memories
-- [ ] Error responses use consistent format
+- [x] All endpoints return correct JSON
+- [x] Query param filters work
+- [x] Pagination works for memories
+- [x] Error responses use consistent format
 
 ### Task 9.2: Specifications View
 
@@ -265,10 +265,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Link to plan file path
 
 **Definition of Done:**
-- [ ] Specs listed with status and progress
-- [ ] Task detail expandable
-- [ ] Status filter works via htmx
-- [ ] Empty state handled
+- [x] Specs listed with status and progress
+- [x] Task detail expandable
+- [x] Status filter works via htmx
+- [x] Empty state handled
 
 ### Task 9.3: Memories View
 
@@ -286,10 +286,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Project filter dropdown
 
 **Definition of Done:**
-- [ ] Search returns results via htmx
-- [ ] Type filters work
-- [ ] Pagination works
-- [ ] Empty state handled
+- [x] Search returns results via htmx
+- [x] Type filters work
+- [x] Pagination works
+- [x] Empty state handled
 
 ### Task 9.4: Sessions View
 
@@ -306,10 +306,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Cleanup button: end stale sessions
 
 **Definition of Done:**
-- [ ] Sessions listed with all fields
-- [ ] Active sessions visually distinct
-- [ ] Filters work via htmx
-- [ ] Cleanup button calls API
+- [x] Sessions listed with all fields
+- [x] Active sessions visually distinct
+- [x] Filters work via htmx
+- [x] Cleanup button calls API
 
 ### Task 9.5: Settings View
 
@@ -329,10 +329,10 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Display current version
 
 **Definition of Done:**
-- [ ] Settings form loads current values
-- [ ] Save updates SQLite settings
-- [ ] Success feedback displayed
-- [ ] Validation on required fields
+- [x] Settings form loads current values
+- [x] Save updates SQLite settings
+- [x] Success feedback displayed
+- [x] Validation on required fields
 
 ### Task 9.6: Hook Auto-Lifecycle
 
@@ -347,11 +347,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - `session-end.ts`: After `endSession()`, check `getActiveSessions()`. If empty, call `stopServer()`. Also insert a notification: `{ type: 'info', title: 'Session ended', source: 'session-end', sessionId }`.
 
 **Definition of Done:**
-- [ ] Dashboard auto-starts on first session
-- [ ] Dashboard auto-stops when last session ends
-- [ ] Session-end notification created
-- [ ] No errors if dashboard binary not found (graceful degradation)
-- [ ] Tests cover auto-lifecycle logic (mocked subprocess)
+- [x] Dashboard auto-starts on first session
+- [x] Dashboard auto-stops when last session ends
+- [x] Session-end notification created
+- [x] No errors if dashboard binary not found (graceful degradation)
+- [x] Tests cover auto-lifecycle logic (mocked subprocess)
 
 ## Testing Strategy
 

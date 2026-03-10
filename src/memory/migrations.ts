@@ -38,6 +38,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 4) migrateV4(db);
   if (currentVersion < 5) migrateV5(db);
   if (currentVersion < 6) migrateV6(db);
+  if (currentVersion < 7) migrateV7(db);
 }
 
 // ─── V1: Core tables (observations, sessions, FTS) ───────────────────────────
@@ -182,6 +183,71 @@ function migrateV6(db: Database): void {
 
     INSERT OR REPLACE INTO schema_version (version) VALUES (6);
   `);
+}
+
+// ─── V7: tdd_cycles + spec_events + extended spec_tasks ──────────────────────
+
+function migrateV7(db: Database): void {
+  // 1. Create tdd_cycles table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tdd_cycles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_path TEXT NOT NULL UNIQUE,
+      spec_id TEXT REFERENCES specs(id),
+      task_position INTEGER,
+      state TEXT NOT NULL DEFAULT 'IDLE',
+      test_file_path TEXT,
+      last_fail_output TEXT,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tdd_cycles_file ON tdd_cycles(file_path);
+    CREATE INDEX IF NOT EXISTS idx_tdd_cycles_spec ON tdd_cycles(spec_id);
+  `);
+
+  // 2. Create spec_events table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS spec_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      spec_id TEXT NOT NULL REFERENCES specs(id),
+      session_id TEXT,
+      timestamp INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      details TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_spec_events_spec ON spec_events(spec_id);
+    CREATE INDEX IF NOT EXISTS idx_spec_events_type ON spec_events(event_type);
+  `);
+
+  // 3. Extend spec_tasks with rich metadata columns (idempotent)
+  const taskCols = db
+    .prepare("PRAGMA table_info(spec_tasks)")
+    .all() as Array<{ name: string }>;
+  const taskColNames = new Set(taskCols.map((c) => c.name));
+
+  if (!taskColNames.has("description")) {
+    db.run("ALTER TABLE spec_tasks ADD COLUMN description TEXT");
+  }
+  if (!taskColNames.has("test_strategy")) {
+    db.run("ALTER TABLE spec_tasks ADD COLUMN test_strategy TEXT");
+  }
+  if (!taskColNames.has("definition_of_done")) {
+    db.run("ALTER TABLE spec_tasks ADD COLUMN definition_of_done TEXT");
+  }
+  if (!taskColNames.has("started_at")) {
+    db.run("ALTER TABLE spec_tasks ADD COLUMN started_at INTEGER");
+  }
+  if (!taskColNames.has("completed_at")) {
+    db.run("ALTER TABLE spec_tasks ADD COLUMN completed_at INTEGER");
+  }
+
+  // 4. Add session index on specs
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_specs_session ON specs(session_id)",
+  );
+
+  db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (7)");
 }
 
 // ─── V5: session_id + metadata on specs, worktrees table ────────────────────

@@ -38,6 +38,11 @@ interface RawSpecTask {
   position: number;
   title: string;
   status: string;
+  description: string | null;
+  test_strategy: string | null;
+  definition_of_done: string | null;
+  started_at: number | null;
+  completed_at: number | null;
 }
 
 // --- Store ---
@@ -69,11 +74,20 @@ export class SpecStore {
     // Sync tasks — delete existing then re-insert
     this.db.prepare("DELETE FROM spec_tasks WHERE spec_id = ?").run(spec.id);
     const insertTask = this.db.prepare(
-      "INSERT INTO spec_tasks (spec_id, position, title, status) VALUES (?, ?, ?, ?)",
+      `INSERT INTO spec_tasks (spec_id, position, title, status, description, test_strategy, definition_of_done)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
 
     for (const task of spec.tasks) {
-      insertTask.run(spec.id, task.position, task.title, task.status);
+      insertTask.run(
+        spec.id,
+        task.position,
+        task.title,
+        task.status,
+        task.description ?? null,
+        task.testStrategy ?? null,
+        task.definitionOfDone ?? null,
+      );
     }
 
     return spec;
@@ -132,21 +146,87 @@ export class SpecStore {
     return this.deserializeSpec(row);
   }
 
+  /** Get all specs associated with a session. */
+  getSpecsForSession(sessionId: string): Spec[] {
+    const rows = this.db
+      .prepare("SELECT * FROM specs WHERE session_id = ? ORDER BY updated_at DESC")
+      .all(sessionId) as RawSpec[];
+    return rows.map((r) => this.deserializeSpec(r));
+  }
+
+  /** Get a spec by ID with tasks pre-loaded (convenience wrapper). */
+  getSpecWithTasks(specId: string): Spec | null {
+    return this.getSpec(specId);
+  }
+
+  /**
+   * Get the current task being worked on for a spec.
+   * Returns the first "in-progress" task, or the first "pending" task if none in-progress.
+   * Returns null if all tasks are complete/failed or the spec has no tasks.
+   */
+  getCurrentTask(specId: string): SpecTask | null {
+    // Prefer in-progress
+    const inProgress = this.db
+      .prepare(
+        "SELECT * FROM spec_tasks WHERE spec_id = ? AND status = 'in-progress' ORDER BY position LIMIT 1",
+      )
+      .get(specId) as RawSpecTask | null;
+    if (inProgress) return this.deserializeTask(inProgress);
+
+    // Fall back to first pending
+    const pending = this.db
+      .prepare(
+        "SELECT * FROM spec_tasks WHERE spec_id = ? AND status = 'pending' ORDER BY position LIMIT 1",
+      )
+      .get(specId) as RawSpecTask | null;
+    if (pending) return this.deserializeTask(pending);
+
+    return null;
+  }
+
+  /**
+   * Update a task's status (and optional timestamps).
+   */
+  updateTaskStatus(
+    specId: string,
+    position: number,
+    status: SpecTask["status"],
+    opts?: { startedAt?: number; completedAt?: number },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE spec_tasks
+         SET status = ?, started_at = COALESCE(?, started_at), completed_at = COALESCE(?, completed_at)
+         WHERE spec_id = ? AND position = ?`,
+      )
+      .run(status, opts?.startedAt ?? null, opts?.completedAt ?? null, specId, position);
+  }
+
   // --- Helpers ---
 
-  private getTasksForSpec(specId: string): SpecTask[] {
+  /** Get all tasks for a spec, ordered by position. */
+  getTasksForSpec(specId: string): SpecTask[] {
     const rows = this.db
       .prepare("SELECT * FROM spec_tasks WHERE spec_id = ? ORDER BY position")
       .all(specId) as RawSpecTask[];
-    return rows.map((r) => ({
+    return rows.map((r) => this.deserializeTask(r));
+  }
+
+  private deserializeTask(r: RawSpecTask): SpecTask {
+    return {
       position: r.position,
       title: r.title,
       status: r.status as SpecTask["status"],
-    }));
+      ...(r.description && { description: r.description }),
+      ...(r.test_strategy && { testStrategy: r.test_strategy }),
+      ...(r.definition_of_done && { definitionOfDone: r.definition_of_done }),
+      ...(r.started_at && { startedAt: r.started_at }),
+      ...(r.completed_at && { completedAt: r.completed_at }),
+    };
   }
 
   private deserializeSpec(row: RawSpec): Spec {
-    const tasks = this.getTasksForSpec(row.id);
+    const tasks = this.getTasksForSpec(row.id) as SpecTask[];
     let metadata: Spec["metadata"] = {};
     try {
       metadata = row.metadata ? JSON.parse(row.metadata) : {};

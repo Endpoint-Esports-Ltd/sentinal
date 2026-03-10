@@ -185,5 +185,68 @@ export interface RawNotification {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 6,
+  SCHEMA_VERSION: 7,
 } as const;
+
+// ─── TDD Cycle Types ──────────────────────────────────────────────────────────
+
+export const TDD_CYCLE_STATES = [
+  "IDLE",
+  "TEST_WRITTEN",
+  "RED_CONFIRMED",
+  "GREEN_CONFIRMED",
+] as const;
+
+export type TddCycleState = (typeof TDD_CYCLE_STATES)[number];
+
+export interface TddCycle {
+  id: number;
+  filePath: string;
+  specId: string | null;
+  taskPosition: number | null;
+  state: TddCycleState;
+  testFilePath: string | null;
+  lastFailOutput: string | null;
+  updatedAt: number;
+}
+
+export interface RawTddCycle {
+  id: number;
+  file_path: string;
+  spec_id: string | null;
+  task_position: number | null;
+  state: string;
+  test_file_path: string | null;
+  last_fail_output: string | null;
+  updated_at: number;
+}
+
+// ─── Spec Event Types ─────────────────────────────────────────────────────────
+
+export const SPEC_EVENT_TYPES = [
+  "phase_change",
+  "task_update",
+  "tdd_cycle",
+  "verification",
+  "note",
+] as const;
+
+export type SpecEventType = (typeof SPEC_EVENT_TYPES)[number];
+
+export interface SpecEvent {
+  id: number;
+  specId: string;
+  sessionId: string | null;
+  timestamp: number;
+  eventType: SpecEventType;
+  details: Record<string, unknown>;
+}
+
+export interface RawSpecEvent {
+  id: number;
+  spec_id: string;
+  session_id: string | null;
+  timestamp: number;
+  event_type: string;
+  details: string;
+}

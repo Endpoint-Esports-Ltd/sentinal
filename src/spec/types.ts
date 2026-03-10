@@ -16,6 +16,11 @@ export const SPEC_STATUSES = [
   "VERIFIED",
   "CANCELLED",
   "APPROVED",
+  "DRAFT",
+  "PLANNING",
+  "IMPLEMENTING",
+  "VERIFYING",
+  "FAILED",
 ] as const;
 
 export type SpecStatus = (typeof SPEC_STATUSES)[number];
@@ -23,7 +28,7 @@ export type SpecStatus = (typeof SPEC_STATUSES)[number];
 export const SPEC_TYPES = ["feature", "bugfix"] as const;
 export type SpecType = (typeof SPEC_TYPES)[number];
 
-export const TASK_STATUSES = ["pending", "in-progress", "complete"] as const;
+export const TASK_STATUSES = ["pending", "in-progress", "complete", "failed"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** Statuses that indicate the spec is still active (not done). */
@@ -31,6 +36,8 @@ export const ACTIVE_STATUSES: readonly SpecStatus[] = [
   "PENDING",
   "IN_PROGRESS",
   "COMPLETE",
+  "IMPLEMENTING",
+  "VERIFYING",
 ] as const;
 
 /** Statuses that indicate the spec is terminal (no more work). */
@@ -45,6 +52,11 @@ export const SpecTaskSchema = z.object({
   position: z.number().int().min(1),
   title: z.string().min(1),
   status: z.enum(TASK_STATUSES),
+  description: z.string().optional(),
+  testStrategy: z.string().optional(),
+  definitionOfDone: z.string().optional(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
 });
 
 export const SpecSchema = z.object({
