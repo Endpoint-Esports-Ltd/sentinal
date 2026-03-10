@@ -4,6 +4,34 @@ Quality enforcement plugin for TypeScript, Angular, and NestJS projects — supp
 
 Sentinal runs as an intelligent hook pipeline inside Claude Code or OpenCode, automatically checking every file edit against framework-specific rules, running formatters and linters, enforcing TDD practices, and providing structured development workflows.
 
+## Quick Install
+
+Download and install the latest `sentinal` binary with a single command. Requires a [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope (private repository).
+
+```bash
+export GITHUB_TOKEN=ghp_xxx  # or GH_TOKEN
+
+curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/Endpoint-Esports-Ltd/sentinal/main/scripts/install.sh | sh
+```
+
+The installer will:
+1. Download the latest binary for your platform (linux/darwin, x64/arm64)
+2. Install it to `~/.sentinal/bin/sentinal`
+3. Add `~/.sentinal/bin` to your `PATH` (bash, zsh, or fish)
+4. Set up the `snt` alias
+5. Enable shell tab completions
+
+After installation, restart your shell and install for your AI assistant:
+
+```bash
+sentinal install claude     # Claude Code
+sentinal install opencode   # OpenCode
+sentinal install both       # Both
+```
+
+> **macOS:** If Gatekeeper blocks the binary, run `codesign -s - ~/.sentinal/bin/sentinal`
+
 ## Supported AI Assistants
 
 | Assistant | Status | Installation |
@@ -222,7 +250,9 @@ sentinal/
 │   └── commands/                     # Command templates with {{description}} placeholders
 │
 ├── scripts/
-│   └── generate-commands.js          # Generates target-specific commands from templates
+│   ├── generate-commands.js          # Generates target-specific commands from templates
+│   ├── install.sh                    # Remote install script (curl | sh)
+│   └── release-build.mjs            # Cross-compilation for semantic-release
 │
 ├── package.json                      # @endpoint/sentinal (private registry)
 └── bunfig.toml                       # Bun test configuration

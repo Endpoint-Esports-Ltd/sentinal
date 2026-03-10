@@ -31,6 +31,7 @@ import {
   promptMenu,
   stripJsoncComments,
 } from "../../utils/shell.js";
+import { detectShell, getShellConfigPath, removeBlock } from "./shell-init.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -60,7 +61,18 @@ const RULE_FILES = [
 ];
 
 /** MCP server keys managed by Sentinal. */
-const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal", "sentinal-memory"];
+const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal"];
+
+/** All possible plugin filenames (deployed via different install paths). */
+const PLUGIN_FILENAMES = ["sentinal.mjs", "sentinal.ts", "sentinal.js"];
+
+/** All possible plugin path strings that may appear in the opencode config plugin array. */
+const PLUGIN_PATH_PATTERNS = [
+  "@endpoint/sentinal/opencode-plugin",
+  "./plugins/sentinal.mjs",
+  "./plugins/sentinal.ts",
+  "./plugins/sentinal.js",
+];
 
 // ─── Register command ───────────────────────────────────────────────────────
 
@@ -117,12 +129,12 @@ async function uninstallDispatcher(
   info("Detecting Sentinal installations...");
 
   const xdgConfig = resolveXdgConfig();
-  const opencodePluginPath = join(xdgConfig, "opencode", "plugins", "sentinal.ts");
+  const opencodePluginsDir = join(xdgConfig, "opencode", "plugins");
 
   // Claude: check marketplace directory exists
   const hasClaude = existsSync(MARKETPLACE_DIR);
-  // OpenCode: check plugin file exists
-  const hasOpencode = existsSync(opencodePluginPath);
+  // OpenCode: check for any known plugin file variant
+  const hasOpencode = PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)));
 
   if (hasClaude) ok("  Claude Code plugin found");
   else info("  ! Claude Code plugin not found");
@@ -254,33 +266,35 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
   let pluginsDir: string;
   let commandsDir: string;
   let rulesDir: string;
-  let toolsDir: string;
 
   if (local) {
     targetDir = join(process.cwd(), ".opencode");
     pluginsDir = join(targetDir, "plugins");
     commandsDir = join(targetDir, "commands");
     rulesDir = join(targetDir, "rules");
-    toolsDir = join(targetDir, "tools");
     note(`Uninstalling from current project: ${targetDir}`);
   } else {
     targetDir = globalConfig;
     pluginsDir = join(globalConfig, "plugins");
     commandsDir = join(globalConfig, "commands");
     rulesDir = join(globalConfig, "rules");
-    toolsDir = join(globalConfig, "tools");
     note(`Uninstalling globally: ${targetDir}`);
   }
 
   console.log("");
 
-  // ── Remove plugin ──
+  // ── Remove plugin files (all known variants) ──
 
   info("Removing Sentinal plugin...");
-  if (removeFileIfExists(join(pluginsDir, "sentinal.ts"))) {
-    ok("  Plugin removed");
-  } else {
-    info("  ! Plugin not found");
+  let pluginRemoved = false;
+  for (const filename of PLUGIN_FILENAMES) {
+    if (removeFileIfExists(join(pluginsDir, filename))) {
+      ok(`  Removed ${filename}`);
+      pluginRemoved = true;
+    }
+  }
+  if (!pluginRemoved) {
+    info("  ! No plugin files found");
   }
 
   // ── Remove commands ──
@@ -303,15 +317,6 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
         ok(`    ${rule}.md`);
       }
     }
-  }
-
-  // ── Remove tools ──
-
-  info("Removing custom tools...");
-  if (removeFileIfExists(join(toolsDir, "sentinal-check.ts"))) {
-    ok("  Tool removed");
-  } else {
-    info("  ! Tool not found");
   }
 
   // ── Remove global package ──
@@ -344,9 +349,14 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
 
   info("Cleaning opencode config...");
 
-  const pluginPath = local
-    ? ".opencode/plugins/sentinal.ts"
-    : join(pluginsDir, "sentinal.ts");
+  // Build the full set of plugin paths to match (static patterns + absolute paths)
+  const pluginPathsToRemove = new Set(PLUGIN_PATH_PATTERNS);
+  for (const filename of PLUGIN_FILENAMES) {
+    pluginPathsToRemove.add(join(pluginsDir, filename));
+    if (local) {
+      pluginPathsToRemove.add(`.opencode/plugins/${filename}`);
+    }
+  }
 
   const configDir = local ? process.cwd() : targetDir;
 
@@ -375,9 +385,9 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
     }
 
     if (config) {
-      // Remove sentinal plugin from plugin array
+      // Remove all sentinal plugin path variants from plugin array
       const plugins = (config.plugin as string[]) ?? [];
-      config.plugin = plugins.filter((p) => p !== pluginPath);
+      config.plugin = plugins.filter((p) => !pluginPathsToRemove.has(p) && !p.includes("sentinal"));
 
       // Remove sentinal MCP server keys
       const mcp = (config.mcp as Record<string, unknown>) ?? {};
@@ -402,10 +412,17 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
   // ── Clean up empty directories ──
 
   info("Cleaning up empty directories...");
-  for (const dir of [pluginsDir, commandsDir, rulesDir, toolsDir]) {
+  for (const dir of [pluginsDir, commandsDir, rulesDir]) {
     removeDirIfEmpty(dir);
   }
   ok("  Cleanup complete");
+
+  // ── Remove shell integration (global only) ──
+
+  if (!local) {
+    removeShellIntegration();
+    removeBinary();
+  }
 
   // ── Done ──
 
@@ -414,6 +431,47 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
   ok("  Sentinal for OpenCode uninstalled successfully!");
   console.log(`${colors.green}${"=".repeat(68)}${colors.nc}`);
   console.log("");
+}
+
+// ─── Shell & binary cleanup ─────────────────────────────────────────────────
+
+/** Remove the sentinal managed block from the user's shell config file. */
+function removeShellIntegration(): void {
+  info("Removing shell integration...");
+  const shell = detectShell();
+  if (!shell) {
+    info("  ! Could not detect shell, skipping");
+    return;
+  }
+
+  const configPath = getShellConfigPath(shell);
+  if (!existsSync(configPath)) {
+    info("  ! Shell config not found, skipping");
+    return;
+  }
+
+  const existing = readFileSync(configPath, "utf-8");
+  const result = removeBlock(existing);
+  if (result) {
+    writeFileSync(configPath, result);
+    ok(`  Removed PATH, alias, and completions from ${configPath}`);
+  } else {
+    info("  ! No sentinal block found in shell config");
+  }
+}
+
+/** Remove the sentinal binary from ~/.sentinal/bin/. */
+function removeBinary(): void {
+  const binDir = join(homedir(), ".sentinal", "bin");
+  const binPath = join(binDir, "sentinal");
+
+  info("Removing sentinal binary...");
+  if (removeFileIfExists(binPath)) {
+    ok(`  Removed ${binPath}`);
+    removeDirIfEmpty(binDir);
+  } else {
+    info("  ! Binary not found");
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
