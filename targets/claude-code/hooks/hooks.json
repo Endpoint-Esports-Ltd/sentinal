@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/post-compact-restore.js\"",
+            "command": "sentinal hook shared post-compact-restore",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-restore.js\"",
+            "command": "sentinal hook shared memory-restore",
             "timeout": 5
           }
         ]
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/session-start.js\"",
+            "command": "sentinal hook shared session-start",
             "timeout": 5
           }
         ]
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/tdd-guard.js\"",
+            "command": "sentinal hook shared tdd-guard",
             "timeout": 5
           }
         ]
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/tool-redirect.js\""
+            "command": "sentinal hook claude tool-redirect"
           }
         ]
       }
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/tdd-tracker.js\"",
+            "command": "sentinal hook shared tdd-tracker",
             "timeout": 10
           }
         ]
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/file-checker.js\"",
+            "command": "sentinal hook claude file-checker",
             "timeout": 60
           }
         ]
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-observer.js\"",
+            "command": "sentinal hook shared memory-observer",
             "timeout": 5
           }
         ]
@@ -88,7 +88,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/context-monitor.js\"",
+            "command": "sentinal hook claude context-monitor",
             "timeout": 5
           }
         ]
@@ -99,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/pre-compact.js\"",
+            "command": "sentinal hook shared pre-compact",
             "timeout": 15
           }
         ]
@@ -110,7 +110,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/spec-stop-guard.js\""
+            "command": "sentinal hook shared spec-stop-guard"
           }
         ]
       }
@@ -120,7 +120,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/session-end.js\"",
+            "command": "sentinal hook shared session-end",
             "timeout": 10
           }
         ]

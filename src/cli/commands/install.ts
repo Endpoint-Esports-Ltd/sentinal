@@ -28,7 +28,6 @@ import {
   resolveXdgConfig,
   resolveAssetsDir,
   resolveSentinalRoot,
-  isGlobalInstall,
   copyDirRecursive,
   mkdirp,
   promptMenu,
@@ -53,7 +52,8 @@ export function registerInstallCommand(program: Command): void {
     .command("install [target]")
     .description("Install Sentinal for an AI assistant (claude, opencode, both)")
     .option("--local", "Install OpenCode plugin to current project instead of global")
-    .action(async (target?: string, opts?: { local?: boolean }) => {
+    .option("--bundled", "Use bundled .js plugin file instead of npm package (for offline/airgapped environments)")
+    .action(async (target?: string, opts?: { local?: boolean; bundled?: boolean }) => {
       try {
         await installDispatcher(target, opts);
       } catch (e) {
@@ -67,9 +67,10 @@ export function registerInstallCommand(program: Command): void {
 
 async function installDispatcher(
   target?: string,
-  opts?: { local?: boolean },
+  opts?: { local?: boolean; bundled?: boolean },
 ): Promise<void> {
   const local = opts?.local ?? false;
+  const bundled = opts?.bundled ?? false;
 
   // Explicit target
   if (target) {
@@ -79,12 +80,12 @@ async function installDispatcher(
         await installClaudeCode();
         return;
       case "opencode":
-        await installOpenCode(local);
+        await installOpenCode(local, bundled);
         return;
       case "both":
         await installClaudeCode();
         console.log("");
-        await installOpenCode(local);
+        await installOpenCode(local, bundled);
         return;
       default:
         err(`Unknown target: ${target}`);
@@ -123,7 +124,7 @@ async function installDispatcher(
     await installClaudeCode();
   } else if (!hasClaude && hasOpencode) {
     info("Only OpenCode detected. Installing for OpenCode...");
-    await installOpenCode(local);
+    await installOpenCode(local, bundled);
   } else {
     // Both found — interactive prompt
     const choice = await promptMenu(
@@ -137,12 +138,12 @@ async function installDispatcher(
         await installClaudeCode();
         break;
       case 2:
-        await installOpenCode(local);
+        await installOpenCode(local, bundled);
         break;
       case 3:
         await installClaudeCode();
         console.log("");
-        await installOpenCode(local);
+        await installOpenCode(local, bundled);
         break;
       default:
         console.log("Installation cancelled.");
@@ -177,13 +178,6 @@ async function installClaudeCode(): Promise<void> {
   }
   ok(`[OK] Node.js v${nodeMajor}`);
 
-  if (!commandExists("bun")) {
-    err("ERROR: Bun is required. Install from https://bun.sh");
-    process.exit(1);
-  }
-  const bunVersion = run(["bun", "--version"]).stdout;
-  ok(`[OK] Bun v${bunVersion}`);
-
   if (!commandExists("claude")) {
     err("ERROR: Claude Code CLI is required.");
     console.log("  Install: npm install -g @anthropic-ai/claude-code");
@@ -191,27 +185,12 @@ async function installClaudeCode(): Promise<void> {
   }
   ok("[OK] Claude Code CLI");
 
-  // ── Build (only if running from source, not from global install) ──
-
-  const sentinalRoot = resolveSentinalRoot();
-
-  if (!isGlobalInstall()) {
-    console.log("");
-    info("Installing dependencies...");
-    const installResult = run(["bun", "install"], { cwd: sentinalRoot });
-    if (!installResult.ok) {
-      err(`Failed to install dependencies: ${installResult.stderr}`);
-      process.exit(1);
-    }
-
-    console.log("");
-    info("Building hooks...");
-    const buildResult = run(["bun", "run", "build:claude"], { cwd: sentinalRoot });
-    if (!buildResult.ok) {
-      err(`Failed to build: ${buildResult.stderr}`);
-      process.exit(1);
-    }
+  if (!commandExists("sentinal")) {
+    err("ERROR: sentinal binary must be on PATH.");
+    console.log('  Hooks use `sentinal hook` subcommands. Ensure PATH includes ~/.bun/bin or ~/.sentinal/bin');
+    process.exit(1);
   }
+  ok("[OK] sentinal binary on PATH");
 
   // ── Remove previous installation ──
 
@@ -269,7 +248,7 @@ async function installClaudeCode(): Promise<void> {
   const claudeTarget = join(assetsDir, "claude-code");
 
   copyDirRecursive(claudeTarget, pluginDir, {
-    exclude: ["install.sh", "uninstall.sh", "tsconfig.json"],
+    exclude: ["install.sh", "uninstall.sh", "tsconfig.json", "dist"],
   });
 
   ok(`[OK] Marketplace created at ${MARKETPLACE_DIR}`);
@@ -311,7 +290,7 @@ async function installClaudeCode(): Promise<void> {
 
 // ─── OpenCode installer ─────────────────────────────────────────────────────
 
-async function installOpenCode(local: boolean): Promise<void> {
+async function installOpenCode(local: boolean, bundled: boolean = false): Promise<void> {
   greet();
   note("  for OpenCode");
   console.log("");
@@ -350,34 +329,26 @@ async function installOpenCode(local: boolean): Promise<void> {
   const globalConfig = join(xdgConfig, "opencode");
 
   let targetDir: string;
-  let pluginsDir: string;
   let commandsDir: string;
   let rulesDir: string;
-  let toolsDir: string;
 
   if (local) {
     targetDir = join(process.cwd(), ".opencode");
-    pluginsDir = join(targetDir, "plugins");
     commandsDir = join(targetDir, "commands");
     rulesDir = join(targetDir, "rules");
-    toolsDir = join(targetDir, "tools");
     note(`Installing to current project: ${targetDir}`);
   } else {
     targetDir = globalConfig;
-    pluginsDir = join(globalConfig, "plugins");
     commandsDir = join(globalConfig, "commands");
     rulesDir = join(globalConfig, "rules");
-    toolsDir = join(globalConfig, "tools");
     note(`Installing globally: ${targetDir}`);
   }
 
   console.log("");
 
   // ── Create directories & install globally ──
-  mkdirp(pluginsDir);
   mkdirp(commandsDir);
   mkdirp(rulesDir);
-  mkdirp(toolsDir);
   ok("  Directories created");
   info("Installing @endpoint/sentinal globally...");
 
@@ -410,17 +381,25 @@ async function installOpenCode(local: boolean): Promise<void> {
   }
 
   // ── Copy assets ──
-
   const assetsDir = resolveAssetsDir();
   const opencodeTarget = join(assetsDir, "opencode");
 
-  // Plugin
-  info("Installing Sentinal plugin...");
-  copyFileSync(
-    join(opencodeTarget, "plugins", "sentinal.ts"),
-    join(pluginsDir, "sentinal.ts"),
-  );
-  ok(`  Plugin installed: ${pluginsDir}/sentinal.ts`);
+  if (bundled) {
+    // Bundled mode: copy the pre-built .js bundle for offline/airgapped environments
+    const bundleSrc = join(opencodeTarget, "dist", "sentinal.js");
+    if (!existsSync(bundleSrc)) {
+      err("x Bundled plugin not found. Run `bun run build:opencode` first.");
+      process.exit(1);
+    }
+    const pluginsDir = join(targetDir, "plugins");
+    mkdirp(pluginsDir);
+    copyFileSync(bundleSrc, join(pluginsDir, "sentinal.js"));
+    ok("  Bundled plugin installed (offline mode)");
+  } else {
+    // Normal mode: plugin loaded from npm package — no file copy needed.
+    // sentinal-check tool is inlined in the plugin — no separate file needed.
+    info("Plugin: loaded from @endpoint/sentinal/opencode-plugin (npm package)");
+  }
 
   // Commands
   info("Installing commands...");
@@ -440,14 +419,6 @@ async function installOpenCode(local: boolean): Promise<void> {
   for (const file of ruleFiles) {
     copyFileSync(join(opencodeTarget, "rules", file), join(rulesDir, file));
     ok(`    ${file}`);
-  }
-
-  // Tools
-  info("Installing custom tools...");
-  const toolSrc = join(opencodeTarget, "tools", "sentinal-check.ts");
-  if (existsSync(toolSrc)) {
-    copyFileSync(toolSrc, join(toolsDir, "sentinal-check.ts"));
-    ok("    sentinal-check.ts");
   }
 
   // ── AGENTS.md ──
@@ -474,9 +445,9 @@ async function installOpenCode(local: boolean): Promise<void> {
 
   info("Configuring OpenCode...");
 
-  const pluginPath = local
-    ? ".opencode/plugins/sentinal.ts"
-    : join(pluginsDir, "sentinal.ts");
+  const pluginPath = bundled
+    ? (local ? ".opencode/plugins/sentinal.js" : join(targetDir, "plugins", "sentinal.js"))
+    : "@endpoint/sentinal/opencode-plugin";
 
   const configDir = local ? process.cwd() : targetDir;
 
@@ -554,7 +525,7 @@ async function installOpenCode(local: boolean): Promise<void> {
   ok("Sentinal for OpenCode installed successfully!");
   console.log(`${colors.green}${"=".repeat(60)}${colors.nc}`);
   note("Installed:");
-  console.log(`  Plugin:   ${pluginsDir}/sentinal.ts`);
+  console.log(`  Plugin:   ${bundled ? pluginPath + " (bundled)" : "@endpoint/sentinal/opencode-plugin (npm package)"}`);
   console.log(`  Commands: ${commandsDir}/*.md`);
   console.log(`  Rules:    ${rulesDir}/*.md`);
   console.log(`  Config:   ${configFile}`);

@@ -97,3 +97,8 @@ export {
 export type { Worktree, WorktreeConfig, DiffSummary, DiffFileSummary } from "./git/types.js";
 export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema, DEFAULT_WORKTREE_CONFIG } from "./git/types.js";
 export type { WorktreeStatus } from "./git/types.js";
+
+// ─── OpenCode Plugin ────────────────────────────────────────────────────────
+// Re-exported as fallback if OpenCode doesn't support subpath imports.
+// Primary access is via `@endpoint/sentinal/opencode-plugin`.
+export { SentinalPlugin } from "../targets/opencode/plugins/sentinal.js";

@@ -73,4 +73,4 @@ If the plan has more than 3 tasks: launch the `plan-reviewer` sub-agent in backg
 
 Present the plan summary and ask for approval. This is the ONLY user interaction point in planning.
 
-After approval: update plan header to `Approved: Yes`, then invoke Skill(skill='spec-implement', args='<plan-path>').
+After approval: update plan header to `Approved: Yes`, then invoke /spec-implement <plan-path>.

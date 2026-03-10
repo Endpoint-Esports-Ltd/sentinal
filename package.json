@@ -4,7 +4,8 @@
   "license": "UNLICENSED",
   "description": "Quality plugin for TypeScript, Angular, and NestJS - supports Claude Code and OpenCode",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./opencode-plugin": "./targets/opencode/plugins/sentinal.ts"
   },
   "bin": {
     "sentinal": "bin/sentinal.sh"

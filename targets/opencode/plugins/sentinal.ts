@@ -55,11 +55,18 @@ interface PluginContext {
 
 type Plugin = (context: PluginContext) => Promise<PluginHooks>;
 
+interface ToolDefinition {
+  description: string;
+  args: Record<string, unknown>;
+  execute(args: Record<string, unknown>, context: { directory: string; worktree: string }): Promise<string>;
+}
+
 interface PluginHooks {
   "tool.execute.before"?: (input: { tool: string }, output: { args: Record<string, unknown> }) => Promise<void>;
   "tool.execute.after"?: (input: { tool: string }, output: { args: Record<string, unknown> }) => Promise<void>;
   "experimental.session.compacting"?: (input: { sessionID: string }, output: { context: string[]; prompt?: string }) => Promise<void>;
   event?: (input: { event: { type: string; sessionID?: string } }) => Promise<void>;
+  tool?: Record<string, ToolDefinition>;
 }
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
@@ -223,7 +230,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
             const result = await $`npx tsc --noEmit 2>&1`.quiet().nothrow();
             if (result.exitCode !== 0) {
               const out = await result.text();
-              const errors = out.split("\n").filter((l) => l.includes("error TS")).slice(0, 5);
+              const errors = out.split("\n").filter((l: string) => l.includes("error TS")).slice(0, 5);
               if (errors.length > 0) {
                 issues.push(`TypeScript errors:\n${errors.join("\n")}`);
               }
@@ -477,6 +484,112 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           });
         }
       }
+    },
+
+    // ─── Custom Tools ─────────────────────────────────────────────────────────
+    tool: {
+      "sentinal-check": {
+        description: "Run Sentinal quality checks on a file or directory. Checks file length, NestJS patterns, and TDD compliance.",
+        args: {
+          path: { type: "string", description: "Path to a file or directory to check. Use '.' for the entire project." },
+          verbose: { type: "boolean", description: "Show all files, including those that pass checks", optional: true },
+        },
+        async execute(args: Record<string, unknown>, context: { directory: string; worktree: string }): Promise<string> {
+          const { statSync, readdirSync } = await import("node:fs");
+          const { relative } = await import("node:path");
+
+          const CHECK_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+          const targetPath = (args.path as string).startsWith("/")
+            ? (args.path as string)
+            : join(context.directory, args.path as string);
+
+          if (!existsSync(targetPath)) {
+            return `Error: Path does not exist: ${targetPath}`;
+          }
+
+          interface CheckResult { file: string; issues: string[]; passed: boolean }
+
+          function checkSingleFile(fp: string): CheckResult {
+            const issues: string[] = [];
+            try {
+              const content = readFileSync(fp, "utf-8");
+              const lineCount = content.split("\n").length;
+              const lengthResult = checkFileLength(fp, lineCount);
+              if (lengthResult) {
+                const prefix = lengthResult.severity === "block" ? "BLOCK" : "WARN";
+                issues.push(`${prefix}: ${lengthResult.message}`);
+              }
+              if (isNestFile(fp)) {
+                for (const r of checkNestPatterns(fp, content)) {
+                  const prefix = r.severity === "error" ? "ERROR" : "WARN";
+                  issues.push(`${prefix}: ${r.message}`);
+                }
+              }
+              if (!isTestFile(fp)) {
+                const testPaths = getExpectedTestPaths(fp);
+                if (testPaths.length > 0 && !testPaths.some((tp: string) => existsSync(tp))) {
+                  issues.push(`INFO: No companion test file (expected: ${testPaths[0]})`);
+                }
+              }
+            } catch (e) {
+              issues.push(`ERROR: Could not read file: ${e instanceof Error ? e.message : String(e)}`);
+            }
+            return { file: fp, issues, passed: issues.length === 0 || issues.every((i: string) => i.startsWith("INFO:")) };
+          }
+
+          function findTsFiles(dir: string, maxDepth = 5): string[] {
+            const files: string[] = [];
+            function walk(d: string, depth: number) {
+              if (depth > maxDepth || !existsSync(d)) return;
+              try {
+                for (const entry of readdirSync(d)) {
+                  if (entry.startsWith(".") || entry === "node_modules" || entry === "dist" || entry === "build") continue;
+                  const fullPath = join(d, entry);
+                  try {
+                    const stat = statSync(fullPath);
+                    if (stat.isDirectory()) walk(fullPath, depth + 1);
+                    else if (stat.isFile() && CHECK_EXTENSIONS.includes(entry.slice(entry.lastIndexOf(".")))) files.push(fullPath);
+                  } catch { /* skip */ }
+                }
+              } catch { /* skip */ }
+            }
+            walk(dir, 0);
+            return files;
+          }
+
+          const stat = statSync(targetPath);
+          const results: CheckResult[] = [];
+          if (stat.isFile()) results.push(checkSingleFile(targetPath));
+          else if (stat.isDirectory()) for (const f of findTsFiles(targetPath)) results.push(checkSingleFile(f));
+
+          if (results.length === 0) return "No TypeScript/JavaScript files found to check.";
+
+          const passed = results.filter((r: CheckResult) => r.passed);
+          const failed = results.filter((r: CheckResult) => !r.passed);
+          const lines: string[] = [
+            `# Sentinal Quality Check Report`, ``,
+            `**Checked:** ${results.length} files`, `**Passed:** ${passed.length}`, `**Issues:** ${failed.length}`, ``,
+          ];
+
+          if (failed.length > 0) {
+            lines.push(`## Files with Issues`, ``);
+            for (const result of failed) {
+              lines.push(`### ${relative(context.directory, result.file)}`);
+              for (const issue of result.issues) lines.push(`- ${issue}`);
+              lines.push(``);
+            }
+          }
+
+          if (args.verbose && passed.length > 0) {
+            lines.push(`## Passed Files`, ``);
+            for (const result of passed) lines.push(`- ${relative(context.directory, result.file)}`);
+            lines.push(``);
+          }
+
+          if (failed.length === 0) lines.push(`All checks passed!`);
+          return lines.join("\n");
+        },
+      },
     },
   };
 };

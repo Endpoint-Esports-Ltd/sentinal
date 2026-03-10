@@ -43,6 +43,6 @@ ARGUMENTS: $ARGUMENTS
 ## Rules
 
 - You are a DISPATCHER only - do NOT explore code, read files, or do substantive work
-- Only use `AskUserQuestion` and `Skill()` tools
+- Only use {{dispatchTools}}
 - Everything after `/spec` is the task description
 - Route to the correct skill and let it handle the work

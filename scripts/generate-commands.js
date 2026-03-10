@@ -28,9 +28,11 @@ const OUTPUT_DIRS = {
 const VARIANTS = {
   claude: {
     routeSkill: (name, args) => `Skill(skill='${name}', args='${args}')`,
+    dispatchTools: "`AskUserQuestion` and `Skill()` tools",
   },
   opencode: {
     routeSkill: (name, args) => `/${name} ${args}`,
+    dispatchTools: "`AskUserQuestion` and `/slash-commands`",
   },
 };
 
@@ -45,8 +47,13 @@ function processTemplate(templatePath, variant) {
   content = content.replace(/{{agent}}/g, "");
   content = content.replace(/{{subtask}}/g, "");
   
-  // Process route replacements
-  content = content.replace(/Skill\(skill='(\w+)', args='([^']+)'\)/g, (_, name, args) => {
+  // Replace dispatch tools instruction (target-specific)
+  if (vars.dispatchTools) {
+    content = content.replace(/{{dispatchTools}}/g, vars.dispatchTools);
+  }
+  
+  // Process route replacements ([\w-]+ to match hyphenated names like spec-plan)
+  content = content.replace(/Skill\(skill='([\w-]+)', args='([^']+)'\)/g, (_, name, args) => {
     return vars.routeSkill(name, args);
   });
   

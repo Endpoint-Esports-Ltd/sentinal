@@ -74,4 +74,4 @@ Done: 0 | Left: N
 
 Present the bug analysis, Behavior Contract, and plan. Ask for approval.
 
-After approval: update plan header to `Approved: Yes`, then invoke Skill(skill='spec-implement', args='<plan-path>').
+After approval: update plan header to `Approved: Yes`, then invoke /spec-implement <plan-path>.

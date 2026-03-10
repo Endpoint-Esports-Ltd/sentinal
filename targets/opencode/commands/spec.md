@@ -18,11 +18,11 @@ ARGUMENTS: $ARGUMENTS
 
 | Status | Approved | Type | Next Command |
 |--------|----------|------|--------------|
-| PENDING | No | Feature (or absent) | Run `Skill(skill='spec-plan', args='$ARGUMENTS')` |
-| PENDING | No | Bugfix | Run `Skill(skill='spec-bugfix-plan', args='$ARGUMENTS')` |
-| PENDING | Yes | * | Run `Skill(skill='spec-implement', args='$ARGUMENTS')` |
-| COMPLETE | * | Feature (or absent) | Run `Skill(skill='spec-verify', args='$ARGUMENTS')` |
-| COMPLETE | * | Bugfix | Run `Skill(skill='spec-bugfix-verify', args='$ARGUMENTS')` |
+| PENDING | No | Feature (or absent) | Run `/spec-plan $ARGUMENTS` |
+| PENDING | No | Bugfix | Run `/spec-bugfix-plan $ARGUMENTS` |
+| PENDING | Yes | * | Run `/spec-implement $ARGUMENTS` |
+| COMPLETE | * | Feature (or absent) | Run `/spec-verify $ARGUMENTS` |
+| COMPLETE | * | Bugfix | Run `/spec-bugfix-verify $ARGUMENTS` |
 | VERIFIED | * | * | Report completion |
 
 ### If ARGUMENTS is a task description (no .md path):
@@ -37,12 +37,12 @@ ARGUMENTS: $ARGUMENTS
    - "No" - direct implementation on current branch
 
 3. Route to the appropriate planning skill:
-   - Feature → Skill(skill='spec-plan', args='$ARGUMENTS')
-   - Bugfix → Skill(skill='spec-bugfix-plan', args='$ARGUMENTS')
+   - Feature → /spec-plan $ARGUMENTS
+   - Bugfix → /spec-bugfix-plan $ARGUMENTS
 
 ## Rules
 
 - You are a DISPATCHER only - do NOT explore code, read files, or do substantive work
-- Only use `AskUserQuestion` and `Skill()` tools
+- Only use `AskUserQuestion` and `/slash-commands`
 - Everything after `/spec` is the task description
 - Route to the correct skill and let it handle the work
