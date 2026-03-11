@@ -1,3 +1,11 @@
+## [1.4.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.3...v1.4.4) (2026-03-11)
+
+
+### Bug Fixes
+
+* claude status line updates and permission relaxing ([f556ed3](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f556ed3fce4687383b1ae5ef47ad5085f798c2d9))
+* claude status line updates and permission relaxing ([a0a6ff8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a0a6ff89d4260832b743ece27adeb8a4af47a589))
+
 ## [1.4.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.2...v1.4.3) (2026-03-11)
 
 
