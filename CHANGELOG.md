@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.2...v1.4.3) (2026-03-11)
+
+
+### Bug Fixes
+
+* opencode permissions ([04ede1e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/04ede1e84af4f723d19302155353a8cc06c779bc))
+
 ## [1.4.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.1...v1.4.2) (2026-03-11)
 
 
