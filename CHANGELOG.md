@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.4...v1.5.0) (2026-03-11)
+
+
+### Features
+
+* market research feature parity - rules, commands, agents upgrade ([999cc5f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/999cc5fa39c283ca307231ac002718fb4ed0bdd0))
+
 ## [1.4.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.3...v1.4.4) (2026-03-11)
 
 
