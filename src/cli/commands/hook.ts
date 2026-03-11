@@ -75,6 +75,7 @@ async function runSessionEnd(): Promise<void> {
   const { unlinkSync, existsSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { stopServer } = await import("../../dashboard/lifecycle.js");
+  const { stopSidecarProcess } = await import("../../sidecar/lifecycle.js");
   const input = await readStdin();
 
   try {
@@ -82,7 +83,7 @@ async function runSessionEnd(): Promise<void> {
     if (client) {
       await client.endSession(input.session_id, { notification: true });
       const active = await client.getActiveSessions();
-      if (active.length === 0) stopServer();
+      if (active.length === 0) { stopServer(); stopSidecarProcess(); }
     } else {
       // Direct fallback
       const { MemoryStore } = await import("../../memory/store.js");
@@ -96,7 +97,7 @@ async function runSessionEnd(): Promise<void> {
         sessionId: input.session_id,
       });
       const active = store.getActiveSessions();
-      if (active.length === 0) stopServer();
+      if (active.length === 0) { stopServer(); stopSidecarProcess(); }
       store.close();
     }
   } catch {

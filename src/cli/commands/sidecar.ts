@@ -51,7 +51,12 @@ export function registerSidecarCommand(program: Command): void {
 
       // Foreground mode
       const port = opts.port ? parseInt(opts.port, 10) : undefined;
-      const result = startSidecar({ httpOnly: opts.httpOnly, port });
+      const result = await startSidecar({ httpOnly: opts.httpOnly, port });
+
+      if (result.alreadyRunning) {
+        console.log("Sidecar already running (detected via socket probe).");
+        process.exit(0);
+      }
 
       writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
       const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;
@@ -124,7 +129,7 @@ export function registerSidecarCommand(program: Command): void {
 
       // Delegate to foreground start logic via re-parse
       // Simpler: just inline foreground start
-      const result = startSidecar({ httpOnly: opts.httpOnly });
+      const result = await startSidecar({ httpOnly: opts.httpOnly });
       writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
 
       const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;

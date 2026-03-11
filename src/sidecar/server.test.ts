@@ -32,13 +32,13 @@ function makeTmpDir(): string {
 describe("sidecar server", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let sidecar: ReturnType<typeof startSidecar>;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
   let base: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
     base = `http://127.0.0.1:${(sidecar.server as any).port}`;
   });
 

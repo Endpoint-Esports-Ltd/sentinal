@@ -115,8 +115,8 @@ function autoStartProcess(pidFile: string, ...args: string[]): void {
   try { const c = spawn(binPath, args, { stdio: "ignore", detached: true }); c.unref(); } catch { /* non-fatal */ }
 }
 
-function stopDashboard(): void {
-  const pidPath = join(SENTINAL_DIR, "server.pid");
+function stopProcess(pidFile: string): void {
+  const pidPath = join(SENTINAL_DIR, pidFile);
   if (!existsSync(pidPath)) return;
   try {
     const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
@@ -124,6 +124,9 @@ function stopDashboard(): void {
     unlinkSync(pidPath);
   } catch { /* ignore */ }
 }
+
+function stopDashboard(): void { stopProcess("server.pid"); }
+function stopSidecar(): void { stopProcess("sidecar.pid"); }
 
 // ─── TDD via sidecar ─────────────────────────────────────────────────────────
 
@@ -504,7 +507,10 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
             if (sidecar) {
               await sidecar.endSession(sessionId, { notification: true });
               const active = await sidecar.getActiveSessions();
-              if (active.length === 0) stopDashboard();
+              if (active.length === 0) {
+                stopDashboard();
+                stopSidecar();
+              }
             }
             log(`Session ended: ${sessionId}`);
           } catch (e) {
