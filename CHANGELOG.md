@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.5.0...v1.5.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* incorrect opencode agent fields causing crash to terminal and fix sidecar cleanup race condition ([8dded54](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/8dded5450102d2126c5917de04ab9c664c92dd9e))
+
 # [1.5.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.4...v1.5.0) (2026-03-11)
 
 
