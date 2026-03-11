@@ -1038,8 +1038,8 @@ function autoStartProcess(pidFile, ...args) {
     c.unref();
   } catch {}
 }
-function stopDashboard() {
-  const pidPath = join4(SENTINAL_DIR, "server.pid");
+function stopProcess(pidFile) {
+  const pidPath = join4(SENTINAL_DIR, pidFile);
   if (!existsSync4(pidPath))
     return;
   try {
@@ -1048,6 +1048,12 @@ function stopDashboard() {
       process.kill(pid, "SIGTERM");
     unlinkSync(pidPath);
   } catch {}
+}
+function stopDashboard() {
+  stopProcess("server.pid");
+}
+function stopSidecar() {
+  stopProcess("sidecar.pid");
 }
 async function sidecarTddGuard(sidecar, toolName, filePath, cwd) {
   if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase()))
@@ -1393,8 +1399,10 @@ Resume with: /spec \${state.activePlan}\` } });
             if (sidecar) {
               await sidecar.endSession(sessionId, { notification: true });
               const active = await sidecar.getActiveSessions();
-              if (active.length === 0)
+              if (active.length === 0) {
                 stopDashboard();
+                stopSidecar();
+              }
             }
             log(\`Session ended: \${sessionId}\`);
           } catch (e) {

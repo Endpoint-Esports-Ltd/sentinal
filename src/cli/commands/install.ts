@@ -57,6 +57,7 @@ import {
   EMBEDDED_RULES,
   EMBEDDED_OC_AGENTS,
   EMBEDDED_OC_SKILLS,
+  EMBEDDED_OC_CONFIG_JSON,
   EMBEDDED_CC_PLUGIN_JSON,
   EMBEDDED_CC_LSP_JSON,
   EMBEDDED_CC_MCP_JSON,
@@ -73,20 +74,20 @@ export function registerInstallCommand(program: Command): void {
   program
     .command("install [target]")
     .description(
-      "Install Sentinal for an AI assistant (claude, opencode, both)",
+      "Install Sentinal for an AI assistant (claude, opencode, both)"
     )
     .option(
       "--local",
-      "Install OpenCode plugin to current project instead of global",
+      "Install OpenCode plugin to current project instead of global"
     )
     .option(
       "--bundled",
-      "Use bundled .js plugin file instead of npm package (for offline/airgapped environments)",
+      "Use bundled .js plugin file instead of npm package (for offline/airgapped environments)"
     )
     .action(
       async (
         target?: string,
-        opts?: { local?: boolean; bundled?: boolean },
+        opts?: { local?: boolean; bundled?: boolean }
       ) => {
         try {
           await installDispatcher(target, opts);
@@ -94,7 +95,7 @@ export function registerInstallCommand(program: Command): void {
           err(`Install failed: ${(e as Error).message}`);
           process.exit(1);
         }
-      },
+      }
     );
 }
 
@@ -102,7 +103,7 @@ export function registerInstallCommand(program: Command): void {
 
 async function installDispatcher(
   target?: string,
-  opts?: { local?: boolean; bundled?: boolean },
+  opts?: { local?: boolean; bundled?: boolean }
 ): Promise<void> {
   const local = opts?.local ?? false;
   const bundled = opts?.bundled ?? false;
@@ -164,7 +165,7 @@ async function installDispatcher(
     // Both found — interactive prompt
     const choice = await promptMenu(
       `${colors.yellow}Both Claude Code and OpenCode detected.${colors.nc}\n\nSelect installation target:`,
-      ["Claude Code only", "OpenCode only", "Both assistants", "Cancel"],
+      ["Claude Code only", "OpenCode only", "Both assistants", "Cancel"]
     );
     console.log("");
 
@@ -197,10 +198,10 @@ async function installDispatcher(
 
 async function installClaudeCode(): Promise<void> {
   console.log(
-    "Sentinal for Claude Code — TypeScript/Angular/NestJS Quality Enforcement",
+    "Sentinal for Claude Code — TypeScript/Angular/NestJS Quality Enforcement"
   );
   console.log(
-    "=========================================================================",
+    "========================================================================="
   );
   console.log("");
 
@@ -227,7 +228,7 @@ async function installClaudeCode(): Promise<void> {
   if (!commandExists("sentinal")) {
     err("ERROR: sentinal binary must be on PATH.");
     console.log(
-      "  Hooks use `sentinal hook` subcommands. Ensure PATH includes ~/.bun/bin or ~/.sentinal/bin",
+      "  Hooks use `sentinal hook` subcommands. Ensure PATH includes ~/.bun/bin or ~/.sentinal/bin"
     );
     process.exit(1);
   }
@@ -290,7 +291,7 @@ async function installClaudeCode(): Promise<void> {
 
   writeFileSync(
     join(MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"),
-    JSON.stringify(marketplaceManifest, null, 2) + "\n",
+    JSON.stringify(marketplaceManifest, null, 2) + "\n"
   );
 
   // Copy target assets into the marketplace plugin dir
@@ -392,7 +393,7 @@ function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
   mkdirp(join(pluginDir, ".claude-plugin"));
   writeFileSync(
     join(pluginDir, ".claude-plugin", "plugin.json"),
-    EMBEDDED_CC_PLUGIN_JSON,
+    EMBEDDED_CC_PLUGIN_JSON
   );
 
   // Top-level config files
@@ -408,7 +409,7 @@ function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
   }
   writeFileSync(
     join(pluginDir, ".mcp.json"),
-    JSON.stringify(mcpConfig, null, 2) + "\n",
+    JSON.stringify(mcpConfig, null, 2) + "\n"
   );
 
   // hooks/hooks.json
@@ -419,7 +420,7 @@ function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
   mkdirp(join(pluginDir, "agents"));
   for (const [name, content] of Object.entries(EMBEDDED_CC_AGENTS) as [
     string,
-    string,
+    string
   ][]) {
     writeFileSync(join(pluginDir, "agents", name), content);
   }
@@ -428,7 +429,7 @@ function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
   mkdirp(join(pluginDir, "commands"));
   for (const [name, content] of Object.entries(EMBEDDED_CC_COMMANDS) as [
     string,
-    string,
+    string
   ][]) {
     writeFileSync(join(pluginDir, "commands", name), content);
   }
@@ -437,7 +438,7 @@ function writeClaudeCodeEmbeddedAssets(pluginDir: string): void {
   mkdirp(join(pluginDir, "rules"));
   for (const [name, content] of Object.entries(EMBEDDED_CC_RULES) as [
     string,
-    string,
+    string
   ][]) {
     writeFileSync(join(pluginDir, "rules", name), content);
   }
@@ -461,7 +462,7 @@ function getSentinalBinPath(): string {
 
 async function installOpenCode(
   local: boolean,
-  bundled: boolean = false,
+  bundled: boolean = false
 ): Promise<void> {
   greet();
   note("  for OpenCode");
@@ -523,12 +524,12 @@ async function installOpenCode(
     let hasRegistry = false;
     if (existsSync(npmrcPath))
       hasRegistry = readFileSync(npmrcPath, "utf-8").includes(
-        "@endpoint:registry",
+        "@endpoint:registry"
       );
     if (!hasRegistry) {
       err("x Scoped registry not configured for @endpoint packages");
       console.log(
-        "  Add to ~/.npmrc: @endpoint:registry=https://npm.cloud.endpoint.gg/",
+        "  Add to ~/.npmrc: @endpoint:registry=https://npm.cloud.endpoint.gg/"
       );
       process.exit(1);
     }
@@ -544,7 +545,7 @@ async function installOpenCode(
     }
     if (!commandExists("sentinal"))
       info(
-        '  ! sentinal not in PATH — add: export PATH="$HOME/.bun/bin:$PATH"',
+        '  ! sentinal not in PATH — add: export PATH="$HOME/.bun/bin:$PATH"'
       );
   }
 
@@ -573,7 +574,7 @@ async function installOpenCode(
     if (binary) {
       for (const [name, content] of Object.entries(embedded) as [
         string,
-        string,
+        string
       ][]) {
         writeFileSync(join(dest, name), content);
         ok(`    ${name}`);
@@ -581,7 +582,7 @@ async function installOpenCode(
     } else {
       const srcDir = join(resolveAssetsDir(), "opencode", src);
       for (const file of readdirSyncSafe(srcDir).filter((f) =>
-        f.endsWith(".md"),
+        f.endsWith(".md")
       )) {
         copyFileSync(join(srcDir, file), join(dest, file));
         ok(`    ${file}`);
@@ -596,7 +597,7 @@ async function installOpenCode(
   if (binary) {
     for (const [path, content] of Object.entries(EMBEDDED_OC_SKILLS) as [
       string,
-      string,
+      string
     ][]) {
       const dir = join(skillsDir, path.replace("/SKILL.md", ""));
       mkdirp(dir);
@@ -626,7 +627,7 @@ async function installOpenCode(
     if (existsSync(agentsPath)) {
       writeFileSync(
         agentsPath,
-        readFileSync(agentsPath, "utf-8") + AGENTS_MD_APPEND,
+        readFileSync(agentsPath, "utf-8") + AGENTS_MD_APPEND
       );
       ok("  Updated existing AGENTS.md");
     } else {
@@ -654,6 +655,18 @@ async function installOpenCode(
       }
     : MCP_SERVERS_OPENCODE;
 
+  // Parse embedded config to extract permission and agent settings
+  const embeddedConfig = JSON.parse(EMBEDDED_OC_CONFIG_JSON) as Record<
+    string,
+    unknown
+  >;
+  const permissionConfig = embeddedConfig.permission as
+    | Record<string, unknown>
+    | undefined;
+  const agentConfig = embeddedConfig.agent as
+    | Record<string, unknown>
+    | undefined;
+
   const configDir = local ? process.cwd() : targetDir;
   let configFile = join(configDir, "opencode.json");
   if (existsSync(join(configDir, "opencode.jsonc")))
@@ -674,7 +687,7 @@ async function installOpenCode(
 
     // Remove any old sentinal plugin paths, then add the new one
     const plugins = ((config.plugin as string[]) ?? []).filter(
-      (p) => !p.includes("sentinal"),
+      (p) => !p.includes("sentinal")
     );
     config.plugin = [...plugins, pluginPath];
     ok("    Plugin configured");
@@ -682,6 +695,18 @@ async function installOpenCode(
     const existingMcp = (config.mcp as Record<string, unknown>) ?? {};
     config.mcp = { ...mcpServers, ...existingMcp, ...mcpServers };
     ok("    MCP servers merged");
+
+    // Add permission config if not already present
+    if (permissionConfig && !config.permission) {
+      config.permission = permissionConfig;
+      ok("    Permissions configured");
+    }
+
+    // Add agent config if not already present
+    if (agentConfig && !config.agent) {
+      config.agent = agentConfig;
+      ok("    Agent permissions configured");
+    }
 
     writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
     ok("  OpenCode configuration updated");
@@ -692,14 +717,16 @@ async function installOpenCode(
         {
           $schema: "https://opencode.ai/config.json",
           plugin: [pluginPath],
+          permission: permissionConfig,
+          agent: agentConfig,
           mcp: mcpServers,
           lsp: {
             typescript: { command: ["typescript-language-server", "--stdio"] },
           },
         },
         null,
-        2,
-      ) + "\n",
+        2
+      ) + "\n"
     );
     ok(`  OpenCode configuration created: ${configFile}`);
   }
@@ -711,7 +738,7 @@ async function installOpenCode(
   console.log(`${colors.green}${"=".repeat(60)}${colors.nc}`);
   note("Installed:");
   console.log(
-    `  Plugin:   ${pluginPath}${binary ? " (embedded)" : " (npm package)"}`,
+    `  Plugin:   ${pluginPath}${binary ? " (embedded)" : " (npm package)"}`
   );
   console.log(`  Commands: ${commandsDir}/*.md`);
   console.log(`  Rules:    ${rulesDir}/*.md`);

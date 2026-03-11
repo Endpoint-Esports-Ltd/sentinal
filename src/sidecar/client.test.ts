@@ -25,13 +25,13 @@ function makeTmpDir(): string {
 describe("SidecarClient", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let sidecar: ReturnType<typeof startSidecar>;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
   let client: SidecarClient;
 
   beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
 
     // Build client directly from known port (bypasses file-based connect)
     const port = (sidecar.server as any).port;

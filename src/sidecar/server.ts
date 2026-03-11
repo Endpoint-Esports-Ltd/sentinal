@@ -41,12 +41,16 @@ export interface SidecarServerOptions {
  * Primary: Unix domain socket at ~/.sentinal/sidecar.sock
  * Fallback: HTTP on 127.0.0.1 with dynamic port
  */
-export function startSidecar(opts: SidecarServerOptions = {}): {
+export interface SidecarStartResult {
   server: ReturnType<typeof Bun.serve>;
   httpServer?: ReturnType<typeof Bun.serve>;
   ctx: SidecarContext;
   transport: "unix" | "http";
-} {
+  /** True if another sidecar was already running — caller should exit cleanly. */
+  alreadyRunning?: boolean;
+}
+
+export async function startSidecar(opts: SidecarServerOptions = {}): Promise<SidecarStartResult> {
   const store = opts.store ?? new MemoryStore();
   const service = new MemoryService(store);
   const specStore = new SpecStore(store);
@@ -55,8 +59,15 @@ export function startSidecar(opts: SidecarServerOptions = {}): {
   const socketPath = getSidecarSocketPath();
   const useUnix = !opts.httpOnly && process.platform !== "win32";
 
-  // Clean stale socket file
+  // If the socket file exists, probe it before removing — another sidecar may be live
   if (useUnix && existsSync(socketPath)) {
+    try {
+      const probe = await fetch("http://localhost/health", { unix: socketPath } as RequestInit);
+      if (probe.ok) {
+        // Another sidecar is already serving — return a sentinel result
+        return { server: null as unknown as ReturnType<typeof Bun.serve>, ctx, transport: "unix", alreadyRunning: true };
+      }
+    } catch { /* socket is stale, safe to remove */ }
     try { unlinkSync(socketPath); } catch { /* ignore */ }
   }
 
