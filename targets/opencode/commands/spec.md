@@ -1,55 +1,67 @@
 ---
 description: Spec-driven development - plan, implement, verify workflow
-argument-hint: <task> or <path/to/plan.md>
+argument-hint: "<task description>" or "<path/to/plan.md>"
 ---
 
 # /spec - Unified Spec-Driven Development
 
-**You are the /spec dispatcher. Your job is to detect the task type and route to the correct phase.**
+**Dispatcher** — routes to the appropriate phase skill.
+
+**⛔ MANDATORY: When `/spec` is invoked, follow the workflow. The user's phrasing after `/spec` is the TASK DESCRIPTION.** You are a thin router only — do no substantive work here.
+
+---
+
+## Workflow
+
+| Phase | Skill | When |
+|-------|-------|------|
+| Feature Planning | `spec-plan` | New feature task |
+| Bugfix Planning | `spec-bugfix-plan` | Bug/crash/regression |
+| Implementation | `spec-implement` | Plan approved |
+| Feature Verification | `spec-verify` | Feature complete |
+| Bugfix Verification | `spec-bugfix-verify` | Bugfix complete |
+
+---
+
+## 0.1 Parse & Route
+
+```
+IF arguments end with ".md" AND file exists:
+    → Read plan, dispatch by status (Section 0.2)
+ELSE:
+    → Detect type, ask worktree, load skill, STOP
+```
+
+### 0.1.1 Detect Type (new plans only)
+
+- **Bugfix:** Something broken, crashing, wrong results, regressing
+- **Feature:** New functionality, enhancements, refactoring, migrations
+- **Ambiguous:** Ask user
+
+### 0.1.2 User Questions (new plans only)
+
+Check `$SENTINAL_WORKTREE_ENABLED`. If `"false"`, skip worktree question and pass `--worktree=no`.
+
+If type is clear and worktree enabled: ask worktree only.
+If ambiguous: combine type + worktree in single question.
+If worktree disabled and type clear: skip all questions, load skill with `--worktree=no`.
+
+### 0.1.3 Load Skill and STOP
+
+- **Bugfix:** Load skill `spec-bugfix-plan` with `<task_description> --worktree=yes|no`
+- **Feature:** Load skill `spec-plan` with `<task_description> --worktree=yes|no`
+
+## 0.2 Status-Based Dispatch (existing plans)
+
+Read plan. Register: `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
+
+| Status | Approved | Type | Skill |
+|--------|----------|------|-------|
+| PENDING | No | Feature/absent | `spec-plan` |
+| PENDING | No | Bugfix | `spec-bugfix-plan` |
+| PENDING | Yes | * | `spec-implement` |
+| COMPLETE | * | Feature/absent | `spec-verify` |
+| COMPLETE | * | Bugfix | `spec-bugfix-verify` |
+| VERIFIED | * | * | Report completion, done |
 
 ARGUMENTS: $ARGUMENTS
-
-## Dispatch Logic
-
-### If ARGUMENTS contains a `.md` file path:
-
-1. Read the plan file to get `Status:` and `Type:` headers
-2. Route based on status:
-
-| Status | Approved | Type | Next Action |
-|--------|----------|------|-------------|
-| PENDING | No | Feature (or absent) | Load skill `spec-plan` with $ARGUMENTS |
-| PENDING | No | Bugfix | Load skill `spec-bugfix-plan` with $ARGUMENTS |
-| PENDING | Yes | * | Load skill `spec-implement` with $ARGUMENTS |
-| COMPLETE | * | Feature (or absent) | Load skill `spec-verify` with $ARGUMENTS |
-| COMPLETE | * | Bugfix | Load skill `spec-bugfix-verify` with $ARGUMENTS |
-| VERIFIED | * | * | Run completion audit, then report completion |
-
-### If ARGUMENTS is a task description (no .md path):
-
-1. Detect type: Is this clearly a bugfix or clearly a feature?
-   - **Bugfix indicators:** "fix", "bug", "broken", "error", "crash", "regression", "not working"
-   - **Feature indicators:** "add", "create", "implement", "build", "new", "enhance"
-   - **Ambiguous:** Ask the user
-
-2. Ask the user about worktree isolation:
-   - "Yes (Recommended)" - creates worktree, squash merges after verification
-   - "No" - direct implementation on current branch
-
-3. Route to the appropriate planning skill:
-   - Feature → Load skill `spec-plan` with $ARGUMENTS
-   - Bugfix → Load skill `spec-bugfix-plan` with $ARGUMENTS
-
-### Completion Audit (VERIFIED status)
-
-When a spec reaches VERIFIED, run the `spec_status` MCP tool to check for any task state discrepancies between the plan `.md` file and the stored task states. Report:
-- Total tasks and how many are marked complete
-- Any tasks that are checked in the `.md` but not marked complete in the store (or vice versa)
-- Final status summary
-
-## Rules
-
-- You are a DISPATCHER only - do NOT explore code, read files, or do substantive work
-- Only use the `question` tool and the `skill` tool to route to sub-phases
-- Everything after `/spec` is the task description
-- Route to the correct skill and let it handle the work

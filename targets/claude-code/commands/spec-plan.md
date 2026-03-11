@@ -1,76 +1,306 @@
 ---
-description: Feature planning phase - explore codebase, design plan, get approval
-argument-hint: <task> or <path/to/plan.md>
+description: "Spec planning phase - explore codebase, design plan, get approval"
+argument-hint: "<task description> or <path/to/plan.md>"
+user-invocable: false
+model: opus
 ---
 
-# Feature Planning Phase
+# /spec-plan - Planning Phase
 
-**You are the spec-plan skill. Your job: explore the codebase, understand the problem, write a detailed plan, and get user approval.**
+**Phase 1 of the /spec workflow.** Explores codebase, designs implementation plan, verifies it, gets user approval.
 
-ARGUMENTS: $ARGUMENTS
+**Input:** Task description (new) or plan path (continue unapproved)
+**Output:** Approved plan at `docs/plans/YYYY-MM-DD-<slug>.md`
+**Next:** On approval → `Skill(skill='spec-implement', args='<plan-path>')`
 
-## Phase 1: Understand the Task
+---
 
-1. Parse ARGUMENTS — is it a task description or a path to an existing plan?
-2. If existing plan: read it, understand current state, continue from where it left off
-3. If new task: explore the codebase to understand the relevant architecture
+## ⛔ Critical Constraints
 
-## Phase 2: Codebase Exploration
+- **NO sub-agents during planning** except Step 1.7 (plan-reviewer, when enabled)
+- **Run plan-reviewer when enabled** — it runs for every feature spec when `$SENTINAL_PLAN_REVIEWER_ENABLED` is not `"false"`. Context level is NOT a valid reason to skip.
+- **NEVER write code during planning** — planning and implementation are separate phases
+- **NEVER assume — verify by reading files**
+- **ONLY stopping point is plan approval** — everything else is automatic
+- **Re-read plan after user edits** — before asking for approval again
+- **Plan file is source of truth** — survives across auto-compaction cycles
+- **Quality over speed** — never rush due to context pressure
 
-Use Vexor (preferred), Grep, Glob, and Read to understand:
+---
 
-- **Angular structure:** What modules exist? What's the routing structure? Key components?
-- **NestJS structure:** What modules, controllers, services exist? Database entities?
-- **Existing patterns:** How are similar features implemented? What conventions are used?
-- **Dependencies:** What libraries are already in use? What tools are available?
+## Step 0: Read Toggle Configuration
 
-## Phase 3: Write the Plan
+**⛔ Run FIRST, before any other step.**
 
-Create plan file at `docs/plans/YYYY-MM-DD-<slug>.md`:
+```bash
+echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED REVIEWER=$SENTINAL_PLAN_REVIEWER_ENABLED APPROVAL=$SENTINAL_PLAN_APPROVAL_ENABLED"
+```
+
+Reference these values throughout: Steps 1.2/1.3b/1.4 (questions), 1.7 (reviewer), 1.8 (approval).
+
+---
+
+## Asking User Questions
+
+**⛔ If `SENTINAL_PLAN_QUESTIONS_ENABLED` is `"false"`,** skip ALL `AskUserQuestion` calls in Steps 1.2, 1.3b, and 1.4. Make reasonable default choices, document under "Autonomous Decisions". Continue immediately.
+
+**⛔ ALWAYS use the `AskUserQuestion` tool** (when questions are enabled) — never list numbered questions in plain text.
+
+**⛔ Default is to ASK, not skip.** Every plan benefits from at least one round of user alignment.
+
+**Questions batched into max 2 interactions:** Batch 1 (before exploration) clarifies task/scope/priorities. Batch 2 (after exploration) resolves architecture/design decisions.
+
+**Principles:** Present options with trade-offs. Start open, narrow down. 1-2 focused questions beat 4 vague ones.
+
+## Extending Existing Plans
+
+When adding tasks to an existing plan: load it, parse structure, verify compatibility, mark new tasks with `[NEW]`, update totals. If original + new > 12 tasks, suggest splitting.
+
+## ⚠️ Migration/Refactoring Tasks
+
+**When replacing existing code, complete a Feature Inventory BEFORE creating tasks:**
+
+1. List ALL files being replaced with their functions/classes
+2. Map EVERY function to a task — no row may be "Not mapped"
+3. Every row needs a Task # or explicit "Out of Scope" with user confirmation
+
+---
+
+## Creating New Plans
+
+### Step 1.1: Create Plan File Header (FIRST)
+
+1. **Parse worktree** from arguments: `--worktree=yes|no` (default: `Yes`). Strip flag from task description.
+
+2. **Create worktree early (if yes):**
+   ```bash
+   sentinal worktree detect --json <plan_slug>
+   # If not found:
+   sentinal worktree create --json <plan_slug>
+   # Returns: {"path": "...", "branch": "spec/<slug>", "base_branch": "main"}
+   ```
+   If creation fails: continue without worktree, set to `No`.
+
+3. **Generate filename:** `docs/plans/YYYY-MM-DD-<feature-slug>.md` — slug from first 3-4 words.
+
+4. `mkdir -p docs/plans`
+
+5. **Write initial header:**
+
+   ```markdown
+   # [Feature Name] Implementation Plan
+
+   Created: [Date]
+   Status: PENDING
+   Approved: No
+   Iterations: 0
+   Worktree: [Yes|No]
+   Type: Feature
+
+   > Planning in progress...
+   ```
+
+6. **Register plan:** `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
+
+**Do this FIRST** — before any exploration or questions.
+
+---
+
+### Step 1.2: Task Understanding, Discuss & Clarify
+
+1. Restate the task in your own words — core problem, assumptions
+2. Identify gray areas (layout/interactions for UI, response shape for API, schema for data)
+3. **Ask Batch 1 questions** → use `AskUserQuestion` with each question as a separate entry with predefined options. Even when task seems clear, ask about scope boundaries or priority trade-offs.
+
+### Step 1.3: Exploration
+
+**Explore systematically, one area at a time.**
+
+| Tool | When |
+|------|------|
+| **Context7** | Library/framework docs |
+| **Vexor** | Semantic code search by intent (via Bash) |
+| **grep-mcp** | Real-world GitHub examples |
+| **Read/Grep/Glob** | Direct file exploration |
+
+**Areas (in order):** Architecture → Similar Features → Dependencies → Tests
+
+For each: document hypotheses, note full file paths, track unanswered questions.
+
+### Step 1.3b: Present Findings & Scope Selection — CONDITIONAL
+
+**Only when exploration revealed multiple possible directions or scope is ambiguous.**
+
+1. List discovered gaps/opportunities
+2. Present 2-3 approaches with trade-offs and recommendation
+3. `AskUserQuestion(multiSelect: true)` — let user pick which items to include
+
+### Step 1.4: Design Decisions
+
+**⛔ Do NOT skip this step.** After exploration, there are always design choices to validate. For each decision, propose 2-3 concrete approaches with trade-offs and recommendation. Use `AskUserQuestion` (Batch 2).
+
+Frame each decision as **"X at the cost of Y"** — never recommend without stating what it costs.
+
+### Step 1.5: Implementation Planning
+
+**Task Granularity:** Each task: independently testable, focused (2-4 files max), verifiable.
+
+**Task Structure:**
+
+```markdown
+### Task N: [Component Name]
+
+**Objective:** [1-2 sentences]
+**Dependencies:** [None | Task X, Task Y]
+
+**Files:**
+- Create: `exact/path/to/file.ts`
+- Modify: `exact/path/to/existing.ts`
+- Test: `exact/path/to/test.spec.ts`
+
+**Key Decisions / Notes:**
+- [Technical approach, pattern to follow with file:line ref]
+
+**Definition of Done:**
+- [ ] All tests pass
+- [ ] No diagnostics errors
+- [ ] [Verifiable criterion]
+
+**Verify:**
+- `bun test path/to/test.spec.ts`
+```
+
+**DoD must be verifiable.** ✅ "GET /api/users?role=admin returns only admin users" ❌ "Feature works correctly"
+
+**Zero-context assumption:** Assume implementer knows nothing. Provide exact file paths, explain domain concepts, reference similar patterns.
+
+**Assumptions:** After creating tasks, write `## Assumptions` — one bullet per assumption: what you assume, which finding supports it, which task numbers depend on it.
+
+#### Step 1.5.1: Goal Verification Criteria
+
+After creating tasks, derive for the `## Goal Verification` section:
+1. State the goal
+2. Derive 3-7 observable truths (falsifiable, user-perspective)
+3. For each truth, identify supporting artifacts
+4. Identify 2-5 key links (critical component connections)
+
+#### Step 1.5.2: Pre-Mortem & Falsification Signals
+
+**Assume this plan failed after full execution. Why?** Write 2-3 failure scenarios with observable trigger conditions checked during implementation.
+
+**This is distinct from Risks** (external dependencies) and from **Goal Verification truths** (what success looks like). Pre-Mortem covers *internal approach validity*.
+
+Example: Risk = "Redis is unavailable" | Pre-Mortem = "We assumed sessions are stateless but they're not — trigger: session data can't round-trip through the new format in first integration test"
+
+Write these to the `## Pre-Mortem` section.
+
+### Step 1.6: Write Full Plan
+
+**Required sections:**
 
 ```markdown
 # [Feature Name] Implementation Plan
 
-**Status:** PENDING
-**Type:** Feature
-**Approved:** No
-**Worktree:** [Yes/No — from dispatcher]
-**Date:** YYYY-MM-DD
+Created: [Date]
+Status: PENDING
+Approved: No
+Iterations: 0
+Worktree: [Yes|No]
+Type: Feature
 
-## Goal
-[One clear sentence]
+## Summary
+**Goal:** [One sentence]
+**Architecture:** [2-3 sentences]
+**Tech Stack:** [Key technologies]
 
 ## Scope
-- **In scope:** [bulleted list]
-- **Out of scope:** [bulleted list]
+### In Scope
+### Out of Scope
 
-## Architecture
-[2-3 paragraphs explaining the approach, which modules/components to create/modify]
+## Context for Implementer
+> Write for an implementer who has never seen the codebase.
+- **Patterns to follow:** [file:line references]
+- **Conventions:** [naming, organization, error handling]
+- **Key files:** [important files with descriptions]
+- **Gotchas:** [non-obvious dependencies]
+- **Domain context:** [business logic needed to understand task]
 
-## Tasks
+## Runtime Environment (only if project has a running service)
+- **Start command / Port / Deploy path / Health check / Restart procedure**
 
-Done: 0 | Left: N
+## Assumptions
+- [What you assume] — supported by [finding/file:line] — Tasks N, M depend on this
 
-### Task 1: [Name]
-- [ ] Description of what to build/change
-- **Files:** create/modify/test file paths
-- **DoD:** Definition of Done for this task
+## Testing Strategy
+- Unit / Integration / Manual verification
 
-### Task 2: ...
+## Risks and Mitigations
+| Risk | Likelihood | Impact | Mitigation |
 
-## Risks
-[Known risks and mitigations]
+## Pre-Mortem
+*Assume this plan failed. Most likely internal reasons:*
+1. **[Failure scenario]** (Task N) → Trigger: [observable condition]
+2. **[Failure scenario]** (Task N) → Trigger: [observable condition]
 
 ## Goal Verification
-[How to verify the feature works end-to-end after all tasks complete]
+### Truths
+### Artifacts
+### Key Links
+
+## Progress Tracking
+- [ ] Task 1: [summary]
+**Total Tasks:** N | **Completed:** 0 | **Remaining:** N
+
+## Implementation Tasks
+[Tasks from Step 1.5]
 ```
 
-## Phase 4: Plan Review (Optional)
+### Step 1.7: Plan Verification
 
-If the plan has more than 3 tasks: launch the `plan-reviewer` sub-agent using `Task(plan-reviewer: "Review the plan at <plan-path> and write findings to <plan-path>.review.json")`.
+**⛔ If `SENTINAL_PLAN_REVIEWER_ENABLED` is `"false"`,** skip this step entirely.
 
-## Phase 5: User Approval
+**When enabled:** Launch plan-reviewer for every feature spec.
 
-Present the plan summary and ask for approval. This is the ONLY user interaction point in planning.
+```bash
+SESS_ID=$(echo $SENTINAL_SESSION_ID)
+OUTPUT_PATH="$HOME/.sentinal/sessions/$SESS_ID/findings-plan-reviewer.json"
+rm -f "$OUTPUT_PATH"
+```
 
-After approval: update plan header to `Approved: Yes`, then invoke Skill(skill='spec-implement', args='<plan-path>').
+```
+Task(
+  subagent_type="sentinal:plan-reviewer",
+  run_in_background=true,
+  prompt="""
+  **Plan file:** <plan-path>
+  **User request:** <original task description>
+  **Clarifications:** <any Q&A>
+  **Output path:** <absolute path to findings JSON>
+
+  Review for alignment with requirements AND adversarial risks.
+  Write findings JSON to output_path using Write tool.
+  """
+)
+```
+
+**Wait for results (bash polling):**
+
+```bash
+OUTPUT_PATH="<findings-path>"
+for i in $(seq 1 30); do [ -f "$OUTPUT_PATH" ] && echo "READY" && break; sleep 10; done
+```
+
+Then Read the file once. Fix findings: must_fix → should_fix immediately.
+
+### Step 1.8: Get User Approval
+
+**⛔ If `SENTINAL_PLAN_APPROVAL_ENABLED` is `"false"`,** skip: set `Approved: Yes` automatically and invoke `Skill(skill='spec-implement', args='<plan-path>')`.
+
+**When enabled:**
+
+1. Summarize: goal, key tasks, approach
+2. AskUserQuestion: "Yes, proceed" or "No, I need to make changes"
+3. **If "Yes":** Set `Approved: Yes`, invoke `Skill(skill='spec-implement', args='<plan-path>')`
+4. **If "No":** Tell user to edit plan, wait for "ready", re-read, ask again
+
+ARGUMENTS: $ARGUMENTS
