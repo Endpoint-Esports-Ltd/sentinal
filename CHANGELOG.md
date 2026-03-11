@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.5.1...v1.6.0) (2026-03-11)
+
+
+### Features
+
+* preserve binary during uninstall, auto-reinstall plugins on update ([df24cf2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/df24cf295f1c5a5861b07d7001beeea26b0cf62d))
+
 ## [1.5.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.5.0...v1.5.1) (2026-03-11)
 
 
