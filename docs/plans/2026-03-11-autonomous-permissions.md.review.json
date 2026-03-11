@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "severity": "must_fix",
+      "category": "compliance",
+      "file": "src/cli/embedded-assets.ts",
+      "line": 2517,
+      "message": "EMBEDDED_CC_SETTINGS_JSON is out of sync with targets/claude-code/settings.json. The embedded copy is missing all the new permissions added in Task 1: WebFetch, WebSearch, Agent, TodoWrite, TodoRead, TaskCreate, TaskGet, TaskList, TaskOutput, TaskStop, TaskUpdate, mcp__plugin_playwright_playwright__*, Skill(*), Task(*), Bash(gh:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(wc:*), Bash(sort:*), Bash(curl:*), Bash(echo:*), Bash(touch:*), Bash(docker:*), Bash(python3:*), Bash(node:*). The embedded copy also still has old granular Skill entries (Skill(spec), Skill(sync), etc.) and a narrow Task(spec-reviewer:*) pattern instead of the wildcard Task(*). The plan states the embedded assets must be updated so future installs get the correct permissions, but this was not done.",
+      "suggestion": "Re-run `bun run embed-assets` (or the equivalent `node scripts/embed-assets.mjs`) after updating targets/claude-code/settings.json so that EMBEDDED_CC_SETTINGS_JSON in src/cli/embedded-assets.ts is regenerated to match the source file. Verify by diffing the two permission arrays."
+    }
+  ],
+  "summary": "Task 1 (expand plugin permissions allowlist) and Task 2 (clean project-local settings) are both correctly completed in their respective source files: targets/claude-code/settings.json contains the full expanded allowlist and .claude/settings.local.json is reduced to an empty allow array. However, the plan's architecture explicitly states that the embedded-assets.ts file must also be updated so future installs distribute the correct permissions. The embedded copy (EMBEDDED_CC_SETTINGS_JSON at line 2517) was not regenerated and still reflects the old, narrower permission set. Any user who installs Sentinal from the built CLI binary will receive the old permissions, defeating the goal. The embed-assets build step must be run and the result committed."
+}

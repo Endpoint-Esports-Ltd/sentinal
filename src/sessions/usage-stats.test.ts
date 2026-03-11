@@ -197,8 +197,9 @@ describe("getUsageSummary", () => {
 
   it("should respect plan tier", () => {
     const logFile = join(tmpDir, "session.jsonl");
+    // Use large token counts so cost is meaningful relative to plan limits
     const lines = [
-      assistantEntry("claude-opus-4-6", 10000, 5000, "2026-03-10T10:00:01Z"),
+      assistantEntry("claude-opus-4-6", 500000, 200000, "2026-03-10T10:00:01Z"),
     ];
     writeFileSync(logFile, lines.join("\n"));
 

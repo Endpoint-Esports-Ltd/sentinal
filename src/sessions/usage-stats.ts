@@ -68,10 +68,12 @@ export type PlanTier = "max_5x" | "max_20x";
 // --- Constants ---
 
 // API-cost-equivalent weekly limits in USD
-// Max 5x ≈ $100/mo ≈ $25/week; Max 20x ≈ $400/mo ≈ $100/week
+// These are estimates of the API-equivalent value provided by each plan tier,
+// NOT the subscription cost. Max 5x subscription is $100/mo but provides
+// significantly more in API-equivalent usage.
 export const PLAN_LIMITS: Record<PlanTier, number> = {
-  max_5x: 25,
-  max_20x: 100,
+  max_5x: 200,
+  max_20x: 800,
 };
 
 // Anthropic pricing (USD per million tokens) — as of 2025
@@ -91,6 +93,12 @@ const PRICING: Record<
     cacheWrite: 3.75,
     cacheRead: 0.3,
   },
+  "claude-haiku-4-5-20251001": {
+    input: 0.8,
+    output: 4,
+    cacheWrite: 1,
+    cacheRead: 0.08,
+  },
 };
 
 // Default pricing for unknown models (use Sonnet pricing as baseline)
@@ -101,8 +109,20 @@ const DEFAULT_PRICING = {
   cacheRead: 0.3,
 };
 
+// Models to display in the statusline (exclude background/internal models)
+export const DISPLAY_MODELS = new Set(["claude-opus-4-6", "claude-sonnet-4-6"]);
+
 // Rolling window for weekly usage (7 days in ms)
 const WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Rolling window for session/short-term rate limit (4 hours in ms)
+const SESSION_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+// API-cost-equivalent 4-hour session limits in USD (estimates)
+export const SESSION_LIMITS: Record<PlanTier, number> = {
+  max_5x: 30,
+  max_20x: 120,
+};
 
 // --- Cache ---
 
@@ -186,6 +206,94 @@ export function getSessionUsage(
     totalOutputTokens,
     totalCostEquiv,
     pctOfLimit,
+  };
+}
+
+/**
+ * Get usage within the 4-hour rolling session window across all log files.
+ * This represents the short-term rate limit window Claude Code uses.
+ */
+export function getSessionWindowUsage(
+  logFiles: string[],
+  planTier: PlanTier = "max_5x",
+): UsageSummary {
+  const now = Date.now();
+  const windowStart = now - SESSION_WINDOW_MS;
+  const allEntries: LogEntry[] = [];
+
+  for (const file of logFiles) {
+    const entries = parseJsonlLogs(file);
+    for (const entry of entries) {
+      const entryTime = new Date(entry.timestamp).getTime();
+      if (entryTime >= windowStart) {
+        allEntries.push(entry);
+      }
+    }
+  }
+
+  const limit = SESSION_LIMITS[planTier];
+  const byModel: Record<string, ModelUsage> = {};
+  let totalCost = 0;
+
+  for (const entry of allEntries) {
+    if (!byModel[entry.model]) {
+      byModel[entry.model] = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        costEquiv: 0,
+        pctOfLimit: 0,
+        oldestTimestamp: null,
+        resetsIn: 0,
+      };
+    }
+
+    const m = byModel[entry.model];
+    m.inputTokens += entry.inputTokens;
+    m.outputTokens += entry.outputTokens;
+    m.cacheCreationTokens += entry.cacheCreationTokens;
+    m.cacheReadTokens += entry.cacheReadTokens;
+
+    const cost = calculateCost(entry);
+    m.costEquiv += cost;
+    totalCost += cost;
+
+    if (!m.oldestTimestamp || entry.timestamp < m.oldestTimestamp) {
+      m.oldestTimestamp = entry.timestamp;
+    }
+  }
+
+  // Calculate percentages and reset countdowns against SESSION window
+  for (const model of Object.keys(byModel)) {
+    const m = byModel[model];
+    m.pctOfLimit = Math.min(100, Math.round((m.costEquiv / limit) * 100));
+    if (m.oldestTimestamp) {
+      m.resetsIn = Math.max(
+        0,
+        new Date(m.oldestTimestamp).getTime() + SESSION_WINDOW_MS - now,
+      );
+    }
+  }
+
+  const pctOfLimit = Math.min(100, Math.round((totalCost / limit) * 100));
+
+  let oldestTime = now;
+  for (const entry of allEntries) {
+    const t = new Date(entry.timestamp).getTime();
+    if (t < oldestTime) oldestTime = t;
+  }
+  const weeklyResetsIn =
+    allEntries.length > 0
+      ? Math.max(0, oldestTime + SESSION_WINDOW_MS - now)
+      : 0;
+
+  return {
+    byModel,
+    totalCostEquiv: totalCost,
+    pctOfLimit,
+    planTier,
+    weeklyResetsIn,
   };
 }
 

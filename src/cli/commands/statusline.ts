@@ -10,10 +10,11 @@
 
 import type { Command } from "commander";
 import {
-  getSessionUsage,
+  getSessionWindowUsage,
   getUsageSummary,
   findLogFiles,
   formatResetCountdown,
+  DISPLAY_MODELS,
   type PlanTier,
 } from "../../sessions/usage-stats.js";
 import { MemoryStore } from "../../memory/store.js";
@@ -124,40 +125,32 @@ export function registerStatuslineCommand(program: Command): void {
             ? Math.round(ctxWindow.used_percentage)
             : 0;
 
-        // Get transcript path for session usage
-        const transcriptPath =
-          typeof sessionJson.transcript_path === "string"
-            ? sessionJson.transcript_path
-            : "";
-
-        // Calculate session usage from transcript
-        let sessionPct = 0;
-        if (transcriptPath) {
-          const sessionUsage = getSessionUsage(transcriptPath, planTier);
-          sessionPct = sessionUsage.pctOfLimit;
-        }
-
-        // Calculate session duration from cost.total_duration_ms
-        const cost = sessionJson.cost as Record<string, unknown> | undefined;
-        const durationMs =
-          typeof cost?.total_duration_ms === "number"
-            ? cost.total_duration_ms
-            : 0;
-        const sessionDuration = formatDuration(durationMs);
-
-        // Get weekly usage summary
+        // Get all log files (used for both session and weekly calculations)
         const logFiles = findLogFiles();
+
+        // Calculate 4-hour session window usage across all projects
+        const sessionWindow = getSessionWindowUsage(logFiles, planTier);
+        const sessionPct = sessionWindow.pctOfLimit;
+        let sessionResetIn = 0;
+        for (const [model, data] of Object.entries(sessionWindow.byModel)) {
+          if (!DISPLAY_MODELS.has(model)) continue;
+          if (data.resetsIn > sessionResetIn) {
+            sessionResetIn = data.resetsIn;
+          }
+        }
+        const sessionDuration = formatResetCountdown(sessionResetIn);
         const summary = getUsageSummary(logFiles, planTier);
 
-        // Build model usage array
+        // Build model usage array (only display known models, not background ones like haiku)
         const modelUsage: Array<{ name: string; pct: number }> = [];
+        let displayModelsResetIn = 0;
         for (const [model, data] of Object.entries(summary.byModel)) {
-          const shortName = model.includes("opus")
-            ? "Opus"
-            : model.includes("sonnet")
-              ? "Sonnet"
-              : model;
+          if (!DISPLAY_MODELS.has(model)) continue;
+          const shortName = model.includes("opus") ? "Opus" : "Sonnet";
           modelUsage.push({ name: shortName, pct: data.pctOfLimit });
+          if (data.resetsIn > displayModelsResetIn) {
+            displayModelsResetIn = data.resetsIn;
+          }
         }
 
         // Format and output
@@ -165,7 +158,7 @@ export function registerStatuslineCommand(program: Command): void {
           sessionPct,
           sessionDuration,
           modelUsage,
-          weeklyResetCountdown: formatResetCountdown(summary.weeklyResetsIn),
+          weeklyResetCountdown: formatResetCountdown(displayModelsResetIn),
           planTier: planTier === "max_20x" ? "Max 20x" : "Max 5x",
           contextPct,
         });
@@ -176,15 +169,4 @@ export function registerStatuslineCommand(program: Command): void {
         process.stdout.write("⏱ Session: ░░░░░ 0% | 🧠 ░░░░░ 0%");
       }
     });
-}
-
-// --- Helpers ---
-
-function formatDuration(ms: number): string {
-  if (ms <= 0) return "0m";
-  const totalMinutes = Math.floor(ms / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
 }
