@@ -71,6 +71,15 @@ const PLUGIN_PATH_PATTERNS = [
   "./plugins/sentinal.js",
 ];
 
+// ─── Options ────────────────────────────────────────────────────────────────
+
+export interface UninstallOptions {
+  /** Uninstall OpenCode from current project instead of global. */
+  local?: boolean;
+  /** When true, preserve binary, npm package, shell integration, and AGENTS.md. */
+  preserveBinary?: boolean;
+}
+
 // ─── Register command ───────────────────────────────────────────────────────
 
 export function registerUninstallCommand(program: Command): void {
@@ -78,9 +87,14 @@ export function registerUninstallCommand(program: Command): void {
     .command("uninstall [target]")
     .description("Uninstall Sentinal from an AI assistant (claude, opencode, both)")
     .option("--local", "Uninstall OpenCode plugin from current project instead of global")
-    .action(async (target?: string, opts?: { local?: boolean }) => {
+    .option("--remove-binary", "Also remove the sentinal binary, npm package, and shell integration")
+    .action(async (target?: string, opts?: { local?: boolean; removeBinary?: boolean }) => {
       try {
-        await uninstallDispatcher(target, opts);
+        const uninstallOpts: UninstallOptions = {
+          local: opts?.local,
+          preserveBinary: !opts?.removeBinary,
+        };
+        await uninstallDispatcher(target, uninstallOpts);
       } catch (e) {
         err(`Uninstall failed: ${(e as Error).message}`);
         process.exit(1);
@@ -88,13 +102,46 @@ export function registerUninstallCommand(program: Command): void {
     });
 }
 
+// ─── Detection ──────────────────────────────────────────────────────────────
+
+export interface InstalledTargets {
+  claude: boolean;
+  opencode: boolean;
+}
+
+/**
+ * Detect which assistants have Sentinal installed by checking for artifacts.
+ * Claude: checks for marketplace directory at ~/.claude/plugins/sentinal-marketplace.
+ * OpenCode: checks for plugin files, agents, or skills in XDG config.
+ *
+ * @param overrides - Optional path overrides for testability.
+ */
+export function detectInstalledTargets(overrides?: {
+  marketplaceDir?: string;
+  xdgConfig?: string;
+}): InstalledTargets {
+  const xdgConfig = overrides?.xdgConfig ?? resolveXdgConfig();
+  const marketplaceDir = overrides?.marketplaceDir ?? MARKETPLACE_DIR;
+  const opencodePluginsDir = join(xdgConfig, "opencode", "plugins");
+
+  const claude = existsSync(marketplaceDir);
+  const opencode =
+    PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)))
+    || AGENT_FILES.some((f) => existsSync(join(xdgConfig, "opencode", "agents", f)))
+    || SKILL_DIRS.some((d) => existsSync(join(xdgConfig, "opencode", "skills", d)));
+
+  return { claude, opencode };
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────────────
 
 async function uninstallDispatcher(
   target?: string,
-  opts?: { local?: boolean },
+  opts?: UninstallOptions,
 ): Promise<void> {
   const local = opts?.local ?? false;
+  const preserveBinary = opts?.preserveBinary ?? true;
+  const ocOpts: UninstallOptions = { local, preserveBinary };
 
   // Explicit target
   if (target) {
@@ -104,12 +151,12 @@ async function uninstallDispatcher(
         await uninstallClaudeCode();
         return;
       case "opencode":
-        await uninstallOpenCode(local);
+        await uninstallOpenCode(ocOpts);
         return;
       case "both":
         await uninstallClaudeCode();
         console.log("");
-        await uninstallOpenCode(local);
+        await uninstallOpenCode(ocOpts);
         return;
       default:
         err(`Unknown target: ${target}`);
@@ -125,15 +172,7 @@ async function uninstallDispatcher(
 
   info("Detecting Sentinal installations...");
 
-  const xdgConfig = resolveXdgConfig();
-  const opencodePluginsDir = join(xdgConfig, "opencode", "plugins");
-
-  // Claude: check marketplace directory exists
-  const hasClaude = existsSync(MARKETPLACE_DIR);
-  // OpenCode: check for plugin files, agents, or skills
-  const hasOpencode = PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)))
-    || AGENT_FILES.some((f) => existsSync(join(xdgConfig, "opencode", "agents", f)))
-    || SKILL_DIRS.some((d) => existsSync(join(xdgConfig, "opencode", "skills", d)));
+  const { claude: hasClaude, opencode: hasOpencode } = detectInstalledTargets();
 
   if (hasClaude) ok("  Claude Code plugin found");
   else info("  ! Claude Code plugin not found");
@@ -154,7 +193,7 @@ async function uninstallDispatcher(
     await uninstallClaudeCode();
   } else if (!hasClaude && hasOpencode) {
     info("Only OpenCode installation detected.");
-    await uninstallOpenCode(local);
+    await uninstallOpenCode(ocOpts);
   } else {
     // Both found — interactive prompt
     const choice = await promptMenu(
@@ -168,12 +207,12 @@ async function uninstallDispatcher(
         await uninstallClaudeCode();
         break;
       case 2:
-        await uninstallOpenCode(local);
+        await uninstallOpenCode(ocOpts);
         break;
       case 3:
         await uninstallClaudeCode();
         console.log("");
-        await uninstallOpenCode(local);
+        await uninstallOpenCode(ocOpts);
         break;
       default:
         console.log("Uninstallation cancelled.");
@@ -187,14 +226,13 @@ async function uninstallDispatcher(
 
 // ─── Claude Code uninstaller ────────────────────────────────────────────────
 
-async function uninstallClaudeCode(): Promise<void> {
+export async function uninstallClaudeCode(): Promise<void> {
   console.log("Sentinal for Claude Code — Uninstaller");
   console.log("=======================================");
   console.log("");
 
   if (!commandExists("claude")) {
-    err("ERROR: Claude Code CLI not found. Cannot uninstall.");
-    process.exit(1);
+    throw new Error("Claude Code CLI not found. Cannot uninstall Claude Code plugin.");
   }
 
   let foundSomething = false;
@@ -251,7 +289,10 @@ async function uninstallClaudeCode(): Promise<void> {
 
 // ─── OpenCode uninstaller ───────────────────────────────────────────────────
 
-async function uninstallOpenCode(local: boolean): Promise<void> {
+export async function uninstallOpenCode(opts: UninstallOptions = {}): Promise<void> {
+  const local = opts.local ?? false;
+  const preserveBinary = opts.preserveBinary ?? true;
+
   console.log("Sentinal for OpenCode — Uninstaller");
   console.log("====================================");
   console.log("");
@@ -342,17 +383,19 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
 
   // ── Remove global package ──
 
-  info("Removing @endpoint/sentinal (global)...");
-  if (commandExists("bun")) {
-    run(["bun", "remove", "-g", "@endpoint/sentinal"]);
-    ok("  @endpoint/sentinal removed globally");
-  } else {
-    info("  ! bun not available, skipping global package removal");
+  if (!preserveBinary) {
+    info("Removing @endpoint/sentinal (global)...");
+    if (commandExists("bun")) {
+      run(["bun", "remove", "-g", "@endpoint/sentinal"]);
+      ok("  @endpoint/sentinal removed globally");
+    } else {
+      info("  ! bun not available, skipping global package removal");
+    }
   }
 
-  // ── Remove AGENTS.md (global only, if ours) ──
+  // ── Remove AGENTS.md (global only, if ours, and not during update) ──
 
-  if (!local) {
+  if (!local && !preserveBinary) {
     info("Removing AGENTS.md...");
     const agentsPath = join(targetDir, "AGENTS.md");
     if (existsSync(agentsPath)) {
@@ -465,9 +508,9 @@ async function uninstallOpenCode(local: boolean): Promise<void> {
   }
   ok("  Cleanup complete");
 
-  // ── Remove shell integration (global only) ──
+  // ── Remove shell integration and binary (global only, full removal) ──
 
-  if (!local) {
+  if (!local && !preserveBinary) {
     removeShellIntegration();
     removeBinary();
   }

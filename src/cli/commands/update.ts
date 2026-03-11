@@ -14,6 +14,8 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { MemoryStore } from "../../memory/store.js";
 import { isNewerVersion, parseSemver } from "../../utils/semver.js";
+import { detectInstalledTargets, uninstallClaudeCode, uninstallOpenCode } from "./uninstall.js";
+import { installClaudeCode, installOpenCode } from "./install.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -291,6 +293,56 @@ export async function downloadAndInstall(currentVersion: string): Promise<boolea
   }
 }
 
+// ─── Plugin reinstall ────────────────────────────────────────────────────────
+
+/**
+ * Detect which assistants have Sentinal installed, uninstall old plugin data
+ * (preserving binary/shell/npm), then reinstall for the same targets.
+ *
+ * Called after a successful binary download. Failures are non-fatal —
+ * the binary is already updated; user can manually `sentinal install`.
+ */
+export async function reinstallPlugins(): Promise<void> {
+  // Detect BEFORE uninstalling (Pre-Mortem #2)
+  const targets = detectInstalledTargets();
+
+  if (!targets.claude && !targets.opencode) {
+    console.log("\nNo assistant installations detected — skipping plugin reinstall.");
+    return;
+  }
+
+  const names: string[] = [];
+  if (targets.claude) names.push("Claude Code");
+  if (targets.opencode) names.push("OpenCode");
+  console.log(`\nReinstalling plugins for: ${names.join(", ")}...`);
+  console.log("");
+
+  // Claude Code: uninstall → install
+  if (targets.claude) {
+    try {
+      await uninstallClaudeCode();
+      console.log("");
+      await installClaudeCode();
+    } catch (e) {
+      console.error(`Warning: Claude Code reinstall failed: ${(e as Error).message}`);
+      console.error("  Run 'sentinal install claude' manually to fix.");
+    }
+    console.log("");
+  }
+
+  // OpenCode: uninstall (preserve binary) → install (bundled mode)
+  if (targets.opencode) {
+    try {
+      await uninstallOpenCode({ preserveBinary: true });
+      console.log("");
+      await installOpenCode(false, true);
+    } catch (e) {
+      console.error(`Warning: OpenCode reinstall failed: ${(e as Error).message}`);
+      console.error("  Run 'sentinal install opencode' manually to fix.");
+    }
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
@@ -326,6 +378,14 @@ export function registerUpdateCommand(program: Command): void {
 
       const success = await downloadAndInstall(version);
       if (!success) process.exit(1);
+
+      // After binary update, reinstall plugins for the same assistants
+      try {
+        await reinstallPlugins();
+      } catch (e) {
+        console.error(`\nWarning: Plugin reinstall failed: ${(e as Error).message}`);
+        console.error("  The binary was updated successfully. Run 'sentinal install' manually to reinstall plugins.");
+      }
     });
 }
 

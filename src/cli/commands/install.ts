@@ -196,7 +196,7 @@ async function installDispatcher(
 
 // ─── Claude Code installer ──────────────────────────────────────────────────
 
-async function installClaudeCode(): Promise<void> {
+export async function installClaudeCode(): Promise<void> {
   console.log(
     "Sentinal for Claude Code — TypeScript/Angular/NestJS Quality Enforcement"
   );
@@ -460,7 +460,7 @@ function getSentinalBinPath(): string {
 
 // ─── OpenCode installer ─────────────────────────────────────────────────────
 
-async function installOpenCode(
+export async function installOpenCode(
   local: boolean,
   bundled: boolean = false
 ): Promise<void> {

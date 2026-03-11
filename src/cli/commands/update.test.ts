@@ -1,5 +1,7 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
-import { getAssetName, checkForUpdateWithStore } from "./update.js";
+import { describe, expect, test, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { getAssetName, checkForUpdateWithStore, reinstallPlugins } from "./update.js";
+import * as uninstallModule from "./uninstall.js";
+import * as installModule from "./install.js";
 import { MemoryStore } from "../../memory/store.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -93,5 +95,115 @@ describe("checkForUpdateWithStore", () => {
 
     expect(result.fromCache).toBe(false);
     expect(result.currentVersion).toBe("1.0.9");
+  });
+});
+
+describe("reinstallPlugins", () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("should skip reinstall when no installations detected", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: false,
+      opencode: false,
+    });
+
+    // Should not throw and should not call any install/uninstall functions
+    await reinstallPlugins();
+    // If we got here without error, the skip path worked
+  });
+
+  test("should call uninstall and install for OpenCode when detected", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: false,
+      opencode: true,
+    });
+
+    let uninstallCalled = false;
+    let installCalled = false;
+    let uninstallOpts: unknown = null;
+
+    spyOn(uninstallModule, "uninstallOpenCode").mockImplementation(async (opts) => {
+      uninstallCalled = true;
+      uninstallOpts = opts;
+    });
+    spyOn(installModule, "installOpenCode").mockImplementation(async () => {
+      installCalled = true;
+    });
+
+    await reinstallPlugins();
+
+    expect(uninstallCalled).toBe(true);
+    expect(installCalled).toBe(true);
+    // Should pass preserveBinary: true
+    expect(uninstallOpts).toEqual({ preserveBinary: true });
+  });
+
+  test("should call uninstall and install for Claude Code when detected", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: true,
+      opencode: false,
+    });
+
+    let uninstallCalled = false;
+    let installCalled = false;
+
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
+      uninstallCalled = true;
+    });
+    spyOn(installModule, "installClaudeCode").mockImplementation(async () => {
+      installCalled = true;
+    });
+
+    await reinstallPlugins();
+
+    expect(uninstallCalled).toBe(true);
+    expect(installCalled).toBe(true);
+  });
+
+  test("should handle uninstall failure gracefully", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: true,
+      opencode: false,
+    });
+
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
+      throw new Error("Claude CLI not found");
+    });
+
+    // Should not throw — failure is non-fatal
+    await reinstallPlugins();
+  });
+
+  test("should reinstall both when both detected", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: true,
+      opencode: true,
+    });
+
+    const calls: string[] = [];
+
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
+      calls.push("uninstall-claude");
+    });
+    spyOn(installModule, "installClaudeCode").mockImplementation(async () => {
+      calls.push("install-claude");
+    });
+    spyOn(uninstallModule, "uninstallOpenCode").mockImplementation(async () => {
+      calls.push("uninstall-opencode");
+    });
+    spyOn(installModule, "installOpenCode").mockImplementation(async () => {
+      calls.push("install-opencode");
+    });
+
+    await reinstallPlugins();
+
+    expect(calls).toEqual([
+      "uninstall-claude",
+      "install-claude",
+      "uninstall-opencode",
+      "install-opencode",
+    ]);
   });
 });
