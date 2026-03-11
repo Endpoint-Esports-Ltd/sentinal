@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import {
   readSidecarPid,
   removeSidecarPid,
@@ -136,6 +136,31 @@ describe("sidecar lifecycle", () => {
 
     expect(stopSidecarProcess()).toBe(false);
     // All files should be cleaned up
+    expect(existsSync(pidPath)).toBe(false);
+    expect(existsSync(socketPath)).toBe(false);
+    expect(existsSync(portPath)).toBe(false);
+  });
+
+  // ─── Cleanup Race Regression ────────────────────────────────────────────
+
+  it("should clean up files in stopSidecarProcess when PID matches", () => {
+    // When the PID file matches the process being stopped, cleanup proceeds
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+    writeFileSync(socketPath, "x", "utf-8");
+    writeFileSync(portPath, "12345", "utf-8");
+
+    // Intercept SIGTERM so it doesn't kill the test
+    const origHandlers = process.listeners("SIGTERM");
+    process.removeAllListeners("SIGTERM");
+    process.once("SIGTERM", () => { /* swallow */ });
+
+    const result = stopSidecarProcess();
+
+    // Restore SIGTERM handlers
+    for (const h of origHandlers) process.on("SIGTERM", h as () => void);
+
+    expect(result).toBe(true);
+    // PID matched → cleanup should have deleted files
     expect(existsSync(pidPath)).toBe(false);
     expect(existsSync(socketPath)).toBe(false);
     expect(existsSync(portPath)).toBe(false);

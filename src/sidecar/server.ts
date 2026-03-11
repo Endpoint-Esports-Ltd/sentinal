@@ -7,7 +7,7 @@
  * OpenCode plugin to avoid per-invocation SQLite cold starts.
  */
 
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
@@ -101,6 +101,10 @@ export async function startSidecar(opts: SidecarServerOptions = {}): Promise<Sid
 
 /**
  * Graceful shutdown: close store, remove socket/port/pid files.
+ *
+ * PID guard: only removes artifact files if the PID file still belongs
+ * to this process. If a newer sidecar has already written its own PID,
+ * the files are left intact so the new sidecar remains discoverable.
  */
 export function stopSidecar(
   server: ReturnType<typeof Bun.serve>,
@@ -111,7 +115,19 @@ export function stopSidecar(
   if (httpServer) httpServer.stop(true);
   ctx.store.close();
 
-  for (const path of [getSidecarSocketPath(), getSidecarPortPath(), getSidecarPidPath()]) {
+  // Only clean up files if this process still owns them
+  const pidPath = getSidecarPidPath();
+  if (existsSync(pidPath)) {
+    try {
+      const filePid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+      if (!Number.isNaN(filePid) && filePid !== process.pid) {
+        // A different sidecar owns these files — don't delete
+        return;
+      }
+    } catch { /* read failed — safe to clean up */ }
+  }
+
+  for (const path of [getSidecarSocketPath(), getSidecarPortPath(), pidPath]) {
     try { if (existsSync(path)) unlinkSync(path); } catch { /* ignore */ }
   }
 }

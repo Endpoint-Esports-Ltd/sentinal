@@ -5,11 +5,12 @@
  * Uses HTTP transport (httpOnly mode) for testability.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { startSidecar, stopSidecar } from "./server.js";
+import * as pathsModule from "./paths.js";
 import { MemoryStore } from "../memory/store.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -168,5 +169,91 @@ describe("sidecar server", () => {
     });
     expect(r.ok).toBe(true);
     expect(r.data.title).toBe("Test notification");
+  });
+});
+
+// ─── Cleanup Race Regression ──────────────────────────────────────────────
+
+describe("stopSidecar PID guard", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `sentinal-stop-race-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(join(tmpDir, "sidecar.pid"));
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(join(tmpDir, "sidecar.sock"));
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(join(tmpDir, "sidecar.port"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("should not delete files when PID file belongs to a different process", () => {
+    const pidPath = join(tmpDir, "sidecar.pid");
+    const portPath = join(tmpDir, "sidecar.port");
+    const socketPath = join(tmpDir, "sidecar.sock");
+
+    // Simulate a newer sidecar owning the files (different PID)
+    const otherPid = process.pid + 1000;
+    writeFileSync(pidPath, String(otherPid), "utf-8");
+    writeFileSync(portPath, "54321", "utf-8");
+    writeFileSync(socketPath, "placeholder", "utf-8");
+
+    // Create a minimal mock server/ctx for stopSidecar
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+    const service = { search: () => [] } as any;
+    const specStore = { close: () => {} } as any;
+    const mockServer = { stop: () => {} } as any;
+    const ctx = { store, service, specStore };
+
+    // The orphan calls stopSidecar — files should survive
+    stopSidecar(mockServer, ctx);
+
+    expect(existsSync(pidPath)).toBe(true);
+    expect(readFileSync(pidPath, "utf-8")).toBe(String(otherPid));
+    expect(existsSync(portPath)).toBe(true);
+    expect(existsSync(socketPath)).toBe(true);
+  });
+
+  it("should delete files when PID file matches current process", () => {
+    const pidPath = join(tmpDir, "sidecar.pid");
+    const portPath = join(tmpDir, "sidecar.port");
+    const socketPath = join(tmpDir, "sidecar.sock");
+
+    // Current process owns the files
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+    writeFileSync(portPath, "54321", "utf-8");
+    writeFileSync(socketPath, "placeholder", "utf-8");
+
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+    const mockServer = { stop: () => {} } as any;
+    const ctx = { store, service: {} as any, specStore: {} as any };
+
+    stopSidecar(mockServer, ctx);
+
+    expect(existsSync(pidPath)).toBe(false);
+    expect(existsSync(portPath)).toBe(false);
+    expect(existsSync(socketPath)).toBe(false);
+  });
+
+  it("should delete files when no PID file exists", () => {
+    const portPath = join(tmpDir, "sidecar.port");
+    const socketPath = join(tmpDir, "sidecar.sock");
+
+    // No PID file, but port/socket exist (edge case)
+    writeFileSync(portPath, "54321", "utf-8");
+    writeFileSync(socketPath, "placeholder", "utf-8");
+
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+    const mockServer = { stop: () => {} } as any;
+    const ctx = { store, service: {} as any, specStore: {} as any };
+
+    stopSidecar(mockServer, ctx);
+
+    expect(existsSync(portPath)).toBe(false);
+    expect(existsSync(socketPath)).toBe(false);
   });
 });

@@ -1,10 +1,14 @@
 ---
-name: spec-reviewer
 description: Spec reviewer that verifies plan compliance, code quality, and goal achievement in a single pass. Returns structured JSON findings.
-tools: Read, Grep, Glob, Write, Bash(git diff:*), Bash(git log:*)
-model: sonnet
-background: true
-permissionMode: plan
+mode: subagent
+tools:
+  edit: false
+permission:
+  edit: deny
+  bash:
+    "*": deny
+    "git diff*": allow
+    "git log*": allow
 ---
 
 # Spec Reviewer

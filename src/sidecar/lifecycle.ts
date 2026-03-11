@@ -133,10 +133,10 @@ export function stopSidecarProcess(): boolean {
 
   try {
     process.kill(pid, "SIGTERM");
-    cleanupSidecarFiles();
+    cleanupSidecarFiles(pid);
     return true;
   } catch {
-    cleanupSidecarFiles();
+    cleanupSidecarFiles(pid);
     return false;
   }
 }
@@ -145,8 +145,20 @@ export function stopSidecarProcess(): boolean {
 
 /**
  * Remove all sidecar artifacts (PID, socket, port files).
+ *
+ * When `expectedPid` is provided, re-reads the PID file first and skips
+ * cleanup if the file now contains a different PID (a newer sidecar took
+ * ownership of the artifact files).
  */
-function cleanupSidecarFiles(): void {
+function cleanupSidecarFiles(expectedPid?: number): void {
+  if (expectedPid !== undefined) {
+    const currentPid = readSidecarPid();
+    if (currentPid !== null && currentPid !== expectedPid) {
+      // A different sidecar owns these files — don't delete
+      return;
+    }
+  }
+
   for (const path of [getSidecarPidPath(), getSidecarSocketPath(), getSidecarPortPath()]) {
     try {
       if (existsSync(path)) unlinkSync(path);
