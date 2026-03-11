@@ -70,6 +70,7 @@ interface GitHubRelease {
   html_url: string;
   assets: Array<{
     name: string;
+    url: string;
     browser_download_url: string;
     size: number;
   }>;
@@ -83,12 +84,23 @@ export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
     });
 
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
+      const status = response.status;
+      if (status === 401 || status === 403 || status === 404) {
         if (!getGitHubToken()) {
           console.error(
-            "GitHub API returned " + response.status + ". " +
+            `GitHub API returned ${status}. ` +
             "For private repos, set GITHUB_TOKEN or GH_TOKEN with 'repo' scope.\n" +
             "  Create a token at: https://github.com/settings/tokens",
+          );
+        } else if (status === 404) {
+          console.error(
+            "GitHub API returned 404. This usually means no releases have been published yet,\n" +
+            "  or the token lacks 'repo' scope for this private repository.",
+          );
+        } else {
+          console.error(
+            `GitHub API returned ${status}. The token may lack 'repo' scope.\n` +
+            "  Verify your GITHUB_TOKEN has access to this private repository.",
           );
         }
       }
@@ -222,7 +234,10 @@ export async function downloadAndInstall(currentVersion: string): Promise<boolea
   console.log(`Downloading v${remoteVersion} (${assetName}, ${formatBytes(asset.size)})...`);
 
   try {
-    const response = await fetch(asset.browser_download_url, {
+    // For private repos, browser_download_url returns 404. Use the API URL
+    // with Accept: application/octet-stream which redirects to a signed URL.
+    const downloadUrl = getGitHubToken() ? asset.url : asset.browser_download_url;
+    const response = await fetch(downloadUrl, {
       headers: getGitHubHeaders("application/octet-stream"),
     });
 
