@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.4.0...v1.4.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* sentinal update CLI command not working ([a90984a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a90984ae8b5add0965da417a9ab2ad599c4ade3e))
+
 # [1.4.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.3.1...v1.4.0) (2026-03-10)
 
 
