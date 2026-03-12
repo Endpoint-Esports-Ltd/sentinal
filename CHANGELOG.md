@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.7.0...v1.8.0) (2026-03-12)
+
+
+### Features
+
+* deep-merge install config, smart uninstall cleanup, and plan-adjacent reviewer output ([e8fe092](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e8fe092be680e18cdd39da3ce17f70179ca2ec82))
+
 # [1.7.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.6.0...v1.7.0) (2026-03-12)
 
 
