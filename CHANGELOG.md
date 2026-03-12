@@ -1,3 +1,16 @@
+# [1.9.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.8.0...v1.9.0) (2026-03-12)
+
+
+### Bug Fixes
+
+* replace hardcoded cwd in worktree test with dynamic project root ([ee11e98](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ee11e98b4f49686885a53fa91361b3da7b3f678a))
+
+
+### Features
+
+* add 10 MCP tools for spec/worktree workflows and move worktree domain ([9aa69de](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/9aa69de330e078104f2052b415a60838702f98ea))
+* add TDD guard MCP tools and refactor spec/worktree tools for sidecar-first ([ebe84c7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ebe84c7cc1c642ed91acf5552910001dabc9c8e9))
+
 # [1.8.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.7.0...v1.8.0) (2026-03-12)
 
 
