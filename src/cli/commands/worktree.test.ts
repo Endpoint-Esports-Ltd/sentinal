@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../../memory/store.js";
 import { SpecStore } from "../../spec/store.js";
@@ -18,12 +18,19 @@ import { WorktreeStore } from "../../worktree/store.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-wt-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-wt-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function createSpec(tmpDir: string, memoryStore: MemoryStore, specId: string): void {
+function createSpec(
+  tmpDir: string,
+  memoryStore: MemoryStore,
+  specId: string
+): void {
   const plansDir = join(tmpDir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const planFile = join(plansDir, `${specId}.md`);
@@ -78,11 +85,14 @@ describe("worktree CLI detect subcommand", () => {
 describe("worktree CLI subcommand registration", () => {
   it("should execute detect, create, sync via CLI binary", async () => {
     // Test that the subcommands are registered by running help
-    const result = Bun.spawnSync(["bun", "run", "src/cli/index.ts", "worktree", "--help"], {
-      cwd: "/Users/evan/Projects/endpoint_esports/sentinal",
-    });
+    const result = Bun.spawnSync(
+      ["bun", "run", "src/cli/index.ts", "worktree", "--help"],
+      {
+        cwd: resolve(import.meta.dir, "..", "..", ".."),
+      }
+    );
     const output = new TextDecoder().decode(result.stdout);
-    
+
     // Verify new subcommands appear in help
     expect(output).toContain("detect");
     expect(output).toContain("create");
