@@ -13,7 +13,8 @@
     "edit": {
       "*": "ask",
       "docs/plans/*.md": "allow",
-      "docs/plans/**/*.md": "allow"
+      "docs/plans/**/*.md": "allow",
+      "docs/plans/*.json": "allow"
     }
   },
 
@@ -44,7 +45,8 @@
         "edit": {
           "*": "ask",
           "docs/plans/*.md": "allow",
-          "docs/plans/**/*.md": "allow"
+          "docs/plans/**/*.md": "allow",
+          "docs/plans/*.json": "allow"
         }
       }
     }

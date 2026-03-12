@@ -2,10 +2,11 @@
 description: Plan reviewer that verifies alignment with user requirements and challenges dangerous assumptions. Returns structured JSON findings.
 mode: subagent
 tools:
-  edit: false
   bash: false
 permission:
-  edit: deny
+  edit:
+    "*": deny
+    "docs/plans/*.json": allow
   bash: deny
 ---
 

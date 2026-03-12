@@ -696,16 +696,22 @@ export async function installOpenCode(
     config.mcp = { ...mcpServers, ...existingMcp, ...mcpServers };
     ok("    MCP servers merged");
 
-    // Add permission config if not already present
-    if (permissionConfig && !config.permission) {
-      config.permission = permissionConfig;
-      ok("    Permissions configured");
+    // Deep-merge permission config (adds missing keys, preserves user values)
+    if (permissionConfig) {
+      config.permission = deepMergeAdditive(
+        (config.permission as Record<string, unknown>) ?? {},
+        permissionConfig,
+      );
+      ok("    Permissions merged");
     }
 
-    // Add agent config if not already present
-    if (agentConfig && !config.agent) {
-      config.agent = agentConfig;
-      ok("    Agent permissions configured");
+    // Deep-merge agent config (adds missing keys, preserves user values)
+    if (agentConfig) {
+      config.agent = deepMergeAdditive(
+        (config.agent as Record<string, unknown>) ?? {},
+        agentConfig,
+      );
+      ok("    Agent permissions merged");
     }
 
     writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
@@ -751,6 +757,34 @@ export async function installOpenCode(
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Additive deep merge: copies keys from `source` into `target` without
+ * overwriting existing values. When both values are plain objects, recurse.
+ * When the target already has a scalar or the source has a scalar, target wins.
+ */
+export function deepMergeAdditive(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (!(key in result)) {
+      result[key] = source[key];
+    } else if (isPlainObject(result[key]) && isPlainObject(source[key])) {
+      result[key] = deepMergeAdditive(
+        result[key] as Record<string, unknown>,
+        source[key] as Record<string, unknown>,
+      );
+    }
+    // else: target has a value (scalar or mismatched type) — keep it
+  }
+  return result;
+}
 
 /** Safe readdirSync that returns [] if directory doesn't exist. */
 function readdirSyncSafe(dir: string): string[] {

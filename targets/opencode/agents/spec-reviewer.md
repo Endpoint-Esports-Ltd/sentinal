@@ -1,10 +1,11 @@
 ---
 description: Spec reviewer that verifies plan compliance, code quality, and goal achievement in a single pass. Returns structured JSON findings.
 mode: subagent
-tools:
-  edit: false
+tools: {}
 permission:
-  edit: deny
+  edit:
+    "*": deny
+    "docs/plans/*.json": allow
   bash:
     "*": deny
     "git diff*": allow

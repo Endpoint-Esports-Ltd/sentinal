@@ -79,22 +79,19 @@ Read the plan's Runtime Environment section (if present) and the changed file ty
 
 ```bash
 git status --short  # Changed files
-echo $SENTINAL_SESSION_ID
 ```
-
-**Validate session ID:** If `$SENTINAL_SESSION_ID` is empty, fall back to `"default"`.
 
 Collect: changed files list, test framework constraints, runtime environment info, plan risks section.
 
-Output path: `~/.sentinal/sessions/<session-id>/findings-spec-reviewer.json`
+Output path: `docs/plans/<plan>.spec-review.json` (derived from plan path by replacing `.md` with `.spec-review.json`)
 
 #### 3.1b: Launch
 
 **⛔ Delete stale findings before launching:**
 
 ```bash
-SESS_ID=$(echo $SENTINAL_SESSION_ID)
-OUTPUT_PATH="$HOME/.sentinal/sessions/$SESS_ID/findings-spec-reviewer.json"
+PLAN_PATH="<plan-path>"
+OUTPUT_PATH="${PLAN_PATH%.md}.spec-review.json"
 rm -f "$OUTPUT_PATH"
 ```
 
@@ -151,7 +148,7 @@ Skip unless the plan has a Feature Inventory section.
 **Wait for results (bash polling):**
 
 ```bash
-OUTPUT_PATH="<findings-path>"
+OUTPUT_PATH="<spec-review-json-path>"
 for i in $(seq 1 50); do [ -f "$OUTPUT_PATH" ] && echo "READY" && break; sleep 10; done
 ```
 

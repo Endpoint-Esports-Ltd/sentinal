@@ -261,9 +261,11 @@ Type: Feature
 
 **When enabled:** Launch plan-reviewer for every feature spec.
 
+**Derive output path from plan path** (replace `.md` with `.plan-review.json`):
+
 ```bash
-SESS_ID=$(echo $SENTINAL_SESSION_ID)
-OUTPUT_PATH="$HOME/.sentinal/sessions/$SESS_ID/findings-plan-reviewer.json"
+PLAN_PATH="<plan-path>"
+OUTPUT_PATH="${PLAN_PATH%.md}.plan-review.json"
 rm -f "$OUTPUT_PATH"
 ```
 
@@ -275,7 +277,7 @@ Task(
   **Plan file:** <plan-path>
   **User request:** <original task description>
   **Clarifications:** <any Q&A>
-  **Output path:** <absolute path to findings JSON>
+  **Output path:** <absolute path to .plan-review.json>
 
   Review for alignment with requirements AND adversarial risks.
   Write findings JSON to output_path using Write tool.
@@ -286,7 +288,7 @@ Task(
 **Wait for results (bash polling):**
 
 ```bash
-OUTPUT_PATH="<findings-path>"
+OUTPUT_PATH="<plan-review-json-path>"
 for i in $(seq 1 30); do [ -f "$OUTPUT_PATH" ] && echo "READY" && break; sleep 10; done
 ```
 

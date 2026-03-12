@@ -71,6 +71,12 @@ const PLUGIN_PATH_PATTERNS = [
   "./plugins/sentinal.js",
 ];
 
+/** Agent task permission keys managed by Sentinal. */
+const SENTINAL_TASK_KEYS = ["plan-reviewer", "spec-reviewer", "explore", "general"];
+
+/** Edit permission glob keys managed by Sentinal. */
+const SENTINAL_EDIT_PLAN_KEYS = ["docs/plans/*.md", "docs/plans/**/*.md", "docs/plans/*.json"];
+
 // ─── Options ────────────────────────────────────────────────────────────────
 
 export interface UninstallOptions {
@@ -413,15 +419,6 @@ export async function uninstallOpenCode(opts: UninstallOptions = {}): Promise<vo
 
   info("Cleaning opencode config...");
 
-  // Build the full set of plugin paths to match (static patterns + absolute paths)
-  const pluginPathsToRemove = new Set(PLUGIN_PATH_PATTERNS);
-  for (const filename of PLUGIN_FILENAMES) {
-    pluginPathsToRemove.add(join(pluginsDir, filename));
-    if (local) {
-      pluginPathsToRemove.add(`.opencode/plugins/${filename}`);
-    }
-  }
-
   const configDir = local ? process.cwd() : targetDir;
 
   // Find config file
@@ -449,50 +446,14 @@ export async function uninstallOpenCode(opts: UninstallOptions = {}): Promise<vo
     }
 
     if (config) {
-      // Remove all sentinal plugin path variants from plugin array
-      const plugins = (config.plugin as string[]) ?? [];
-      config.plugin = plugins.filter((p) => !pluginPathsToRemove.has(p) && !p.includes("sentinal"));
-
-      // Remove sentinal MCP server keys
-      const mcp = (config.mcp as Record<string, unknown>) ?? {};
-      for (const key of MCP_KEYS) {
-        delete mcp[key];
-      }
-      config.mcp = mcp;
-
-      // Remove sentinal permission entries (skill, edit rules for plan files)
-      const perm = config.permission as Record<string, unknown> | undefined;
-      if (perm) {
-        delete perm.skill;
-        if (typeof perm.edit === "object" && perm.edit) {
-          const edit = perm.edit as Record<string, string>;
-          for (const key of Object.keys(edit)) {
-            if (key.includes("docs/plans")) delete edit[key];
-          }
-          if (Object.keys(edit).length <= 1) delete perm.edit; // only "*" left
-        }
-        if (Object.keys(perm).length === 0) delete config.permission;
-      }
-
-      // Remove sentinal agent config entries
-      const agents = config.agent as Record<string, Record<string, unknown>> | undefined;
-      if (agents) {
-        for (const [name, agentCfg] of Object.entries(agents)) {
-          const taskPerm = (agentCfg.permission as Record<string, unknown>)?.task as Record<string, string> | undefined;
-          if (taskPerm) {
-            for (const key of [...AGENT_FILES.map(f => f.replace(".md", "")), "plan-reviewer", "spec-reviewer"]) {
-              delete taskPerm[key];
-            }
-          }
-        }
-      }
+      const cleaned = cleanupOpenCodeConfig(config);
 
       // Check if config is now effectively empty
-      if (isConfigEffectivelyEmpty(config)) {
+      if (isConfigEffectivelyEmpty(cleaned)) {
         unlinkSync(configFile);
         ok(`  Config was Sentinal-only, removed: ${configFile}`);
       } else {
-        writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
+        writeFileSync(configFile, JSON.stringify(cleaned, null, 2) + "\n");
         ok("  Sentinal entries removed from config");
       }
     }
@@ -568,14 +529,94 @@ function removeBinary(): void {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
+ * Pure function to clean up Sentinal-managed entries from an OpenCode config object.
+ * Removes only Sentinal-owned keys; preserves user-added keys.
+ * Returns a new config object (does not mutate input).
+ */
+export function cleanupOpenCodeConfig(input: Record<string, unknown>): Record<string, unknown> {
+  const config = JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
+
+  // Remove sentinal plugin entries
+  const plugins = (config.plugin as string[]) ?? [];
+  const pluginPaths = new Set(PLUGIN_PATH_PATTERNS);
+  config.plugin = plugins.filter((p) => !pluginPaths.has(p) && !p.includes("sentinal"));
+
+  // Remove sentinal MCP server keys
+  const mcp = (config.mcp as Record<string, unknown>) ?? {};
+  for (const key of MCP_KEYS) delete mcp[key];
+  config.mcp = mcp;
+  if (Object.keys(mcp).length === 0) delete config.mcp;
+
+  // Remove sentinal permission entries
+  const perm = config.permission as Record<string, unknown> | undefined;
+  if (perm) {
+    delete perm.skill;
+    if (typeof perm.edit === "object" && perm.edit) {
+      const edit = perm.edit as Record<string, string>;
+      for (const key of Object.keys(edit)) {
+        if (key.includes("docs/plans")) delete edit[key];
+      }
+      if (Object.keys(edit).length <= 1) delete perm.edit; // only "*" left
+    }
+    if (Object.keys(perm).length === 0) delete config.permission;
+  }
+
+  // Remove sentinal agent config entries
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined;
+  if (agents) {
+    for (const [name, agentCfg] of Object.entries(agents)) {
+      const permission = agentCfg.permission as Record<string, unknown> | undefined;
+      if (!permission) continue;
+
+      // Clean up task permissions
+      const taskPerm = permission.task as Record<string, string> | undefined;
+      if (taskPerm) {
+        for (const key of SENTINAL_TASK_KEYS) delete taskPerm[key];
+        // Remove task block if only "*" remains
+        const taskKeys = Object.keys(taskPerm);
+        if (taskKeys.length === 0 || (taskKeys.length === 1 && taskKeys[0] === "*")) {
+          delete permission.task;
+        }
+      }
+
+      // Clean up edit permissions
+      const editPerm = permission.edit as Record<string, string> | undefined;
+      if (editPerm) {
+        for (const key of SENTINAL_EDIT_PLAN_KEYS) delete editPerm[key];
+        // Remove edit block if empty or only "*" with sentinal's default value
+        const editKeys = Object.keys(editPerm);
+        if (editKeys.length === 0) {
+          delete permission.edit;
+        } else if (editKeys.length === 1 && editKeys[0] === "*") {
+          // If it's {"*": "allow"} (build agent default) or {"*": "ask"} (plan agent after removing plan keys), remove it
+          delete permission.edit;
+        }
+      }
+
+      // Remove agent entry if permission is empty
+      if (Object.keys(permission).length === 0) {
+        delete agentCfg.permission;
+      }
+      if (Object.keys(agentCfg).length === 0) {
+        delete agents[name];
+      }
+    }
+    if (Object.keys(agents).length === 0) delete config.agent;
+  }
+
+  // Clean up empty plugin array
+  if (Array.isArray(config.plugin) && (config.plugin as string[]).length === 0) {
+    delete config.plugin;
+  }
+
+  return config;
+}
+
+/**
  * Check if an opencode config is effectively empty after removing Sentinal entries.
- * Returns true if only $schema, empty plugin, empty mcp, and lsp remain.
+ * Returns true if only $schema and/or lsp remain.
  */
 function isConfigEffectivelyEmpty(config: Record<string, unknown>): boolean {
-  const plugins = (config.plugin as string[]) ?? [];
-  const mcp = (config.mcp as Record<string, unknown>) ?? {};
-  const knownKeys = new Set(["$schema", "plugin", "mcp", "lsp", "permission", "agent"]);
-  const hasExtraKeys = Object.keys(config).some((k) => !knownKeys.has(k));
-
-  return plugins.length === 0 && Object.keys(mcp).length === 0 && !hasExtraKeys;
+  const knownEmptyKeys = new Set(["$schema", "lsp"]);
+  return Object.keys(config).every((k) => knownEmptyKeys.has(k));
 }
