@@ -1,3 +1,11 @@
+## [1.9.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.0...v1.9.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* add mandatory verification handoff to spec-implement skill ([07ef101](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/07ef10194ad13512e2fe6e08cf44c43070559a74))
+* isolate sidecar client tests from live sidecar via path mocks ([175fa99](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/175fa990db403a359168a3d3ad2b82f243d3e80c))
+
 # [1.9.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.8.0...v1.9.0) (2026-03-12)
 
 
