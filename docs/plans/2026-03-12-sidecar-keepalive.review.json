@@ -1,0 +1,28 @@
+{
+  "review_summary": "Root cause is accurate and well-evidenced. The fix approach is sound and correctly scoped to two files. One should_fix gap: main() uses SidecarClient.connect() (no retry) immediately after autoStartSidecar(), which races — the same pattern that connectWithRetry() exists to solve — and keepalive will never start if the race loses. No must_fix issues.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "main() uses connect() not connectWithRetry() — keepalive never starts if race is lost",
+      "description": "The plan adds keepalive after `const client = await SidecarClient.connect()` (server.ts:98). autoStartSidecar() (line 95) spawns the sidecar asynchronously; the immediate connect() call can return null before the process is ready, leaving client=null and the keepalive loop never registered. SidecarClient.connectWithRetry() (client.ts:38-50) already exists for exactly this case but is not referenced anywhere in the plan or in main(). If the race is lost, the MCP server silently falls back to direct mode with no keepalive, and the bug is not fixed for that startup path.",
+      "suggested_fix": "In the Task 1 implementation, replace `SidecarClient.connect()` with `SidecarClient.connectWithRetry()` in main(). Update the test to assert keepalive starts only when client is non-null and that the null path is handled gracefully (no-op). The plan's fix description should note this explicitly."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "No DoD criterion for the Preservation Property (sidecar still exits when MCP is gone)",
+      "description": "The plan defines a Preservation Property — 'Sidecar still exits after 5 minutes of genuine idle (no MCP server connected)' — but Task 2's verify step is only `bun test && npx tsc --noEmit`. There is no test or manual check specified to confirm that the keepalive loop stops cleanly on process exit and does not prevent the sidecar from ever idle-shutting down in the no-client case.",
+      "suggested_fix": "Add a test case in server.test.ts asserting that the timer returned by startKeepalive is cleared by the cleanup function, and that after cleanup the interval is no longer active. Alternatively, add this as an explicit verify step in Task 2: 'confirm clearTimeout is called in the registered exit handler'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "health() could serve as ping — using /ping is correct but worth a comment",
+      "description": "SidecarClient already has a health() method (client.ts:105-107) that hits GET /health and also touches sidecar activity. The plan adds a dedicated ping() method for GET /ping. Both work, but using health() would require zero new client code. Not a problem — /ping is semantically cleaner and the endpoint already exists — but the plan doesn't explain why a separate method is preferred over reusing health().",
+      "suggested_fix": "Add a one-line comment in the plan or code: 'Using /ping rather than /health because /health deserializes a JSON body; /ping is a lighter-weight no-parse touch.' This avoids future confusion or a reviewer suggesting to delete ping() and reuse health()."
+    }
+  ]
+}

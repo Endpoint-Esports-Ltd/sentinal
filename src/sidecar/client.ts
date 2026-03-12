@@ -106,6 +106,14 @@ export class SidecarClient {
     return this.get("/health");
   }
 
+  /**
+   * Lightweight keep-alive ping. Preferred over health() — /ping returns
+   * minimal JSON without full status serialization overhead.
+   */
+  async ping(): Promise<void> {
+    await this.get("/ping");
+  }
+
   // ─── Sessions ──────────────────────────────────────────────────────────
 
   async createSession(opts: {
