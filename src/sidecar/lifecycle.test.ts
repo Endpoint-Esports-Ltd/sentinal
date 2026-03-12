@@ -5,23 +5,40 @@
  * Uses mocked PID/socket paths to avoid affecting the real sidecar.
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
 import {
   readSidecarPid,
   removeSidecarPid,
   isSidecarRunning,
   getSidecarStatus,
   stopSidecarProcess,
+  isSidecarReachable,
 } from "./lifecycle.js";
 import * as serverModule from "./server.js";
 
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `sentinal-lifecycle-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `sentinal-lifecycle-test-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -152,7 +169,9 @@ describe("sidecar lifecycle", () => {
     // Intercept SIGTERM so it doesn't kill the test
     const origHandlers = process.listeners("SIGTERM");
     process.removeAllListeners("SIGTERM");
-    process.once("SIGTERM", () => { /* swallow */ });
+    process.once("SIGTERM", () => {
+      /* swallow */
+    });
 
     const result = stopSidecarProcess();
 
@@ -164,5 +183,47 @@ describe("sidecar lifecycle", () => {
     expect(existsSync(pidPath)).toBe(false);
     expect(existsSync(socketPath)).toBe(false);
     expect(existsSync(portPath)).toBe(false);
+  });
+
+  // ─── isSidecarReachable (async with probe) ─────────────────────────────
+
+  it("should return false when no PID file (reachable check)", async () => {
+    expect(await isSidecarReachable()).toBe(false);
+  });
+
+  it("should return false when PID is stale (reachable check)", async () => {
+    writeFileSync(pidPath, "999999999", "utf-8");
+    expect(await isSidecarReachable()).toBe(false);
+    // Should have cleaned up the PID file
+    expect(existsSync(pidPath)).toBe(false);
+  });
+
+  it("should return false when process alive but not a sidecar", async () => {
+    // Use current process PID — it's alive but not serving HTTP
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+    writeFileSync(portPath, "99999", "utf-8"); // port nothing is listening on
+    expect(await isSidecarReachable()).toBe(false);
+  });
+
+  it("should return true when a real sidecar is serving", async () => {
+    const { startSidecar, stopSidecar } = await import("./server.js");
+    const sidecarTmpDir = makeTmpDir();
+    const store = (await import("../memory/store.js")).MemoryStore;
+    const testStore = new store(join(sidecarTmpDir, "test.db"));
+    const result = await startSidecar({
+      store: testStore,
+      httpOnly: true,
+      port: 0,
+    });
+    const port = (result.server as any).port;
+
+    // Write PID + port file pointing at the real sidecar
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+    writeFileSync(portPath, String(port), "utf-8");
+
+    expect(await isSidecarReachable()).toBe(true);
+
+    stopSidecar(result.server, result.ctx);
+    rmSync(sidecarTmpDir, { recursive: true, force: true });
   });
 });

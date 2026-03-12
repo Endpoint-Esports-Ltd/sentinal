@@ -16,10 +16,18 @@ import { handleSidecarRequest } from "./routes.js";
 
 // Re-export path helpers for backward compatibility
 export {
-  SIDECAR_SOCKET, SIDECAR_PORT_FILE, SIDECAR_PID_FILE,
-  getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath,
+  SIDECAR_SOCKET,
+  SIDECAR_PORT_FILE,
+  SIDECAR_PID_FILE,
+  getSidecarSocketPath,
+  getSidecarPortPath,
+  getSidecarPidPath,
 } from "./paths.js";
-import { getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath } from "./paths.js";
+import {
+  getSidecarSocketPath,
+  getSidecarPortPath,
+  getSidecarPidPath,
+} from "./paths.js";
 
 export interface SidecarContext {
   store: MemoryStore;
@@ -37,6 +45,81 @@ export interface SidecarServerOptions {
   port?: number;
 }
 
+// ─── Idle Tracking ───────────────────────────────────────────────────────────
+
+/** Default idle timeout: 5 minutes */
+export const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/** Default check interval: 30 seconds */
+export const DEFAULT_CHECK_INTERVAL_MS = 30 * 1000;
+
+let lastActivityTime = Date.now();
+
+/** Touch the activity timestamp. Called on every incoming request. */
+export function touchActivity(): void {
+  lastActivityTime = Date.now();
+}
+
+/** Get the last activity timestamp (for testing). */
+export function getLastActivityTime(): number {
+  return lastActivityTime;
+}
+
+export interface IdleShutdownOptions {
+  /** Idle timeout in ms before auto-shutdown (default: 5 min) */
+  timeoutMs?: number;
+  /** How often to check for idle in ms (default: 30s) */
+  checkIntervalMs?: number;
+  /** Custom shutdown callback (default: stopSidecar + process.exit) */
+  onShutdown?: () => void;
+}
+
+/**
+ * Enable idle auto-shutdown for the sidecar.
+ * Returns a cleanup function that clears the interval.
+ */
+export function enableIdleShutdown(
+  result: SidecarStartResult,
+  opts: IdleShutdownOptions = {}
+): () => void {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const checkIntervalMs = opts.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
+
+  // Reset the activity timestamp when enabling
+  touchActivity();
+
+  const interval = setInterval(() => {
+    const idleMs = Date.now() - lastActivityTime;
+    if (idleMs >= timeoutMs) {
+      clearInterval(interval);
+      if (opts.onShutdown) {
+        opts.onShutdown();
+      } else {
+        stopSidecar(result.server, result.ctx, result.httpServer);
+        process.exit(0);
+      }
+    }
+  }, checkIntervalMs);
+
+  // Don't let this interval keep the process alive on its own
+  if (interval.unref) interval.unref();
+
+  return () => clearInterval(interval);
+}
+
+// ─── Stale Session Cleanup ───────────────────────────────────────────────────
+
+/** Default stale session threshold: 24 hours */
+const STALE_SESSION_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Clean up sessions that have been active longer than the threshold.
+ * Called on sidecar startup to prevent permanent session leaks.
+ * Returns the number of sessions cleaned up.
+ */
+export function cleanupStaleSessionsOnStartup(store: MemoryStore): number {
+  return store.cleanupStaleSessions(STALE_SESSION_THRESHOLD_MS);
+}
+
 /**
  * Start the sidecar server. Returns the Bun server instance.
  *
@@ -52,12 +135,17 @@ export interface SidecarStartResult {
   alreadyRunning?: boolean;
 }
 
-export async function startSidecar(opts: SidecarServerOptions = {}): Promise<SidecarStartResult> {
+export async function startSidecar(
+  opts: SidecarServerOptions = {}
+): Promise<SidecarStartResult> {
   const store = opts.store ?? new MemoryStore();
   const service = new MemoryService(store);
   const specStore = new SpecStore(store);
   const wtStore = new WorktreeStore(store);
   const ctx: SidecarContext = { store, service, specStore, wtStore };
+
+  // Clean up stale sessions from previous crashes/force-quits
+  cleanupStaleSessionsOnStartup(store);
 
   const socketPath = getSidecarSocketPath();
   const useUnix = !opts.httpOnly && process.platform !== "win32";
@@ -65,16 +153,32 @@ export async function startSidecar(opts: SidecarServerOptions = {}): Promise<Sid
   // If the socket file exists, probe it before removing — another sidecar may be live
   if (useUnix && existsSync(socketPath)) {
     try {
-      const probe = await fetch("http://localhost/health", { unix: socketPath } as RequestInit);
+      const probe = await fetch("http://localhost/health", {
+        unix: socketPath,
+      } as RequestInit);
       if (probe.ok) {
         // Another sidecar is already serving — return a sentinel result
-        return { server: null as unknown as ReturnType<typeof Bun.serve>, ctx, transport: "unix", alreadyRunning: true };
+        return {
+          server: null as unknown as ReturnType<typeof Bun.serve>,
+          ctx,
+          transport: "unix",
+          alreadyRunning: true,
+        };
       }
-    } catch { /* socket is stale, safe to remove */ }
-    try { unlinkSync(socketPath); } catch { /* ignore */ }
+    } catch {
+      /* socket is stale, safe to remove */
+    }
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      /* ignore */
+    }
   }
 
-  const fetchHandler = (req: Request) => handleSidecarRequest(req, ctx);
+  const fetchHandler = (req: Request) => {
+    touchActivity();
+    return handleSidecarRequest(req, ctx);
+  };
 
   if (useUnix) {
     try {
@@ -112,7 +216,7 @@ export async function startSidecar(opts: SidecarServerOptions = {}): Promise<Sid
 export function stopSidecar(
   server: ReturnType<typeof Bun.serve>,
   ctx: SidecarContext,
-  httpServer?: ReturnType<typeof Bun.serve>,
+  httpServer?: ReturnType<typeof Bun.serve>
 ): void {
   server.stop(true);
   if (httpServer) httpServer.stop(true);
@@ -127,10 +231,16 @@ export function stopSidecar(
         // A different sidecar owns these files — don't delete
         return;
       }
-    } catch { /* read failed — safe to clean up */ }
+    } catch {
+      /* read failed — safe to clean up */
+    }
   }
 
   for (const path of [getSidecarSocketPath(), getSidecarPortPath(), pidPath]) {
-    try { if (existsSync(path)) unlinkSync(path); } catch { /* ignore */ }
+    try {
+      if (existsSync(path)) unlinkSync(path);
+    } catch {
+      /* ignore */
+    }
   }
 }

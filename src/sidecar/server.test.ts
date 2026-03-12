@@ -5,11 +5,31 @@
  * Uses HTTP transport (httpOnly mode) for testability.
  */
 
-import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  spyOn,
+  mock,
+} from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
-import { startSidecar, stopSidecar } from "./server.js";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
+import {
+  startSidecar,
+  stopSidecar,
+  enableIdleShutdown,
+  getLastActivityTime,
+  cleanupStaleSessionsOnStartup,
+} from "./server.js";
 import * as pathsModule from "./paths.js";
 import { MemoryStore } from "../memory/store.js";
 
@@ -19,13 +39,19 @@ async function get(base: string, path: string): Promise<any> {
   return res.json();
 }
 async function post(base: string, path: string, body: unknown): Promise<any> {
-  const res = await fetch(`${base}${path}`, { method: "POST", body: JSON.stringify(body) });
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
   return res.json();
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-sidecar-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-sidecar-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -63,7 +89,11 @@ describe("sidecar server", () => {
   // ─── Sessions ─────────────────────────────────────────────────────────
 
   it("should create a session", async () => {
-    const r = await post(base, "/session", { id: "test-1", projectPath: "/test", assistant: "opencode" });
+    const r = await post(base, "/session", {
+      id: "test-1",
+      projectPath: "/test",
+      assistant: "opencode",
+    });
     expect(r.ok).toBe(true);
     expect(r.data.id).toBe("test-1");
     expect(r.data.projectPath).toBe("/test");
@@ -72,7 +102,11 @@ describe("sidecar server", () => {
   });
 
   it("should list active sessions", async () => {
-    await post(base, "/session", { id: "s1", projectPath: "/p", assistant: "opencode" });
+    await post(base, "/session", {
+      id: "s1",
+      projectPath: "/p",
+      assistant: "opencode",
+    });
     const r = await get(base, "/session/active");
     expect(r.ok).toBe(true);
     expect(r.data.length).toBe(1);
@@ -80,7 +114,11 @@ describe("sidecar server", () => {
   });
 
   it("should end a session", async () => {
-    await post(base, "/session", { id: "s2", projectPath: "/p", assistant: "opencode" });
+    await post(base, "/session", {
+      id: "s2",
+      projectPath: "/p",
+      assistant: "opencode",
+    });
     const r = await post(base, "/session/s2/end", {});
     expect(r.ok).toBe(true);
 
@@ -98,14 +136,25 @@ describe("sidecar server", () => {
   });
 
   it("should set and get TDD state", async () => {
-    await post(base, "/tdd-state", { action: "set", filePath: "/src/foo.ts", state: "RED_CONFIRMED" });
+    await post(base, "/tdd-state", {
+      action: "set",
+      filePath: "/src/foo.ts",
+      state: "RED_CONFIRMED",
+    });
     const r = await get(base, "/tdd-state?file=/src/foo.ts");
     expect(r.data.state).toBe("RED_CONFIRMED");
   });
 
   it("should clear TDD state", async () => {
-    await post(base, "/tdd-state", { action: "set", filePath: "/src/foo.ts", state: "TEST_WRITTEN" });
-    await post(base, "/tdd-state", { action: "clear", filePath: "/src/foo.ts" });
+    await post(base, "/tdd-state", {
+      action: "set",
+      filePath: "/src/foo.ts",
+      state: "TEST_WRITTEN",
+    });
+    await post(base, "/tdd-state", {
+      action: "clear",
+      filePath: "/src/foo.ts",
+    });
     const r = await get(base, "/tdd-state?file=/src/foo.ts");
     expect(r.data.state).toBe("IDLE");
   });
@@ -119,8 +168,12 @@ describe("sidecar server", () => {
 
   it("should add an observation", async () => {
     const r = await post(base, "/observation", {
-      sessionId: "test-session", projectPath: "/test", type: "discovery",
-      title: "Test finding", content: "Some content", tags: ["test"],
+      sessionId: "test-session",
+      projectPath: "/test",
+      type: "discovery",
+      title: "Test finding",
+      content: "Some content",
+      tags: ["test"],
     });
     expect(r.ok).toBe(true);
     expect(r.data.id).toBeGreaterThan(0);
@@ -152,10 +205,16 @@ describe("sidecar server", () => {
     const plansDir = join(tmpDir, "docs", "plans");
     mkdirSync(plansDir, { recursive: true });
     const planFile = join(plansDir, "test-plan.md");
-    writeFileSync(planFile, `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`);
+    writeFileSync(
+      planFile,
+      `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`
+    );
 
     await post(base, "/spec/sync", { planPath: planFile, projectPath: tmpDir });
-    const r = await get(base, `/spec/current?project=${encodeURIComponent(tmpDir)}`);
+    const r = await get(
+      base,
+      `/spec/current?project=${encodeURIComponent(tmpDir)}`
+    );
     expect(r.ok).toBe(true);
     expect(r.data).not.toBeNull();
     expect(r.data.title).toBe("Test Plan");
@@ -170,8 +229,16 @@ describe("sidecar server", () => {
   });
 
   it("should list active TDD states with filter", async () => {
-    await post(base, "/tdd-state", { action: "set", filePath: "/src/a.ts", state: "RED_CONFIRMED" });
-    await post(base, "/tdd-state", { action: "set", filePath: "/src/b.ts", state: "TEST_WRITTEN" });
+    await post(base, "/tdd-state", {
+      action: "set",
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+    });
+    await post(base, "/tdd-state", {
+      action: "set",
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+    });
 
     const r = await get(base, "/tdd-state/list");
     expect(r.ok).toBe(true);
@@ -185,11 +252,18 @@ describe("sidecar server", () => {
     const plansDir = join(tmpDir, "docs", "plans");
     mkdirSync(plansDir, { recursive: true });
     const planFile = join(plansDir, "events-test.md");
-    writeFileSync(planFile, `# Events Test\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n`);
+    writeFileSync(
+      planFile,
+      `# Events Test\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n`
+    );
     await post(base, "/spec/sync", { planPath: planFile, projectPath: tmpDir });
 
     // Log an event directly
-    store.logSpecEvent({ specId: "events-test", eventType: "phase_change", details: { from: "plan", to: "implement" } });
+    store.logSpecEvent({
+      specId: "events-test",
+      eventType: "phase_change",
+      details: { from: "plan", to: "implement" },
+    });
 
     const r = await get(base, `/spec/events?spec_id=events-test`);
     expect(r.ok).toBe(true);
@@ -219,10 +293,20 @@ describe("sidecar server", () => {
 
   it("should insert a notification", async () => {
     const r = await post(base, "/notification", {
-      type: "info", title: "Test notification", message: "Hello", source: "test",
+      type: "info",
+      title: "Test notification",
+      message: "Hello",
+      source: "test",
     });
     expect(r.ok).toBe(true);
     expect(r.data.title).toBe("Test notification");
+  });
+
+  // ─── Ping ───────────────────────────────────────────────────────────────
+
+  it("should respond to /ping", async () => {
+    const r = await get(base, "/ping");
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -232,12 +316,21 @@ describe("stopSidecar PID guard", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `sentinal-stop-race-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `sentinal-stop-race-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     mkdirSync(tmpDir, { recursive: true });
 
-    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(join(tmpDir, "sidecar.pid"));
-    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(join(tmpDir, "sidecar.sock"));
-    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(join(tmpDir, "sidecar.port"));
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid")
+    );
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "sidecar.sock")
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port")
+    );
   });
 
   afterEach(() => {
@@ -284,7 +377,12 @@ describe("stopSidecar PID guard", () => {
 
     const store = new MemoryStore(join(tmpDir, "test.db"));
     const mockServer = { stop: () => {} } as any;
-    const ctx = { store, service: {} as any, specStore: {} as any, wtStore: {} as any };
+    const ctx = {
+      store,
+      service: {} as any,
+      specStore: {} as any,
+      wtStore: {} as any,
+    };
 
     stopSidecar(mockServer, ctx);
 
@@ -303,11 +401,181 @@ describe("stopSidecar PID guard", () => {
 
     const store = new MemoryStore(join(tmpDir, "test.db"));
     const mockServer = { stop: () => {} } as any;
-    const ctx = { store, service: {} as any, specStore: {} as any, wtStore: {} as any };
+    const ctx = {
+      store,
+      service: {} as any,
+      specStore: {} as any,
+      wtStore: {} as any,
+    };
 
     stopSidecar(mockServer, ctx);
 
     expect(existsSync(portPath)).toBe(false);
     expect(existsSync(socketPath)).toBe(false);
+  });
+});
+
+// ─── Idle Auto-Shutdown ───────────────────────────────────────────────────
+
+describe("idle auto-shutdown", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+  let base: string;
+
+  beforeEach(async () => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    base = `http://127.0.0.1:${(sidecar.server as any).port}`;
+  });
+
+  afterEach(() => {
+    try {
+      stopSidecar(sidecar.server, sidecar.ctx);
+    } catch {
+      /* may already be stopped */
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should update lastActivityTime on each request", async () => {
+    const before = getLastActivityTime();
+    // Small delay to ensure timestamp differs
+    await new Promise((r) => setTimeout(r, 10));
+    await get(base, "/health");
+    const after = getLastActivityTime();
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it("should return an interval handle from enableIdleShutdown", () => {
+    const cleanup = enableIdleShutdown(sidecar, {
+      timeoutMs: 60_000,
+      checkIntervalMs: 1_000,
+    });
+    expect(cleanup).toBeDefined();
+    expect(typeof cleanup).toBe("function");
+    // Clean up the interval
+    cleanup();
+  });
+
+  it("should call shutdown callback when idle timeout expires", async () => {
+    let shutdownCalled = false;
+    const cleanup = enableIdleShutdown(sidecar, {
+      timeoutMs: 50,
+      checkIntervalMs: 20,
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
+    });
+
+    // Wait for the idle timer to fire (50ms timeout + 20ms check interval + buffer)
+    await new Promise((r) => setTimeout(r, 150));
+    expect(shutdownCalled).toBe(true);
+    cleanup();
+  });
+
+  it("should not shutdown when requests keep coming", async () => {
+    let shutdownCalled = false;
+    const cleanup = enableIdleShutdown(sidecar, {
+      timeoutMs: 80,
+      checkIntervalMs: 20,
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
+    });
+
+    // Send requests every 30ms for 120ms — should keep it alive past the 80ms timeout
+    for (let i = 0; i < 4; i++) {
+      await get(base, "/ping");
+      await new Promise((r) => setTimeout(r, 30));
+    }
+
+    expect(shutdownCalled).toBe(false);
+    cleanup();
+  });
+
+  it("should shutdown after requests stop", async () => {
+    let shutdownCalled = false;
+    const cleanup = enableIdleShutdown(sidecar, {
+      timeoutMs: 60,
+      checkIntervalMs: 20,
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
+    });
+
+    // Send some requests to keep alive
+    await get(base, "/ping");
+    await new Promise((r) => setTimeout(r, 20));
+    await get(base, "/ping");
+
+    // Then stop — should shutdown after idle timeout
+    await new Promise((r) => setTimeout(r, 150));
+    expect(shutdownCalled).toBe(true);
+    cleanup();
+  });
+});
+
+// ─── Stale Session Cleanup ────────────────────────────────────────────────
+
+describe("stale session cleanup on startup", () => {
+  it("should mark sessions older than threshold as ended", () => {
+    const tmpDir = makeTmpDir();
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+
+    // Create a session started 25 hours ago (stale)
+    const staleTime = Date.now() - 25 * 60 * 60 * 1000;
+    store.insertSession({
+      id: "stale-session",
+      startTime: staleTime,
+      endTime: null,
+      projectPath: "/old",
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    // Create a recent session (should survive)
+    store.insertSession({
+      id: "fresh-session",
+      startTime: Date.now() - 1000,
+      endTime: null,
+      projectPath: "/new",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const cleaned = cleanupStaleSessionsOnStartup(store);
+    expect(cleaned).toBe(1);
+
+    const active = store.getActiveSessions();
+    expect(active.length).toBe(1);
+    expect(active[0].id).toBe("fresh-session");
+
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return 0 when no stale sessions exist", () => {
+    const tmpDir = makeTmpDir();
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+
+    store.insertSession({
+      id: "recent",
+      startTime: Date.now() - 1000,
+      endTime: null,
+      projectPath: "/test",
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const cleaned = cleanupStaleSessionsOnStartup(store);
+    expect(cleaned).toBe(0);
+
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });

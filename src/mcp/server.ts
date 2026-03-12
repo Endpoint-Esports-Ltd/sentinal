@@ -17,7 +17,7 @@ import { registerSpecTools } from "../spec/mcp-tools.js";
 import { registerWorktreeTools } from "../worktree/mcp-tools.js";
 import { registerTddTools } from "../tdd/mcp-tools.js";
 import { SidecarClient } from "../sidecar/client.js";
-import { autoStartSidecar } from "../sidecar/lifecycle.js";
+import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
 
 // --- Server Factory ---
 
@@ -36,7 +36,7 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   store: MemoryStore | null;
 } {
   const client = opts.client ?? null;
-  const store = client ? null : (opts.store ?? new MemoryStore());
+  const store = client ? null : opts.store ?? new MemoryStore();
 
   const server = new McpServer({
     name: "sentinal",
@@ -51,6 +51,37 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   return { server, store };
 }
 
+// --- Cleanup Handlers ---
+
+/**
+ * Register process cleanup handlers for the MCP server.
+ * Returns a cleanup function that can be called directly (for testing)
+ * or is invoked automatically on SIGTERM/SIGINT/exit.
+ *
+ * Only stops the sidecar if no active sessions remain in the store.
+ */
+export function registerMcpCleanupHandlers(
+  store: MemoryStore | null
+): () => void {
+  const cleanup = () => {
+    try {
+      if (store) {
+        const active = store.getActiveSessions();
+        if (active.length > 0) return;
+      }
+      stopSidecarProcess();
+    } catch {
+      // Non-fatal — best effort cleanup
+    }
+  };
+
+  process.on("SIGTERM", cleanup);
+  process.on("SIGINT", cleanup);
+  process.on("exit", cleanup);
+
+  return cleanup;
+}
+
 // --- Main (stdio transport) ---
 
 export async function main(): Promise<void> {
@@ -63,19 +94,26 @@ export async function main(): Promise<void> {
 
   // Try sidecar first, fall back to direct MemoryStore
   const client = await SidecarClient.connect();
-  const { server } = createSentinalServer({ client });
+  const { server, store } = createSentinalServer({ client });
+
+  // Register cleanup handlers so sidecar is stopped when MCP server exits
+  registerMcpCleanupHandlers(store);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`Sentinal MCP Server running on stdio (${client ? "sidecar" : "direct"} mode)`);
+  console.error(
+    `Sentinal MCP Server running on stdio (${
+      client ? "sidecar" : "direct"
+    } mode)`
+  );
 }
 
 // Only run main when executed directly (not when imported by the CLI dispatcher)
-const isMainModule = !process.env.__SENTINAL_CLI && (
-  typeof Bun !== "undefined"
+const isMainModule =
+  !process.env.__SENTINAL_CLI &&
+  (typeof Bun !== "undefined"
     ? Bun.main === import.meta.path
-    : import.meta.url === `file://${process.argv[1]}`
-);
+    : import.meta.url === `file://${process.argv[1]}`);
 
 if (isMainModule) {
   main().catch((err) => {

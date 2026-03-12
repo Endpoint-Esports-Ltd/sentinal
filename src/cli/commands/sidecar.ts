@@ -22,6 +22,7 @@ import {
   startSidecar,
   stopSidecar,
   getSidecarPidPath,
+  enableIdleShutdown,
 } from "../../sidecar/server.js";
 
 export function registerSidecarCommand(program: Command): void {
@@ -37,45 +38,61 @@ export function registerSidecarCommand(program: Command): void {
     .option("-d, --background", "Start as a background process")
     .option("--http-only", "Force HTTP-only mode (no Unix socket)")
     .option("--port <port>", "Specific port for HTTP mode (0 = dynamic)")
-    .action(async (opts: { background?: boolean; httpOnly?: boolean; port?: string }) => {
-      if (isSidecarRunning()) {
-        const status = getSidecarStatus();
-        console.log(`Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`);
-        process.exit(0);
+    .action(
+      async (opts: {
+        background?: boolean;
+        httpOnly?: boolean;
+        port?: string;
+      }) => {
+        if (isSidecarRunning()) {
+          const status = getSidecarStatus();
+          console.log(
+            `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`
+          );
+          process.exit(0);
+        }
+
+        if (opts.background) {
+          await startBackground(opts.httpOnly, opts.port);
+          return;
+        }
+
+        // Foreground mode
+        const port = opts.port ? parseInt(opts.port, 10) : undefined;
+        const result = await startSidecar({ httpOnly: opts.httpOnly, port });
+
+        if (result.alreadyRunning) {
+          console.log("Sidecar already running (detected via socket probe).");
+          process.exit(0);
+        }
+
+        writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
+        const httpPort = result.httpServer
+          ? (result.httpServer as any).port
+          : (result.server as any).port;
+        const addr =
+          result.transport === "unix"
+            ? `unix socket + http://127.0.0.1:${httpPort}`
+            : `http://127.0.0.1:${httpPort}`;
+        console.log(
+          `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`
+        );
+        console.log(`Listening on ${addr}`);
+        console.log("Press Ctrl+C to stop (auto-shutdown after 5 min idle)");
+
+        // Enable idle auto-shutdown — sidecar self-terminates when no clients are connected
+        enableIdleShutdown(result);
+
+        const shutdown = () => {
+          console.log("\nShutting down sidecar...");
+          stopSidecar(result.server, result.ctx, result.httpServer);
+          process.exit(0);
+        };
+
+        process.on("SIGTERM", shutdown);
+        process.on("SIGINT", shutdown);
       }
-
-      if (opts.background) {
-        await startBackground(opts.httpOnly, opts.port);
-        return;
-      }
-
-      // Foreground mode
-      const port = opts.port ? parseInt(opts.port, 10) : undefined;
-      const result = await startSidecar({ httpOnly: opts.httpOnly, port });
-
-      if (result.alreadyRunning) {
-        console.log("Sidecar already running (detected via socket probe).");
-        process.exit(0);
-      }
-
-      writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
-      const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;
-      const addr = result.transport === "unix"
-        ? `unix socket + http://127.0.0.1:${httpPort}`
-        : `http://127.0.0.1:${httpPort}`;
-      console.log(`Sidecar started (PID: ${process.pid}, transport: ${result.transport})`);
-      console.log(`Listening on ${addr}`);
-      console.log("Press Ctrl+C to stop");
-
-      const shutdown = () => {
-        console.log("\nShutting down sidecar...");
-        stopSidecar(result.server, result.ctx, result.httpServer);
-        process.exit(0);
-      };
-
-      process.on("SIGTERM", shutdown);
-      process.on("SIGINT", shutdown);
-    });
+    );
 
   // ─── stop ───────────────────────────────────────────────────────────────
 
@@ -132,13 +149,21 @@ export function registerSidecarCommand(program: Command): void {
       const result = await startSidecar({ httpOnly: opts.httpOnly });
       writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
 
-      const httpPort = result.httpServer ? (result.httpServer as any).port : (result.server as any).port;
-      const addr = result.transport === "unix"
-        ? `unix socket + http://127.0.0.1:${httpPort}`
-        : `http://127.0.0.1:${httpPort}`;
-      console.log(`Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`);
+      const httpPort = result.httpServer
+        ? (result.httpServer as any).port
+        : (result.server as any).port;
+      const addr =
+        result.transport === "unix"
+          ? `unix socket + http://127.0.0.1:${httpPort}`
+          : `http://127.0.0.1:${httpPort}`;
+      console.log(
+        `Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`
+      );
       console.log(`Listening on ${addr}`);
-      console.log("Press Ctrl+C to stop");
+      console.log("Press Ctrl+C to stop (auto-shutdown after 5 min idle)");
+
+      // Enable idle auto-shutdown
+      enableIdleShutdown(result);
 
       const shutdown = () => {
         console.log("\nShutting down sidecar...");
@@ -165,7 +190,10 @@ function buildSpawnCmd(subArgs: string[]): string[] {
   return ["bun", argv1, ...subArgs];
 }
 
-async function startBackground(httpOnly?: boolean, port?: string): Promise<void> {
+async function startBackground(
+  httpOnly?: boolean,
+  port?: string
+): Promise<void> {
   const args = ["sidecar", "start"];
   if (httpOnly) args.push("--http-only");
   if (port) args.push("--port", port);

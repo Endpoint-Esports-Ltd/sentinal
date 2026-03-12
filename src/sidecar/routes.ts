@@ -7,7 +7,11 @@
 
 import type { SidecarContext } from "./server.js";
 import { restoreContext } from "../memory/restore.js";
-import type { AssistantType, NotificationType, TddCycleState } from "../memory/types.js";
+import type {
+  AssistantType,
+  NotificationType,
+  TddCycleState,
+} from "../memory/types.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -34,7 +38,7 @@ async function readBody<T>(req: Request): Promise<T> {
 
 export async function handleSidecarRequest(
   req: Request,
-  ctx: SidecarContext,
+  ctx: SidecarContext
 ): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -46,11 +50,20 @@ export async function handleSidecarRequest(
       return ok({ status: "running", pid: process.pid });
     }
 
+    // Ping — lightweight keep-alive for idle shutdown
+    if (path === "/ping" && method === "GET") {
+      return ok({ pong: true });
+    }
+
     // Sessions
     if (path === "/session" && method === "POST") {
       return handleCreateSession(req, ctx);
     }
-    if (path.startsWith("/session/") && path.endsWith("/end") && method === "POST") {
+    if (
+      path.startsWith("/session/") &&
+      path.endsWith("/end") &&
+      method === "POST"
+    ) {
       const id = path.slice("/session/".length, -"/end".length);
       return handleEndSession(id, req, ctx);
     }
@@ -127,7 +140,10 @@ export async function handleSidecarRequest(
 
 // ─── Handlers ────────────────────────────────────────────────────────────
 
-async function handleCreateSession(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleCreateSession(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     id: string;
     projectPath: string;
@@ -150,7 +166,9 @@ async function handleCreateSession(req: Request, ctx: SidecarContext): Promise<R
     // UNIQUE constraint — session already exists, return it from the store
     const msg = e instanceof Error ? e.message : "";
     if (msg.includes("UNIQUE constraint")) {
-      const existing = ctx.store.getActiveSessions().find((s) => s.id === body.id);
+      const existing = ctx.store
+        .getActiveSessions()
+        .find((s) => s.id === body.id);
       if (existing) return ok(existing);
     }
     throw e;
@@ -160,9 +178,11 @@ async function handleCreateSession(req: Request, ctx: SidecarContext): Promise<R
 async function handleEndSession(
   id: string,
   req: Request,
-  ctx: SidecarContext,
+  ctx: SidecarContext
 ): Promise<Response> {
-  const body = await readBody<{ summary?: string; notification?: boolean }>(req);
+  const body = await readBody<{ summary?: string; notification?: boolean }>(
+    req
+  );
   ctx.store.endSession(id, body.summary);
 
   if (body.notification !== false) {
@@ -192,7 +212,10 @@ function handleGetTddState(url: URL, ctx: SidecarContext): Response {
   return ok({ state: tddState?.state ?? "IDLE", hasActiveSpec });
 }
 
-async function handleSetTddState(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleSetTddState(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     action: "set" | "clear" | "clearForSpec";
     filePath?: string;
@@ -222,7 +245,10 @@ async function handleSetTddState(req: Request, ctx: SidecarContext): Promise<Res
   return ok();
 }
 
-async function handleAddObservation(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleAddObservation(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     sessionId: string;
     projectPath: string;
@@ -256,7 +282,10 @@ function handleRestoreContext(url: URL, ctx: SidecarContext): Response {
   return ok({ hasMemory: result.hasMemory, markdown: result.markdown });
 }
 
-async function handleSyncSpec(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleSyncSpec(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{ planPath: string; projectPath: string }>(req);
   ctx.specStore.syncFromPlanFile(body.planPath, body.projectPath);
   return ok();
@@ -270,7 +299,10 @@ function handleGetCurrentSpec(url: URL, ctx: SidecarContext): Response {
   return ok(spec);
 }
 
-async function handleMemorySearch(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleMemorySearch(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     query: string;
     project?: string;
@@ -285,7 +317,10 @@ async function handleMemorySearch(req: Request, ctx: SidecarContext): Promise<Re
   return ok(results);
 }
 
-async function handleMemoryTimeline(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleMemoryTimeline(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     anchor: number;
     depth?: number;
@@ -296,7 +331,10 @@ async function handleMemoryTimeline(req: Request, ctx: SidecarContext): Promise<
   return ok(result);
 }
 
-async function handleMemoryGet(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleMemoryGet(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{ ids: number[] }>(req);
   const observations = ctx.service.getObservations(body.ids);
   return ok(observations);
@@ -307,7 +345,10 @@ function handleMemoryStats(ctx: SidecarContext): Response {
   return ok(stats);
 }
 
-async function handleInsertNotification(req: Request, ctx: SidecarContext): Promise<Response> {
+async function handleInsertNotification(
+  req: Request,
+  ctx: SidecarContext
+): Promise<Response> {
   const body = await readBody<{
     type: string;
     title: string;

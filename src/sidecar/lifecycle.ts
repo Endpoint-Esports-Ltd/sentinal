@@ -31,7 +31,9 @@ export function removeSidecarPid(): void {
   try {
     const path = getSidecarPidPath();
     if (existsSync(path)) unlinkSync(path);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -69,6 +71,60 @@ export function isSidecarRunning(): boolean {
 }
 
 /**
+ * Check if the sidecar is reachable by probing its HTTP endpoint.
+ * More reliable than `isSidecarRunning()` because it verifies
+ * the process is actually a sidecar (not a recycled PID).
+ *
+ * Falls back to PID-only check if port file is missing.
+ */
+export async function isSidecarReachable(): Promise<boolean> {
+  const pid = readSidecarPid();
+  if (pid === null) return false;
+
+  if (!isProcessAlive(pid)) {
+    cleanupSidecarFiles();
+    return false;
+  }
+
+  // Try HTTP probe using the port file
+  const portPath = getSidecarPortPath();
+  if (existsSync(portPath)) {
+    try {
+      const content = readFileSync(portPath, "utf-8").trim();
+      if (content && content !== "unix") {
+        const port = parseInt(content, 10);
+        if (!Number.isNaN(port)) {
+          const res = await fetch(`http://127.0.0.1:${port}/health`, {
+            signal: AbortSignal.timeout(2000),
+          });
+          return res.ok;
+        }
+      }
+    } catch {
+      // Probe failed — process alive but not serving
+      return false;
+    }
+  }
+
+  // Try Unix socket probe (Bun-specific)
+  const socketPath = getSidecarSocketPath();
+  if (existsSync(socketPath)) {
+    try {
+      const res = await fetch("http://localhost/health", {
+        unix: socketPath,
+        signal: AbortSignal.timeout(2000),
+      } as RequestInit);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // No port or socket file — can't verify, fall back to PID-only
+  return isProcessAlive(pid);
+}
+
+/**
  * Get detailed sidecar status including transport mode.
  */
 export function getSidecarStatus(): SidecarStatus {
@@ -87,7 +143,9 @@ export function getSidecarStatus(): SidecarStatus {
     try {
       const content = readFileSync(portPath, "utf-8").trim();
       transport = content === "unix" ? "unix" : "http";
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   return { running: true, pid, transport };
@@ -159,9 +217,15 @@ function cleanupSidecarFiles(expectedPid?: number): void {
     }
   }
 
-  for (const path of [getSidecarPidPath(), getSidecarSocketPath(), getSidecarPortPath()]) {
+  for (const path of [
+    getSidecarPidPath(),
+    getSidecarSocketPath(),
+    getSidecarPortPath(),
+  ]) {
     try {
       if (existsSync(path)) unlinkSync(path);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }
