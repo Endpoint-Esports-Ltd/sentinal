@@ -24,7 +24,7 @@
  */
 
 // ─── Safe imports (no bun:sqlite dependency) ─────────────────────────────────
-import { isTestFile, getExpectedTestPaths } from "../../../src/utils/tdd.js";
+import { isTestFile, getExpectedTestPaths, shouldSkipTddGuard } from "../../../src/utils/tdd.js";
 import { checkNestPatterns, isNestFile } from "../../../src/checkers/nestjs.js";
 import { isAngularFile } from "../../../src/checkers/angular.js";
 import { detectFramework } from "../../../src/checkers/detect.js";
@@ -139,6 +139,7 @@ async function sidecarTddGuard(
 ): Promise<string | null> {
   if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase())) return null;
   if (isTestFile(filePath)) return null;
+  if (shouldSkipTddGuard(filePath)) return null;
   if (!/\.(ts|tsx)$/.test(filePath)) return null;
 
   try {

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { processTddGuard, type TddGuardInput } from "./tdd-guard.js";
+import { shouldSkipTddGuard } from "../utils/tdd.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,37 @@ Type: Feature
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+// ─── shouldSkipTddGuard tests ─────────────────────────────────────────────────
+
+describe("shouldSkipTddGuard", () => {
+  it("returns true for NestJS convention files that don't need standalone tests", () => {
+    expect(shouldSkipTddGuard("src/auth/auth.module.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/users/create-user.dto.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/users/user.entity.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/common/role.interface.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/common/status.enum.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/config/api.constant.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/config/database.config.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/users/user.model.ts")).toBe(true);
+  });
+
+  it("returns true for common structural files", () => {
+    expect(shouldSkipTddGuard("src/index.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/main.ts")).toBe(true);
+    expect(shouldSkipTddGuard("src/environments/environment.ts")).toBe(true);
+  });
+
+  it("returns false for files that should have tests", () => {
+    expect(shouldSkipTddGuard("src/auth/auth.service.ts")).toBe(false);
+    expect(shouldSkipTddGuard("src/users/users.controller.ts")).toBe(false);
+    expect(shouldSkipTddGuard("src/common/button.component.ts")).toBe(false);
+    expect(shouldSkipTddGuard("src/utils/hash.ts")).toBe(false);
+    expect(shouldSkipTddGuard("src/guards/auth.guard.ts")).toBe(false);
+  });
+});
+
+// ─── processTddGuard tests ───────────────────────────────────────────────────
+
 describe("processTddGuard — pass-through cases (no blocking)", () => {
   it("returns null for non-edit tools", () => {
     expect(processTddGuard({ toolName: "Read", filePath: "src/foo.ts", cwd: "/proj" })).toBeNull();
@@ -54,6 +86,20 @@ describe("processTddGuard — pass-through cases (no blocking)", () => {
     expect(processTddGuard({ toolName: "Write", filePath: "src/foo.test.ts", cwd: "/proj" })).toBeNull();
     expect(processTddGuard({ toolName: "Edit", filePath: "src/bar.spec.ts", cwd: "/proj" })).toBeNull();
     expect(processTddGuard({ toolName: "MultiEdit", filePath: "src/baz.test.tsx", cwd: "/proj" })).toBeNull();
+  });
+
+  it("returns null for NestJS convention files (skip TDD guard)", () => {
+    expect(processTddGuard({ toolName: "Write", filePath: "src/auth.module.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Edit", filePath: "src/status.enum.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/api.constant.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Edit", filePath: "src/user.dto.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/user.entity.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/role.interface.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/db.config.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/user.model.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/index.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/main.ts", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/environment.ts", cwd: "/proj" })).toBeNull();
   });
 
   it("returns null for non-TypeScript files", () => {

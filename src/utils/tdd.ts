@@ -17,6 +17,10 @@ export function isTestFile(filePath: string): boolean {
   return TEST_FILE_PATTERNS.some((p) => p.test(filePath));
 }
 
+export function shouldSkipTddGuard(filePath: string): boolean {
+  return SKIP_TEST_PATTERNS.some((p) => p.test(filePath));
+}
+
 export function getExpectedTestPaths(filePath: string): string[] {
   if (isTestFile(filePath)) return [];
   if (!filePath.endsWith(".ts") && !filePath.endsWith(".js")) return [];

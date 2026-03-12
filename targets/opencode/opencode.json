@@ -23,7 +23,12 @@
         "task": {
           "*": "ask",
           "plan-reviewer": "allow",
-          "spec-reviewer": "allow"
+          "spec-reviewer": "allow",
+          "explore": "allow",
+          "general": "allow"
+        },
+        "edit": {
+          "*": "allow"
         }
       }
     },
@@ -32,7 +37,9 @@
         "task": {
           "*": "ask",
           "plan-reviewer": "allow",
-          "spec-reviewer": "allow"
+          "spec-reviewer": "allow",
+          "explore": "allow",
+          "general": "allow"
         },
         "edit": {
           "*": "ask",
