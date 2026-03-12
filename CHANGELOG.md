@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.1...v1.9.2) (2026-03-12)
+
+
+### Bug Fixes
+
+* prevent stale sidecar processes via idle auto-shutdown and cleanup handlers ([632cea6](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/632cea6d4744ca24484cbc2932e61c307a6f1af6))
+
 ## [1.9.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.0...v1.9.1) (2026-03-12)
 
 
