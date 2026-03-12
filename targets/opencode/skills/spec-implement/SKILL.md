@@ -2,6 +2,7 @@
 name: spec-implement
 description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR
 ---
+
 ---
 
 # /spec-implement - Implementation Phase
@@ -28,9 +29,11 @@ description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACT
 ## Feedback Loop Awareness
 
 This phase may be called multiple times:
+
 ```
 spec-implement → spec-verify → issues found → spec-implement → ...
 ```
+
 When called after verification: read plan, check `Iterations` field, report "Starting Iteration N...", focus on uncompleted `[ ]` tasks (look for `[MISSING]` markers from verification).
 
 ---
@@ -43,11 +46,11 @@ When called after verification: read plan, check `Iterations` field, report "Sta
 
 **Research tools during implementation:**
 
-| Tool | When |
-|------|------|
-| **Context7** | Library/framework docs (NestJS, Angular, Tailwind) |
-| **Vexor** (`vexor search`) | Semantic code search by intent |
-| **Read/Grep/Glob** | Direct file exploration |
+| Tool                       | When                                               |
+| -------------------------- | -------------------------------------------------- |
+| **Context7**               | Library/framework docs (NestJS, Angular, Tailwind) |
+| **Vexor** (`vexor search`) | Semantic code search by intent                     |
+| **Read/Grep/Glob**         | Direct file exploration                            |
 
 ---
 
@@ -61,6 +64,7 @@ When called after verification: read plan, check `Iterations` field, report "Sta
 2. **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
 
    Detect: `sentinal worktree detect --json <plan_slug>`
+
 3. **If found:** `cd` to the worktree `path`
 4. **If not found:** Create as fallback:
    ```bash
@@ -96,14 +100,14 @@ All subsequent work happens inside the worktree directory.
 4. **Mark in_progress:** `TaskUpdate(taskId, status="in_progress")`
 5. **TDD Flow:**
    - **RED:** Write failing test → verify it fails (feature missing, not syntax error)
-    - For Angular: `TestBed`, component harness, or Playwright
-    - For NestJS: `@nestjs/testing`, mock repositories
-    - **Naming:** `it("should <behavior> when <condition>")`
-    - After confirming RED: use `tdd_set_state` MCP tool with `state: "RED_CONFIRMED"` and `file_path` to allow the TDD guard to pass on implementation edits
-    - **GREEN:** Implement minimal code to pass
-    - **REFACTOR:** Improve while keeping tests green
-    - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
-    - Skip TDD for: docs, config, IaC, formatting-only changes
+   - For Angular: `TestBed`, component harness, or Playwright
+   - For NestJS: `@nestjs/testing`, mock repositories
+   - **Naming:** `it("should <behavior> when <condition>")`
+   - After confirming RED: use `tdd_set_state` MCP tool with `state: "RED_CONFIRMED"` and `file_path` to allow the TDD guard to pass on implementation edits
+   - **GREEN:** Implement minimal code to pass
+   - **REFACTOR:** Improve while keeping tests green
+   - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
+   - Skip TDD for: docs, config, IaC, formatting-only changes
    - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing.
 6. **Verify tests pass** — run full test suite
    - Jest: `npx jest --testPathPattern=<test-file> --verbose`
@@ -123,6 +127,7 @@ All subsequent work happens inside the worktree directory.
 ### Step 2.4: Update Plan After EACH Task
 
 **⛔ NON-NEGOTIABLE.** After each task:
+
 1. Change `[ ]` → `[x]` for that task
 2. Update Completed/Remaining counts
 3. Do NOT proceed to next task until checkbox updated
@@ -137,7 +142,15 @@ All subsequent work happens inside the worktree directory.
 4. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
 
    Register: `sentinal register-plan "<plan_path>" "COMPLETE" 2>/dev/null || true`
-5. Read `Type:` field → Bugfix: `Skill(skill='spec-bugfix-verify', args='<plan-path>')` | Otherwise: `Skill(skill='spec-verify', args='<plan-path>')`
+
+**⛔ MANDATORY — Chain to verification phase. Do NOT stop or summarize. Do NOT wait for user input.**
+
+5. Read the plan's `Type:` field and immediately load the appropriate verification skill:
+
+   - **Bugfix:** `Skill(skill='spec-bugfix-verify', args='<plan-path>')`
+   - **Feature (or absent):** `Skill(skill='spec-verify', args='<plan-path>')`
+
+   This means calling `mcp_skill` with the skill name, then executing the loaded skill instructions against the plan path. Implementation is NOT complete until verification has run.
 
 ---
 
