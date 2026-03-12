@@ -1,3 +1,15 @@
+# [1.10.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.2...v1.10.0) (2026-03-12)
+
+
+### Bug Fixes
+
+* prevent sidecar idle-shutdown mid-session via MCP keepalive ping loop ([2690b04](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2690b04ecea407bb412bb48ff5f57cb44d8963f3))
+
+
+### Features
+
+* add LSP integration — rules, analysis MCP tools, and skill updates ([0909da4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0909da4515d01bcb59dfe89d796e6aba566241bc))
+
 ## [1.9.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.1...v1.9.2) (2026-03-12)
 
 
