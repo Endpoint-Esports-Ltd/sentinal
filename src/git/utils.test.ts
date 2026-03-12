@@ -15,7 +15,7 @@ import {
   slugify,
   randomHex,
 } from "./utils.js";
-import { WorktreeError } from "./types.js";
+import { WorktreeError } from "../worktree/types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

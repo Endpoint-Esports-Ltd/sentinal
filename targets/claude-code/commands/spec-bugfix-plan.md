@@ -40,6 +40,8 @@ If you haven't completed Step 1.2, you cannot propose fixes. Symptom fixes are f
 
 **⛔ Run FIRST, before any other step.** Read all toggle env vars in a single Bash call:
 
+**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+
 ```bash
 echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED APPROVAL=$SENTINAL_PLAN_APPROVAL_ENABLED"
 ```
@@ -65,7 +67,11 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
 ## Step 1.1: Create Plan File Header (FIRST)
 
 1. **Parse worktree** from arguments: `--worktree=yes|no` (default: `No`). Strip flag.
-2. **Create worktree early (if yes):** Same pattern as spec-plan Step 1.1 using `sentinal worktree detect/create`.
+2. **Create worktree early (if yes):**
+
+   **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+
+   Same pattern as spec-plan Step 1.1 using `sentinal worktree detect/create`.
 3. **Generate filename:** `docs/plans/YYYY-MM-DD-<bug-slug>.md`
 4. `mkdir -p docs/plans`
 5. **Write header:**
@@ -87,7 +93,11 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
    ---
    _Tracing root cause..._
    ```
-6. **Register:** `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
+6. **Register:**
+
+   **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
+   `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
 
 ---
 

@@ -2,7 +2,7 @@
  * Sentinal MCP Server
  *
  * Universal entrypoint for all Sentinal MCP tools.
- * Registers tool modules from different domains (memory, spec)
+ * Registers tool modules from different domains (memory, spec, worktree)
  * on a single McpServer instance.
  *
  * Run: sentinal mcp-server
@@ -14,6 +14,7 @@ import { MemoryStore } from "../memory/store.js";
 import { isMemoryEnabled } from "../memory/config.js";
 import { registerMemoryTools } from "../memory/mcp-tools.js";
 import { registerSpecTools } from "../spec/mcp-tools.js";
+import { registerWorktreeTools } from "../worktree/mcp-tools.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar } from "../sidecar/lifecycle.js";
 
@@ -38,11 +39,12 @@ export function createSentinalServer(opts: ServerOptions = {}): {
 
   const server = new McpServer({
     name: "sentinal",
-    version: "0.2.0",
+    version: "0.3.0",
   });
 
   registerMemoryTools(server, { client, store });
   registerSpecTools(server, store);
+  registerWorktreeTools(server, store);
 
   return { server, store };
 }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
-import { WorktreeStore } from "./worktree-store.js";
+import { WorktreeStore } from "./store.js";
 import type { Worktree, WorktreeStatus } from "./types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -187,6 +187,59 @@ describe("WorktreeStore", () => {
 
     it("should return 0 when no active worktrees", () => {
       expect(store.countActive()).toBe(0);
+    });
+  });
+
+  // --- resolveBySlug ---
+
+  describe("resolveBySlug", () => {
+    it("should resolve by exact spec_id match", () => {
+      createSpec(tmpDir, memoryStore, "2026-03-12-my-feature");
+      store.insert(makeWorktree({
+        id: "wt-slug-1",
+        specId: "2026-03-12-my-feature",
+        branchName: "spec/2026-03-12-my-feature",
+      }));
+
+      const result = store.resolveBySlug("2026-03-12-my-feature");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-slug-1");
+    });
+
+    it("should fall back to branch name pattern matching", () => {
+      // Insert worktree without spec_id but with matching branch name
+      store.insert(makeWorktree({
+        id: "wt-slug-2",
+        branchName: "spec/2026-03-12-add-auth",
+        projectPath: "/test/project",
+      }));
+
+      const result = store.resolveBySlug("2026-03-12-add-auth", "/test/project");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-slug-2");
+    });
+
+    it("should return null when no match", () => {
+      const result = store.resolveBySlug("nonexistent-slug");
+      expect(result).toBeNull();
+    });
+
+    it("should prefer spec_id match over branch name match", () => {
+      createSpec(tmpDir, memoryStore, "my-slug");
+      store.insert(makeWorktree({
+        id: "wt-specid",
+        specId: "my-slug",
+        branchName: "spec/something-else",
+      }));
+      store.insert(makeWorktree({
+        id: "wt-branch",
+        branchName: "spec/my-slug",
+        projectPath: "/test/project",
+      }));
+
+      const result = store.resolveBySlug("my-slug", "/test/project");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-specid");
     });
   });
 });

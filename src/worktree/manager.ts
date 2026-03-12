@@ -7,7 +7,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { WorktreeStore } from "./worktree-store.js";
+import { WorktreeStore } from "./store.js";
 import {
   gitExec,
   gitExecOrThrow,
@@ -18,7 +18,7 @@ import {
   slugify,
   randomHex,
   branchExists,
-} from "./utils.js";
+} from "../git/utils.js";
 import {
   WorktreeError,
   DEFAULT_WORKTREE_CONFIG,

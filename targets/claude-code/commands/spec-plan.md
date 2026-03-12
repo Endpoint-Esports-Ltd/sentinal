@@ -32,6 +32,8 @@ model: opus
 
 **⛔ Run FIRST, before any other step.**
 
+**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+
 ```bash
 echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED REVIEWER=$SENTINAL_PLAN_REVIEWER_ENABLED APPROVAL=$SENTINAL_PLAN_APPROVAL_ENABLED"
 ```
@@ -73,6 +75,9 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
 1. **Parse worktree** from arguments: `--worktree=yes|no` (default: `Yes`). Strip flag from task description.
 
 2. **Create worktree early (if yes):**
+
+   **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+
    ```bash
    sentinal worktree detect --json <plan_slug>
    # If not found:
@@ -100,7 +105,11 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
    > Planning in progress...
    ```
 
-6. **Register plan:** `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
+6. **Register plan:**
+
+   **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
+   `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
 
 **Do this FIRST** — before any exploration or questions.
 
@@ -285,7 +294,9 @@ Task(
 )
 ```
 
-**Wait for results (bash polling):**
+**Wait for results:**
+
+**Preferred:** Use `spec_wait_file` MCP tool with `file_path` and `timeout_seconds`.
 
 ```bash
 OUTPUT_PATH="<plan-review-json-path>"

@@ -72,16 +72,23 @@ Verify:
 
 ### Step 3.7: Worktree Sync (if worktree active)
 
-1. Detect: `sentinal worktree detect --json <plan_slug>`
+1. **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+
+   Detect: `sentinal worktree detect --json <plan_slug>`
 2. If no worktree: skip to Step 3.9.
 3. Pre-sync: verify clean working tree on base branch:
    ```bash
    git -C <project_root> status --porcelain
    ```
 4. Save plan to project root: `cp <worktree_plan> <project_root>/docs/plans/`
-5. Show diff: `sentinal worktree diff --json <plan_slug>`
+5. **Preferred:** Use `worktree_diff` MCP tool.
+
+   Show diff: `sentinal worktree diff --json <plan_slug>`
 6. Notify + AskUserQuestion: "Yes, squash merge" | "No, keep worktree" | "Discard all changes"
 7. Handle:
+
+   **Preferred:** Use `worktree_sync` MCP tool.
+
    - **Squash:** `sentinal worktree sync --json <plan_slug>` then `sentinal worktree cleanup --force --json <plan_slug>` + `cd` in SAME bash call
    - **Keep:** Report path
    - **Discard:** `sentinal worktree cleanup --force` + `cd` in SAME bash call
@@ -95,6 +102,9 @@ Full test suite + TypeScript + linter. If any fails: fix on base branch, re-run.
 ### Step 3.9: Update Plan Status
 
 **All passes:** Set `Status: VERIFIED`, register:
+
+**Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
 ```bash
 sentinal register-plan "<plan_path>" "VERIFIED" 2>/dev/null || true
 ```
@@ -104,6 +114,9 @@ Bugfix verified — regression test passes, full suite green, Behavior Contract 
 ```
 
 **Fails:** Add fix tasks, set `Status: PENDING`, increment `Iterations`:
+
+**Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
 ```bash
 sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true
 ```

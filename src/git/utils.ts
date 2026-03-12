@@ -5,7 +5,7 @@
  * All commands use Bun.spawnSync for synchronous execution.
  */
 
-import { WorktreeError } from "./types.js";
+import { WorktreeError } from "../worktree/types.js";
 
 // ─── Git Command Execution ──────────────────────────────────────────────────
 

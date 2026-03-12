@@ -125,6 +125,40 @@ export class WorktreeStore {
     return row.count;
   }
 
+  /**
+   * Resolve a plan slug to a worktree.
+   * 1. Try exact match on spec_id (primary)
+   * 2. Fall back to branch name pattern matching `spec/<slug>*` if projectPath given
+   * Returns null if no match.
+   */
+  resolveBySlug(slug: string, projectPath?: string): Worktree | null {
+    // Primary: exact spec_id match
+    const bySpec = this.getBySpecId(slug);
+    if (bySpec) return bySpec;
+
+    // Fallback: match by branch name pattern for active worktrees
+    if (projectPath) {
+      const pattern = `spec/${slug}%`;
+      const row = this.db
+        .prepare(
+          "SELECT * FROM worktrees WHERE project_path = ? AND branch_name LIKE ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(projectPath, pattern) as RawWorktree | null;
+      if (row) return this.deserialize(row);
+    }
+
+    // Global fallback: match by branch name without project scope
+    const pattern = `spec/${slug}%`;
+    const row = this.db
+      .prepare(
+        "SELECT * FROM worktrees WHERE branch_name LIKE ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(pattern) as RawWorktree | null;
+    if (row) return this.deserialize(row);
+
+    return null;
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────
 
   private deserialize(row: RawWorktree): Worktree {

@@ -1,0 +1,404 @@
+/**
+ * Spec MCP Tools Tests
+ *
+ * Tests for spec workflow MCP tools:
+ *   - spec_register: Register/update a plan in SQLite
+ *   - spec_wait_file: Wait for file to appear on disk
+ *   - spec_config: Read spec workflow toggle env vars
+ *   - spec_plan_parse: Parse plan file metadata
+ *   - spec_notify: Create notification in SQLite
+ *   - spec_events: Get spec event history
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { MemoryStore } from "../memory/store.js";
+import { SpecStore } from "./store.js";
+import { registerSpecTools } from "./mcp-tools.js";
+
+// --- Helpers ---
+
+function makeTmpDir(): string {
+  const dir = join(tmpdir(), `sentinal-spec-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function makePlanFile(dir: string, slug: string, status = "PENDING"): string {
+  const plansDir = join(dir, "docs", "plans");
+  mkdirSync(plansDir, { recursive: true });
+  const planFile = join(plansDir, `${slug}.md`);
+  writeFileSync(planFile, `# Test Plan
+
+Status: ${status}
+Type: Feature
+Approved: Yes
+
+## Progress Tracking
+
+- [ ] Task 1: First task
+- [ ] Task 2: Second task
+
+**Total Tasks:** 2 | **Completed:** 0 | **Remaining:** 2
+
+## Implementation Tasks
+
+### Task 1: First task
+
+**Objective:** Do the first thing.
+
+### Task 2: Second task
+
+**Objective:** Do the second thing.
+`);
+  return planFile;
+}
+
+/**
+ * Extract tool handler from McpServer by capturing the registration.
+ * McpServer.tool() stores handlers internally — we intercept them.
+ */
+function captureTools(store: MemoryStore): Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>> {
+  const tools = new Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>();
+
+  const server = new McpServer({ name: "test", version: "0.0.1" });
+
+  // Monkey-patch server.tool to capture handlers
+  const origTool = server.tool.bind(server);
+  server.tool = ((...args: unknown[]) => {
+    // server.tool(name, description, schema, handler) — 4-arg form
+    if (args.length >= 4 && typeof args[0] === "string") {
+      const name = args[0] as string;
+      const handler = args[3] as (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+      tools.set(name, handler);
+    }
+    return origTool(...(args as Parameters<typeof origTool>));
+  }) as typeof server.tool;
+
+  registerSpecTools(server, store);
+  return tools;
+}
+
+// --- spec_register tests ---
+
+describe("spec_register MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_register")).toBe(true);
+  });
+
+  it("should register a plan file and return formatted status", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-test-feature");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({ plan_path: planFile, project: tmpDir });
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+    expect(result.content[0].text).toContain("Registered:");
+    expect(result.content[0].text).toContain("2026-01-01-test-feature");
+    expect(result.content[0].text).toContain("PENDING");
+    expect(result.content[0].text).toContain("0/2");
+  });
+
+  it("should update plan file status when status parameter is provided", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-status-test", "PENDING");
+    const handler = tools.get("spec_register")!;
+
+    await handler({ plan_path: planFile, project: tmpDir, status: "IN_PROGRESS" });
+
+    // Verify the plan file was updated on disk
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: IN_PROGRESS");
+    expect(content).not.toContain("Status: PENDING");
+
+    // Verify SQLite is in sync
+    const specStore = new SpecStore(store);
+    const spec = specStore.getSpec("2026-01-01-status-test");
+    expect(spec).not.toBeNull();
+    expect(spec!.status).toBe("IN_PROGRESS");
+  });
+
+  it("should default project to CWD when not provided", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-default-project");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({ plan_path: planFile });
+
+    expect(result.content[0].text).toContain("Registered:");
+    expect(result.content[0].text).toContain("2026-01-01-default-project");
+  });
+});
+
+// --- spec_wait_file tests ---
+
+describe("spec_wait_file MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_wait_file")).toBe(true);
+  });
+
+  it("should return immediately if file already exists", async () => {
+    const filePath = join(tmpDir, "existing-file.json");
+    writeFileSync(filePath, '{"result": "ok"}');
+    const handler = tools.get("spec_wait_file")!;
+
+    const result = await handler({ file_path: filePath });
+
+    expect(result.content[0].text).toContain("READY:");
+    expect(result.content[0].text).toContain(filePath);
+  });
+
+  it("should detect file created after tool call starts", async () => {
+    const filePath = join(tmpDir, "delayed-file.json");
+    const handler = tools.get("spec_wait_file")!;
+
+    // Create the file after a short delay
+    setTimeout(() => {
+      writeFileSync(filePath, '{"result": "ok"}');
+    }, 500);
+
+    const result = await handler({ file_path: filePath, timeout_seconds: 5 });
+
+    expect(result.content[0].text).toContain("READY:");
+    expect(result.content[0].text).toContain(filePath);
+  });
+
+  it("should return TIMEOUT when file does not appear", async () => {
+    const filePath = join(tmpDir, "never-created.json");
+    const handler = tools.get("spec_wait_file")!;
+
+    const result = await handler({ file_path: filePath, timeout_seconds: 1 });
+
+    expect(result.content[0].text).toContain("TIMEOUT:");
+    expect(result.content[0].text).toContain("1s");
+  });
+});
+
+// --- spec_config tests ---
+
+describe("spec_config MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  const ENV_KEYS = [
+    "SENTINAL_PLAN_QUESTIONS_ENABLED",
+    "SENTINAL_PLAN_REVIEWER_ENABLED",
+    "SENTINAL_PLAN_APPROVAL_ENABLED",
+    "SENTINAL_SPEC_REVIEWER_ENABLED",
+    "SENTINAL_WORKTREE_ENABLED",
+    "SENTINAL_SESSION_ID",
+  ];
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    // Save and clear env vars
+    for (const key of ENV_KEYS) delete process.env[key];
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+    for (const key of ENV_KEYS) delete process.env[key];
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_config")).toBe(true);
+  });
+
+  it("should report all defaults when no env vars set", async () => {
+    const handler = tools.get("spec_config")!;
+    const result = await handler({});
+
+    const text = result.content[0].text;
+    expect(text).toContain("questions_enabled");
+    expect(text).toContain("plan_reviewer_enabled");
+    expect(text).toContain("approval_enabled");
+    expect(text).toContain("spec_reviewer_enabled");
+    expect(text).toContain("worktree_enabled");
+    expect(text).toContain("session_id");
+  });
+
+  it("should report set env var values", async () => {
+    process.env.SENTINAL_PLAN_QUESTIONS_ENABLED = "false";
+    process.env.SENTINAL_SESSION_ID = "test-session-123";
+    const handler = tools.get("spec_config")!;
+
+    const result = await handler({});
+
+    const text = result.content[0].text;
+    expect(text).toContain("false");
+    expect(text).toContain("disabled");
+    expect(text).toContain("test-session-123");
+  });
+});
+
+// --- spec_plan_parse tests ---
+
+describe("spec_plan_parse MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_plan_parse")).toBe(true);
+  });
+
+  it("should return parsed plan metadata", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-03-01-my-feature", "IN_PROGRESS");
+    const handler = tools.get("spec_plan_parse")!;
+
+    const result = await handler({ plan_path: planFile });
+    const text = result.content[0].text;
+
+    expect(text).toContain("2026-03-01-my-feature");
+    expect(text).toContain("Test Plan");
+    expect(text).toContain("IN_PROGRESS");
+    expect(text).toContain("feature");
+    expect(text).toContain("plan-review.json");
+    expect(text).toContain("spec-review.json");
+  });
+});
+
+// --- spec_notify tests ---
+
+describe("spec_notify MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_notify")).toBe(true);
+  });
+
+  it("should create a notification", async () => {
+    const handler = tools.get("spec_notify")!;
+
+    const result = await handler({
+      type: "success",
+      title: "Plan approved",
+      message: "The plan was approved by the reviewer",
+    });
+
+    expect(result.content[0].text).toContain("Notification created");
+    expect(result.content[0].text).toContain("Plan approved");
+
+    // Verify notification exists in store
+    const notifs = store.getNotifications({ limit: 10 });
+    expect(notifs.length).toBe(1);
+    expect(notifs[0].title).toBe("Plan approved");
+    expect(notifs[0].type).toBe("success");
+  });
+});
+
+// --- spec_events tests ---
+
+describe("spec_events MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("spec_events")).toBe(true);
+  });
+
+  it("should return event history for a spec", async () => {
+    // Register a plan first (foreign key constraint on spec_events)
+    const planFile = makePlanFile(tmpDir, "test-spec", "IN_PROGRESS");
+    const specStore = new SpecStore(store);
+    specStore.syncFromPlanFile(planFile, tmpDir);
+
+    // Add some events
+    store.logSpecEvent({
+      specId: "test-spec",
+      eventType: "phase_change",
+      details: { from: "plan", to: "implement" },
+    });
+    store.logSpecEvent({
+      specId: "test-spec",
+      eventType: "task_update",
+      details: { task: 1, status: "complete" },
+    });
+
+    const handler = tools.get("spec_events")!;
+    const result = await handler({ spec_id: "test-spec" });
+    const text = result.content[0].text;
+
+    expect(text).toContain("phase_change");
+    expect(text).toContain("task_update");
+  });
+
+  it("should return empty message when no events", async () => {
+    const handler = tools.get("spec_events")!;
+    const result = await handler({ spec_id: "nonexistent" });
+
+    expect(result.content[0].text).toContain("No events");
+  });
+});

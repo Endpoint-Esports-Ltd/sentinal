@@ -1,0 +1,52 @@
+{
+  "verdict": "approve",
+  "confidence": 0.88,
+  "findings": [
+    {
+      "severity": "should_fix",
+      "title": "Task 8 CLI subcommands have no unit tests in DoD",
+      "description": "Task 8 adds 3 CLI subcommands but DoD only lists tsc check and manual verification. Testing Strategy promises CLI unit tests.",
+      "affected_tasks": [8],
+      "recommendation": "Add unit test DoD items and test file reference."
+    },
+    {
+      "severity": "should_fix",
+      "title": "Task 10 DoD undercounts modified files — 13 files not 10",
+      "description": "Task 10 notes mention spec.md dispatcher and both cli-tools.md rule files beyond the 10 skill/command files. DoD and Artifacts only count 10.",
+      "affected_tasks": [10],
+      "recommendation": "Update DoD and Artifacts to include all 13 files."
+    },
+    {
+      "severity": "should_fix",
+      "title": "spec_worktree_sync missing conflict check before destructive merge",
+      "description": "Existing CLI merge checks hasConflicts() before squashMerge(). MCP tool should mirror this.",
+      "affected_tasks": [7],
+      "recommendation": "Add conflict check before merge in spec_worktree_sync."
+    },
+    {
+      "severity": "suggestion",
+      "title": "worktree.ts approaching 400-line warning threshold",
+      "description": "Currently 211 lines, will grow to ~320 with new subcommands.",
+      "affected_tasks": [8],
+      "recommendation": "Monitor line count; extract if exceeds 350."
+    },
+    {
+      "severity": "suggestion",
+      "title": "plan_slug could be optional in spec_worktree_create",
+      "description": "WorktreeManager.create() accepts undefined specId. MCP tool makes it required.",
+      "affected_tasks": [6],
+      "recommendation": "Consider optional plan_slug or document the restriction."
+    }
+  ],
+  "goal_alignment": {
+    "covered": [
+      "Add ~10 new MCP tools",
+      "Eliminate Bash shell-outs during spec workflow",
+      "Add missing worktree CLI subcommands",
+      "Update skill/command files to reference new tools",
+      "Slug resolution bridges plan slugs to worktree IDs"
+    ],
+    "missing": [],
+    "score": 0.95
+  }
+}

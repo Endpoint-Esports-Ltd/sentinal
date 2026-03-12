@@ -30,6 +30,8 @@ model: sonnet
 
 **⛔ Run FIRST, before any other step.** Read the reviewer toggle env var:
 
+**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+
 ```bash
 echo "REVIEWER=$SENTINAL_SPEC_REVIEWER_ENABLED"
 ```
@@ -145,7 +147,9 @@ Skip unless the plan has a Feature Inventory section.
 
 **⛔ NEVER use `TaskOutput`** — it dumps the full agent transcript into context, wasting thousands of tokens.
 
-**Wait for results (bash polling):**
+**Wait for results:**
+
+**Preferred:** Use `spec_wait_file` MCP tool with `file_path` and `timeout_seconds`.
 
 ```bash
 OUTPUT_PATH="<spec-review-json-path>"
@@ -296,7 +300,9 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
 
 1. Extract plan slug from path (strip date prefix and `.md`)
 
-2. Check: `sentinal worktree detect --json <plan_slug>`
+2. **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+
+   Check: `sentinal worktree detect --json <plan_slug>`
 
 3. **If no worktree:** Skip to Step 3.13.
 
@@ -312,7 +318,11 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
    cp <worktree_plan_path> <project_root>/docs/plans/<plan_filename>
    ```
 
-6. **Show diff:** `sentinal worktree diff --json <plan_slug>`
+6. **Show diff:**
+
+   **Preferred:** Use `worktree_diff` MCP tool.
+
+   `sentinal worktree diff --json <plan_slug>`
 
 7. **Notify and ask:**
    ```bash
@@ -323,6 +333,9 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
 8. **Handle choice:**
 
    **Squash merge:**
+
+   **Preferred:** Use `worktree_sync` MCP tool.
+
    ```bash
    sentinal worktree sync --json <plan_slug>
    # Then cleanup + cd in SAME bash call:
@@ -351,7 +364,9 @@ If any fails: fix on base branch, re-run, commit fix separately (e.g., `fix: res
 **When ALL passes:**
 
 1. Set `Status: VERIFIED` in plan
-2. Register: `sentinal register-plan "<plan_path>" "VERIFIED" 2>/dev/null || true`
+2. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
+   Register: `sentinal register-plan "<plan_path>" "VERIFIED" 2>/dev/null || true`
 3. Report completion:
    ```
    ## Verification Complete
@@ -365,7 +380,9 @@ If any fails: fix on base branch, re-run, commit fix separately (e.g., `fix: res
 
 1. Add fix tasks to plan
 2. Set `Status: PENDING`, increment `Iterations`
-3. Register: `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
+3. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
+   Register: `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
 4. Write `## Verification Gaps` table to plan:
    ```markdown
    | Gap | Type | Severity | Affected Files | Fix Description |

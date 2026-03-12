@@ -3,8 +3,8 @@ import { mkdirSync, rmSync, writeFileSync, realpathSync, existsSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryStore } from "../memory/store.js";
-import { WorktreeStore } from "./worktree-store.js";
-import { WorktreeManager } from "./worktree-manager.js";
+import { WorktreeStore } from "./store.js";
+import { WorktreeManager } from "./manager.js";
 import { WorktreeError, type WorktreeConfig } from "./types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

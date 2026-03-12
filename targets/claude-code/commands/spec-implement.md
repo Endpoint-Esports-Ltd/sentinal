@@ -59,7 +59,9 @@ When called after verification: read plan, check `Iterations` field, report "Sta
 **If `Worktree: Yes`:**
 
 1. Extract plan slug: `docs/plans/2026-02-09-add-auth.md` → `add-auth`
-2. Detect: `sentinal worktree detect --json <plan_slug>`
+2. **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+
+   Detect: `sentinal worktree detect --json <plan_slug>`
 3. **If found:** `cd` to the worktree `path`
 4. **If not found:** Create as fallback:
    ```bash
@@ -131,7 +133,9 @@ All subsequent work happens inside the worktree directory.
 1. Check diagnostics + run full test suite
 2. **For migrations:** Feature parity check against old code. If features missing: add tasks, do NOT mark complete.
 3. Set `Status: COMPLETE` in plan
-4. Register: `sentinal register-plan "<plan_path>" "COMPLETE" 2>/dev/null || true`
+4. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
+
+   Register: `sentinal register-plan "<plan_path>" "COMPLETE" 2>/dev/null || true`
 5. Read `Type:` field → Bugfix: `Skill(skill='spec-bugfix-verify', args='<plan-path>')` | Otherwise: `Skill(skill='spec-verify', args='<plan-path>')`
 
 ---

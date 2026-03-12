@@ -1,4 +1,24 @@
-## CLI Tools
+## MCP Tools (Preferred)
+
+When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
+
+| MCP Tool | Replaces | Description |
+|----------|----------|-------------|
+| `spec_status` | `sentinal spec-status` | Get current spec progress |
+| `spec_register` | `sentinal register-plan` | Register/update a plan |
+| `spec_config` | `echo $SENTINAL_*` | Get all workflow toggles |
+| `spec_plan_parse` | `sentinal register-plan` + manual parse | Parse plan file metadata |
+| `spec_wait_file` | `for` loop polling | Wait for file to appear |
+| `spec_notify` | N/A | Create notification |
+| `spec_events` | N/A | Get spec event history |
+| `worktree_detect` | `sentinal worktree detect` | Find worktree by slug |
+| `worktree_create` | `sentinal worktree create` | Create worktree |
+| `worktree_diff` | `sentinal worktree diff` | Get worktree diff |
+| `worktree_sync` | `sentinal worktree sync` | Squash-merge worktree |
+
+---
+
+## CLI Tools (Bash Fallback)
 
 ### Sentinal CLI
 

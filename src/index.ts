@@ -87,16 +87,17 @@ export {
 } from "./dashboard/lifecycle.js";
 
 // ─── Git / Worktree ──────────────────────────────────────────────────────────
-export { WorktreeStore } from "./git/worktree-store.js";
-export { WorktreeManager } from "./git/worktree-manager.js";
+export { WorktreeStore } from "./worktree/store.js";
+export { WorktreeManager } from "./worktree/manager.js";
+export { registerWorktreeTools } from "./worktree/mcp-tools.js";
 export {
   gitExec, gitExecOrThrow, getCurrentBranch, detectBaseBranch,
   branchExists, getRepoRoot, getCurrentCommit, getGitVersion,
   checkGitVersion, slugify, randomHex,
 } from "./git/utils.js";
-export type { Worktree, WorktreeConfig, DiffSummary, DiffFileSummary } from "./git/types.js";
-export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema, DEFAULT_WORKTREE_CONFIG } from "./git/types.js";
-export type { WorktreeStatus } from "./git/types.js";
+export type { Worktree, WorktreeConfig, DiffSummary, DiffFileSummary } from "./worktree/types.js";
+export { WorktreeError, WORKTREE_STATUSES, WorktreeSchema, WorktreeConfigSchema, DEFAULT_WORKTREE_CONFIG } from "./worktree/types.js";
+export type { WorktreeStatus } from "./worktree/types.js";
 
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
 export { getSidecarSocketPath, getSidecarPortPath, getSidecarPidPath } from "./sidecar/paths.js";
