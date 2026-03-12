@@ -18,6 +18,8 @@ When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
 | `tdd_status` | `bun -e` TDD state query | Get TDD cycle state for file or list all |
 | `tdd_set_state` | `bun -e` TDD state set | Set TDD state (e.g. RED_CONFIRMED bypass) |
 | `tdd_clear` | `bun -e` TDD state clear | Clear TDD state for file or spec |
+| `check_diagnostics` | `npx tsc --noEmit` | Spec-filtered TypeScript diagnostics with NEW/FIXED delta tracking |
+| `impact_analysis` | `git diff --stat` + manual review | Spec-aware change impact: expected vs unexpected files, 400-line limit, risk score |
 
 ---
 

@@ -1,0 +1,56 @@
+{
+  "review_summary": "Well-structured plan with correct architecture (no new LSP server, composite tools using tsc/grep). A few issues around the MCP tool registration signature mismatch with existing patterns, missing spec-verify file paths for Claude Code, and the `lsp_call_chain` tool's grep-based approach being oversold in the name.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "registerLspTools signature doesn't match existing registration pattern",
+      "description": "Plan says `registerLspTools(server)` — no deps needed since tools don't use store/client (Task 5). But `createSentinalServer` in `src/mcp/server.ts` passes `{ client, store }` to every register function: `registerTddTools(server, { client, store })`. Even `registerTddTools` requires the `TddToolsDeps` second argument. If `registerLspTools` takes only `server`, the call site will be inconsistent and if future LSP tools need deps (e.g., for caching), the signature will need to change. More importantly, the plan claims to follow `src/tdd/mcp-tools.ts` as the pattern, but that file takes `(server, deps)` — not `(server)` alone.",
+      "suggested_fix": "Use the same signature: `registerLspTools(server: McpServer, deps: LspToolsDeps): void` where `LspToolsDeps` can be `{}` for now. This matches the pattern and is forward-compatible. The call site in server.ts can pass `{ client, store }` uniformly."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Artifacts list references spec-verify files but Task 4 doesn't specify Claude Code verify command path",
+      "description": "Task 4's Files section says `targets/opencode/skills/spec-verify/SKILL.md` and `targets/claude-code/commands/spec-verify.md`. The Artifacts section (line 83) also lists these. However, Task 4's verify step only checks `grep -c 'lsp_' targets/opencode/skills/spec-verify/SKILL.md` — it doesn't verify the Claude Code version. Minor gap but consistent with a pattern where Claude Code commands are forgotten.",
+      "suggested_fix": "Add a second verify line: `grep -c 'lsp_' targets/claude-code/commands/spec-verify.md`"
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "lsp_call_chain using grep is fragile and the name is misleading",
+      "description": "The tool is named `lsp_call_chain` but uses grep for import/call tracing. Grep-based call chain analysis is very approximate — it finds string matches, not actual call relationships. The `lsp_` prefix suggests LSP accuracy. This will produce false positives (string matches in comments, similarly-named symbols) and false negatives (aliased imports, re-exports, dynamic calls). The plan acknowledges it's 'Not as accurate as LSP' but the tool name doesn't reflect this.",
+      "suggested_fix": "Either: (1) rename to `code_call_chain` or `trace_symbol` to avoid implying LSP accuracy, or (2) add a prominent caveat in the tool description that this is grep-based approximation and results should be verified. Option 1 is preferred since all three tools would then not need the `lsp_` prefix — consider `check_diagnostics`, `trace_call_chain`, `impact_analysis` instead."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 3 DoD doesn't verify the 30s timeout behavior",
+      "description": "Plan specifies 'Handle timeout: if tsc takes >30s, kill and return partial results' and DoD says 'All 3 tools handle errors gracefully (missing tsc, timeout, no git repo)'. But there's no specific test or verify step for timeout behavior. Mocking `Bun.spawn` timeout in unit tests is important since this is a key error path.",
+      "suggested_fix": "Add to Task 3 DoD: '[ ] Test covers tsc timeout scenario (>30s returns partial results with timeout message)'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "Task 2 says 'Use LSP hover on the function' but LSP may not be available",
+      "description": "Task 2 adds LSP hover/findReferences/incomingCalls instructions to spec-implement. But the plan's own Assumptions section notes 'LSP availability depends on having the right language server configured' and the Risks table mentions 'Agents ignore LSP rules'. If LSP isn't available (headless CI, LSP not configured), the skill instructions should have a fallback. Currently the skill would tell agents to use LSP with no graceful degradation path.",
+      "suggested_fix": "In Task 2 skill additions, always include a fallback: 'Use LSP `findReferences` for call chain analysis. If LSP unavailable, use `lsp_call_chain` MCP tool or grep.' This is partially noted in item 3 ('Falls back to grep if LSP unavailable') but should be consistent across all additions."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "npx tsc --noEmit usage duplicates what agents already do natively",
+      "description": "Both Claude Code and OpenCode already run `tsc --noEmit` or get diagnostics from their LSP servers. The `lsp_check_diagnostics` tool runs the same `npx tsc --noEmit --pretty false` and reformats output. The added value (filtering to changed files, formatting as markdown summary) is relatively small. This isn't a blocker but consider whether agents will actually use this over their native diagnostics.",
+      "suggested_fix": "Consider making `lsp_check_diagnostics` more clearly differentiated: focus on the multi-file filtering (`--files` parameter) and summary statistics ('3 errors in 2 files, 1 warning') as the primary value prop. If it's just reformatting tsc output, agents won't prefer it."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "Version stays at 0.4.0 — reasonable but should be documented as a decision",
+      "description": "Task 5 says 'Bump version? No — this is additive tools, not a breaking change. Stay at 0.4.0.' This is a reasonable call since it's additive. However, new MCP tools are a feature addition that users might want to track. Minor point.",
+      "suggested_fix": "No change needed — keeping at 0.4.0 is fine for additive, non-breaking changes. The decision is already documented in Task 5."
+    }
+  ]
+}

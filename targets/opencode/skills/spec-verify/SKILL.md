@@ -120,12 +120,12 @@ Task(
 Run all mechanical checks in sequence. Fix any failures before proceeding.
 
 1. **Full test suite** — `bun test` / `npx jest` / `npx vitest run`. Fix failures immediately.
-2. **TypeScript compiler** — `npx tsc --noEmit`. Zero errors required.
+2. **TypeScript compiler** — `npx tsc --noEmit`. Zero errors required. Use `check_diagnostics` MCP tool for spec-filtered diagnostics with delta tracking — shows only plan-relevant errors in detail and reports NEW/FIXED delta. If MCP unavailable, run `npx tsc --noEmit` directly.
 3. **Linter** — `npx eslint .`. Errors are blockers, warnings acceptable.
 4. **Angular build (if applicable):** `npx ng build`. Zero errors.
 5. **NestJS build (if applicable):** `npx nest build`. Zero errors.
 6. **Coverage** — Verify ≥ 80% where applicable.
-7. **File length** — Changed production files (non-test): >800 lines consider splitting, >1000 flag for review.
+7. **File length** — Changed production files (non-test): >800 lines consider splitting, >1000 flag for review. Use `impact_analysis` MCP tool to cross-reference changed files against the active spec, flag unexpected changes, and check 400-line Sentinal limit. Address any HIGH risk findings before proceeding. If MCP unavailable, run `git diff --stat HEAD` and check file line counts manually.
 8. **Plan verify commands** — For each task's `Verify:` section, run each command wrapped in `timeout 30 <cmd> || echo 'TIMEOUT'`. Defer server-dependent commands (containing `curl`, `localhost`, `http://`, `playwright-cli`) to Phase B.
 
 ### Step 3.3: Feature Parity Check (migration/refactoring only)
@@ -293,7 +293,7 @@ playwright-cli -s="$PW_SESSION" close  # Always cleanup after E2E
 
 ### Step 3.10: Final Regression Check
 
-Re-run full test suite + TypeScript + linter + build one final time. Cheap insurance against regressions from Phase B fixes.
+Re-run full test suite + TypeScript + linter + build one final time. Cheap insurance against regressions from Phase B fixes. Run `check_diagnostics` MCP tool to confirm zero delta (no new errors introduced during Phase B fixes). If MCP unavailable, run `npx tsc --noEmit` directly.
 
 ### Step 3.11: Worktree Sync (if worktree active)
 

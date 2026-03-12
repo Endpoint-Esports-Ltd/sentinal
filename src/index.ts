@@ -48,6 +48,10 @@ export { OBSERVATION_TYPES, ASSISTANT_TYPES, NOTIFICATION_TYPES, SEARCH_CONSTANT
 export { registerTddTools } from "./tdd/mcp-tools.js";
 export type { TddToolsDeps } from "./tdd/mcp-tools.js";
 
+// ─── Analysis MCP Tools ───────────────────────────────────────────────────────
+export { registerAnalysisTools } from "./analysis/mcp-tools.js";
+export type { AnalysisToolsDeps } from "./analysis/mcp-tools.js";
+
 // ─── TDD Enforcement ─────────────────────────────────────────────────────────
 export { readTddState } from "./memory/tdd-state.js";
 export { hasTestFailure, hasTestPass, getImplPathForTest } from "./hooks/tdd-tracker.js";

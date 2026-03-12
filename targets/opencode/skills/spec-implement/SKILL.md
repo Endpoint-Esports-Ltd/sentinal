@@ -96,9 +96,10 @@ All subsequent work happens inside the worktree directory.
 
 1. **Read plan's implementation steps** — list files to create/modify/delete
 2. **Pre-Mortem check:** Scan plan's `## Pre-Mortem` section — if any trigger condition is observably true for this task, note it in the plan and adapt your approach autonomously. Only escalate to user if it's an architectural-level change.
-3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects
-4. **Mark in_progress:** `TaskUpdate(taskId, status="in_progress")`
-5. **TDD Flow:**
+3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects. Use `lsp({ operation: "incomingCalls", ... })` / `lsp({ operation: "outgoingCalls", ... })` for accurate results. If LSP unavailable, use grep as fallback.
+4. **Pre-edit type check:** Use `lsp({ operation: "hover", file: "...", line: N, character: N })` to confirm the current type signature before writing your test. If LSP unavailable, read the source file directly.
+5. **Mark in_progress:** `TaskUpdate(taskId, status="in_progress")`
+6. **TDD Flow:**
    - **RED:** Write failing test → verify it fails (feature missing, not syntax error)
    - For Angular: `TestBed`, component harness, or Playwright
    - For NestJS: `@nestjs/testing`, mock repositories
@@ -109,18 +110,18 @@ All subsequent work happens inside the worktree directory.
    - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
    - Skip TDD for: docs, config, IaC, formatting-only changes
    - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing.
-6. **Verify tests pass** — run full test suite
+7. **Verify tests pass** — run full test suite
    - Jest: `npx jest --testPathPattern=<test-file> --verbose`
    - Vitest: `npx vitest run <test-file>`
    - Angular: `npx ng test --include=<test-file> --watch=false`
    - Bun: `bun test <test-file>`
-7. **Run actual program** — use plan's Runtime Environment section. Check port: `lsof -i :<port>`
-8. **Check diagnostics** — zero errors
-9. **Validate Definition of Done** — all criteria from plan
-10. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?
-11. **Per-task commit (worktree only):** `git add <files> && git commit -m "{type}(spec): {task-name}"`
-12. **Mark completed:** `TaskUpdate(taskId, status="completed")`
-13. **Update plan file immediately** (Step 2.4)
+8. **Run actual program** — use plan's Runtime Environment section. Check port: `lsof -i :<port>`
+9. **Check diagnostics** — zero errors. Use `check_diagnostics` MCP tool for spec-filtered diagnostics with delta tracking, or `npx tsc --noEmit` directly.
+10. **Validate Definition of Done** — all criteria from plan
+11. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?
+12. **Per-task commit (worktree only):** `git add <files> && git commit -m "{type}(spec): {task-name}"`
+13. **Mark completed:** `TaskUpdate(taskId, status="completed")`
+14. **Update plan file immediately** (Step 2.4)
 
 ---
 

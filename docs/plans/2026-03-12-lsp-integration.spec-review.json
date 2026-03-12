@@ -1,0 +1,86 @@
+{
+  "status": "pass",
+  "findings": [
+    {
+      "severity": "should_fix",
+      "category": "quality",
+      "title": "mcp-tools.ts exceeds 400-line file length warning limit",
+      "description": "src/analysis/mcp-tools.ts is 494 lines, exceeding the project's 400-line warning threshold and approaching the 600-line block limit. The plan itself notes '400 lines warning, 600 lines block.'",
+      "suggestion": "Extract helpers into src/analysis/diagnostics.ts (parseTscOutput, extractSpecFiles, countLines, delta logic) and src/analysis/impact.ts (countImporters, isExpectedFile, ChangedFile logic). Keep mcp-tools.ts as a thin registration file.",
+      "file": "src/analysis/mcp-tools.ts"
+    },
+    {
+      "severity": "should_fix",
+      "category": "quality",
+      "title": "Delta skipped after a clean-run baseline (off-by-one logic gate)",
+      "description": "Line 185: `if (baseline && baseline.errors.length > 0)` suppresses delta when the prior baseline had 0 errors. If a run was clean, then errors appear, the output says nothing about delta instead of '5 NEW'. The condition should be `if (baseline !== null)` — the check for `errors.length > 0` was likely meant to guard against a completely empty errors array, but the baseline object itself carries the errorCount.",
+      "suggestion": "Change line 185 from `if (baseline && baseline.errors.length > 0)` to `if (baseline !== null)`. The delta computation already handles the empty-previous-errors case correctly via Set operations.",
+      "file": "src/analysis/mcp-tools.ts"
+    },
+    {
+      "severity": "should_fix",
+      "category": "compliance",
+      "title": "Worktree-aware branch diff not implemented in impact_analysis",
+      "description": "The plan specifies: 'If a worktree is active (detected via spec metadata), uses `git diff --name-only <base-branch>...HEAD` for full spec-scope diff.' The implementation only uses `git diff --name-only HEAD` (unstaged) and `--cached` (staged). It never runs the branch-scoped diff for committed worktree changes, so commits that are already part of the branch but not yet HEAD-unstaged will be missed.",
+      "suggestion": "Check `activeSpec` for a worktree branch, then run `git diff --name-only <base-branch>...HEAD` in addition to (or instead of) the HEAD-relative diffs. The spec metadata may carry a base branch from the worktree record.",
+      "file": "src/analysis/mcp-tools.ts"
+    },
+    {
+      "severity": "suggestion",
+      "category": "quality",
+      "title": "git --stat output is fetched in tests but never used by implementation",
+      "description": "The test mocks include a `--stat` branch (lines 322-324, 352-353, 381-382, 402-405 in mcp-tools.test.ts) but the implementation in impact_analysis never runs `git diff --stat`. The insertion/deletion counts planned in the spec ('Runs git diff --stat HEAD for insertion/deletion counts') were not included in the output, and the mock branch is dead code. This means the stat mock is misleading and the output is missing useful context.",
+      "suggestion": "Either add `git diff --stat HEAD` to the implementation and include insertion/deletion counts in the formatted output, or remove the --stat mock branches from the tests to avoid confusion.",
+      "file": "src/analysis/mcp-tools.test.ts"
+    },
+    {
+      "severity": "suggestion",
+      "category": "quality",
+      "title": "Orphan MemoryStore created when neither client nor store is provided",
+      "description": "Line 31: `const effectiveStore = store ?? (client ? null : new MemoryStore())`. When called with `{}` deps (no client, no store), a new in-memory MemoryStore is created with no path — this DB is ephemeral and isolated, meaning caching and spec lookups always return null. In the MCP server context this never happens (server always passes `{ client, store }`), but unit tests passing `{ client: mockClient }` will silently get no cache behavior.",
+      "suggestion": "Document this fallback in a comment, or assert that at least one of `client` or `store` is provided and throw a clear error if neither is. The sidecar mode test (line 436-441) passes `{ client: mockClient }` with no store — verify test coverage is adequate for this path.",
+      "file": "src/analysis/mcp-tools.ts"
+    },
+    {
+      "severity": "suggestion",
+      "category": "quality",
+      "title": "Test count claimed as 15 but only 14 it() blocks exist",
+      "description": "The changed files list describes 'mcp-tools.test.ts (NEW — 15 tests)' but the file contains 14 it() blocks: 1 registration + 7 check_diagnostics + 6 impact_analysis. This is a minor documentation inaccuracy.",
+      "suggestion": "Either add a 15th test (e.g., 'should report no delta when baseline and current errors are identical' — currently missing) or update the file description. The missing test for an unchanged-error baseline is a real gap: the 'No change since last check' delta path is untested.",
+      "file": "src/analysis/mcp-tools.test.ts"
+    }
+  ],
+  "truths_verified": [
+    {
+      "truth": "After this change, running /spec-implement on a TypeScript project results in at least one LSP tool call during the TDD RED phase",
+      "verified": true,
+      "evidence": "Both targets/opencode/skills/spec-implement/SKILL.md and targets/claude-code/commands/spec-implement.md now include step 3 ('Call chain analysis... Use lsp({ operation: \"incomingCalls\", ... })') and step 4 ('Pre-edit type check: Use lsp({ operation: \"hover\", ... })') before the TDD RED phase. Both include fallback paths."
+    },
+    {
+      "truth": "The check_diagnostics MCP tool returns a formatted summary of TypeScript errors filtered to plan-relevant files, with a delta from the previous run",
+      "verified": true,
+      "evidence": "src/analysis/mcp-tools.ts lines 186-198 compute NEW/FIXED delta from cached baseline; lines 215-255 partition errors into spec-relevant vs other with detailed/summary formatting. Settings cache key is `diagnostics:<projectHash>`. Edge case: delta is suppressed when baseline.errors.length === 0 (line 185 gate) — see finding above."
+    },
+    {
+      "truth": "The impact_analysis MCP tool returns changed files cross-referenced against the active spec's task files, with risk scoring and file length warnings",
+      "verified": true,
+      "evidence": "Lines 336-444 of mcp-tools.ts: reads activeSpec, extracts specFiles via extractSpecFiles(), partitions into expected/unexpected, flags files > 400 lines, computes LOW/MEDIUM/HIGH risk score. Output includes file table with WARNING annotations."
+    },
+    {
+      "truth": "The rules files mention all 9 LSP operations and explain when to use each",
+      "verified": true,
+      "evidence": "Both targets/claude-code/rules/lsp-tools.md and targets/opencode/rules/lsp-tools.md list all 9 operations (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls) in the Operation Reference and When to Use LSP tables. Both files differ only in tool name casing (LSP vs lsp)."
+    },
+    {
+      "truth": "The spec-verify workflow uses impact_analysis as part of automated checks",
+      "verified": true,
+      "evidence": "Both spec-verify skill/command Step 3.2 item 7 now reads: 'Use impact_analysis MCP tool to cross-reference changed files against the active spec...Address any HIGH risk findings before proceeding.' Step 3.10 references check_diagnostics for final regression delta. All 3 plan-specified insertion points are present."
+    },
+    {
+      "truth": "Skill instructions include explicit fallback paths for when LSP is unavailable",
+      "verified": true,
+      "evidence": "spec-implement: step 3 ends 'If LSP unavailable, use grep as fallback'; step 4 ends 'If LSP unavailable, read the source file directly'; step 9 says 'or npx tsc --noEmit directly'. spec-verify step 3.2 items 2 and 7 both end with 'If MCP unavailable, run ... directly'. Step 3.10 likewise. lsp-tools.md Notes section: 'If the lsp tool returns an error, fall back to grep/Read.'"
+    }
+  ],
+  "summary": "All 7 plan tasks are fully implemented and all 6 Goal Verification truths hold. The core tools (check_diagnostics, impact_analysis), LSP rules files, skill/command updates, MCP registration, and exports are all present and correct. Two should_fix issues stand out: the file length violation (494 lines vs 400-line limit) and a delta logic gate that silently suppresses the delta when the previous baseline was clean. The worktree branch-diff feature specified in the plan is missing from impact_analysis, but this is a minor gap. No security issues, no missing tests for required behaviors."
+}
