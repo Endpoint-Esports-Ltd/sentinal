@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.6.0...v1.7.0) (2026-03-12)
+
+
+### Features
+
+* exempt NestJS convention files from TDD guard and expand agent permissions ([99fa887](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/99fa8871b16a2505b4165636762f7479a77fe620))
+
 # [1.6.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.5.1...v1.6.0) (2026-03-11)
 
 
