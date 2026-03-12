@@ -1,0 +1,82 @@
+{
+  "pass_summary": "All 8 tasks implemented with correct sidecar-first pattern, backwards-compat guards, new TDD tools, and updated skill/command docs. A few `any` types in client methods and missing dedicated route-level tests are minor gaps; overall solid delivery.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 7,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "No dedicated unit tests for 3 new sidecar route handlers",
+      "description": "The plan's Testing Strategy says 'Unit tests for new sidecar routes: Add to existing src/sidecar/routes.test.ts (or inline) — test the 3 new route handlers return correct JSON.' No routes.test.ts exists, and src/sidecar/server.test.ts has no tests for handleListTddStates, handleGetSpecEvents, or handleResolveWorktree. These routes ARE exercised indirectly through the integration-level client.test.ts tests (which start a real sidecar and call through HTTP), so coverage exists but is not isolated unit-level.",
+      "suggested_fix": "Create src/sidecar/routes.test.ts with isolated tests that call handleSidecarRequest() directly with mock Request objects and a mock SidecarContext, verifying JSON responses for GET /tdd-state/list, GET /spec/events, and GET /worktree/resolve (including error cases like missing query params)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "SidecarClient methods use `any` return types instead of proper interfaces",
+      "description": "src/sidecar/client.ts: listActiveTddStates returns `Promise<any[]>` (line ~155), getSpecEvents returns `Promise<any[]>` (line ~222), resolveWorktreeBySlug returns `Promise<any>` (line ~230). The plan says 'All 4 new client methods have type signatures matching the route responses' (Task 1 DoD). The eslint-disable comments acknowledge this but proper types (TddCycle[], SpecEvent[], Worktree | null) should be used.",
+      "suggested_fix": "Import TddCycle from '../memory/types.js', Worktree from '../worktree/types.js', and define a SpecEvent type. Use these as return types: listActiveTddStates → Promise<TddCycle[]>, getSpecEvents → Promise<SpecEvent[]>, resolveWorktreeBySlug → Promise<Worktree | null>. Remove the eslint-disable comments."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "tdd_status direct mode uses snake_case fallback for camelCase field access",
+      "description": "src/tdd/mcp-tools.ts:67-68 uses `(s as any).file_path` and `(s as any).updated_at` as fallbacks when accessing list items. The direct mode store returns camelCase (filePath, updatedAt) while the sidecar HTTP response may return snake_case from SQLite column names. This works but relies on `as any` casts and is fragile — if the sidecar response format changes, the fallback silently masks the issue.",
+      "suggested_fix": "Normalize the response shape in SidecarClient.listActiveTddStates() to always return camelCase (filePath, updatedAt, state, specId) matching the TddCycle interface. Then remove the `as any` fallbacks in mcp-tools.ts."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "Non-null assertions on store when client is null",
+      "description": "Multiple locations use `store!.method()` when client is null (src/spec/mcp-tools.ts:78,285,312,346; src/tdd/mcp-tools.ts:51,59,104,136,145; src/worktree/mcp-tools.ts). If both client and store are null/undefined, these will throw at runtime. The constructor logic ensures effectiveStore is non-null when client is null, but TypeScript can't verify this invariant across function boundaries.",
+      "suggested_fix": "Consider a guard at the top of each tool handler: `if (!client && !store) throw new Error('No client or store available')` to fail fast with a clear message instead of a null dereference."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "routes.ts approaching 400-line threshold (357 lines)",
+      "description": "src/sidecar/routes.ts is at 357 lines. The plan's risk table noted 'Monitor closely, split into route modules if needed' at ~374 total. Currently safe but close to the 400-line warning threshold in project standards.",
+      "suggested_fix": "No immediate action needed. If future routes are added, split into route modules (e.g., tdd-routes.ts, spec-routes.ts, memory-routes.ts)."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Calling tdd_set_state with state: 'RED_CONFIRMED' allows the TDD guard to pass on the next edit attempt for that file",
+      "status": "verified",
+      "evidence": "src/tdd/mcp-tools.ts:82-113 registers the tool with z.enum(TDD_CYCLE_STATES) validation, calls client.setTddState() or store.setTddState(). Test at mcp-tools.test.ts:124-132 verifies store.getTddState() returns RED_CONFIRMED after calling the tool."
+    },
+    {
+      "truth": "Calling tdd_status returns all active TDD cycle states for a spec or globally",
+      "status": "verified",
+      "evidence": "src/tdd/mcp-tools.ts:35-77 handles both single file (file_path param) and list mode (spec_id param or no params). Tests at mcp-tools.test.ts:91-119 verify both global and spec-filtered listing."
+    },
+    {
+      "truth": "Calling tdd_clear removes TDD state for a file, resetting the guard to its default blocking behavior",
+      "status": "verified",
+      "evidence": "src/tdd/mcp-tools.ts:118-156 clears via client.clearTddState() or store.clearTddState(). Test at mcp-tools.test.ts:157-166 verifies getTddState returns null after clear."
+    },
+    {
+      "truth": "When the sidecar is running, spec_notify routes the insertNotification call through the sidecar (not a cold MemoryStore)",
+      "status": "verified",
+      "evidence": "src/spec/mcp-tools.ts:276-284 checks `if (client)` and calls client.insertNotification(). Sidecar-mode test at mcp-tools.test.ts:492-507 verifies delegation to mock client.insertNotification()."
+    },
+    {
+      "truth": "When the sidecar is running, worktree_detect resolves slugs through the sidecar (not a cold MemoryStore)",
+      "status": "verified",
+      "evidence": "src/worktree/mcp-tools.ts:61-63 checks `client ? await client.resolveWorktreeBySlug() : wtStore.resolveBySlug()`. Sidecar-mode test at mcp-tools.test.ts:371-388 verifies delegation to mock client."
+    },
+    {
+      "truth": "The bun -e inline script workaround for TDD bypass is no longer needed — agents can use tdd_set_state MCP tool instead",
+      "status": "verified",
+      "evidence": "targets/*/commands/spec-implement.md and targets/*/skills/spec-implement/SKILL.md updated to reference tdd_set_state as preferred method. cli-tools.md updated with all 3 TDD tools. testing.md references tdd_status/tdd_set_state/tdd_clear."
+    },
+    {
+      "truth": "All existing tests continue to pass (no regressions from signature changes)",
+      "status": "verified",
+      "evidence": "Backwards-compat guards in registerSpecTools (mcp-tools.ts:35-45 checks 'client' in deps || 'store' in deps) and registerWorktreeTools (mcp-tools.ts:27-34 same pattern) accept both old MemoryStore and new deps object. Existing tests pass bare MemoryStore and continue working. Server.test.ts mock contexts updated with wtStore."
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import { isMemoryEnabled } from "../memory/config.js";
 import { registerMemoryTools } from "../memory/mcp-tools.js";
 import { registerSpecTools } from "../spec/mcp-tools.js";
 import { registerWorktreeTools } from "../worktree/mcp-tools.js";
+import { registerTddTools } from "../tdd/mcp-tools.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar } from "../sidecar/lifecycle.js";
 
@@ -39,12 +40,13 @@ export function createSentinalServer(opts: ServerOptions = {}): {
 
   const server = new McpServer({
     name: "sentinal",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   registerMemoryTools(server, { client, store });
-  registerSpecTools(server, store);
-  registerWorktreeTools(server, store);
+  registerSpecTools(server, { client, store });
+  registerWorktreeTools(server, { client, store });
+  registerTddTools(server, { client, store });
 
   return { server, store };
 }

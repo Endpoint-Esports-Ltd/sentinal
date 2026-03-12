@@ -44,6 +44,10 @@ export type {
 } from "./memory/types.js";
 export { OBSERVATION_TYPES, ASSISTANT_TYPES, NOTIFICATION_TYPES, SEARCH_CONSTANTS, DB_CONSTANTS, STALE_SESSION_THRESHOLD_MS, TDD_CYCLE_STATES, SPEC_EVENT_TYPES } from "./memory/types.js";
 
+// ─── TDD MCP Tools ───────────────────────────────────────────────────────────
+export { registerTddTools } from "./tdd/mcp-tools.js";
+export type { TddToolsDeps } from "./tdd/mcp-tools.js";
+
 // ─── TDD Enforcement ─────────────────────────────────────────────────────────
 export { readTddState } from "./memory/tdd-state.js";
 export { hasTestFailure, hasTestPass, getImplPathForTest } from "./hooks/tdd-tracker.js";
@@ -63,6 +67,7 @@ export { parsePlanFile, parsePlanContent, slugFromFilename } from "./spec/parser
 export { findActivePlan, shouldBlockStop, detectSpecType } from "./spec/detect.js";
 export { SpecStore } from "./spec/store.js";
 export { registerSpecTools } from "./spec/mcp-tools.js";
+export type { SpecToolsDeps } from "./spec/mcp-tools.js";
 export type { Spec, SpecTask, SpecStatus, SpecType, TaskStatus } from "./spec/types.js";
 export { SPEC_STATUSES, SPEC_TYPES, TASK_STATUSES, ACTIVE_STATUSES, TERMINAL_STATUSES } from "./spec/types.js";
 
@@ -90,6 +95,7 @@ export {
 export { WorktreeStore } from "./worktree/store.js";
 export { WorktreeManager } from "./worktree/manager.js";
 export { registerWorktreeTools } from "./worktree/mcp-tools.js";
+export type { WorktreeToolsDeps } from "./worktree/mcp-tools.js";
 export {
   gitExec, gitExecOrThrow, getCurrentBranch, detectBaseBranch,
   branchExists, getRepoRoot, getCurrentCommit, getGitVersion,

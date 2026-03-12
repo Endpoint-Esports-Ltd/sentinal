@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
 import { registerSpecTools } from "./mcp-tools.js";
+import type { SidecarClient } from "../sidecar/client.js";
 
 // --- Helpers ---
 
@@ -396,6 +397,136 @@ describe("spec_events MCP tool", () => {
   });
 
   it("should return empty message when no events", async () => {
+    const handler = tools.get("spec_events")!;
+    const result = await handler({ spec_id: "nonexistent" });
+
+    expect(result.content[0].text).toContain("No events");
+  });
+});
+
+// --- Sidecar mode tests ---
+
+type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+
+function captureSidecarTools(mockClient: Partial<SidecarClient>): Map<string, ToolHandler> {
+  const tools = new Map<string, ToolHandler>();
+  const server = new McpServer({ name: "test", version: "0.0.1" });
+
+  const origTool = server.tool.bind(server);
+  server.tool = ((...args: unknown[]) => {
+    if (args.length >= 4 && typeof args[0] === "string") {
+      const name = args[0] as string;
+      const handler = args[3] as ToolHandler;
+      tools.set(name, handler);
+    }
+    return origTool(...(args as Parameters<typeof origTool>));
+  }) as typeof server.tool;
+
+  registerSpecTools(server, { client: mockClient as SidecarClient });
+  return tools;
+}
+
+describe("spec MCP tools (sidecar mode)", () => {
+  it("spec_status should delegate to client.getCurrentSpec", async () => {
+    const mockClient = {
+      getCurrentSpec: async () => ({
+        id: "test-spec",
+        title: "Test Spec",
+        status: "IN_PROGRESS" as const,
+        type: "feature" as const,
+        approved: true,
+        planFile: "/plans/test.md",
+        tasks: [
+          { position: 1, title: "Task 1", status: "complete" as const },
+          { position: 2, title: "Task 2", status: "pending" as const },
+        ],
+        metadata: {},
+      }),
+    };
+
+    const tools = captureSidecarTools(mockClient);
+    const handler = tools.get("spec_status")!;
+    const result = await handler({ project: "/test" });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Test Spec");
+    expect(text).toContain("IN_PROGRESS");
+    expect(text).toContain("1/2");
+  });
+
+  it("spec_status should handle null from client", async () => {
+    const mockClient = {
+      getCurrentSpec: async () => null,
+    };
+
+    const tools = captureSidecarTools(mockClient);
+    const handler = tools.get("spec_status")!;
+    const result = await handler({ project: "/test" });
+
+    expect(result.content[0].text).toContain("No active spec");
+  });
+
+  it("spec_register should delegate to client.syncSpec", async () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const planFile = makePlanFile(tmpDir, "2026-01-01-sidecar-test");
+      const calls: Array<{ planPath: string; projectPath: string }> = [];
+      const mockClient = {
+        syncSpec: async (planPath: string, projectPath: string) => {
+          calls.push({ planPath, projectPath });
+        },
+      };
+
+      const tools = captureSidecarTools(mockClient);
+      const handler = tools.get("spec_register")!;
+      const result = await handler({ plan_path: planFile, project: tmpDir });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].planPath).toBe(planFile);
+      expect(result.content[0].text).toContain("Registered:");
+      expect(result.content[0].text).toContain("2026-01-01-sidecar-test");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spec_notify should delegate to client.insertNotification", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const mockClient = {
+      insertNotification: async (notif: Record<string, unknown>) => {
+        calls.push(notif);
+      },
+    };
+
+    const tools = captureSidecarTools(mockClient);
+    const handler = tools.get("spec_notify")!;
+    await handler({ type: "info", title: "Test notification", message: "Details" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].title).toBe("Test notification");
+    expect(calls[0].type).toBe("info");
+  });
+
+  it("spec_events should delegate to client.getSpecEvents", async () => {
+    const mockClient = {
+      getSpecEvents: async (_specId: string, _limit?: number) => [
+        { id: 1, specId: "test-spec", sessionId: null, eventType: "phase_change" as const, timestamp: Date.now(), details: { from: "plan", to: "implement" } },
+      ],
+    };
+
+    const tools = captureSidecarTools(mockClient);
+    const handler = tools.get("spec_events")!;
+    const result = await handler({ spec_id: "test-spec" });
+
+    expect(result.content[0].text).toContain("phase_change");
+  });
+
+  it("spec_events should handle empty from client", async () => {
+    const mockClient = {
+      getSpecEvents: async () => [],
+    };
+
+    const tools = captureSidecarTools(mockClient);
     const handler = tools.get("spec_events")!;
     const result = await handler({ spec_id: "nonexistent" });
 

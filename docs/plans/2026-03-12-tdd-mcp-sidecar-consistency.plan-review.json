@@ -1,0 +1,49 @@
+{
+  "review_summary": "Plan is well-aligned with user requirements. Both TDD MCP tools and sidecar consistency refactor are thoroughly covered with correct architecture. A few issues: Task 5 references a non-existent client method name, spec tools need SpecStore in deps (not just MemoryStore), and the backwards-compat guard pattern is untested.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 5 spec tools need SpecStore access, not just MemoryStore",
+      "description": "Task 5 says spec tools will call `client.syncSpec(planPath, project)` vs `specStore.syncFromPlanFile(planPath, project)`, and `client.getCurrentSpec(project)` vs `specStore.getCurrentSpec(project)`. But the deps type `SpecToolsDeps = { client?, store? }` only passes `MemoryStore`. The current `registerSpecTools` at `src/spec/mcp-tools.ts:25-26` creates its own SpecStore from the MemoryStore (`const effectiveStore = store ?? new MemoryStore()`), then wraps it as `new SpecStore(effectiveStore)`. In direct (non-sidecar) mode, the refactored code still needs SpecStore for `getCurrentSpec` and `syncFromPlanFile`. The deps type must either include SpecStore or the tool must create one internally from the passed MemoryStore (current pattern). Plan should explicitly state this.",
+      "suggested_fix": "In Task 5, clarify that `SpecToolsDeps = { client?: SidecarClient | null; store?: MemoryStore | null }` and in direct mode, the tool creates `SpecStore` from `store` internally (preserving the current pattern). Or add `specStore` to deps for direct mode. Either way, make it explicit."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Task 5 spec_register references client.syncSpec but plan lists it as getSpecEvents only",
+      "description": "Task 1 lists new client methods as `listActiveTddStates`, `clearTddStatesForSpec`, `getSpecEvents`, `resolveWorktreeBySlug`. But Task 5's spec_register tool needs `client.syncSpec()` for the sidecar path. The plan doesn't mention adding `syncSpec` as a new method because it already exists at `src/sidecar/client.ts:198`. This is fine but not called out — the implementer might not realize `syncSpec` is already available. Also, `spec_status` needs `client.getCurrentSpec()` which also already exists at `client.ts:202`. Plan should note these existing client methods to avoid confusion.",
+      "suggested_fix": "In Task 5 notes, add: 'Existing client methods already available: `client.syncSpec()`, `client.getCurrentSpec()`, `client.insertNotification()`. Only `client.getSpecEvents()` is new (added in Task 1).' This guides the implementer to the right methods."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "No DoD item verifying sidecar consistency end-to-end",
+      "description": "Goal Verification Truth #4 says 'spec_notify routes insertNotification through sidecar' and Truth #5 says 'worktree_detect resolves slugs through sidecar'. But no task's DoD includes an integration-level verification that the full wiring works (server.ts → tool module → sidecar client → route → store). Task 6 (wiring) DoD only checks 'bun test src/mcp/' passes. The testing strategy mentions 'Integration test for sidecar consistency' but no task owns creating it.",
+      "suggested_fix": "Add a DoD item to Task 6: 'Integration test verifies that createSentinalServer with a mock SidecarClient correctly wires spec/worktree/TDD tools to use the client for DB operations.' Alternatively, assign the integration test from the Testing Strategy to a specific task."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Backwards-compat guard pattern ('insertSession' in deps) is fragile",
+      "description": "Tasks 4 and 5 say to add backwards-compat by detecting `'insertSession' in deps` to distinguish bare MemoryStore from the new deps object. This is a duck-typing heuristic. If MemoryStore's API ever changes, or if someone passes a partial deps object, this breaks silently. The risk table mentions this (Risk row 4) but rates impact as 'Low' — however, a silent misdetection could route all DB ops to a cold MemoryStore, exactly the bug this plan is trying to fix.",
+      "suggested_fix": "Use a more robust discriminator: add a `_type: 'deps'` field to the deps object, or check `'client' in deps || 'store' in deps` (since MemoryStore won't have a 'client' property). Document the chosen pattern in the Context for Implementer section."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 7 updates skill/command files — verify file paths exist",
+      "description": "Task 7 modifies 6 files under `targets/opencode/` and `targets/claude-code/`. These are generated/embedded asset source files. If any path is wrong, the task will silently skip it. The plan doesn't verify these paths exist.",
+      "suggested_fix": "Add a preliminary check in Task 7: `ls targets/opencode/skills/spec-implement/SKILL.md targets/opencode/rules/cli-tools.md targets/opencode/rules/testing.md` (and claude-code equivalents) to confirm paths before editing."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "tdd_clear with neither file_path nor spec_id errors — consider 'clear all' option",
+      "description": "Task 3 says `tdd_clear` with neither `file_path` nor `spec_id` returns an error. The user request says 'tdd_clear' for clearing state. An agent might want to clear all TDD state globally (e.g., at session end). The `listActiveTddStates(null)` already supports listing all states, but there's no 'clear all' path.",
+      "suggested_fix": "Consider allowing `tdd_clear` with no arguments to clear all active TDD states, or add a `clear_all: boolean` parameter. This is a minor UX improvement, not a blocker."
+    }
+  ]
+}

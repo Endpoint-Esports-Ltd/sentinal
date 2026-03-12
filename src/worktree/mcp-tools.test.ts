@@ -18,6 +18,7 @@ import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { registerWorktreeTools } from "./mcp-tools.js";
+import type { SidecarClient } from "../sidecar/client.js";
 import type { DiffSummary } from "./types.js";
 
 // --- Helpers ---
@@ -350,5 +351,38 @@ describe("worktree_sync MCP tool", () => {
       WorktreeManager.prototype.hasConflicts = origHasConflicts;
       WorktreeManager.prototype.squashMerge = origSquashMerge;
     }
+  });
+});
+
+// --- Sidecar mode tests ---
+
+describe("worktree MCP tools (sidecar mode)", () => {
+  it("worktree_detect should use client.resolveWorktreeBySlug", async () => {
+    const mockClient = {
+      resolveWorktreeBySlug: async (slug: string, project?: string) => ({
+        id: "wt-1",
+        worktreePath: "/tmp/wt",
+        branchName: "spec/my-slug",
+        baseBranch: "main",
+        status: "active",
+      }),
+    } as unknown as SidecarClient;
+
+    const tools = new Map<string, ToolHandler>();
+    const server = new McpServer({ name: "test", version: "0.0.1" });
+    const origTool = server.tool.bind(server);
+    server.tool = ((...args: unknown[]) => {
+      if (args.length >= 4 && typeof args[0] === "string") {
+        tools.set(args[0] as string, args[3] as ToolHandler);
+      }
+      return origTool(...(args as Parameters<typeof origTool>));
+    }) as typeof server.tool;
+
+    registerWorktreeTools(server, { client: mockClient });
+
+    const handler = tools.get("worktree_detect")!;
+    const result = await handler({ plan_slug: "my-slug", project: "/test" });
+    expect(result.content[0].text).toContain("spec/my-slug");
+    expect(result.content[0].text).toContain("active");
   });
 });

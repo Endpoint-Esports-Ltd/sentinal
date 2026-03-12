@@ -146,6 +146,96 @@ describe("SidecarClient", () => {
     expect(spec!.title).toBe("Test Plan");
   });
 
+  // ─── TDD State — List & Clear for Spec ──────────────────────────────────
+
+  it("should list active TDD states", async () => {
+    await client.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED" });
+    await client.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN" });
+
+    const states = await client.listActiveTddStates();
+    expect(states.length).toBe(2);
+  });
+
+  it("should list TDD states filtered by specId", async () => {
+    // Create specs first (FK constraint on tdd_cycles.spec_id)
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(join(plansDir, "spec-1.md"), "# Spec 1\n\nStatus: PENDING\nType: Feature\n");
+    writeFileSync(join(plansDir, "spec-2.md"), "# Spec 2\n\nStatus: PENDING\nType: Feature\n");
+    await client.syncSpec(join(plansDir, "spec-1.md"), tmpDir);
+    await client.syncSpec(join(plansDir, "spec-2.md"), tmpDir);
+
+    await client.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "spec-1" });
+    await client.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "spec-2" });
+
+    const states = await client.listActiveTddStates("spec-1");
+    expect(states.length).toBe(1);
+  });
+
+  it("should clear TDD states for a spec", async () => {
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(join(plansDir, "spec-x.md"), "# Spec X\n\nStatus: PENDING\nType: Feature\n");
+    await client.syncSpec(join(plansDir, "spec-x.md"), tmpDir);
+
+    await client.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "spec-x" });
+    await client.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "spec-x" });
+
+    await client.clearTddStatesForSpec("spec-x");
+
+    const states = await client.listActiveTddStates("spec-x");
+    expect(states.length).toBe(0);
+  });
+
+  // ─── Spec Events ────────────────────────────────────────────────────────
+
+  it("should get spec events", async () => {
+    // Create a spec first (events table has FK on spec_id)
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(join(plansDir, "event-test.md"), "# Test\n\nStatus: PENDING\nType: Feature\n");
+    await client.syncSpec(join(plansDir, "event-test.md"), tmpDir);
+
+    // Log events directly on store (no client method for logSpecEvent yet)
+    store.logSpecEvent({ specId: "event-test", eventType: "phase_change" as any, details: { from: "plan", to: "implement" } });
+
+    const events = await client.getSpecEvents("event-test");
+    expect(events.length).toBe(1);
+    expect(events[0].eventType).toBe("phase_change");
+  });
+
+  // ─── Worktree Resolve ───────────────────────────────────────────────────
+
+  it("should resolve worktree by slug — not found", async () => {
+    const wt = await client.resolveWorktreeBySlug("nonexistent", tmpDir);
+    expect(wt).toBeNull();
+  });
+
+  it("should resolve worktree by slug — found", async () => {
+    // Insert a spec + worktree directly into the store
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(join(plansDir, "wt-test.md"), "# WT Test\n\nStatus: PENDING\nType: Feature\n");
+    await client.syncSpec(join(plansDir, "wt-test.md"), tmpDir);
+
+    // Use the sidecar context's wtStore (same DB as the warm store)
+    sidecar.ctx.wtStore.insert({
+      id: "wt-resolve-1",
+      specId: "wt-test",
+      projectPath: tmpDir,
+      worktreePath: join(tmpDir, ".worktrees", "wt-test"),
+      branchName: "spec/wt-test",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const wt = await client.resolveWorktreeBySlug("wt-test", tmpDir);
+    expect(wt).not.toBeNull();
+    expect(wt!.branchName).toBe("spec/wt-test");
+  });
+
   // ─── Notifications ───────────────────────────────────────────────────────
 
   it("should insert a notification", async () => {

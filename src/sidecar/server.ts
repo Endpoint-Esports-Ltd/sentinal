@@ -11,6 +11,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
+import { WorktreeStore } from "../worktree/store.js";
 import { handleSidecarRequest } from "./routes.js";
 
 // Re-export path helpers for backward compatibility
@@ -24,6 +25,7 @@ export interface SidecarContext {
   store: MemoryStore;
   service: MemoryService;
   specStore: SpecStore;
+  wtStore: WorktreeStore;
 }
 
 export interface SidecarServerOptions {
@@ -54,7 +56,8 @@ export async function startSidecar(opts: SidecarServerOptions = {}): Promise<Sid
   const store = opts.store ?? new MemoryStore();
   const service = new MemoryService(store);
   const specStore = new SpecStore(store);
-  const ctx: SidecarContext = { store, service, specStore };
+  const wtStore = new WorktreeStore(store);
+  const ctx: SidecarContext = { store, service, specStore, wtStore };
 
   const socketPath = getSidecarSocketPath();
   const useUnix = !opts.httpOnly && process.platform !== "win32";

@@ -8,6 +8,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
+import type { Spec } from "../spec/types.js";
+import type { TddCycle, SpecEvent } from "../memory/types.js";
+import type { Worktree } from "../worktree/types.js";
 
 export class SidecarClient {
   private constructor(
@@ -145,6 +148,17 @@ export class SidecarClient {
     await this.post("/tdd-state", { action: "clear", filePath });
   }
 
+  async clearTddStatesForSpec(specId: string): Promise<void> {
+    await this.post("/tdd-state", { action: "clearForSpec", specId });
+  }
+
+  async listActiveTddStates(specId?: string | null): Promise<TddCycle[]> {
+    const params = new URLSearchParams();
+    if (specId) params.set("spec_id", specId);
+    const qs = params.toString();
+    return this.get(`/tdd-state/list${qs ? `?${qs}` : ""}`);
+  }
+
   // ─── Memory ────────────────────────────────────────────────────────────
 
   async addObservation(obs: {
@@ -199,8 +213,22 @@ export class SidecarClient {
     await this.post("/spec/sync", { planPath, projectPath });
   }
 
-  async getCurrentSpec(projectPath: string): Promise<{ id: string; title: string; status: string } | null> {
+  async getCurrentSpec(projectPath: string): Promise<Spec | null> {
     return this.get(`/spec/current?project=${encodeURIComponent(projectPath)}`);
+  }
+
+  async getSpecEvents(specId: string, limit?: number): Promise<SpecEvent[]> {
+    const params = new URLSearchParams({ spec_id: specId });
+    if (limit !== undefined) params.set("limit", String(limit));
+    return this.get(`/spec/events?${params}`);
+  }
+
+  // ─── Worktrees ────────────────────────────────────────────────────────
+
+  async resolveWorktreeBySlug(slug: string, project?: string): Promise<Worktree | null> {
+    const params = new URLSearchParams({ slug });
+    if (project) params.set("project", project);
+    return this.get(`/worktree/resolve?${params}`);
   }
 
   // ─── Notifications ─────────────────────────────────────────────────────

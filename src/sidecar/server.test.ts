@@ -161,6 +161,60 @@ describe("sidecar server", () => {
     expect(r.data.title).toBe("Test Plan");
   });
 
+  // ─── TDD State List ────────────────────────────────────────────────────
+
+  it("should list active TDD states (empty)", async () => {
+    const r = await get(base, "/tdd-state/list");
+    expect(r.ok).toBe(true);
+    expect(r.data).toEqual([]);
+  });
+
+  it("should list active TDD states with filter", async () => {
+    await post(base, "/tdd-state", { action: "set", filePath: "/src/a.ts", state: "RED_CONFIRMED" });
+    await post(base, "/tdd-state", { action: "set", filePath: "/src/b.ts", state: "TEST_WRITTEN" });
+
+    const r = await get(base, "/tdd-state/list");
+    expect(r.ok).toBe(true);
+    expect(r.data.length).toBe(2);
+  });
+
+  // ─── Spec Events ──────────────────────────────────────────────────────
+
+  it("should return spec events", async () => {
+    // Sync a spec first (FK constraint)
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    const planFile = join(plansDir, "events-test.md");
+    writeFileSync(planFile, `# Events Test\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n`);
+    await post(base, "/spec/sync", { planPath: planFile, projectPath: tmpDir });
+
+    // Log an event directly
+    store.logSpecEvent({ specId: "events-test", eventType: "phase_change", details: { from: "plan", to: "implement" } });
+
+    const r = await get(base, `/spec/events?spec_id=events-test`);
+    expect(r.ok).toBe(true);
+    expect(r.data.length).toBe(1);
+    expect(r.data[0].eventType).toBe("phase_change");
+  });
+
+  it("should reject spec events without spec_id", async () => {
+    const r = await get(base, "/spec/events");
+    expect(r.ok).toBe(false);
+  });
+
+  // ─── Worktree Resolve ─────────────────────────────────────────────────
+
+  it("should return null for unknown worktree slug", async () => {
+    const r = await get(base, "/worktree/resolve?slug=nonexistent");
+    expect(r.ok).toBe(true);
+    expect(r.data).toBeNull();
+  });
+
+  it("should reject worktree resolve without slug", async () => {
+    const r = await get(base, "/worktree/resolve");
+    expect(r.ok).toBe(false);
+  });
+
   // ─── Notifications ────────────────────────────────────────────────────
 
   it("should insert a notification", async () => {
@@ -207,7 +261,7 @@ describe("stopSidecar PID guard", () => {
     const service = { search: () => [] } as any;
     const specStore = { close: () => {} } as any;
     const mockServer = { stop: () => {} } as any;
-    const ctx = { store, service, specStore };
+    const ctx = { store, service, specStore, wtStore: {} as any };
 
     // The orphan calls stopSidecar — files should survive
     stopSidecar(mockServer, ctx);
@@ -230,7 +284,7 @@ describe("stopSidecar PID guard", () => {
 
     const store = new MemoryStore(join(tmpDir, "test.db"));
     const mockServer = { stop: () => {} } as any;
-    const ctx = { store, service: {} as any, specStore: {} as any };
+    const ctx = { store, service: {} as any, specStore: {} as any, wtStore: {} as any };
 
     stopSidecar(mockServer, ctx);
 
@@ -249,7 +303,7 @@ describe("stopSidecar PID guard", () => {
 
     const store = new MemoryStore(join(tmpDir, "test.db"));
     const mockServer = { stop: () => {} } as any;
-    const ctx = { store, service: {} as any, specStore: {} as any };
+    const ctx = { store, service: {} as any, specStore: {} as any, wtStore: {} as any };
 
     stopSidecar(mockServer, ctx);
 

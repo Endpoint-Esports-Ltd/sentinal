@@ -15,23 +15,40 @@ import { MemoryStore } from "../memory/store.js";
 import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { DEFAULT_WORKTREE_CONFIG } from "./types.js";
+import type { SidecarClient } from "../sidecar/client.js";
 
 // --- Public API ---
 
-export function registerWorktreeTools(server: McpServer, store: MemoryStore | null): void {
-  const effectiveStore = store ?? new MemoryStore();
+export interface WorktreeToolsDeps {
+  client?: SidecarClient | null;
+  store?: MemoryStore | null;
+}
+
+export function registerWorktreeTools(server: McpServer, deps: WorktreeToolsDeps | MemoryStore | null): void {
+  // Backwards-compat: bare MemoryStore or null
+  let client: SidecarClient | null = null;
+  let effectiveStore: MemoryStore;
+
+  if (deps && ("client" in deps || "store" in deps)) {
+    const d = deps as WorktreeToolsDeps;
+    client = d.client ?? null;
+    effectiveStore = d.store ?? new MemoryStore();
+  } else {
+    effectiveStore = (deps as MemoryStore | null) ?? new MemoryStore();
+  }
+
   const wtStore = new WorktreeStore(effectiveStore);
   const manager = new WorktreeManager(wtStore, DEFAULT_WORKTREE_CONFIG);
 
-  registerWorktreeDetectTool(server, wtStore);
+  registerWorktreeDetectTool(server, client, wtStore);
   registerWorktreeCreateTool(server, manager);
-  registerWorktreeDiffTool(server, wtStore, manager);
-  registerWorktreeSyncTool(server, wtStore, manager);
+  registerWorktreeDiffTool(server, client, wtStore, manager);
+  registerWorktreeSyncTool(server, client, wtStore, manager);
 }
 
 // --- worktree_detect ---
 
-function registerWorktreeDetectTool(server: McpServer, wtStore: WorktreeStore): void {
+function registerWorktreeDetectTool(server: McpServer, client: SidecarClient | null, wtStore: WorktreeStore): void {
   server.tool(
     "worktree_detect",
     "Detect an active worktree for a plan slug. Returns path, branch, status, or 'not found'.",
@@ -42,7 +59,9 @@ function registerWorktreeDetectTool(server: McpServer, wtStore: WorktreeStore): 
     async ({ plan_slug, project }) => {
       try {
         const projectPath = project ?? process.cwd();
-        const wt = wtStore.resolveBySlug(plan_slug, projectPath);
+        const wt = client
+          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
+          : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
           return { content: [{ type: "text" as const, text: `No active worktree found for slug: ${plan_slug}` }] };
@@ -102,7 +121,7 @@ function registerWorktreeCreateTool(server: McpServer, manager: WorktreeManager)
 
 // --- worktree_diff ---
 
-function registerWorktreeDiffTool(server: McpServer, wtStore: WorktreeStore, manager: WorktreeManager): void {
+function registerWorktreeDiffTool(server: McpServer, client: SidecarClient | null, wtStore: WorktreeStore, manager: WorktreeManager): void {
   server.tool(
     "worktree_diff",
     "Get a diff summary for a worktree identified by plan slug. Shows files changed, insertions, and deletions.",
@@ -113,7 +132,9 @@ function registerWorktreeDiffTool(server: McpServer, wtStore: WorktreeStore, man
     async ({ plan_slug, project }) => {
       try {
         const projectPath = project ?? process.cwd();
-        const wt = wtStore.resolveBySlug(plan_slug, projectPath);
+        const wt = client
+          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
+          : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
           return { content: [{ type: "text" as const, text: `No active worktree found for slug: ${plan_slug}` }] };
@@ -147,7 +168,7 @@ function registerWorktreeDiffTool(server: McpServer, wtStore: WorktreeStore, man
 
 // --- worktree_sync ---
 
-function registerWorktreeSyncTool(server: McpServer, wtStore: WorktreeStore, manager: WorktreeManager): void {
+function registerWorktreeSyncTool(server: McpServer, client: SidecarClient | null, wtStore: WorktreeStore, manager: WorktreeManager): void {
   server.tool(
     "worktree_sync",
     "Squash-merge a worktree back to its base branch. WARNING: This is destructive — the worktree is removed after merge.",
@@ -159,7 +180,9 @@ function registerWorktreeSyncTool(server: McpServer, wtStore: WorktreeStore, man
     async ({ plan_slug, project, message }) => {
       try {
         const projectPath = project ?? process.cwd();
-        const wt = wtStore.resolveBySlug(plan_slug, projectPath);
+        const wt = client
+          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
+          : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
           return { content: [{ type: "text" as const, text: `No active worktree found for slug: ${plan_slug}` }] };

@@ -15,6 +15,9 @@ When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
 | `worktree_create` | `sentinal worktree create` | Create worktree |
 | `worktree_diff` | `sentinal worktree diff` | Get worktree diff |
 | `worktree_sync` | `sentinal worktree sync` | Squash-merge worktree |
+| `tdd_status` | `bun -e` TDD state query | Get TDD cycle state for file or list all |
+| `tdd_set_state` | `bun -e` TDD state set | Set TDD state (e.g. RED_CONFIRMED bypass) |
+| `tdd_clear` | `bun -e` TDD state clear | Clear TDD state for file or spec |
 
 ---
 

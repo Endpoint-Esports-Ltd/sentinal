@@ -19,6 +19,8 @@
 
 **Recovery (code written before test):** Don't revert — write the test immediately, verify it catches regressions. Goal is coverage, not ritual.
 
+**TDD MCP tools:** Use `tdd_status` to check current TDD cycle state. Use `tdd_set_state` to set state (e.g. `RED_CONFIRMED` to allow implementation edits after verifying a red test). Use `tdd_clear` to clean up TDD state after completing a cycle.
+
 ---
 
 ### Test Strategy & Coverage

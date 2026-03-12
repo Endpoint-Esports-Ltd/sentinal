@@ -19,24 +19,43 @@ import { z } from "zod";
 import { MemoryStore } from "../memory/store.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { SpecStore } from "./store.js";
+import type { SidecarClient } from "../sidecar/client.js";
 
 // --- Public API ---
 
-export function registerSpecTools(server: McpServer, store: MemoryStore | null): void {
-  const effectiveStore = store ?? new MemoryStore();
-  const specStore = new SpecStore(effectiveStore);
-  registerSpecStatusTool(server, specStore);
-  registerSpecRegisterTool(server, specStore);
+export interface SpecToolsDeps {
+  client?: SidecarClient | null;
+  store?: MemoryStore | null;
+}
+
+export function registerSpecTools(server: McpServer, deps: SpecToolsDeps | MemoryStore | null): void {
+  // Backwards-compat: bare MemoryStore or null
+  let client: SidecarClient | null = null;
+  let effectiveStore: MemoryStore | null = null;
+  let specStore: SpecStore | null = null;
+
+  if (deps && ("client" in deps || "store" in deps)) {
+    const d = deps as SpecToolsDeps;
+    client = d.client ?? null;
+    effectiveStore = d.store ?? (client ? null : new MemoryStore());
+    specStore = effectiveStore ? new SpecStore(effectiveStore) : null;
+  } else {
+    effectiveStore = (deps as MemoryStore | null) ?? new MemoryStore();
+    specStore = new SpecStore(effectiveStore);
+  }
+
+  registerSpecStatusTool(server, client, specStore);
+  registerSpecRegisterTool(server, client, specStore, effectiveStore);
   registerSpecWaitFileTool(server);
   registerSpecConfigTool(server);
   registerSpecPlanParseTool(server);
-  registerSpecNotifyTool(server, effectiveStore);
-  registerSpecEventsTool(server, effectiveStore);
+  registerSpecNotifyTool(server, client, effectiveStore);
+  registerSpecEventsTool(server, client, effectiveStore);
 }
 
 // --- spec_register ---
 
-function registerSpecRegisterTool(server: McpServer, specStore: SpecStore): void {
+function registerSpecRegisterTool(server: McpServer, client: SidecarClient | null, specStore: SpecStore | null, effectiveStore: MemoryStore | null): void {
   server.tool(
     "spec_register",
     "Register or update a plan in the SQLite index. Optionally override the plan status before syncing.",
@@ -56,7 +75,16 @@ function registerSpecRegisterTool(server: McpServer, specStore: SpecStore): void
           writeFileSync(plan_path, updated);
         }
 
-        const spec = specStore.syncFromPlanFile(plan_path, projectPath);
+        if (client) {
+          await client.syncSpec(plan_path, projectPath);
+          // syncSpec returns void; parse the file for the response
+          const parsed = parsePlanFile(plan_path);
+          const done = parsed.tasks.filter((t) => t.status === "complete").length;
+          const text = `Registered: ${parsed.id} (${parsed.status}, ${done}/${parsed.tasks.length} tasks)`;
+          return { content: [{ type: "text" as const, text }] };
+        }
+
+        const spec = specStore!.syncFromPlanFile(plan_path, projectPath);
         const done = spec.tasks.filter((t) => t.status === "complete").length;
         const text = `Registered: ${spec.id} (${spec.status}, ${done}/${spec.tasks.length} tasks)`;
         return { content: [{ type: "text" as const, text }] };
@@ -233,7 +261,7 @@ function registerSpecPlanParseTool(server: McpServer): void {
 
 // --- spec_notify ---
 
-function registerSpecNotifyTool(server: McpServer, memoryStore: MemoryStore): void {
+function registerSpecNotifyTool(server: McpServer, client: SidecarClient | null, memoryStore: MemoryStore | null): void {
   server.tool(
     "spec_notify",
     "Create a notification in the SQLite store. Useful for recording workflow events visible in the dashboard.",
@@ -245,12 +273,21 @@ function registerSpecNotifyTool(server: McpServer, memoryStore: MemoryStore): vo
     },
     async ({ type, title, message, spec_id }) => {
       try {
-        memoryStore.insertNotification({
-          type,
-          title,
-          message: message ?? null,
-          specId: spec_id ?? null,
-        });
+        if (client) {
+          await client.insertNotification({
+            type,
+            title,
+            message: message ?? undefined,
+            specId: spec_id ?? undefined,
+          });
+        } else {
+          memoryStore!.insertNotification({
+            type,
+            title,
+            message: message ?? null,
+            specId: spec_id ?? null,
+          });
+        }
         return { content: [{ type: "text" as const, text: `Notification created: ${title}` }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -262,7 +299,7 @@ function registerSpecNotifyTool(server: McpServer, memoryStore: MemoryStore): vo
 
 // --- spec_events ---
 
-function registerSpecEventsTool(server: McpServer, memoryStore: MemoryStore): void {
+function registerSpecEventsTool(server: McpServer, client: SidecarClient | null, memoryStore: MemoryStore | null): void {
   server.tool(
     "spec_events",
     "Get recent spec lifecycle events (phase changes, task updates, TDD cycles, etc.) for a spec.",
@@ -272,7 +309,9 @@ function registerSpecEventsTool(server: McpServer, memoryStore: MemoryStore): vo
     },
     async ({ spec_id, limit }) => {
       try {
-        const events = memoryStore.getSpecEvents(spec_id, limit ?? 20);
+        const events = client
+          ? await client.getSpecEvents(spec_id, limit ?? 20)
+          : memoryStore!.getSpecEvents(spec_id, limit ?? 20);
 
         if (events.length === 0) {
           return { content: [{ type: "text" as const, text: `No events found for spec: ${spec_id}` }] };
@@ -296,7 +335,7 @@ function registerSpecEventsTool(server: McpServer, memoryStore: MemoryStore): vo
 
 // --- spec_status ---
 
-function registerSpecStatusTool(server: McpServer, specStore: SpecStore): void {
+function registerSpecStatusTool(server: McpServer, client: SidecarClient | null, specStore: SpecStore | null): void {
   server.tool(
     "spec_status",
     "Get the current spec/plan status for a project. Shows title, progress percentage, and remaining tasks.",
@@ -304,7 +343,9 @@ function registerSpecStatusTool(server: McpServer, specStore: SpecStore): void {
       project: z.string().describe("Project path to check for active specs"),
     },
     async ({ project }) => {
-      const spec = specStore.getCurrentSpec(project);
+      const spec = client
+        ? await client.getCurrentSpec(project)
+        : specStore!.getCurrentSpec(project);
 
       if (!spec) {
         return { content: [{ type: "text", text: "No active spec found for this project." }] };

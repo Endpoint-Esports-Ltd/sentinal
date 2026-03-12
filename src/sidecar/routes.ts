@@ -98,6 +98,21 @@ export async function handleSidecarRequest(
       return handleMemoryStats(ctx);
     }
 
+    // TDD State — list active
+    if (path === "/tdd-state/list" && method === "GET") {
+      return handleListTddStates(url, ctx);
+    }
+
+    // Spec events
+    if (path === "/spec/events" && method === "GET") {
+      return handleGetSpecEvents(url, ctx);
+    }
+
+    // Worktree — resolve by slug
+    if (path === "/worktree/resolve" && method === "GET") {
+      return handleResolveWorktree(url, ctx);
+    }
+
     // Notifications
     if (path === "/notification" && method === "POST") {
       return handleInsertNotification(req, ctx);
@@ -311,4 +326,32 @@ async function handleInsertNotification(req: Request, ctx: SidecarContext): Prom
     sessionId: body.sessionId ?? null,
   });
   return ok(notif);
+}
+
+// ─── TDD State List ──────────────────────────────────────────────────────
+
+function handleListTddStates(url: URL, ctx: SidecarContext): Response {
+  const specId = url.searchParams.get("spec_id") || undefined;
+  const states = ctx.store.listActiveTddStates(specId ?? null);
+  return ok(states);
+}
+
+// ─── Spec Events ─────────────────────────────────────────────────────────
+
+function handleGetSpecEvents(url: URL, ctx: SidecarContext): Response {
+  const specId = url.searchParams.get("spec_id");
+  if (!specId) return fail("Missing 'spec_id' query param");
+  const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+  const events = ctx.store.getSpecEvents(specId, limit);
+  return ok(events);
+}
+
+// ─── Worktree Resolve ────────────────────────────────────────────────────
+
+function handleResolveWorktree(url: URL, ctx: SidecarContext): Response {
+  const slug = url.searchParams.get("slug");
+  if (!slug) return fail("Missing 'slug' query param");
+  const project = url.searchParams.get("project") ?? undefined;
+  const wt = ctx.wtStore.resolveBySlug(slug, project);
+  return ok(wt);
 }

@@ -97,12 +97,14 @@ All subsequent work happens inside the worktree directory.
 4. **Mark in_progress:** `TaskUpdate(taskId, status="in_progress")`
 5. **TDD Flow:**
    - **RED:** Write failing test → verify it fails (feature missing, not syntax error)
-   - For Angular: `TestBed`, component harness, or Playwright
-   - For NestJS: `@nestjs/testing`, mock repositories
-   - **Naming:** `it("should <behavior> when <condition>")`
-   - **GREEN:** Implement minimal code to pass
-   - **REFACTOR:** Improve while keeping tests green
-   - Skip TDD for: docs, config, IaC, formatting-only changes
+    - For Angular: `TestBed`, component harness, or Playwright
+    - For NestJS: `@nestjs/testing`, mock repositories
+    - **Naming:** `it("should <behavior> when <condition>")`
+    - After confirming RED: use `tdd_set_state` MCP tool with `state: "RED_CONFIRMED"` and `file_path` to allow the TDD guard to pass on implementation edits
+    - **GREEN:** Implement minimal code to pass
+    - **REFACTOR:** Improve while keeping tests green
+    - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
+    - Skip TDD for: docs, config, IaC, formatting-only changes
    - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing.
 6. **Verify tests pass** — run full test suite
    - Jest: `npx jest --testPathPattern=<test-file> --verbose`
