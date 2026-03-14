@@ -6,7 +6,7 @@
  * MemoryStore cold starts.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
 import type { Spec } from "../spec/types.js";
 import type { TddCycle, SpecEvent } from "../memory/types.js";
@@ -55,7 +55,12 @@ export class SidecarClient {
     if (existsSync(socketPath)) {
       const client = new SidecarClient("http://localhost", { unix: socketPath });
       try {
-        await client.health();
+        const health = await client.health();
+
+        // Self-heal: sync the HTTP port file from the health response
+        // so Node.js clients (which can't use Unix sockets) find the right port
+        SidecarClient.syncPortFile(health.httpPort);
+
         return client;
       } catch { /* socket exists but not responding */ }
     }
@@ -75,6 +80,26 @@ export class SidecarClient {
     }
 
     return null;
+  }
+
+  /**
+   * Update the port file if the sidecar reports a different HTTP port.
+   * Best-effort — never throws.
+   */
+  private static syncPortFile(httpPort?: number | null): void {
+    if (typeof httpPort !== "number" || httpPort <= 0) return;
+    try {
+      const portPath = getSidecarPortPath();
+      let filePort: number | null = null;
+      if (existsSync(portPath)) {
+        const content = readFileSync(portPath, "utf-8").trim();
+        filePort = parseInt(content, 10);
+        if (Number.isNaN(filePort)) filePort = null;
+      }
+      if (filePort !== httpPort) {
+        writeFileSync(portPath, String(httpPort), "utf-8");
+      }
+    } catch { /* non-fatal */ }
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────
@@ -102,7 +127,7 @@ export class SidecarClient {
 
   // ─── Health ────────────────────────────────────────────────────────────
 
-  async health(): Promise<{ status: string; pid: number }> {
+  async health(): Promise<{ status: string; pid: number; httpPort?: number | null }> {
     return this.get("/health");
   }
 

@@ -378,11 +378,31 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
       // Memory capture
       if (sidecar && sessionId) {
         try {
+          // Build output: prefer actual tool output for bash/shell (enables error→fix,
+          // TDD cycle, and build-fix heuristics), fall back to quality-check issues
+          let eventOutput: string | undefined;
+          if (["bash", "shell", "terminal"].includes(input.tool)) {
+            const raw = output.args?.output ?? output.args?.stdout ?? output.args?.stderr;
+            if (typeof raw === "string" && raw.length > 0) {
+              eventOutput = raw.slice(0, 2000);
+            }
+          }
+          if (!eventOutput && issues.length > 0) {
+            eventOutput = issues.join("\n").slice(0, 500);
+          }
+
+          // For bash tools, use exit code if available; otherwise rely on quality-check blocking
+          let eventSuccess = !shouldBlock;
+          if (["bash", "shell", "terminal"].includes(input.tool)) {
+            const exitCode = output.args?.exitCode ?? output.args?.exit_code;
+            if (typeof exitCode === "number") eventSuccess = exitCode === 0;
+          }
+
           const event: ToolEvent = {
             toolName: input.tool,
             filePath: typeof filePath === "string" ? filePath : undefined,
-            success: !shouldBlock,
-            output: issues.length > 0 ? issues.join("\n").slice(0, 500) : undefined,
+            success: eventSuccess,
+            output: eventOutput,
             timestamp: Date.now(),
           };
           eventBuffer.push(event);
@@ -395,7 +415,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
               metadata: { source: "auto-capture", confidence: decision.confidence, toolName: input.tool },
             });
           }
-        } catch { /* non-fatal */ }
+        } catch (e) { log(`auto-capture failed: ${e instanceof Error ? e.message : e}`); }
       }
     },
 
@@ -411,7 +431,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           const restored = await sidecar.restoreContext(projectRoot);
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
-      } catch { /* non-fatal */ }
+      } catch (e) { log(`compaction sidecar failed: ${e instanceof Error ? e.message : e}`); }
 
       const stateDir = join(projectRoot, ".sentinal");
       mkdirSync(stateDir, { recursive: true });
@@ -466,7 +486,7 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
               await client.app.log({ body: { service: "sentinal", level: "info", message: restored.markdown } });
             }
           }
-        } catch { /* non-fatal */ }
+        } catch (e) { log(`restoreContext failed: ${e instanceof Error ? e.message : e}`); }
 
         // Restore spec plan state from previous compaction
         const stateFile = join(projectRoot, ".sentinal", "compact-state.json");

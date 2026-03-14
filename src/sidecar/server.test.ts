@@ -81,6 +81,13 @@ describe("sidecar server", () => {
     expect(r.data.pid).toBe(process.pid);
   });
 
+  it("should include httpPort in health response", async () => {
+    const r = await get(base, "/health");
+    expect(r.ok).toBe(true);
+    expect(typeof r.data.httpPort).toBe("number");
+    expect(r.data.httpPort).toBeGreaterThan(0);
+  });
+
   it("should return 404 for unknown routes", async () => {
     const r = await get(base, "/unknown");
     expect(r.ok).toBe(false);
@@ -307,6 +314,81 @@ describe("sidecar server", () => {
   it("should respond to /ping", async () => {
     const r = await get(base, "/ping");
     expect(r.ok).toBe(true);
+  });
+});
+
+// ─── alreadyRunning Port File Update ──────────────────────────────────────
+
+describe("startSidecar alreadyRunning port file sync", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let firstSidecar: Awaited<ReturnType<typeof startSidecar>>;
+
+  beforeEach(async () => {
+    // Use short path for Unix sockets (max 104 chars on macOS)
+    tmpDir = join(tmpdir(), `s-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+
+    // Mock paths to use tmpDir (short path for Unix socket compatibility)
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "s.sock")
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port")
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid")
+    );
+
+    // Start first sidecar with Unix socket (writes correct port file)
+    firstSidecar = await startSidecar({ store, port: 0 });
+    expect(firstSidecar.transport).toBe("unix");
+    expect(firstSidecar.httpServer).toBeDefined();
+  });
+
+  afterEach(() => {
+    stopSidecar(firstSidecar.server, firstSidecar.ctx, firstSidecar.httpServer);
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("should update stale port file when detecting alreadyRunning sidecar", async () => {
+    const portPath = join(tmpDir, "sidecar.port");
+    const actualPort = (firstSidecar.httpServer as any).port;
+
+    // Corrupt the port file to simulate a stale state
+    writeFileSync(portPath, "99999", "utf-8");
+    expect(readFileSync(portPath, "utf-8").trim()).toBe("99999");
+
+    // Attempt to start a second sidecar — should detect alreadyRunning
+    const store2 = new MemoryStore(join(tmpDir, "test2.db"));
+    const second = await startSidecar({ store: store2, port: 0 });
+    expect(second.alreadyRunning).toBe(true);
+
+    // Port file should now be corrected to the first sidecar's actual HTTP port
+    const correctedPort = readFileSync(portPath, "utf-8").trim();
+    expect(correctedPort).toBe(String(actualPort));
+
+    store2.close();
+  });
+
+  it("should leave valid port file unchanged when detecting alreadyRunning", async () => {
+    const portPath = join(tmpDir, "sidecar.port");
+    const actualPort = (firstSidecar.httpServer as any).port;
+
+    // Port file is already correct
+    expect(readFileSync(portPath, "utf-8").trim()).toBe(String(actualPort));
+
+    // Second start attempt
+    const store2 = new MemoryStore(join(tmpDir, "test2.db"));
+    const second = await startSidecar({ store: store2, port: 0 });
+    expect(second.alreadyRunning).toBe(true);
+
+    // Port file should still be correct
+    expect(readFileSync(portPath, "utf-8").trim()).toBe(String(actualPort));
+
+    store2.close();
   });
 });
 

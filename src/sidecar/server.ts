@@ -34,6 +34,8 @@ export interface SidecarContext {
   service: MemoryService;
   specStore: SpecStore;
   wtStore: WorktreeStore;
+  /** HTTP port for non-Unix-socket clients. Set after server starts. */
+  httpPort?: number;
 }
 
 export interface SidecarServerOptions {
@@ -157,7 +159,24 @@ export async function startSidecar(
         unix: socketPath,
       } as RequestInit);
       if (probe.ok) {
-        // Another sidecar is already serving — return a sentinel result
+        // Another sidecar is already serving — sync the port file from its health response
+        try {
+          const health = (await probe.json()) as { data?: { httpPort?: number } };
+          const livePort = health?.data?.httpPort;
+          if (typeof livePort === "number" && livePort > 0) {
+            const portPath = getSidecarPortPath();
+            let filePort: number | null = null;
+            try {
+              const content = readFileSync(portPath, "utf-8").trim();
+              filePort = parseInt(content, 10);
+              if (Number.isNaN(filePort)) filePort = null;
+            } catch { /* no port file */ }
+            if (filePort !== livePort) {
+              writeFileSync(portPath, String(livePort), "utf-8");
+            }
+          }
+        } catch { /* non-fatal — port sync is best-effort */ }
+
         return {
           server: null as unknown as ReturnType<typeof Bun.serve>,
           ctx,
@@ -189,6 +208,7 @@ export async function startSidecar(
         hostname: "127.0.0.1",
         fetch: fetchHandler,
       });
+      ctx.httpPort = httpServer.port;
       writeFileSync(getSidecarPortPath(), String(httpServer.port), "utf-8");
       return { server, httpServer, ctx, transport: "unix" };
     } catch {
@@ -202,6 +222,7 @@ export async function startSidecar(
     hostname: "127.0.0.1",
     fetch: fetchHandler,
   });
+  ctx.httpPort = server.port;
   writeFileSync(getSidecarPortPath(), String(server.port), "utf-8");
   return { server, ctx, transport: "http" };
 }

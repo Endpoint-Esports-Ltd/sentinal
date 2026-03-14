@@ -47,7 +47,7 @@ export async function handleSidecarRequest(
   try {
     // Health
     if (path === "/health" && method === "GET") {
-      return ok({ status: "running", pid: process.pid });
+      return ok({ status: "running", pid: process.pid, httpPort: ctx.httpPort ?? null });
     }
 
     // Ping — lightweight keep-alive for idle shutdown

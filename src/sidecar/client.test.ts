@@ -307,6 +307,75 @@ describe("SidecarClient", () => {
   });
 });
 
+// ─── tryConnect port file self-heal ──────────────────────────────────────
+
+describe("SidecarClient.connect port file self-heal", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+  const { readFileSync: readFs, unlinkSync: unlinkFs, existsSync: existsFs } = require("node:fs");
+
+  beforeEach(async () => {
+    // Short path for Unix socket compatibility
+    tmpDir = join(tmpdir(), `sc-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "s.sock")
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port")
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid")
+    );
+
+    // Start sidecar with Unix socket + HTTP
+    sidecar = await startSidecar({ store, port: 0 });
+    expect(sidecar.transport).toBe("unix");
+  });
+
+  afterEach(() => {
+    stopSidecar(sidecar.server, sidecar.ctx, sidecar.httpServer);
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("should repair stale port file when connecting via Unix socket", async () => {
+    const portPath = join(tmpDir, "sidecar.port");
+    const actualPort = (sidecar.httpServer as any).port;
+
+    // Corrupt the port file
+    writeFileSync(portPath, "99999", "utf-8");
+
+    // Connect — should succeed via Unix socket and repair the port file
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    // Port file should be repaired with the correct port
+    const repairedPort = readFs(portPath, "utf-8").trim();
+    expect(repairedPort).toBe(String(actualPort));
+  });
+
+  it("should create port file when missing but Unix socket is alive", async () => {
+    const portPath = join(tmpDir, "sidecar.port");
+
+    // Remove the port file entirely
+    try { unlinkFs(portPath); } catch { /* ok */ }
+    expect(existsFs(portPath)).toBe(false);
+
+    // Connect — should succeed and create port file
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    // Port file should now exist with the correct port
+    const actualPort = (sidecar.httpServer as any).port;
+    expect(existsFs(portPath)).toBe(true);
+    expect(readFs(portPath, "utf-8").trim()).toBe(String(actualPort));
+  });
+});
+
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────
 
 describe("withSidecarOrDirect", () => {
