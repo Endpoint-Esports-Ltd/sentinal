@@ -1,3 +1,15 @@
+# [1.11.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.10.1...v1.11.0) (2026-03-14)
+
+
+### Bug Fixes
+
+* support .tsx/.jsx files in TDD guard test detection and companion path resolution ([0fb700e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0fb700ec0ed6a05ffd4debe120281d5ad4d6364a))
+
+
+### Features
+
+* extend TDD guard to support Go, Python, Rust, and C/C++ languages ([207c45a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/207c45a6f0df3f04b91887f08a3d2bfb5a09ab0a))
+
 ## [1.10.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.10.0...v1.10.1) (2026-03-14)
 
 
