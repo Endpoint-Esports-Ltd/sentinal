@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.10.0...v1.10.1) (2026-03-14)
+
+
+### Bug Fixes
+
+* dual-write skills to both .claude/skills/ and .opencode/skills/ in learn and sync commands ([b34de87](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/b34de871da1f3fb261f321f2f2ec3410f935988a))
+
 # [1.10.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.9.2...v1.10.0) (2026-03-12)
 
 
