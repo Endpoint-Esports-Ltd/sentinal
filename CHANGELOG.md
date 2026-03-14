@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.0...v1.11.1) (2026-03-14)
+
+
+### Bug Fixes
+
+* stabilize sidecar port file and improve plugin auto-capture reliability ([2633ce0](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2633ce057f8a75e5e0e3daecccb4c5bd8156acab))
+
 # [1.11.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.10.1...v1.11.0) (2026-03-14)
 
 
