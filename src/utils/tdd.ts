@@ -1,4 +1,13 @@
-const TEST_FILE_PATTERNS = [/\.spec\.ts$/, /\.test\.ts$/, /\.spec\.js$/, /\.test\.js$/];
+const TEST_FILE_PATTERNS = [
+  /\.spec\.ts$/,
+  /\.test\.ts$/,
+  /\.spec\.js$/,
+  /\.test\.js$/,
+  /\.spec\.tsx$/,
+  /\.test\.tsx$/,
+  /\.spec\.jsx$/,
+  /\.test\.jsx$/,
+];
 const SKIP_TEST_PATTERNS = [
   /\.module\.ts$/,
   /\.dto\.ts$/,
@@ -21,12 +30,15 @@ export function shouldSkipTddGuard(filePath: string): boolean {
   return SKIP_TEST_PATTERNS.some((p) => p.test(filePath));
 }
 
+const IMPL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+
 export function getExpectedTestPaths(filePath: string): string[] {
   if (isTestFile(filePath)) return [];
-  if (!filePath.endsWith(".ts") && !filePath.endsWith(".js")) return [];
+
+  const ext = IMPL_EXTENSIONS.find((e) => filePath.endsWith(e));
+  if (!ext) return [];
   if (SKIP_TEST_PATTERNS.some((p) => p.test(filePath))) return [];
 
-  const ext = filePath.endsWith(".ts") ? ".ts" : ".js";
   const base = filePath.slice(0, -ext.length);
   return [`${base}.spec${ext}`, `${base}.test${ext}`];
 }

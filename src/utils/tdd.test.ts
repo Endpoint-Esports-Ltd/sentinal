@@ -37,6 +37,23 @@ describe("tdd utilities", () => {
       const paths = getExpectedTestPaths("/src/users/user.entity.ts");
       expect(paths).toEqual([]);
     });
+
+    it("should generate .spec.tsx and .test.tsx paths for a .tsx file", () => {
+      const paths = getExpectedTestPaths("/src/components/Button.tsx");
+      expect(paths).toContain("/src/components/Button.spec.tsx");
+      expect(paths).toContain("/src/components/Button.test.tsx");
+    });
+
+    it("should generate .spec.jsx and .test.jsx paths for a .jsx file", () => {
+      const paths = getExpectedTestPaths("/src/components/Button.jsx");
+      expect(paths).toContain("/src/components/Button.spec.jsx");
+      expect(paths).toContain("/src/components/Button.test.jsx");
+    });
+
+    it("should return empty for .tsx test files themselves", () => {
+      expect(getExpectedTestPaths("/src/components/Button.test.tsx")).toEqual([]);
+      expect(getExpectedTestPaths("/src/components/Button.spec.tsx")).toEqual([]);
+    });
   });
 
   describe("isTestFile", () => {
@@ -50,6 +67,30 @@ describe("tdd utilities", () => {
 
     it("should not detect regular .ts files", () => {
       expect(isTestFile("user.service.ts")).toBe(false);
+    });
+
+    it("should detect .test.tsx files", () => {
+      expect(isTestFile("Button.test.tsx")).toBe(true);
+    });
+
+    it("should detect .spec.tsx files", () => {
+      expect(isTestFile("Button.spec.tsx")).toBe(true);
+    });
+
+    it("should detect .test.jsx files", () => {
+      expect(isTestFile("Button.test.jsx")).toBe(true);
+    });
+
+    it("should detect .spec.jsx files", () => {
+      expect(isTestFile("Button.spec.jsx")).toBe(true);
+    });
+
+    it("should not detect regular .tsx files", () => {
+      expect(isTestFile("Button.tsx")).toBe(false);
+    });
+
+    it("should not detect regular .jsx files", () => {
+      expect(isTestFile("Button.jsx")).toBe(false);
     });
   });
 
