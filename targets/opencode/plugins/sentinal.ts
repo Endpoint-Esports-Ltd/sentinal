@@ -24,7 +24,7 @@
  */
 
 // ─── Safe imports (no bun:sqlite dependency) ─────────────────────────────────
-import { isTestFile, getExpectedTestPaths, shouldSkipTddGuard } from "../../../src/utils/tdd.js";
+import { isTestFile, getExpectedTestPaths, shouldSkipTddGuard, isGuardedFile, getImplPathForTest } from "../../../src/utils/tdd.js";
 import { checkNestPatterns, isNestFile } from "../../../src/checkers/nestjs.js";
 import { isAngularFile } from "../../../src/checkers/angular.js";
 import { detectFramework } from "../../../src/checkers/detect.js";
@@ -138,9 +138,7 @@ async function sidecarTddGuard(
   cwd: string,
 ): Promise<string | null> {
   if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase())) return null;
-  if (isTestFile(filePath)) return null;
-  if (shouldSkipTddGuard(filePath)) return null;
-  if (!/\.(ts|tsx)$/.test(filePath)) return null;
+  if (!isGuardedFile(filePath)) return null;
 
   try {
     const { state, hasActiveSpec } = await sidecar.getTddState(filePath, cwd);
@@ -171,8 +169,7 @@ async function sidecarTddTrack(
 
     // Case 1: Test file written → TEST_WRITTEN
     if (isEdit && filePath && isTestFile(filePath)) {
-      const implMatch = filePath.match(/^(.+)\.(spec|test)\.(ts|tsx|js|jsx)$/);
-      const implPath = implMatch ? `${implMatch[1]}.${implMatch[3]}` : filePath;
+      const implPath = getImplPathForTest(filePath) ?? filePath;
       await sidecar.setTddState({ filePath: implPath, state: "TEST_WRITTEN", testFilePath: filePath });
       return;
     }

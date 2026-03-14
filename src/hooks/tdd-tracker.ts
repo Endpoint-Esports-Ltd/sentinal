@@ -16,8 +16,11 @@
 import { readStdin } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
-import { isTestFile } from "../utils/tdd.js";
+import { isTestFile, getImplPathForTest } from "../utils/tdd.js";
 import { TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS } from "../memory/capture.js";
+
+// Re-export for backwards compatibility (implementation moved to src/utils/tdd.ts)
+export { getImplPathForTest };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,20 +38,6 @@ export function hasTestFailure(output: string): boolean {
 /** Check if bash output contains test pass indicators. */
 export function hasTestPass(output: string): boolean {
   return TEST_PASS_INDICATORS.some((r: RegExp) => r.test(output));
-}
-
-/**
- * Given a test file path, return the expected implementation file path.
- * src/foo/bar.test.ts → src/foo/bar.ts
- * src/foo/bar.spec.ts → src/foo/bar.ts
- * Returns null if the mapping can't be determined.
- */
-export function getImplPathForTest(testFilePath: string): string | null {
-  const specMatch = testFilePath.match(/^(.+)\.(spec|test)\.(ts|tsx|js|jsx)$/);
-  if (specMatch) {
-    return `${specMatch[1]}.${specMatch[3]}`;
-  }
-  return null;
 }
 
 // ─── Core Logic ───────────────────────────────────────────────────────────────

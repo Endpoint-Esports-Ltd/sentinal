@@ -1,0 +1,49 @@
+{
+  "review_summary": "Plan is well-structured and correctly identifies all hardcoded regex locations needing updates. All line references verified against actual code. Two issues need attention: file-checker must gate TS-specific checks when broadening the early return, and skip patterns include questionable entries (main.go, setup.py) that could block legitimate implementation files.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "file-checker.ts will run TS-specific checks on Go/Python/Rust/C files",
+      "description": "Task 3 says to replace the early return at file-checker.ts:18 (`if (!TS_EXTENSIONS.includes(ext)) return null`) with `isGuardedFile()` or a broader extension check. However, lines 41-52 call `runTypeScriptChecks()`, `isAngularFile()`, and `isNestFile()` unconditionally after the companion test check. If the early return is removed/broadened, a `.go` or `.py` file would flow through `runTypeScriptChecks(filePath, cwd, runner)` which would attempt tsc/eslint on non-TS files — producing noise or errors.",
+      "suggested_fix": "Task 3 must explicitly specify: (1) broaden the early return to allow all guarded extensions, (2) wrap lines 41-52 in a `if (TS_EXTENSIONS.includes(ext))` guard so TypeScript/Angular/NestJS checks only run for TS/JS files. The companion test check at lines 34-38 is already language-agnostic and should run for all guarded files. Add this restructuring to Task 3's Key Decisions."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Skip patterns include main.go and setup.py which are legitimate implementation files",
+      "description": "Task 1 adds `main\\.go$` and `setup\\.py$` to SKIP_TEST_PATTERNS. In Go, `main.go` is the entry point and contains real implementation code that should be tested. The existing TS skip for `main.ts` makes sense because NestJS main.ts is pure bootstrap, but Go's `main.go` often contains application logic. Similarly, `setup.py` is build config (not implementation), which is fine, but `conftest.py` is a pytest fixture file that arguably shouldn't be guarded anyway since it's test infrastructure — not an implementation file.",
+      "suggested_fix": "Remove `main\\.go$` from SKIP_TEST_PATTERNS — Go main packages should be testable. Keep `setup.py`, `conftest.py`, `go.mod`, `go.sum`, `Makefile`, `CMakeLists.txt` as skips since those are config/build files. Add a note in Task 1 that `conftest.py` is test infrastructure and should be detected as such (or at minimum skipped)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "getImplPathForTest() in tdd-tracker.ts needs Python prefix convention handling",
+      "description": "Task 2 says to extend `getImplPathForTest()` for Python's `test_*.py` prefix convention, but the current function (line 46-52) uses a single regex match. The Python prefix convention requires stripping a `test_` prefix from the basename, which is structurally different from all other conventions that strip suffixes. The Pre-Mortem #2 correctly identifies this risk but the Task 2 notes don't specify HOW to handle it.",
+      "suggested_fix": "Add explicit implementation guidance to Task 2: for prefix conventions (Python `test_auth.py`, C `test_auth.c`), split on path separator, check if basename starts with `test_`, strip prefix and reconstruct. Consider a data-driven approach mapping test patterns to impl-path-reconstruction strategies rather than a single regex."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 3 DoD does not verify OpenCode plugin's implMatch regex update",
+      "description": "Task 3 updates sentinal.ts:174 which has a duplicated `implMatch` regex identical to `getImplPathForTest()`. The DoD says 'OpenCode plugin guards all supported languages' but doesn't specifically verify that the test→impl mapping at line 174 works for all languages (Go _test.go, Python test_ prefix, etc.).",
+      "suggested_fix": "Add to Task 3 DoD: 'OpenCode plugin test→impl mapping at line 174 handles Go, Python (both conventions), Rust, and C/C++ conventions by calling shared getImplPathForTest() instead of inline regex.'"
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Rust _test.rs is not standard Rust convention",
+      "description": "The plan assumes Rust uses `_test.rs` file-based test convention (same directory). Standard Rust practice is inline `#[cfg(test)]` modules within the same file, or a `tests/` directory for integration tests. File-based `_test.rs` in the same directory is uncommon. The plan explicitly excludes inline modules and tests/ directories, which means Rust support may have very low real-world utility.",
+      "suggested_fix": "This is acceptable given the user's explicit same-directory constraint, but add a note in the plan's Out of Scope section acknowledging that Rust's primary test convention (inline #[cfg(test)]) is not supported and that file-based _test.rs is a fallback for users who prefer that pattern."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "C++ .cpp only — missing .cc, .cxx, .hpp extensions",
+      "description": "C++ projects commonly use `.cc` (Google style), `.cxx`, or `.C` extensions. The plan only covers `.cpp`. Header files `.h` are correctly excluded but `.hpp` is not mentioned.",
+      "suggested_fix": "Consider adding `.cc` to IMPL_EXTENSIONS with corresponding test patterns (`test_*.cc`, `*_test.cc`). This is low priority — `.cpp` covers the majority of C++ projects. If added, keep it minimal."
+    }
+  ]
+}

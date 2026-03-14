@@ -17,7 +17,7 @@ import { deny, readStdin, output, type DenyOutput } from "../utils/hook-output.j
 import { readTddState } from "../memory/tdd-state.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
-import { isTestFile, shouldSkipTddGuard } from "../utils/tdd.js";
+import { isGuardedFile } from "../utils/tdd.js";
 
 // ─── State messages ───────────────────────────────────────────────────────────
 
@@ -47,14 +47,8 @@ export function processTddGuard(input: TddGuardInput): DenyOutput | null {
   if (!["Write", "Edit", "MultiEdit"].includes(toolName)) return null;
   if (!filePath) return null;
 
-  // Test files are always allowed
-  if (isTestFile(filePath)) return null;
-
-  // Convention files (modules, DTOs, enums, etc.) are tested indirectly — skip guard
-  if (shouldSkipTddGuard(filePath)) return null;
-
-  // Only TypeScript/TSX implementation files
-  if (!/\.(ts|tsx)$/.test(filePath)) return null;
+  // Only guardable implementation files (test files, skipped files, non-code files pass through)
+  if (!isGuardedFile(filePath)) return null;
 
   // Fast path: read TDD state (~2ms, no MemoryStore overhead)
   const state = readTddState(filePath, dbPath);

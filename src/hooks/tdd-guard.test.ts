@@ -102,11 +102,26 @@ describe("processTddGuard — pass-through cases (no blocking)", () => {
     expect(processTddGuard({ toolName: "Write", filePath: "src/environment.ts", cwd: "/proj" })).toBeNull();
   });
 
-  it("returns null for non-TypeScript files", () => {
-    expect(processTddGuard({ toolName: "Write", filePath: "src/foo.js", cwd: "/proj" })).toBeNull();
+  it("returns null for non-code files", () => {
     expect(processTddGuard({ toolName: "Edit", filePath: "README.md", cwd: "/proj" })).toBeNull();
     expect(processTddGuard({ toolName: "Write", filePath: "src/styles.css", cwd: "/proj" })).toBeNull();
     expect(processTddGuard({ toolName: "Write", filePath: "src/component.html", cwd: "/proj" })).toBeNull();
+  });
+
+  it("returns null for multi-language test files", () => {
+    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.go", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/test_auth.py", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.py", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.rs", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/test_auth.c", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.cpp", cwd: "/proj" })).toBeNull();
+  });
+
+  it("returns null for multi-language skip files", () => {
+    expect(processTddGuard({ toolName: "Write", filePath: "src/__init__.py", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "src/mod.rs", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "go.mod", cwd: "/proj" })).toBeNull();
+    expect(processTddGuard({ toolName: "Write", filePath: "Makefile", cwd: "/proj" })).toBeNull();
   });
 });
 
@@ -253,6 +268,66 @@ describe("processTddGuard — with active spec", () => {
     const result = processTddGuard({
       toolName: "Edit",
       filePath: "src/component.tsx",
+      cwd: tmpDir,
+      dbPath,
+    });
+    expect(result).not.toBeNull();
+  });
+
+  // Multi-language guard tests
+  it("blocks Go impl files when IDLE", () => {
+    const result = processTddGuard({
+      toolName: "Write",
+      filePath: "src/auth.go",
+      cwd: tmpDir,
+      dbPath,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.reason).toContain("Sentinal TDD Guard");
+  });
+
+  it("allows Go impl files when RED_CONFIRMED", () => {
+    const store = new MemoryStore(dbPath);
+    store.setTddState({ filePath: "src/auth.go", state: "RED_CONFIRMED" });
+    store.close();
+
+    expect(processTddGuard({ toolName: "Edit", filePath: "src/auth.go", cwd: tmpDir, dbPath })).toBeNull();
+  });
+
+  it("blocks Python impl files when IDLE", () => {
+    const result = processTddGuard({
+      toolName: "Write",
+      filePath: "src/auth.py",
+      cwd: tmpDir,
+      dbPath,
+    });
+    expect(result).not.toBeNull();
+  });
+
+  it("blocks Rust impl files when IDLE", () => {
+    const result = processTddGuard({
+      toolName: "Write",
+      filePath: "src/auth.rs",
+      cwd: tmpDir,
+      dbPath,
+    });
+    expect(result).not.toBeNull();
+  });
+
+  it("blocks C impl files when IDLE", () => {
+    const result = processTddGuard({
+      toolName: "Write",
+      filePath: "src/auth.c",
+      cwd: tmpDir,
+      dbPath,
+    });
+    expect(result).not.toBeNull();
+  });
+
+  it("blocks C++ impl files when IDLE", () => {
+    const result = processTddGuard({
+      toolName: "Write",
+      filePath: "src/auth.cpp",
       cwd: tmpDir,
       dbPath,
     });
