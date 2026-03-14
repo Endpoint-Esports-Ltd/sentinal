@@ -32,13 +32,17 @@ SLUG=$(basename "$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')" 2>
 # Result: "my-api", "acme-backend", "sentinal"
 ```
 
-Use `{slug}-` prefix on everything: `{slug}-project.md`, `{slug}-mcp-servers.md`, `{slug}-{topic}.md`, `.claude/skills/{slug}-{name}/`.
+Use `{slug}-` prefix on everything: `{slug}-project.md`, `{slug}-mcp-servers.md`, `{slug}-{topic}.md`, `.claude/skills/{slug}-{name}/`, `.opencode/skills/{slug}-{name}/`.
 
 ### Output Locations
 
 **Custom rules** in `.claude/rules/`: `{slug}-project.md` (tech stack, structure), `{slug}-mcp-servers.md` (custom MCP servers), `{slug}-{pattern-name}.md` (tribal knowledge).
 
-**Custom skills** in `.claude/skills/{slug}-{name}/SKILL.md`: workflows, tool integrations, domain expertise.
+**Custom skills** — ALWAYS write to BOTH paths with identical content:
+- `.claude/skills/{slug}-{name}/SKILL.md`
+- `.opencode/skills/{slug}-{name}/SKILL.md`
+
+This ensures teams using either Claude Code or OpenCode can discover and use skills.
 
 Use unique names (not `plan`, `implement`, `verify`, `standards-*`) for custom skills.
 
@@ -156,7 +160,7 @@ Rules load every session — every word costs tokens.
 
 1. Derive the project slug (see Phase 0 → Project Slug)
 2. `find .claude/rules/ -name '*.md' -not -name 'README.md' 2>/dev/null | sort` — read each rule file (including subdirectories)
-3. `ls -la .claude/skills/*/SKILL.md 2>/dev/null` — read each skill file
+3. `ls -la .claude/skills/*/SKILL.md .opencode/skills/*/SKILL.md 2>/dev/null` — read each skill file from both platforms
 4. Check for legacy CLAUDE.md: `ls CLAUDE.md claude.md .claude.md 2>/dev/null` — read if found
 5. **Detect unscoped legacy files** — look for `project.md`, `mcp-servers.md`, or any rule/skill without the `{slug}-` prefix. Flag for migration in Phase 2.
 6. **Detect nested rule directories** — check for subdirectories within `.claude/rules/`. Map each subdirectory, its depth level (product vs team), and contents.
@@ -176,7 +180,7 @@ AskUserQuestion: "Found unscoped assets that should be prefixed with '{slug}-' f
 **Migration rules:**
 
 - `project.md` → `{slug}-project.md` | `mcp-servers.md` → `{slug}-mcp-servers.md` | `{topic}.md` → `{slug}-{topic}.md`
-- `.claude/skills/{name}/` → `.claude/skills/{slug}-{name}/` (update `name:` in frontmatter too)
+- `.claude/skills/{name}/` → `.claude/skills/{slug}-{name}/` AND `.opencode/skills/{slug}-{name}/` (update `name:` in frontmatter too, write to both)
 - Do NOT migrate files from `~/.claude/rules/` — those are global user rules
 
 ## Phase 3: Quality Audit
@@ -243,7 +247,7 @@ AskUserQuestion (multiSelect): "Select improvements to apply:"
 
 For each selected improvement: read target file → apply specific fix → show diff → write.
 
-**For skill conversions:** Extract content from rule, create `.claude/skills/{slug}-{name}/SKILL.md`. Remove content from rule, add brief note pointing to skill.
+**For skill conversions:** Extract content from rule, create `.claude/skills/{slug}-{name}/SKILL.md` AND `.opencode/skills/{slug}-{name}/SKILL.md` (identical content). Remove content from rule, add brief note pointing to skill.
 
 **For file splits:** Create new modular files in `.claude/rules/` with the `{slug}-` prefix.
 
@@ -493,7 +497,7 @@ Skills are appropriate for: multi-step workflows, tool integrations, reusable sc
 
 1. Identify candidates from exploration: repeated workflows, complex tool usage, bundled scripts
 2. AskUserQuestion (multiSelect): which to create
-3. For each: invoke `Skill(skill="learn")` if available — otherwise create `.claude/skills/{slug}-{name}/SKILL.md` directly with frontmatter (`name`, `description`, optionally `user-invocable: true`)
+3. For each: invoke `Skill(skill="learn")` if available — otherwise create `.claude/skills/{slug}-{name}/SKILL.md` AND `.opencode/skills/{slug}-{name}/SKILL.md` (identical content) directly with frontmatter (`name`, `description`, optionally `user-invocable: true`)
 4. Verify: skill directory exists, SKILL.md has proper frontmatter
 
 ## Phase 11: Cross-Check
