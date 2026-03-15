@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.2...v1.12.0) (2026-03-15)
+
+
+### Features
+
+* add offline observation queue and fix memory capture parity ([facc656](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/facc65643b0b9f26672b8d4145f9ef7560d85405))
+
 ## [1.11.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.1...v1.11.2) (2026-03-15)
 
 
