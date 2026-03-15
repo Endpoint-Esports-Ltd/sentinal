@@ -1,3 +1,10 @@
+## [1.11.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.1...v1.11.2) (2026-03-15)
+
+
+### Bug Fixes
+
+* read tool_response output in Claude Code memory-observer hook ([84a2728](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/84a2728ed2e8e54834a0e660cb9e38ac62165fd1))
+
 ## [1.11.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.0...v1.11.1) (2026-03-14)
 
 
