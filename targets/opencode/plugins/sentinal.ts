@@ -36,6 +36,7 @@ import { aggregateTokenUsage, CONTEXT_CHECK_INTERVAL } from "../../../src/sessio
 import { getContextWarning } from "../../../src/sessions/context-display.js";
 import type { SessionMessage } from "../../../src/sessions/token-usage.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
+import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -199,6 +200,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   let sidecar: SidecarClient | null = null;
   let sessionId: string | null = null;
   let toolCallCount = 0;
+  let draining = false;
 
   // Auto-start sidecar + dashboard (Node.js-compatible spawn)
   try { autoStartProcess("sidecar.pid", "sidecar", "start"); } catch { /* non-fatal */ }
@@ -220,6 +222,15 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
     try { sidecar = await SidecarClient.connectWithRetry(10, 200); } catch { /* unavailable */ }
     if (sidecar) {
       log("Connected to sidecar");
+      // Drain any queued observations from previous sessions
+      if (!draining && ObservationQueue.pending() > 0) {
+        draining = true;
+        try {
+          const r = await ObservationQueue.drain(async (obs) => { await sidecar!.addObservation(obs); }, log);
+          if (r.sent > 0) log(`drained ${r.sent} queued observations on init`);
+        } catch (e) { log(`queue drain failed on init: ${e instanceof Error ? e.message : e}`); }
+        draining = false;
+      }
     } else {
       log("Sidecar unavailable — memory features disabled");
     }
@@ -277,7 +288,7 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
 
     "tool.execute.after": async (input, output) => {
       const QUALITY_TOOLS = ["write", "edit", "patch"];
-      const MEMORY_TOOLS = ["write", "edit", "patch", "bash", "shell", "terminal"];
+      const MEMORY_TOOLS = ["write", "edit", "patch", "bash", "shell", "terminal", "multiedit"];
 
       // Context monitoring — only query OpenCode's session API with a real session ID
       // (our eager "opencode-<ts>" IDs cause Hono validator errors in the TUI)
@@ -375,8 +386,8 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
         await sidecarTddTrack(sidecar, input.tool, trackerFilePath, bashOutput);
       }
 
-      // Memory capture
-      if (sidecar && sessionId) {
+      // Memory capture (runs even without sidecar — queues when unavailable)
+      if (sessionId) {
         try {
           // Build output: prefer actual tool output for bash/shell (enables error→fix,
           // TDD cycle, and build-fix heuristics), fall back to quality-check issues
@@ -408,12 +419,18 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           eventBuffer.push(event);
           const decision = analyzeEvent(event, eventBuffer);
           if (decision.shouldCapture && decision.confidence >= MIN_CAPTURE_CONFIDENCE) {
-            await sidecar.addObservation({
+            const obsPayload = {
               sessionId, projectPath: projectRoot, type: decision.type,
               title: decision.title, content: decision.content,
               filePaths: decision.filePaths, tags: decision.tags,
               metadata: { source: "auto-capture", confidence: decision.confidence, toolName: input.tool },
-            });
+            };
+            if (sidecar) {
+              try { await sidecar.addObservation(obsPayload); }
+              catch { ObservationQueue.enqueue(obsPayload, log); }
+            } else {
+              ObservationQueue.enqueue(obsPayload, log);
+            }
           }
         } catch (e) { log(`auto-capture failed: ${e instanceof Error ? e.message : e}`); }
       }
@@ -478,7 +495,20 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           log(`insertSession failed: ${e instanceof Error ? e.message : e}`);
         }
 
+        // Drain queued observations from previous sessions
+        if (sidecar && !draining && ObservationQueue.pending() > 0) {
+          draining = true;
+          try {
+            const r = await ObservationQueue.drain(async (obs) => { await sidecar!.addObservation(obs); }, log);
+            if (r.sent > 0) log(`drained ${r.sent} queued observations on session.created`);
+          } catch (e) { log(`queue drain failed: ${e instanceof Error ? e.message : e}`); }
+          draining = false;
+        }
+
         // Restore memory context
+        // NOTE: client.app.log() writes to OpenCode's TUI log panel, NOT the LLM's
+        // context window. Memory is properly injected into LLM context during compaction
+        // via output.context.push() in the session.compacting handler above.
         try {
           if (sidecar) {
             const restored = await sidecar.restoreContext(projectRoot);

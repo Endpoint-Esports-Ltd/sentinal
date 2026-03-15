@@ -186,8 +186,7 @@ sentinal/
 │   │   ├── pre-compact.ts            # PreCompact: save plan state
 │   │   ├── post-compact-restore.ts   # SessionStart: restore after compaction
 │   │   ├── session-start.ts           # SessionStart: create session record
-│   │   ├── session-end.ts            # SessionEnd: end session + cleanup
-│   │   └── memory-observer.ts        # PostToolUse: capture memories from edits
+│   │   └── session-end.ts            # SessionEnd: end session + cleanup
 │   ├── checkers/                     # Framework detection & validation
 │   │   ├── detect.ts                 # Auto-detect package manager, test runner, frameworks
 │   │   ├── typescript.ts             # Prettier, ESLint, tsc checks
@@ -272,7 +271,6 @@ Claude Code uses compiled TypeScript hooks that intercept lifecycle events:
 | `SessionStart` | memory-restore | Restores relevant memories for the current project |
 | `PreToolUse` | tool-redirect | Denies `WebSearch`/`WebFetch` (use MCP instead), blocks `EnterPlanMode` (use `/spec`), hints on vague Grep patterns |
 | `PostToolUse` | file-checker | Runs Prettier, ESLint, `tsc`, framework-specific checks, file length enforcement, and TDD checks on every `Write`/`Edit` |
-| `PostToolUse` | memory-observer | Captures significant patterns and solutions from edits |
 | `PostToolUse` | context-monitor | Monitors context window usage %, warns at 65/75/85%+ thresholds |
 | `PreCompact` | pre-compact | Saves active plan path and metadata to `.sentinal/compact-state.json` |
 | `Stop` | spec-stop-guard | Blocks session exit if a `/spec` plan is in PENDING or COMPLETE state |

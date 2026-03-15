@@ -1,0 +1,28 @@
+{
+  "review_summary": "Plan is well-aligned with all user requirements and clarifications. Five focused tasks cleanly map to the four requested changes. One should_fix issue around the drain() API coupling to SidecarClient type, and two suggestions for minor improvements.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "drain() takes full SidecarClient — creates tight coupling from observation-queue.ts to sidecar/client.ts",
+      "description": "Task 3 specifies `drain(sidecar, log?)` where `sidecar` is presumably a `SidecarClient` instance. This creates an import dependency from the new utility back to `src/sidecar/client.ts`, which is fine architecturally but means the queue module cannot be tested without mocking the full SidecarClient class. The plan says 'only uses fs, path, os — no bun:sqlite, no Zod' but importing SidecarClient may transitively pull in other dependencies. Since this file is also imported by the OpenCode plugin (which bundles via `bun build`), transitive deps could break the build.",
+      "suggested_fix": "Have `drain()` accept a callback function `sendFn: (obs: ObservationPayload) => Promise<void>` instead of the full SidecarClient. The plugin passes `(obs) => sidecar.addObservation(obs)` at the call site. This keeps observation-queue.ts fully decoupled and trivially testable."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 4 does not specify what happens if drain() is called concurrently from init AND session.created",
+      "description": "The plan adds drain at both plugin init (~line 222) and session.created (~line 476). If plugin init triggers sidecar connect, then immediately a session is created, drain() could be called twice near-simultaneously on the same queue file, causing double-sends. The plan's corruption recovery (fresh start) handles the file-level race, but duplicate observation POSTs would create duplicate entries in the memory DB.",
+      "suggested_fix": "Add a simple in-memory `draining` boolean guard in the plugin (not in the queue utility) that prevents concurrent drain calls. Set it true before drain, false after. Or document in Task 4 that double-drain is acceptable because addObservation is idempotent (if it is)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 1 DoD should verify the actual tool name OpenCode sends for batch edits",
+      "description": "The pre-mortem correctly identifies that the tool name might not be 'multiedit' (could be 'multi_edit', 'batch_edit', etc.). However, Task 1's DoD doesn't include verifying the actual tool name — it only checks that MEMORY_TOOLS includes 'multiedit' and tests pass. The plan assumes the name is 'multiedit' based on isEditTool() in capture.ts, but that's for Claude Code hooks, not OpenCode's tool naming.",
+      "suggested_fix": "Add a DoD item to Task 1: 'Verify tool name by checking OpenCode source or adding a temporary log line in tool.execute.after that logs `input.tool` for all events, then confirming multiedit events appear with that exact name.'"
+    }
+  ]
+}
