@@ -122,10 +122,14 @@ async function runMemoryObserver(): Promise<void> {
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
   const filePath = extractFilePath(toolInput);
+  // Use tool_response for actual output (esp. Bash results); fall back to tool_input
+  const rawOutput = (input.tool_response?.output as string)
+    ?? (toolInput.output as string)
+    ?? undefined;
   const event = {
     toolName, filePath,
     success: true,
-    output: (toolInput.output as string)?.slice(0, 1000),
+    output: rawOutput?.slice(0, 2000),
     timestamp: Date.now(),
   };
 

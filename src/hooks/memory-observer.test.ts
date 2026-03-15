@@ -139,6 +139,53 @@ describe("tool event construction from hook input", () => {
     expect(event.filePath).toBe("src/new-file.ts");
     expect(event.success).toBe(true);
   });
+
+  it("should prefer tool_response output over tool_input output for Bash events", () => {
+    // Simulates the hook input structure from Claude Code
+    const hookInput = {
+      tool_name: "Bash",
+      tool_input: { command: "bun test", output: "bun test" },
+      tool_response: { output: "FAIL src/foo.test.ts\n  1 fail\n  expect(received).toBe(expected)" },
+    };
+
+    // This mirrors the event construction logic in hook.ts runMemoryObserver
+    const rawOutput = (hookInput.tool_response?.output as string)
+      ?? (hookInput.tool_input.output as string)
+      ?? undefined;
+
+    const event: ToolEvent = {
+      toolName: hookInput.tool_name,
+      success: true,
+      output: rawOutput?.slice(0, 2000),
+      timestamp: Date.now(),
+    };
+
+    // Should contain the actual test output, not the command string
+    expect(event.output).toContain("FAIL");
+    expect(event.output).toContain("expect(received)");
+    expect(event.output).not.toBe("bun test");
+  });
+
+  it("should fall back to tool_input output when tool_response is absent", () => {
+    const hookInput = {
+      tool_name: "Bash",
+      tool_input: { command: "echo hello", output: "hello" },
+      // No tool_response
+    };
+
+    const rawOutput = ((hookInput as any).tool_response?.output as string)
+      ?? (hookInput.tool_input.output as string)
+      ?? undefined;
+
+    const event: ToolEvent = {
+      toolName: hookInput.tool_name,
+      success: true,
+      output: rawOutput?.slice(0, 2000),
+      timestamp: Date.now(),
+    };
+
+    expect(event.output).toBe("hello");
+  });
 });
 
 // ─── Capture-to-Storage Pipeline ─────────────────────────────────────────────
