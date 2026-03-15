@@ -1,0 +1,96 @@
+{
+  "pass_summary": "All 6 tasks implemented with correct architecture: new quality-routes.ts with POST /quality-check, concurrency control, incremental tsc, MCP tool, client method, hook and plugin delegation with fallbacks. Minor quality issues around unreliable eslint autoFixed detection, unnecessary `as any` casts, and missing test for timeout behavior.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 7,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "ESLint autoFixed detection is unreliable",
+      "description": "In src/sidecar/quality-routes.ts:252, `autoFixed` is set via `!hasErrors && result.stderr.includes(\"fix\")`. This is fragile — eslint stderr doesn't reliably contain the word 'fix' when it auto-fixes files. ESLint writes fix results to stdout, and the word 'fix' could appear in unrelated error messages. This means the autoFixed flag will almost always be false even when eslint did fix files.",
+      "suggested_fix": "Compare the file content (or mtime) before and after running eslint --fix, or run eslint twice (once without --fix to check, once with --fix to apply) similar to the prettier approach. Alternatively, use `eslint --fix --format json` and parse the JSON output which includes a `fixableErrorCount`/`fixableWarningCount`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "No test for subprocess timeout behavior",
+      "description": "The plan's DoD for Task 1 requires testing 'timeout, missing tools'. While the quality-routes.test.ts covers success, errors, validation, and concurrency, there is no test verifying that the timeout mechanism works (e.g., a process that hangs gets killed and returns timedOut: true). The runWithTimeout function is the core safety mechanism and is untested.",
+      "suggested_fix": "Add a test that calls runQualityChecks with a very short timeout (e.g., 1ms) against a command that takes time, and verify the result has timedOut: true. Or mock Bun.spawn to return a process that never exits."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "Unnecessary `as any` casts in MCP tool for checks parameter",
+      "description": "In src/analysis/mcp-tools.ts:390 and :398, `checks as any` is used when passing the Zod-validated `checks` array to `runQualityChecks()`. The Zod schema defines `checks` as `z.array(z.enum([\"tsc\", \"eslint\", \"prettier\"]))` which should produce `(\"tsc\" | \"eslint\" | \"prettier\")[]` — matching `CheckName[]`. The `as any` obscures type safety.",
+      "suggested_fix": "Import `CheckName` from quality-routes.ts and cast to `CheckName[]` instead of `any`, or fix the type inference so no cast is needed (the Zod `.optional()` may produce `undefined` which is already handled by the default in runQualityChecks)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "eslint errors parsed from stderr may include noise",
+      "description": "In src/sidecar/quality-routes.ts:247-251, eslint errors are extracted by splitting stderr on newlines and filtering non-empty lines. ESLint outputs structured errors to stdout (not stderr) by default. stderr may contain Node.js warnings, deprecation notices, or config resolution messages that aren't actual lint errors.",
+      "suggested_fix": "Consider using `eslint --format json` to get structured output on stdout, then parse the JSON for actual error messages. This would also make the autoFixed detection more reliable."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Risk mitigation for eslint/prettier config resolution not implemented",
+      "description": "Plan risk table states: 'eslint/prettier config resolution fails in sidecar context → Run with explicit --config path if default resolution fails.' The implementation runs eslint and prettier without any fallback to explicit --config paths. If config resolution fails, errors will be returned but no retry with explicit config is attempted.",
+      "suggested_fix": "Add a fallback path: if eslint/prettier exits with a config-related error (e.g., 'No ESLint configuration found'), try running with --no-eslintrc or explicit config path, or return a clear error indicating config is missing rather than treating it as lint errors."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Risk mitigation for TS version check not implemented",
+      "description": "Plan risk: 'tsc --incremental with --noEmit not available in project's TS version → Check TS version at runtime; fall back to non-incremental.' The implementation always passes --incremental without checking the TS version first. On TS < 5.0, this would fail with an error.",
+      "suggested_fix": "Add a version check (e.g., run `tsc --version` and cache the result) or catch the specific error from --incremental failure and retry without --incremental."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "file-checker.test.ts new test doesn't distinctly verify sidecar vs fallback paths",
+      "description": "The new test in src/hooks/file-checker.test.ts (line 14-20) runs processFileCheck and asserts the result is null or string, which passes regardless of whether the sidecar or fallback path was used. The plan DoD requires 'Tests verify both sidecar and fallback paths'.",
+      "suggested_fix": "Add separate tests that mock SidecarClient.connect() to return a mock client (verifying sidecar path) and to return null (verifying fallback path), and check the messages are formatted correctly in each case."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Quality checks run through the sidecar endpoint, not as direct subprocesses from hooks",
+      "status": "verified",
+      "evidence": "file-checker.ts imports SidecarClient and calls client.qualityCheck() at line 55-72 with fallback to runTypeScriptChecks(). OpenCode plugin calls sidecar.qualityCheck() at line 361-370 with fallback to npx tsc."
+    },
+    {
+      "truth": "tsc uses --incremental with a persisted tsbuildinfo file for faster subsequent runs",
+      "status": "verified",
+      "evidence": "quality-routes.ts:187-196 builds cmd with '--incremental', '--tsBuildInfoFile', and path under ~/.sentinal/tsbuildinfo/<hash>.tsbuildinfo. tsbuildinfo invalidation implemented at lines 129-162."
+    },
+    {
+      "truth": "eslint and prettier run as async subprocesses with configurable timeouts",
+      "status": "verified",
+      "evidence": "runEslint (line 223) and runPrettier (line 257) both use runWithTimeout() which uses Bun.spawn with Promise.race timeout pattern. Timeout is configurable via the request's timeout field, defaulting to 30000ms."
+    },
+    {
+      "truth": "The quality_report MCP tool returns structured results for single files and project-wide checks",
+      "status": "verified",
+      "evidence": "registerQualityReportTool in mcp-tools.ts:346-405 registered with project, file, checks, timeout_ms params. formatQualityReport at line 406 produces structured markdown with TypeScript/ESLint/Prettier sections and timing info."
+    },
+    {
+      "truth": "The Claude Code file-checker hook delegates to the sidecar when available",
+      "status": "verified",
+      "evidence": "file-checker.ts:52-72 tries SidecarClient.connect(), calls qualityCheck(), maps results to messages. Falls back to runTypeScriptChecks() when sidecar unavailable (usedSidecar flag at line 50)."
+    },
+    {
+      "truth": "The OpenCode plugin delegates quality checks to the sidecar",
+      "status": "verified",
+      "evidence": "sentinal.ts diff shows sidecar.qualityCheck() call with checks: ['tsc', 'eslint', 'prettier'] when sidecar is available, with fallback to npx tsc when sidecar is null. ESLint and prettier now run for OpenCode (previously skipped)."
+    },
+    {
+      "truth": "All subprocesses have timeout protection",
+      "status": "verified",
+      "evidence": "runWithTimeout() at quality-routes.ts:96-125 uses Promise.race with proc.kill() fallback. All three runners (runTsc, runEslint, runPrettier) use this function. Timeout defaults to 30s, configurable per-request."
+    }
+  ]
+}

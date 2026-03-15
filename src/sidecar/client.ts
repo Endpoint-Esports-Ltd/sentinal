@@ -8,6 +8,8 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
+import type { QualityCheckResult } from "./quality-routes.js";
+export type { QualityCheckResult } from "./quality-routes.js";
 import type { Spec } from "../spec/types.js";
 import type { TddCycle, SpecEvent } from "../memory/types.js";
 import type { Worktree } from "../worktree/types.js";
@@ -53,7 +55,9 @@ export class SidecarClient {
     // Try Unix socket
     const socketPath = getSidecarSocketPath();
     if (existsSync(socketPath)) {
-      const client = new SidecarClient("http://localhost", { unix: socketPath });
+      const client = new SidecarClient("http://localhost", {
+        unix: socketPath,
+      });
       try {
         const health = await client.health();
 
@@ -62,7 +66,9 @@ export class SidecarClient {
         SidecarClient.syncPortFile(health.httpPort);
 
         return client;
-      } catch { /* socket exists but not responding */ }
+      } catch {
+        /* socket exists but not responding */
+      }
     }
 
     // Try HTTP port file
@@ -76,7 +82,9 @@ export class SidecarClient {
         const client = new SidecarClient(`http://127.0.0.1:${port}`, {});
         await client.health();
         return client;
-      } catch { /* port file exists but server not responding */ }
+      } catch {
+        /* port file exists but server not responding */
+      }
     }
 
     return null;
@@ -99,7 +107,9 @@ export class SidecarClient {
       if (filePort !== httpPort) {
         writeFileSync(portPath, String(httpPort), "utf-8");
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────
@@ -107,7 +117,11 @@ export class SidecarClient {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   private async get(path: string): Promise<any> {
     const res = await fetch(`${this.baseUrl}${path}`, this.fetchOpts);
-    const body = await res.json() as { ok: boolean; data?: any; error?: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      data?: any;
+      error?: string;
+    };
     if (!body.ok) throw new Error(body.error ?? "Sidecar request failed");
     return body.data;
   }
@@ -119,7 +133,11 @@ export class SidecarClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    const body = await res.json() as { ok: boolean; data?: any; error?: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      data?: any;
+      error?: string;
+    };
     if (!body.ok) throw new Error(body.error ?? "Sidecar request failed");
     return body.data;
   }
@@ -127,7 +145,11 @@ export class SidecarClient {
 
   // ─── Health ────────────────────────────────────────────────────────────
 
-  async health(): Promise<{ status: string; pid: number; httpPort?: number | null }> {
+  async health(): Promise<{
+    status: string;
+    pid: number;
+    httpPort?: number | null;
+  }> {
     return this.get("/health");
   }
 
@@ -150,17 +172,25 @@ export class SidecarClient {
     return this.post("/session", opts);
   }
 
-  async endSession(id: string, opts: { summary?: string; notification?: boolean } = {}): Promise<void> {
+  async endSession(
+    id: string,
+    opts: { summary?: string; notification?: boolean } = {},
+  ): Promise<void> {
     await this.post(`/session/${id}/end`, opts);
   }
 
-  async getActiveSessions(): Promise<Array<{ id: string; projectPath: string; assistant: string }>> {
+  async getActiveSessions(): Promise<
+    Array<{ id: string; projectPath: string; assistant: string }>
+  > {
     return this.get("/session/active");
   }
 
   // ─── TDD State ─────────────────────────────────────────────────────────
 
-  async getTddState(filePath: string, projectPath?: string): Promise<{ state: string; hasActiveSpec: boolean }> {
+  async getTddState(
+    filePath: string,
+    projectPath?: string,
+  ): Promise<{ state: string; hasActiveSpec: boolean }> {
     const params = new URLSearchParams({ file: filePath });
     if (projectPath) params.set("project", projectPath);
     return this.get(`/tdd-state?${params}`);
@@ -207,7 +237,9 @@ export class SidecarClient {
     return this.post("/observation", obs);
   }
 
-  async restoreContext(projectPath: string): Promise<{ hasMemory: boolean; markdown: string | null }> {
+  async restoreContext(
+    projectPath: string,
+  ): Promise<{ hasMemory: boolean; markdown: string | null }> {
     return this.get(`/context?project=${encodeURIComponent(projectPath)}`);
   }
 
@@ -258,7 +290,10 @@ export class SidecarClient {
 
   // ─── Worktrees ────────────────────────────────────────────────────────
 
-  async resolveWorktreeBySlug(slug: string, project?: string): Promise<Worktree | null> {
+  async resolveWorktreeBySlug(
+    slug: string,
+    project?: string,
+  ): Promise<Worktree | null> {
     const params = new URLSearchParams({ slug });
     if (project) params.set("project", project);
     return this.get(`/worktree/resolve?${params}`);
@@ -276,6 +311,17 @@ export class SidecarClient {
   }): Promise<void> {
     await this.post("/notification", notif);
   }
+
+  // ─── Quality Checks ──────────────────────────────────────────────────
+
+  async qualityCheck(opts: {
+    projectPath: string;
+    filePath?: string;
+    checks?: string[];
+    timeout?: number;
+  }): Promise<QualityCheckResult> {
+    return this.post("/quality-check", opts);
+  }
 }
 
 /**
@@ -289,6 +335,8 @@ export async function withSidecarOrDirect<T>(
   try {
     const client = await SidecarClient.connect();
     if (client) return await sidecarFn(client);
-  } catch { /* sidecar failed, fall back */ }
+  } catch {
+    /* sidecar failed, fall back */
+  }
   return directFn();
 }

@@ -376,6 +376,64 @@ describe("SidecarClient.connect port file self-heal", () => {
   });
 });
 
+// ─── qualityCheck ─────────────────────────────────────────────────────────
+
+describe("SidecarClient.qualityCheck", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+
+  beforeEach(async () => {
+    tmpDir = join(tmpdir(), `sc-qc-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(join(tmpDir, "s.sock"));
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(join(tmpDir, "sidecar.port"));
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(join(tmpDir, "sidecar.pid"));
+
+    sidecar = await startSidecar({ store, port: 0, httpOnly: true });
+  });
+
+  afterEach(() => {
+    stopSidecar(sidecar.server, sidecar.ctx);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return structured quality check results", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    const projectPath = join(import.meta.dir, "../..");
+    const result = await client!.qualityCheck({
+      projectPath,
+      checks: ["tsc"],
+      timeout: 60000,
+    });
+
+    expect(result.tsc).toBeDefined();
+    expect(typeof result.tsc!.ok).toBe("boolean");
+    expect(typeof result.tsc!.durationMs).toBe("number");
+    expect(Array.isArray(result.tsc!.errors)).toBe(true);
+  });
+
+  it("should support single-file mode", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    const projectPath = join(import.meta.dir, "../..");
+    const result = await client!.qualityCheck({
+      projectPath,
+      filePath: join(import.meta.dir, "client.ts"),
+      checks: ["prettier"],
+      timeout: 30000,
+    });
+
+    expect(result.prettier).toBeDefined();
+    expect(typeof result.prettier!.ok).toBe("boolean");
+  });
+});
+
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────
 
 describe("withSidecarOrDirect", () => {

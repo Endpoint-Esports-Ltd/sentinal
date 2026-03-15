@@ -438,5 +438,46 @@ describe("Analysis MCP tools (sidecar mode)", () => {
     const tools = captureTools({ client: mockClient });
     expect(tools.has("check_diagnostics")).toBe(true);
     expect(tools.has("impact_analysis")).toBe(true);
+    expect(tools.has("quality_report")).toBe(true);
+  });
+});
+
+// --- quality_report tool ---
+
+describe("quality_report MCP tool", () => {
+  it("should be registered with correct schema", () => {
+    const tools = captureTools({});
+    expect(tools.has("quality_report")).toBe(true);
+  });
+
+  it("should return structured quality report for project", async () => {
+    const tools = captureTools({});
+    const handler = tools.get("quality_report")!;
+    const projectPath = join(import.meta.dir, "../..");
+
+    const result = await handler({ project: projectPath, checks: ["tsc"], timeout_ms: 60000 });
+
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+    const text = result.content[0].text;
+    expect(text).toContain("Quality Report");
+    expect(text).toContain("TypeScript");
+  });
+
+  it("should support single-file mode", async () => {
+    const tools = captureTools({});
+    const handler = tools.get("quality_report")!;
+    const projectPath = join(import.meta.dir, "../..");
+
+    const result = await handler({
+      project: projectPath,
+      file: join(import.meta.dir, "mcp-tools.ts"),
+      checks: ["prettier"],
+      timeout_ms: 30000,
+    });
+
+    expect(result.content).toBeDefined();
+    const text = result.content[0].text;
+    expect(text).toContain("Quality Report");
   });
 });

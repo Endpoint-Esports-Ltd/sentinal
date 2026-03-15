@@ -13,6 +13,7 @@ import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "../worktree/store.js";
 import { handleSidecarRequest } from "./routes.js";
+import { handleQualityRequest } from "./quality-routes.js";
 
 // Re-export path helpers for backward compatibility
 export {
@@ -194,8 +195,11 @@ export async function startSidecar(
     }
   }
 
-  const fetchHandler = (req: Request) => {
+  const fetchHandler = async (req: Request) => {
     touchActivity();
+    // Quality routes are in a separate handler to keep routes.ts under 400 lines
+    const qualityResponse = await handleQualityRequest(req, ctx);
+    if (qualityResponse) return qualityResponse;
     return handleSidecarRequest(req, ctx);
   };
 

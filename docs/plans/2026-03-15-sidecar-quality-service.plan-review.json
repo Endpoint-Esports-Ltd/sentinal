@@ -1,0 +1,63 @@
+{
+  "review_summary": "Plan is well-structured and addresses all user requirements (tsc/eslint/prettier warm service, incremental tsc, quality_report MCP tool, single-file and project-wide modes). Two must-fix issues around the server dispatch wiring and missing SidecarClient import in the hook, plus several should-fix gaps around tsc single-file mode semantics and the fallback path in the MCP tool.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Server fetchHandler is a direct delegation — no chain/fallback pattern exists",
+      "description": "The plan says 'The server's fetchHandler at server.ts:130 needs to check quality routes before/after the main handler.' But the actual fetchHandler at server.ts:197-199 is `return handleSidecarRequest(req, ctx)` — a single function call with no chaining. There is no middleware pattern, no array of handlers, no fallback. The plan doesn't specify HOW to wire quality-routes into this dispatch. The implementer must modify fetchHandler to try quality routes first (or add URL-prefix routing), but this is non-trivial and unspecified.",
+      "suggested_fix": "Task 1 should explicitly specify the dispatch wiring: e.g., modify fetchHandler to check `url.pathname.startsWith('/quality')` and route to `handleQualityRequest(req, ctx)`, else fall through to `handleSidecarRequest(req, ctx)`. Add this as a concrete step in Task 1's key decisions."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 5 needs SidecarClient import and connection logic — hook currently has no sidecar dependency",
+      "description": "file-checker.ts (76 lines) has zero sidecar imports. The plan says 'Try SidecarClient.connect() then client.qualityCheck()' but doesn't note that this requires importing SidecarClient and handling the async connection. The hook is invoked as a standalone process (`if (import.meta.main)`) — it needs to connect to the sidecar fresh each invocation. The plan should clarify whether to use `SidecarClient.connect()` or `SidecarClient.connectWithRetry()` and what timeout is acceptable for the connection itself (since this is in the hot path).",
+      "suggested_fix": "Add to Task 5 key decisions: 'Import SidecarClient. Use SidecarClient.connect() (not connectWithRetry) with a short timeout (~500ms) to avoid adding latency when sidecar is down. Wrap in try/catch and fall back to runTypeScriptChecks().'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "tsc single-file mode is misleading — tsc --noEmit always checks the whole project",
+      "description": "The plan's request shape includes 'filePath' for 'single-file mode', but tsc --noEmit --incremental always type-checks the entire project (there's no way to check a single file in isolation with project-wide type resolution). The plan doesn't clarify that 'single-file mode' for tsc still runs project-wide tsc — it only means eslint/prettier are scoped to the single file. This will confuse the implementer.",
+      "suggested_fix": "Add a note to Task 1 key decisions: 'Single-file mode: eslint and prettier run on just the specified file. tsc always runs project-wide (even in single-file mode) because type-checking requires the full project graph. The filePath parameter only scopes eslint/prettier.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "No plan for tsbuildinfo invalidation on dependency changes",
+      "description": "Risk table mentions 'Clear tsbuildinfo on known triggers (git branch change, package.json change)' but no task implements this. The tsbuildinfo file will go stale after `npm install`, branch switches, or tsconfig changes, potentially causing missed errors or false positives. This is the 'medium likelihood' risk from the risk table with no implementation coverage.",
+      "suggested_fix": "Add a key decision to Task 1 or Task 2: 'On each quality check, stat package.json and tsconfig.json mtime. Cache their mtimes alongside the tsbuildinfo. If either changed since last run, delete the tsbuildinfo to force a full rebuild. This is a simple heuristic that covers the most common invalidation triggers.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "MCP tool fallback path (Task 3) duplicates subprocess logic without reuse",
+      "description": "Task 3 says 'Fall back to direct subprocess execution (same logic as current file-checker) if sidecar unavailable.' But the current logic is in runTypeScriptChecks() which uses Bun.spawnSync (synchronous, no timeout). The MCP tool runs in the sidecar context (Bun), so it could call runTypeScriptChecks() directly, but that defeats the purpose (no incremental, no timeout). The fallback semantics are unclear.",
+      "suggested_fix": "Clarify in Task 3: 'Fallback: if sidecar unavailable, call the quality-routes handler function directly (same process, no HTTP). Do NOT fall back to Bun.spawnSync — always use the async subprocess path with timeouts.' Alternatively, extract the async subprocess logic from quality-routes.ts into a shared function."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 4 references client.test.ts but no such test file exists in grep results",
+      "description": "Task 4 verify says 'bun test src/sidecar/client.test.ts' but the plan doesn't create this file and it may not exist. If it doesn't exist, the DoD is unverifiable.",
+      "suggested_fix": "Either add client.test.ts to Task 4's created files, or move the client method tests into quality-routes.test.ts (integration test that exercises the client against a test sidecar)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 6 adds eslint/prettier to OpenCode plugin — was not explicitly requested",
+      "description": "User request is to 'move tsc/eslint/prettier quality checks from per-edit subprocess spawning into the sidecar.' The OpenCode plugin currently only runs tsc (line 358). Task 6 says 'it now gets eslint and prettier for free.' This is scope expansion — the user asked to move existing checks, not add new ones to OpenCode.",
+      "suggested_fix": "This is arguably beneficial. Either: (a) keep it but note it as an intentional scope expansion in Task 6, or (b) have Task 6 only call sidecar with checks=['tsc'] to match current behavior, and add eslint/prettier to OpenCode in a separate follow-up."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "No latency benchmark in DoD despite the 2-second target in the summary",
+      "description": "The summary claims 'reducing per-edit latency from 5-35 seconds to under 2 seconds' but no task's DoD includes a latency measurement or benchmark. Task 1 DoD says 'Second tsc run is measurably faster than first' but doesn't quantify the target.",
+      "suggested_fix": "Add to Task 1 DoD: 'Second tsc run completes in <3s for a typical project (manual benchmark, not automated test).' This makes the performance claim verifiable."
+    }
+  ]
+}

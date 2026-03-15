@@ -354,15 +354,23 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
             }
           }
 
+          // Quality checks via sidecar (tsc + eslint + prettier) with tsc-only fallback
           try {
-            const cmd = $`npx tsc --noEmit 2>&1` as { quiet(): { nothrow(): Promise<{ exitCode: number; text(): Promise<string> }> } };
-            const result = await cmd.quiet().nothrow();
-            if (result.exitCode !== 0) {
-              const out = await result.text();
-              const errors = out.split("\n").filter((l: string) => l.includes("error TS")).slice(0, 5);
-              if (errors.length > 0) issues.push(`TypeScript errors:\n${errors.join("\n")}`);
+            if (sidecar) {
+              const fp = typeof filePath === "string" ? filePath : undefined;
+              const qr = await sidecar.qualityCheck({ projectPath: projectRoot, filePath: fp, checks: ["tsc", "eslint", "prettier"] });
+              if (qr.tsc && !qr.tsc.ok) issues.push(`TypeScript errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`);
+              if (qr.eslint && !qr.eslint.ok) issues.push(`ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`);
+              if (qr.prettier?.autoFixed) issues.push("Prettier: auto-formatted file");
+            } else {
+              const cmd = $`npx tsc --noEmit 2>&1` as { quiet(): { nothrow(): Promise<{ exitCode: number; text(): Promise<string> }> } };
+              const r = await cmd.quiet().nothrow();
+              if (r.exitCode !== 0) {
+                const errs = (await r.text()).split("\n").filter((l: string) => l.includes("error TS")).slice(0, 5);
+                if (errs.length > 0) issues.push(`TypeScript errors:\n${errs.join("\n")}`);
+              }
             }
-          } catch { /* tsc not available */ }
+          } catch { /* quality check failed */ }
 
           if (issues.length > 0) {
             const level = shouldBlock ? "error" : "warn";

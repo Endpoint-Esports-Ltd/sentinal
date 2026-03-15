@@ -6,15 +6,26 @@ import { detectPackageManager, detectFramework } from "../checkers/detect.js";
 import { runTypeScriptChecks } from "../checkers/typescript.js";
 import { isAngularFile, runAngularChecks } from "../checkers/angular.js";
 import { isNestFile, checkNestPatterns } from "../checkers/nestjs.js";
+import { SidecarClient } from "../sidecar/client.js";
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
-const ALL_CODE_EXTENSIONS = [...TS_EXTENSIONS, ".go", ".py", ".rs", ".c", ".cpp"];
+const ALL_CODE_EXTENSIONS = [
+  ...TS_EXTENSIONS,
+  ".go",
+  ".py",
+  ".rs",
+  ".c",
+  ".cpp",
+];
 
 function getRunnerCommand(pm: string): string {
   return pm === "bun" ? "bunx" : "npx";
 }
 
-export async function processFileCheck(filePath: string, cwd: string): Promise<string | null> {
+export async function processFileCheck(
+  filePath: string,
+  cwd: string,
+): Promise<string | null> {
   const ext = filePath.slice(filePath.lastIndexOf("."));
   if (!ALL_CODE_EXTENSIONS.includes(ext)) return null;
 
@@ -33,29 +44,67 @@ export async function processFileCheck(filePath: string, cwd: string): Promise<s
       const nestResults = checkNestPatterns(filePath, content);
       for (const r of nestResults) messages.push(`[NestJS] ${r.message}`);
     }
-  } catch { /* File might not exist yet during Write */ }
+  } catch {
+    /* File might not exist yet during Write */
+  }
 
   // Companion test check (all languages)
   if (!isTestFile(filePath)) {
     const testPaths = getExpectedTestPaths(filePath);
     if (testPaths.length > 0 && !testPaths.some((tp) => existsSync(tp))) {
-      messages.push(`No companion test file found. Expected one of: ${testPaths.join(", ")}`);
+      messages.push(
+        `No companion test file found. Expected one of: ${testPaths.join(", ")}`,
+      );
     }
   }
 
-  // TypeScript-specific checks (tsc, eslint, Angular)
+  // TypeScript-specific checks (tsc, eslint, prettier via sidecar, Angular)
   if (isTs) {
-    const pm = detectPackageManager(cwd);
-    const runner = getRunnerCommand(pm);
-    const tsResults = runTypeScriptChecks(filePath, cwd, runner);
-    for (const r of tsResults) {
-      if (r.autoFixed) messages.push(`[${r.tool}] ${r.message}`);
-      else if (r.severity === "error") messages.push(`[${r.tool}] ${r.message}`);
+    let usedSidecar = false;
+    try {
+      const client = await SidecarClient.connect();
+      if (client) {
+        const qr = await client.qualityCheck({
+          projectPath: cwd,
+          filePath,
+          checks: ["tsc", "eslint", "prettier"],
+        });
+        usedSidecar = true;
+        if (qr.tsc && !qr.tsc.ok) {
+          messages.push(
+            `[tsc] TypeScript type errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`,
+          );
+        }
+        if (qr.eslint && !qr.eslint.ok) {
+          messages.push(
+            `[eslint] ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`,
+          );
+        } else if (qr.eslint?.autoFixed) {
+          messages.push("[eslint] Auto-fixed formatting issues");
+        }
+        if (qr.prettier?.autoFixed) {
+          messages.push("[prettier] Auto-formatted file");
+        }
+      }
+    } catch {
+      /* sidecar unavailable, fall back */
+    }
+
+    if (!usedSidecar) {
+      const pm = detectPackageManager(cwd);
+      const runner = getRunnerCommand(pm);
+      const tsResults = runTypeScriptChecks(filePath, cwd, runner);
+      for (const r of tsResults) {
+        if (r.autoFixed) messages.push(`[${r.tool}] ${r.message}`);
+        else if (r.severity === "error")
+          messages.push(`[${r.tool}] ${r.message}`);
+      }
     }
 
     const frameworks = detectFramework(cwd);
     if (frameworks.includes("angular") && isAngularFile(filePath)) {
-      for (const r of runAngularChecks(cwd)) messages.push(`[Angular] ${r.message}`);
+      for (const r of runAngularChecks(cwd))
+        messages.push(`[Angular] ${r.message}`);
     }
   }
 
@@ -65,12 +114,16 @@ export async function processFileCheck(filePath: string, cwd: string): Promise<s
 async function main(): Promise<void> {
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
-  const filePath = (toolInput?.file_path as string) ?? (toolInput?.path as string);
+  const filePath =
+    (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
   const result = await processFileCheck(filePath, input.cwd);
   if (result) output(hint("PostToolUse", result));
 }
 
 if (import.meta.main) {
-  main().catch((err) => { process.stderr.write(String(err)); process.exit(1); });
+  main().catch((err) => {
+    process.stderr.write(String(err));
+    process.exit(1);
+  });
 }

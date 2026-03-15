@@ -18,6 +18,12 @@ import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import {
+  runQualityChecks,
+  type QualityCheckResult,
+  type ToolResult,
+  type CheckName,
+} from "../sidecar/quality-routes.js";
+import {
   projectHash,
   parseTscOutput,
   extractSpecFiles,
@@ -37,13 +43,17 @@ export interface AnalysisToolsDeps {
   store?: MemoryStore | null;
 }
 
-export function registerAnalysisTools(server: McpServer, deps: AnalysisToolsDeps): void {
+export function registerAnalysisTools(
+  server: McpServer,
+  deps: AnalysisToolsDeps,
+): void {
   const { client = null, store = null } = deps;
   const effectiveStore = store ?? (client ? null : new MemoryStore());
   const specStore = effectiveStore ? new SpecStore(effectiveStore) : null;
 
   registerCheckDiagnosticsTool(server, client, effectiveStore, specStore);
   registerImpactAnalysisTool(server, client, effectiveStore, specStore);
+  registerQualityReportTool(server, client);
 }
 
 // --- check_diagnostics ---
@@ -58,18 +68,28 @@ function registerCheckDiagnosticsTool(
     "check_diagnostics",
     "Run TypeScript diagnostics filtered to spec-relevant files with delta tracking from the previous run. More useful than npx tsc --noEmit directly: shows only plan-relevant errors in detail, summarizes unrelated errors, and reports 'N NEW / N FIXED' delta from last check.",
     {
-      project: z.string().describe("Absolute path to the project root (where tsconfig.json lives)"),
-      timeout_ms: z.number().optional().describe("Timeout in milliseconds (default 30000)"),
+      project: z
+        .string()
+        .describe(
+          "Absolute path to the project root (where tsconfig.json lives)",
+        ),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe("Timeout in milliseconds (default 30000)"),
     },
     async ({ project, timeout_ms }) => {
       const timeoutMs = timeout_ms ?? 30000;
 
       try {
-        const proc = Bun.spawn(["npx", "tsc", "--noEmit", "--pretty", "false"], {
-          cwd: project,
-          stdout: "pipe",
-          stderr: "pipe",
-        });
+        const proc = Bun.spawn(
+          ["npx", "tsc", "--noEmit", "--pretty", "false"],
+          {
+            cwd: project,
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
 
         const timeoutPromise = new Promise<"timeout">((resolve) =>
           setTimeout(() => resolve("timeout"), timeoutMs),
@@ -81,10 +101,12 @@ function registerCheckDiagnosticsTool(
           proc.kill();
           const partialStderr = await proc.stderr.text().catch(() => "");
           return {
-            content: [{
-              type: "text" as const,
-              text: `TIMEOUT: tsc did not complete within ${timeoutMs}ms. Run \`npx tsc --noEmit\` directly for full output.${partialStderr ? `\n\nPartial stderr:\n${partialStderr}` : ""}`,
-            }],
+            content: [
+              {
+                type: "text" as const,
+                text: `TIMEOUT: tsc did not complete within ${timeoutMs}ms. Run \`npx tsc --noEmit\` directly for full output.${partialStderr ? `\n\nPartial stderr:\n${partialStderr}` : ""}`,
+              },
+            ],
           };
         }
 
@@ -107,10 +129,18 @@ function registerCheckDiagnosticsTool(
         // Compute delta
         let deltaText = "";
         if (baseline !== null) {
-          const prevKeys = new Set(baseline.errors.map((e) => `${e.file}:${e.line}:${e.message}`));
-          const currKeys = new Set(currentErrors.map((e) => `${e.file}:${e.line}:${e.message}`));
-          const newErrors = currentErrors.filter((e) => !prevKeys.has(`${e.file}:${e.line}:${e.message}`));
-          const fixedCount = baseline.errors.filter((e) => !currKeys.has(`${e.file}:${e.line}:${e.message}`)).length;
+          const prevKeys = new Set(
+            baseline.errors.map((e) => `${e.file}:${e.line}:${e.message}`),
+          );
+          const currKeys = new Set(
+            currentErrors.map((e) => `${e.file}:${e.line}:${e.message}`),
+          );
+          const newErrors = currentErrors.filter(
+            (e) => !prevKeys.has(`${e.file}:${e.line}:${e.message}`),
+          );
+          const fixedCount = baseline.errors.filter(
+            (e) => !currKeys.has(`${e.file}:${e.line}:${e.message}`),
+          ).length;
           if (newErrors.length > 0 || fixedCount > 0) {
             const parts: string[] = [];
             if (newErrors.length > 0) parts.push(`**${newErrors.length} NEW**`);
@@ -122,15 +152,20 @@ function registerCheckDiagnosticsTool(
         }
 
         // Save updated baseline
-        store?.setSetting(cacheKey, JSON.stringify({
-          timestamp: Date.now(),
-          errorCount,
-          errors: currentErrors,
-        } satisfies DiagnosticsBaseline));
+        store?.setSetting(
+          cacheKey,
+          JSON.stringify({
+            timestamp: Date.now(),
+            errorCount,
+            errors: currentErrors,
+          } satisfies DiagnosticsBaseline),
+        );
 
         // Get active spec for file filtering
         const activeSpec = specStore?.getCurrentSpec(project) ?? null;
-        const specFiles = activeSpec ? extractSpecFiles(activeSpec.planFile) : new Set<string>();
+        const specFiles = activeSpec
+          ? extractSpecFiles(activeSpec.planFile)
+          : new Set<string>();
 
         // Partition errors: spec-relevant vs other
         const specErrors = currentErrors.filter((err) => {
@@ -141,7 +176,9 @@ function registerCheckDiagnosticsTool(
             return relFile.endsWith(sfNorm) || sfNorm.endsWith(relFile);
           });
         });
-        const otherErrors = currentErrors.filter((err) => !specErrors.includes(err));
+        const otherErrors = currentErrors.filter(
+          (err) => !specErrors.includes(err),
+        );
 
         // Build output
         const lines: string[] = [];
@@ -150,10 +187,15 @@ function registerCheckDiagnosticsTool(
           lines.push("", "No TypeScript errors found.");
         } else {
           const specLabel = activeSpec ? " (spec files)" : "";
-          lines.push(`## TypeScript Diagnostics — ${errorCount} error${errorCount === 1 ? "" : "s"}${deltaText}`);
+          lines.push(
+            `## TypeScript Diagnostics — ${errorCount} error${errorCount === 1 ? "" : "s"}${deltaText}`,
+          );
 
           if (specErrors.length > 0) {
-            lines.push("", `### ${specErrors.length} error${specErrors.length === 1 ? "" : "s"} in spec-relevant files${specLabel}`);
+            lines.push(
+              "",
+              `### ${specErrors.length} error${specErrors.length === 1 ? "" : "s"} in spec-relevant files${specLabel}`,
+            );
             for (const err of specErrors) {
               lines.push(`- \`${err.file}:${err.line}\` — ${err.message}`);
             }
@@ -177,7 +219,12 @@ function registerCheckDiagnosticsTool(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
-          content: [{ type: "text" as const, text: `Error running check_diagnostics: ${msg}\n\nFallback: run \`npx tsc --noEmit\` directly.` }],
+          content: [
+            {
+              type: "text" as const,
+              text: `Error running check_diagnostics: ${msg}\n\nFallback: run \`npx tsc --noEmit\` directly.`,
+            },
+          ],
         };
       }
     },
@@ -214,45 +261,77 @@ function registerImpactAnalysisTool(
 
         if (allChangedRelPaths.size === 0) {
           return {
-            content: [{
-              type: "text" as const,
-              text: "## Impact Analysis\n\n0 files changed. Nothing to analyze.",
-            }],
+            content: [
+              {
+                type: "text" as const,
+                text: "## Impact Analysis\n\n0 files changed. Nothing to analyze.",
+              },
+            ],
           };
         }
 
         // Get active spec task files
         const activeSpec = specStore?.getCurrentSpec(project) ?? null;
-        const specFiles = activeSpec ? extractSpecFiles(activeSpec.planFile) : new Set<string>();
+        const specFiles = activeSpec
+          ? extractSpecFiles(activeSpec.planFile)
+          : new Set<string>();
 
         // Analyze each changed file
         const changedFiles: ChangedFile[] = [];
         for (const relPath of allChangedRelPaths) {
-          const isTsFile = relPath.endsWith(".ts") || relPath.endsWith(".js") || relPath.endsWith(".tsx");
+          const isTsFile =
+            relPath.endsWith(".ts") ||
+            relPath.endsWith(".js") ||
+            relPath.endsWith(".tsx");
           if (!isTsFile) {
-            changedFiles.push({ path: join(project, relPath), relPath, isExpected: isExpectedFile(relPath, specFiles), lineCount: 0, overLimit: false, importerCount: 0 });
+            changedFiles.push({
+              path: join(project, relPath),
+              relPath,
+              isExpected: isExpectedFile(relPath, specFiles),
+              lineCount: 0,
+              overLimit: false,
+              importerCount: 0,
+            });
             continue;
           }
           const fullPath = join(project, relPath);
           const lineCount = countLines(fullPath);
           const importerCount = await countImporters(relPath, project);
-          changedFiles.push({ path: fullPath, relPath, isExpected: isExpectedFile(relPath, specFiles), lineCount, overLimit: lineCount > 400, importerCount });
+          changedFiles.push({
+            path: fullPath,
+            relPath,
+            isExpected: isExpectedFile(relPath, specFiles),
+            lineCount,
+            overLimit: lineCount > 400,
+            importerCount,
+          });
         }
 
         // Compute risk level
-        const hasUnexpected = specFiles.size > 0 && changedFiles.some((f) => !f.isExpected);
+        const hasUnexpected =
+          specFiles.size > 0 && changedFiles.some((f) => !f.isExpected);
         const hasLimitViolation = changedFiles.some((f) => f.overLimit);
         let risk: RiskLevel = "LOW";
         if (hasUnexpected || hasLimitViolation) risk = "HIGH";
         else if (changedFiles.some((f) => f.importerCount > 3)) risk = "MEDIUM";
 
         // Build output
-        const lines = buildImpactOutput(risk, changedFiles, specFiles, activeSpec?.title ?? null);
+        const lines = buildImpactOutput(
+          risk,
+          changedFiles,
+          specFiles,
+          activeSpec?.title ?? null,
+        );
         return { content: [{ type: "text" as const, text: lines }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
-          content: [{ type: "text" as const, text: `Error running impact_analysis: ${msg}\n\nFallback: run \`git diff --stat HEAD\` directly.` }],
+          content: [
+            {
+              type: "text" as const,
+              text: `Error running impact_analysis: ${msg}\n\nFallback: run \`git diff --stat HEAD\` directly.`,
+            },
+          ],
         };
       }
     },
@@ -265,13 +344,183 @@ async function runGitDiff(project: string, cmd: string[]): Promise<string> {
   return proc.stdout.text();
 }
 
+// --- quality_report ---
+
+function registerQualityReportTool(
+  server: McpServer,
+  client: SidecarClient | null,
+): void {
+  server.tool(
+    "quality_report",
+    "Run TypeScript, ESLint, and Prettier quality checks on a project or single file. Returns structured results with timing info. Uses the sidecar for incremental tsc with tsBuildInfo caching. More useful than running tools manually: returns all checks in one call with auto-fix for eslint/prettier.",
+    {
+      project: z.string().describe("Absolute path to the project root"),
+      file: z
+        .string()
+        .optional()
+        .describe(
+          "Specific file to check (eslint/prettier only). If omitted, project-wide.",
+        ),
+      checks: z
+        .array(z.enum(["tsc", "eslint", "prettier"]))
+        .optional()
+        .describe("Which checks to run. Default: all three."),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe("Per-check timeout in milliseconds (default 30000)"),
+    },
+    async ({ project, file, checks, timeout_ms }) => {
+      try {
+        let result: QualityCheckResult;
+
+        // Try sidecar first, fall back to direct execution
+        if (client) {
+          try {
+            result = await client.qualityCheck({
+              projectPath: project,
+              filePath: file,
+              checks,
+              timeout: timeout_ms,
+            });
+          } catch {
+            // Sidecar failed — fall back to direct
+            result = await runQualityChecks({
+              projectPath: project,
+              filePath: file,
+              checks: checks as CheckName[] | undefined,
+              timeout: timeout_ms,
+            });
+          }
+        } else {
+          result = await runQualityChecks({
+            projectPath: project,
+            filePath: file,
+            checks: checks as CheckName[] | undefined,
+            timeout: timeout_ms,
+          });
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formatQualityReport(project, file, result),
+            },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `## Quality Report — Error\n\n${msg}`,
+            },
+          ],
+        };
+      }
+    },
+  );
+}
+
+function formatQualityReport(
+  project: string,
+  file: string | undefined,
+  result: QualityCheckResult,
+): string {
+  const lines: string[] = [
+    "## Quality Report",
+    `**Project:** ${project}`,
+    file ? `**File:** ${file}` : "**Scope:** Project-wide",
+    "",
+  ];
+
+  if (result.tsc) {
+    const t = result.tsc;
+    const meta = [
+      `${(t.durationMs / 1000).toFixed(1)}s`,
+      t.incremental ? "incremental" : "full",
+      t.timedOut ? "TIMED OUT" : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    lines.push(`### TypeScript (${meta})`);
+    if (t.ok) {
+      lines.push("- 0 errors");
+    } else {
+      lines.push(
+        `- ${t.errors.length} error${t.errors.length === 1 ? "" : "s"}`,
+      );
+      for (const e of t.errors.slice(0, 10)) {
+        lines.push(`  - ${e}`);
+      }
+      if (t.errors.length > 10)
+        lines.push(`  - ... and ${t.errors.length - 10} more`);
+    }
+    lines.push("");
+  }
+
+  if (result.eslint) {
+    const t = result.eslint;
+    const meta = [
+      `${(t.durationMs / 1000).toFixed(1)}s`,
+      t.autoFixed ? "auto-fixed" : "",
+      t.timedOut ? "TIMED OUT" : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    lines.push(`### ESLint (${meta})`);
+    if (t.ok) {
+      lines.push(t.autoFixed ? "- Auto-fixed issues" : "- No issues");
+    } else {
+      lines.push(
+        `- ${t.errors.length} error${t.errors.length === 1 ? "" : "s"}`,
+      );
+      for (const e of t.errors.slice(0, 5)) {
+        lines.push(`  - ${e}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (result.prettier) {
+    const t = result.prettier;
+    const meta = [
+      `${(t.durationMs / 1000).toFixed(1)}s`,
+      t.autoFixed ? "auto-fixed" : "",
+      t.timedOut ? "TIMED OUT" : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    lines.push(`### Prettier (${meta})`);
+    if (t.ok) {
+      lines.push(
+        t.autoFixed ? "- Formatted files" : "- All files formatted correctly",
+      );
+    } else {
+      lines.push(
+        `- ${t.errors.length} issue${t.errors.length === 1 ? "" : "s"}`,
+      );
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 function buildImpactOutput(
   risk: RiskLevel,
   changedFiles: ChangedFile[],
   specFiles: Set<string>,
   specTitle: string | null,
 ): string {
-  const riskSuffix = risk === "MEDIUM" ? " (review recommended)" : risk === "HIGH" ? " (action required)" : "";
+  const riskSuffix =
+    risk === "MEDIUM"
+      ? " (review recommended)"
+      : risk === "HIGH"
+        ? " (action required)"
+        : "";
   const lines: string[] = [
     `## Impact Analysis — Risk: **${risk}**${riskSuffix}`,
     "",
@@ -280,15 +529,22 @@ function buildImpactOutput(
   if (specTitle) lines.push(`_Active spec: ${specTitle}_`);
 
   lines.push("", "### Changed Files");
-  const expectedFiles = changedFiles.filter((f) => f.isExpected || specFiles.size === 0);
-  const unexpectedFiles = changedFiles.filter((f) => !f.isExpected && specFiles.size > 0);
+  const expectedFiles = changedFiles.filter(
+    (f) => f.isExpected || specFiles.size === 0,
+  );
+  const unexpectedFiles = changedFiles.filter(
+    (f) => !f.isExpected && specFiles.size > 0,
+  );
 
   if (expectedFiles.length > 0) {
     lines.push("");
     if (specFiles.size > 0) lines.push("**Expected (in spec):**");
     for (const f of expectedFiles) {
       const linePart = f.lineCount > 0 ? ` — ${f.lineCount} lines` : "";
-      const importPart = f.importerCount > 0 ? ` — ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}` : "";
+      const importPart =
+        f.importerCount > 0
+          ? ` — ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}`
+          : "";
       lines.push(`- \`${f.relPath}\`${linePart}${importPart}`);
     }
   }
@@ -296,8 +552,13 @@ function buildImpactOutput(
     lines.push("");
     for (const f of unexpectedFiles) {
       const linePart = f.lineCount > 0 ? ` (${f.lineCount} lines)` : "";
-      const importPart = f.importerCount > 0 ? `, ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}` : "";
-      lines.push(`- ⚠️ **WARNING: \`${f.relPath}\` modified but not listed in any task's Files section**${linePart}${importPart}`);
+      const importPart =
+        f.importerCount > 0
+          ? `, ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}`
+          : "";
+      lines.push(
+        `- ⚠️ **WARNING: \`${f.relPath}\` modified but not listed in any task's Files section**${linePart}${importPart}`,
+      );
     }
   }
 
@@ -305,16 +566,25 @@ function buildImpactOutput(
   if (overLimitFiles.length > 0) {
     lines.push("", "### File Length Warnings");
     for (const f of overLimitFiles) {
-      lines.push(`- ⚠️ **WARNING: \`${f.relPath}\` is ${f.lineCount} lines (over 400-line limit)**`);
+      lines.push(
+        `- ⚠️ **WARNING: \`${f.relPath}\` is ${f.lineCount} lines (over 400-line limit)**`,
+      );
     }
   }
 
-  lines.push("", "### Summary", `- Risk: **${risk}**`, `- Files changed: ${changedFiles.length}`);
+  lines.push(
+    "",
+    "### Summary",
+    `- Risk: **${risk}**`,
+    `- Files changed: ${changedFiles.length}`,
+  );
   if (specFiles.size > 0) {
     lines.push(`- Expected (in spec): ${expectedFiles.length}`);
-    if (unexpectedFiles.length > 0) lines.push(`- Unexpected (not in spec): ${unexpectedFiles.length}`);
+    if (unexpectedFiles.length > 0)
+      lines.push(`- Unexpected (not in spec): ${unexpectedFiles.length}`);
   }
-  if (overLimitFiles.length > 0) lines.push(`- Over 400-line limit: ${overLimitFiles.length}`);
+  if (overLimitFiles.length > 0)
+    lines.push(`- Over 400-line limit: ${overLimitFiles.length}`);
 
   return lines.join("\n");
 }
