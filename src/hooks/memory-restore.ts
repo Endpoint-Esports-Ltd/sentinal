@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     const store = new MemoryStore();
     const service = new MemoryService(store);
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: input.cwd,
     });
 

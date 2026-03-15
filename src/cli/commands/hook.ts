@@ -189,10 +189,17 @@ async function runMemoryRestore(): Promise<void> {
   const { hint: hintFn } = await import("../../utils/hook-output.js");
   const input = await readStdin();
 
+  // Build semantic query for context-aware restore
+  let semanticQuery: string | undefined;
+  try {
+    const { buildSemanticQuery } = await import("../../memory/restore.js");
+    semanticQuery = buildSemanticQuery(input.cwd);
+  } catch { /* non-fatal */ }
+
   try {
     const client = await SidecarClient.connect();
     if (client) {
-      const result = await client.restoreContext(input.cwd);
+      const result = await client.restoreContext(input.cwd, semanticQuery);
       if (result.hasMemory && result.markdown) {
         output(hintFn("SessionStart", result.markdown));
       }
@@ -206,7 +213,7 @@ async function runMemoryRestore(): Promise<void> {
     const { restoreContext } = await import("../../memory/restore.js");
     const store = new MemoryStore();
     const service = new MemoryService(store);
-    const result = restoreContext(service, { projectPath: input.cwd });
+    const result = await restoreContext(service, { projectPath: input.cwd, semanticQuery });
     service.close();
     if (result.hasMemory && result.markdown) {
       output(hintFn("SessionStart", result.markdown));
@@ -242,10 +249,16 @@ async function runPreCompact(): Promise<void> {
   const activePlan = active?.filePath ?? null;
 
   let memoryContext: string | null = null;
+  let semanticQuery: string | undefined;
+  try {
+    const { buildSemanticQuery } = await import("../../memory/restore.js");
+    semanticQuery = buildSemanticQuery(input.cwd);
+  } catch { /* non-fatal */ }
+
   try {
     const client = await SidecarClient.connect();
     if (client) {
-      const restored = await client.restoreContext(input.cwd);
+      const restored = await client.restoreContext(input.cwd, semanticQuery);
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) await client.syncSpec(active.filePath, input.cwd);
     } else {
@@ -256,7 +269,7 @@ async function runPreCompact(): Promise<void> {
       const { SpecStore } = await import("../../spec/store.js");
       const store = new MemoryStore();
       const service = new MemoryService(store);
-      const restored = restoreContext(service, { projectPath: input.cwd });
+      const restored = await restoreContext(service, { projectPath: input.cwd, semanticQuery });
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) {
         const specStore = new SpecStore(store);

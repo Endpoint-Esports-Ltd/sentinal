@@ -134,3 +134,71 @@ export function checkIntegrity(store: MemoryStore): string[] | null {
 
   return rows.map((r) => r.integrity_check);
 }
+
+// ─── Quality Decay ────────────────────────────────────────────────────────────
+
+/** Decay rates per 30-day period by observation type */
+const DECAY_RATES: Record<string, number> = {
+  decision: 0.95,
+  discovery: 0.90,
+  pattern: 0.85,
+  fix: 0.80,
+  error: 0.75,
+};
+
+const MINIMUM_QUALITY_SCORE = 0.1;
+const DECAY_PERIOD_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export interface DecayOptions {
+  dryRun?: boolean;
+}
+
+export interface DecayResult {
+  updated: number;
+  decayed: number;
+}
+
+/**
+ * Decay quality scores based on observation age and type.
+ *
+ * Formula: new_score = quality_score * (decay_rate ^ (days_since_creation / 30))
+ * Minimum score: 0.1 (observations are always findable via search)
+ *
+ * Uses a single SQL UPDATE per type for efficiency.
+ */
+export function decayQualityScores(
+  store: MemoryStore,
+  options?: DecayOptions,
+): DecayResult {
+  const db = store.getRawDb();
+  const now = Date.now();
+  let totalDecayed = 0;
+  let totalUpdated = 0;
+
+  for (const [type, rate] of Object.entries(DECAY_RATES)) {
+    // Calculate new scores: score * rate^(age_ms / period_ms)
+    // SQLite doesn't have pow(), so we compute in JS
+    const rows = db.prepare(
+      "SELECT id, quality_score, timestamp FROM observations WHERE type = ?",
+    ).all(type) as Array<{ id: number; quality_score: number; timestamp: number }>;
+
+    for (const row of rows) {
+      const ageMs = now - row.timestamp;
+      const periods = ageMs / DECAY_PERIOD_MS;
+      // Decay from initial quality, but never boost above current score
+      const decayedScore = Math.max(MINIMUM_QUALITY_SCORE, Math.pow(rate, periods));
+      const newScore = Math.min(row.quality_score, decayedScore);
+
+      // Only count as decayed if score actually changes meaningfully
+      if (Math.abs(newScore - row.quality_score) > 0.001) {
+        totalDecayed++;
+        if (!options?.dryRun) {
+          db.run("UPDATE observations SET quality_score = ? WHERE id = ?", [newScore, row.id]);
+          totalUpdated++;
+        }
+      }
+    }
+  }
+
+  return { updated: totalUpdated, decayed: totalDecayed };
+}

@@ -123,4 +123,86 @@ describe("runMigrations", () => {
     expect(indexNames).toContain("idx_specs_project");
     expect(indexNames).toContain("idx_spec_tasks_spec");
   });
+
+  // ─── V8: quality_score column ───────────────────────────────────────
+
+  it("should add quality_score column to observations (V8)", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    const cols = db.prepare("PRAGMA table_info(observations)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const qualityCol = cols.find((c) => c.name === "quality_score");
+
+    expect(qualityCol).toBeDefined();
+    expect(qualityCol!.dflt_value).toBe("1.0");
+  });
+
+  it("should create index on quality_score (V8)", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_obs_quality'")
+      .all() as Array<{ name: string }>;
+
+    expect(indexes).toHaveLength(1);
+  });
+
+  it("should backfill quality_score from metadata confidence (V8)", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+
+    // Create schema_version and set to 7 to simulate a pre-V8 database
+    db.run("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
+    db.run("INSERT INTO schema_version (version) VALUES (7)");
+
+    // Create minimal observations table (V1 schema, no quality_score)
+    db.run(`
+      CREATE TABLE observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        file_paths TEXT DEFAULT '[]',
+        tags TEXT DEFAULT '[]',
+        metadata TEXT DEFAULT '{}'
+      )
+    `);
+
+    // Insert test observations with varying metadata
+    db.run(`INSERT INTO observations (session_id, project_path, timestamp, type, title, content, metadata)
+      VALUES ('s1', '/proj', 100, 'decision', 'With confidence', 'content', '{"confidence": 0.85}')`);
+    db.run(`INSERT INTO observations (session_id, project_path, timestamp, type, title, content, metadata)
+      VALUES ('s1', '/proj', 200, 'error', 'No confidence', 'content', '{}')`);
+    db.run(`INSERT INTO observations (session_id, project_path, timestamp, type, title, content, metadata)
+      VALUES ('s1', '/proj', 300, 'fix', 'Null metadata', 'content', 'null')`);
+
+    // Run migrations — only V8 should apply (version is 7)
+    runMigrations(db, dbPath);
+
+    // Check backfilled values
+    const rows = db.prepare("SELECT id, quality_score FROM observations ORDER BY id").all() as Array<{ id: number; quality_score: number }>;
+
+    expect(rows[0]!.quality_score).toBeCloseTo(0.85); // from metadata.confidence
+    expect(rows[1]!.quality_score).toBe(1.0);          // no confidence → default
+    expect(rows[2]!.quality_score).toBe(1.0);          // null metadata → default
+  });
+
+  it("should set schema version to 8 after V8 migration", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    const row = db.prepare("SELECT MAX(version) as version FROM schema_version").get() as { version: number };
+    expect(row.version).toBe(8);
+  });
 });

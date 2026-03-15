@@ -239,8 +239,12 @@ export class SidecarClient {
 
   async restoreContext(
     projectPath: string,
+    semanticQuery?: string,
   ): Promise<{ hasMemory: boolean; markdown: string | null }> {
-    return this.get(`/context?project=${encodeURIComponent(projectPath)}`);
+    let url = `/context?project=${encodeURIComponent(projectPath)}`;
+    if (semanticQuery)
+      url += `&semanticQuery=${encodeURIComponent(semanticQuery)}`;
+    return this.get(url);
   }
 
   // ─── Memory Search/Timeline/Get/Stats (MCP delegation) ─────────────────

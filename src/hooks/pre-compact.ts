@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   try {
     const store = new MemoryStore();
     const service = new MemoryService(store);
-    const restored = restoreContext(service, { projectPath: input.cwd });
+    const restored = await restoreContext(service, { projectPath: input.cwd });
     if (restored.hasMemory) {
       memoryContext = restored.markdown;
     }

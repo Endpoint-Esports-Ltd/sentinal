@@ -56,7 +56,7 @@ export class HybridStrategy implements SearchStrategy {
 
 // ─── Merge & Rank ─────────────────────────────────────────────────────────────
 
-function mergeAndRank(
+export function mergeAndRank(
   vectorResults: ScoredObservation[],
   ftsResults: ScoredObservation[],
   limit: number,
@@ -100,6 +100,9 @@ function mergeAndRank(
         1 - age / SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
       combinedScore += recencyFactor * MAX_RECENCY_BOOST;
     }
+
+    // Quality score weighting: prioritize high-quality observations
+    combinedScore *= Math.max(obs.qualityScore ?? 1.0, 0.1);
 
     merged.push({ observation: obs, score: combinedScore });
   }

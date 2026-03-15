@@ -50,6 +50,23 @@ describe("MemoryStore", () => {
 
       expect(obs2.id).toBe(obs1.id + 1);
     });
+
+    it("should set quality_score from metadata confidence", () => {
+      const obs = store.insertObservation(makeObservation({ metadata: { confidence: 0.75 } }));
+      expect(obs.qualityScore).toBeCloseTo(0.75);
+    });
+
+    it("should default quality_score to 1.0 when no confidence", () => {
+      const obs = store.insertObservation(makeObservation({ metadata: { source: "test" } }));
+      expect(obs.qualityScore).toBe(1.0);
+    });
+
+    it("should include qualityScore in deserialized observations", () => {
+      const inserted = store.insertObservation(makeObservation());
+      const retrieved = store.getObservation(inserted.id);
+      expect(retrieved!.qualityScore).toBeDefined();
+      expect(typeof retrieved!.qualityScore).toBe("number");
+    });
   });
 
   describe("getObservation", () => {

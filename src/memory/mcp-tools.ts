@@ -17,6 +17,7 @@ import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { decayQualityScores } from "./maintenance.js";
 
 export interface MemoryToolsDeps {
   client?: SidecarClient | null;
@@ -35,6 +36,7 @@ export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | M
     registerGetTool(server, service, null);
     registerSaveTool(server, service, store, null);
     registerStatsTool(server, service, null);
+    registerMaintainTool(server, store);
     return service;
   }
 
@@ -46,6 +48,7 @@ export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | M
   registerGetTool(server, service, client);
   registerSaveTool(server, service, store, client);
   registerStatsTool(server, service, client);
+  if (store) registerMaintainTool(server, store);
   return service;
 }
 
@@ -226,6 +229,87 @@ function registerSaveTool(
           text: `Saved observation #${obsId}: "${title}" (${type})`,
         }],
       };
+    },
+  );
+}
+
+// --- Maintain ---
+
+const MAINTAIN_ACTIONS = ["decay", "prune", "stats"] as const;
+
+function registerMaintainTool(server: McpServer, store: MemoryStore): void {
+  server.tool(
+    "memory_maintain",
+    "Maintain memory quality: decay scores, prune low-quality observations, or view quality distribution.",
+    {
+      action: z.enum(MAINTAIN_ACTIONS).describe("Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)"),
+      prune_threshold: z.number().min(0).max(1).optional().describe("Prune observations below this quality score (default 0.15)"),
+      dry_run: z.boolean().optional().describe("Preview without changes (default false)"),
+    },
+    async ({ action, prune_threshold, dry_run }) => {
+      const dryRun = dry_run ?? false;
+      const db = store.getRawDb();
+
+      if (action === "decay") {
+        const result = decayQualityScores(store, { dryRun });
+        const prefix = dryRun ? "[DRY RUN] " : "";
+        return {
+          content: [{
+            type: "text",
+            text: `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
+          }],
+        };
+      }
+
+      if (action === "prune") {
+        const threshold = prune_threshold ?? 0.15;
+
+        if (dryRun) {
+          const row = db.prepare(
+            "SELECT COUNT(*) as count FROM observations WHERE quality_score < ?",
+          ).get(threshold) as { count: number };
+          return {
+            content: [{
+              type: "text",
+              text: `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
+            }],
+          };
+        }
+
+        const countBefore = (db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number }).count;
+        db.run("DELETE FROM observations WHERE quality_score < ?", [threshold]);
+        const countAfter = (db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number }).count;
+        const pruned = countBefore - countAfter;
+
+        return {
+          content: [{
+            type: "text",
+            text: `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
+          }],
+        };
+      }
+
+      // stats action
+      const buckets = [
+        { label: "0.0–0.2", min: 0, max: 0.2 },
+        { label: "0.2–0.4", min: 0.2, max: 0.4 },
+        { label: "0.4–0.6", min: 0.4, max: 0.6 },
+        { label: "0.6–0.8", min: 0.6, max: 0.8 },
+        { label: "0.8–1.0", min: 0.8, max: 1.01 },
+      ];
+
+      const lines = ["## Quality Score Distribution", ""];
+      let total = 0;
+      for (const bucket of buckets) {
+        const row = db.prepare(
+          "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
+        ).get(bucket.min, bucket.max) as { count: number };
+        lines.push(`- **${bucket.label}:** ${row.count}`);
+        total += row.count;
+      }
+      lines.push("", `**Total:** ${total} observations`);
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     },
   );
 }

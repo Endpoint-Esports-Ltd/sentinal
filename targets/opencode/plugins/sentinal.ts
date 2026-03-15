@@ -32,6 +32,7 @@ import { checkFileLength } from "../../../src/utils/file-length.js";
 import { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS } from "../../../src/memory/capture.js";
 import type { ToolEvent } from "../../../src/memory/capture.js";
 import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
+import { buildSemanticQuery } from "../../../src/memory/restore.js";
 import { aggregateTokenUsage, CONTEXT_CHECK_INTERVAL } from "../../../src/sessions/token-usage.js";
 import { getContextWarning } from "../../../src/sessions/context-display.js";
 import type { SessionMessage } from "../../../src/sessions/token-usage.js";
@@ -450,10 +451,11 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
       const planStatus = active?.spec.status ?? null;
 
       let memoryContext: string | null = null;
+      const sq = buildSemanticQuery(projectRoot);
       try {
         if (sidecar) {
           if (active) await sidecar.syncSpec(active.filePath, projectRoot);
-          const restored = await sidecar.restoreContext(projectRoot);
+          const restored = await sidecar.restoreContext(projectRoot, sq);
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
       } catch (e) { log(`compaction sidecar failed: ${e instanceof Error ? e.message : e}`); }

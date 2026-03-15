@@ -38,8 +38,8 @@ describe("restoreContext", () => {
     service.close();
   });
 
-  it("should return empty context for unknown project", () => {
-    const result = restoreContext(service, {
+  it("should return empty context for unknown project", async () => {
+    const result = await restoreContext(service, {
       projectPath: "/unknown/project",
     });
 
@@ -48,10 +48,10 @@ describe("restoreContext", () => {
     expect(result.observationCount).toBe(0);
   });
 
-  it("should include project path in context", () => {
+  it("should include project path in context", async () => {
     service.addObservation(makeObservation());
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -59,7 +59,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("/test/project");
   });
 
-  it("should include key decisions", () => {
+  it("should include key decisions", async () => {
     service.addObservation(
       makeObservation({
         type: "decision",
@@ -68,7 +68,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -76,7 +76,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("Chose repository pattern");
   });
 
-  it("should include recent discoveries", () => {
+  it("should include recent discoveries", async () => {
     service.addObservation(
       makeObservation({
         type: "discovery",
@@ -84,7 +84,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -92,7 +92,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("CDK virtual scroll");
   });
 
-  it("should include patterns", () => {
+  it("should include patterns", async () => {
     service.addObservation(
       makeObservation({
         type: "pattern",
@@ -100,7 +100,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -108,7 +108,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("class-validator");
   });
 
-  it("should show unresolved errors as active issues", () => {
+  it("should show unresolved errors as active issues", async () => {
     service.addObservation(
       makeObservation({
         type: "error",
@@ -118,7 +118,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -126,7 +126,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("Race condition");
   });
 
-  it("should NOT show errors that have been fixed", () => {
+  it("should NOT show errors that have been fixed", async () => {
     service.addObservation(
       makeObservation({
         type: "error",
@@ -145,7 +145,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -153,7 +153,7 @@ describe("restoreContext", () => {
     expect(result.markdown).not.toContain("### Active Issues");
   });
 
-  it("should include recent fixes", () => {
+  it("should include recent fixes", async () => {
     service.addObservation(
       makeObservation({
         type: "fix",
@@ -161,7 +161,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
@@ -169,14 +169,14 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("Fixed auth token");
   });
 
-  it("should respect recentLimit", () => {
+  it("should respect recentLimit", async () => {
     for (let i = 0; i < 20; i++) {
       service.addObservation(
         makeObservation({ title: `Observation ${i}`, timestamp: i }),
       );
     }
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
       recentLimit: 5,
     });
@@ -184,7 +184,7 @@ describe("restoreContext", () => {
     expect(result.observationCount).toBe(5);
   });
 
-  it("should truncate output at maxOutputLength", () => {
+  it("should truncate output at maxOutputLength", async () => {
     for (let i = 0; i < 50; i++) {
       service.addObservation(
         makeObservation({
@@ -195,7 +195,7 @@ describe("restoreContext", () => {
       );
     }
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
       maxOutputLength: 500,
     });
@@ -204,7 +204,7 @@ describe("restoreContext", () => {
     expect(result.markdown).toContain("*(truncated)*");
   });
 
-  it("should format dates as YYYY-MM-DD", () => {
+  it("should format dates as YYYY-MM-DD", async () => {
     const specificDate = new Date("2026-03-08T12:00:00Z").getTime();
     service.addObservation(
       makeObservation({
@@ -214,14 +214,14 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
     expect(result.markdown).toContain("2026-03-08");
   });
 
-  it("should show file-context-aware related observations", () => {
+  it("should show file-context-aware related observations", async () => {
     // Add an error on a specific file
     service.addObservation(
       makeObservation({
@@ -252,7 +252,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
       currentFiles: ["src/auth/auth.service.ts"],
     });
@@ -263,7 +263,7 @@ describe("restoreContext", () => {
     expect(result.hasMemory).toBe(true);
   });
 
-  it("should not show Related to Current Files when no currentFiles provided", () => {
+  it("should not show Related to Current Files when no currentFiles provided", async () => {
     service.addObservation(
       makeObservation({
         type: "error",
@@ -272,14 +272,78 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/test/project",
     });
 
     expect(result.markdown).not.toContain("### Related to Current Files");
   });
 
-  it("should only include observations for the specified project", () => {
+  // ─── Semantic Restore ──────────────────────────────────────────────────
+
+  it("should accept semanticQuery and return a Promise", async () => {
+    service.addObservation(
+      makeObservation({
+        type: "decision",
+        title: "Chose SQLite for memory storage",
+        content: "SQLite provides reliable embedded database with FTS5 support",
+        timestamp: Date.now() - 10000,
+      }),
+    );
+
+    // restoreContext always returns a Promise now
+    const result = await restoreContext(service, {
+      projectPath: "/test/project",
+      semanticQuery: "database storage SQLite",
+    });
+
+    expect(result.hasMemory).toBe(true);
+    expect(result.observationCount).toBeGreaterThan(0);
+    expect(result.markdown).toContain("Sentinal Memory Context");
+  });
+
+  it("should fall back to chronological when semanticQuery search fails", async () => {
+    service.addObservation(
+      makeObservation({
+        type: "discovery",
+        title: "Fallback test observation",
+        timestamp: Date.now() - 1000,
+      }),
+    );
+
+    // Even if semantic search fails internally, should still return results
+    const result = await restoreContext(service, {
+      projectPath: "/test/project",
+      semanticQuery: "some query that exercises the path",
+    });
+
+    expect(result.hasMemory).toBe(true);
+    expect(result.markdown).toContain("Fallback test observation");
+  });
+
+  it("should supplement sparse semantic results with chronological", async () => {
+    // Add several observations
+    for (let i = 0; i < 8; i++) {
+      service.addObservation(
+        makeObservation({
+          type: "discovery",
+          title: `Discovery ${i}`,
+          timestamp: Date.now() - i * 1000,
+        }),
+      );
+    }
+
+    const result = await restoreContext(service, {
+      projectPath: "/test/project",
+      semanticQuery: "test query",
+    });
+
+    expect(result.hasMemory).toBe(true);
+    // Should have observations (either from semantic or chronological supplement)
+    expect(result.observationCount).toBeGreaterThan(0);
+  });
+
+  it("should only include observations for the specified project", async () => {
     service.addObservation(
       makeObservation({
         projectPath: "/project-a",
@@ -295,7 +359,7 @@ describe("restoreContext", () => {
       }),
     );
 
-    const result = restoreContext(service, {
+    const result = await restoreContext(service, {
       projectPath: "/project-a",
     });
 

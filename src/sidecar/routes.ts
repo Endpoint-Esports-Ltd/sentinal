@@ -274,11 +274,12 @@ async function handleAddObservation(
   return ok(obs);
 }
 
-function handleRestoreContext(url: URL, ctx: SidecarContext): Response {
+async function handleRestoreContext(url: URL, ctx: SidecarContext): Promise<Response> {
   const projectPath = url.searchParams.get("project");
   if (!projectPath) return fail("Missing 'project' query param");
 
-  const result = restoreContext(ctx.service, { projectPath });
+  const semanticQuery = url.searchParams.get("semanticQuery") ?? undefined;
+  const result = await restoreContext(ctx.service, { projectPath, semanticQuery });
   return ok({ hasMemory: result.hasMemory, markdown: result.markdown });
 }
 

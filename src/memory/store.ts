@@ -88,9 +88,12 @@ export class MemoryStore {
   // ─── Observations CRUD ────────────────────────────────────────────────
 
   insertObservation(obs: CreateObservation): Observation {
+    const confidence = typeof obs.metadata?.confidence === "number" ? obs.metadata.confidence : null;
+    const qualityScore = confidence != null && confidence > 0 && confidence <= 1 ? confidence : 1.0;
+
     const stmt = this.db.prepare(`
-      INSERT INTO observations (session_id, project_path, timestamp, type, title, content, file_paths, tags, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO observations (session_id, project_path, timestamp, type, title, content, file_paths, tags, metadata, quality_score)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -103,6 +106,7 @@ export class MemoryStore {
       JSON.stringify(obs.filePaths),
       JSON.stringify(obs.tags),
       JSON.stringify(obs.metadata),
+      qualityScore,
     );
 
     return this.getObservation(Number(result.lastInsertRowid))!;
@@ -629,6 +633,7 @@ export class MemoryStore {
       filePaths: JSON.parse(row.file_paths || "[]"),
       tags: JSON.parse(row.tags || "[]"),
       metadata: JSON.parse(row.metadata || "{}"),
+      qualityScore: row.quality_score ?? 1.0,
     };
   }
 

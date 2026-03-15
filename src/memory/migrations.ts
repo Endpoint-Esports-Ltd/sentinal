@@ -39,6 +39,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 5) migrateV5(db);
   if (currentVersion < 6) migrateV6(db);
   if (currentVersion < 7) migrateV7(db);
+  if (currentVersion < 8) migrateV8(db);
 }
 
 // ─── V1: Core tables (observations, sessions, FTS) ───────────────────────────
@@ -287,4 +288,30 @@ function migrateV5(db: Database): void {
 
     INSERT OR REPLACE INTO schema_version (version) VALUES (5);
   `);
+}
+
+// ─── V8: quality_score column on observations ───────────────────────────────
+
+function migrateV8(db: Database): void {
+  // Add quality_score column with default 1.0
+  const cols = db
+    .prepare("PRAGMA table_info(observations)")
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "quality_score")) {
+    db.run("ALTER TABLE observations ADD COLUMN quality_score REAL DEFAULT 1.0");
+  }
+
+  // Backfill from metadata.confidence where available
+  db.run(`
+    UPDATE observations
+    SET quality_score = json_extract(metadata, '$.confidence')
+    WHERE json_valid(metadata) AND json_extract(metadata, '$.confidence') IS NOT NULL
+      AND json_extract(metadata, '$.confidence') > 0
+      AND json_extract(metadata, '$.confidence') <= 1
+  `);
+
+  // Create index for efficient filtering/sorting by quality
+  db.run("CREATE INDEX IF NOT EXISTS idx_obs_quality ON observations(quality_score)");
+
+  db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (8)");
 }

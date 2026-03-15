@@ -183,7 +183,8 @@ export function analyzeEvent(
     detectTddCycle(event, buffer) ??
     detectConfigChange(event) ??
     detectArchitecturalChange(event) ??
-    detectBuildFixSequence(event, buffer);
+    detectBuildFixSequence(event, buffer) ??
+    detectFailedApproach(event, buffer);
 
   return decision ?? noCaptureDecision();
 }
@@ -337,6 +338,75 @@ function detectTddCycle(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// ─── Failed Approach Detection ────────────────────────────────────────────────
+
+const GIT_RESTORE_PATTERNS = [
+  /git\s+checkout\s+--?\s/,
+  /git\s+restore\s/,
+];
+
+/**
+ * Detect failed approaches:
+ * Signal 1: 3+ error events on the same filePath with no success between them
+ * Signal 2: git restore/checkout on a recently edited file
+ */
+function detectFailedApproach(
+  event: ToolEvent,
+  buffer: EventBuffer,
+): CaptureDecision | null {
+  // Signal 2: git restore/checkout in bash output
+  if (event.toolName.toLowerCase() === "bash" && event.output) {
+    for (const pattern of GIT_RESTORE_PATTERNS) {
+      if (pattern.test(event.output)) {
+        // Check if any recently edited file was restored
+        const recentEdits = buffer.recent(10).filter((e) => isEditTool(e.toolName) && e.filePath);
+        const editedFiles = new Set(recentEdits.map((e) => e.filePath));
+        // Check if the git restore targets a recently edited file
+        const restoredFile = [...editedFiles].find((fp) => fp && event.output!.includes(basename(fp)));
+        if (restoredFile) {
+          return {
+            shouldCapture: true,
+            type: "pattern",
+            title: `Failed approach: reverted ${basename(restoredFile)}`,
+            content: `Approach was abandoned — file was edited then reverted via git restore/checkout. Output: ${event.output.slice(0, 200)}`,
+            filePaths: compact([restoredFile]),
+            tags: ["failed-approach", "auto-captured"],
+            confidence: 0.60,
+          };
+        }
+      }
+    }
+  }
+
+  // Signal 1: 3+ errors on same file — trigger on the error event itself
+  if (!event.success && event.filePath) {
+    const recent = buffer.recent(10);
+    let errorCount = 1; // Count current event
+    for (const e of recent) {
+      if (e.filePath !== event.filePath) continue;
+      if (!e.success || (e.output && hasErrorIndicator(e.output))) {
+        errorCount++;
+      } else if (e.success && e.toolName.toLowerCase() === "bash") {
+        // A successful bash run on the same file breaks the error streak
+        break;
+      }
+    }
+    if (errorCount >= 3) {
+      return {
+        shouldCapture: true,
+        type: "pattern",
+        title: `Failed approach: repeated errors on ${basename(event.filePath)}`,
+        content: `${errorCount} errors detected on ${event.filePath} without successful resolution. The current approach may not be working.`,
+        filePaths: [event.filePath],
+        tags: ["failed-approach", "auto-captured"],
+        confidence: 0.60,
+      };
+    }
+  }
+
+  return null;
+}
 
 function noCaptureDecision(): CaptureDecision {
   return {

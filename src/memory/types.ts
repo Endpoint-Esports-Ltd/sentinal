@@ -34,9 +34,10 @@ export const ObservationSchema = z.object({
   filePaths: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
+  qualityScore: z.number().min(0).max(1).default(1.0),
 });
 
-export const CreateObservationSchema = ObservationSchema.omit({ id: true });
+export const CreateObservationSchema = ObservationSchema.omit({ id: true, qualityScore: true });
 
 export const SessionSchema = z.object({
   id: z.string(),
@@ -130,6 +131,7 @@ export interface RawObservation {
   file_paths: string;
   tags: string;
   metadata: string;
+  quality_score: number;
 }
 
 export interface RawSession {
@@ -185,7 +187,7 @@ export interface RawNotification {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 7,
+  SCHEMA_VERSION: 8,
 } as const;
 
 // ─── TDD Cycle Types ──────────────────────────────────────────────────────────
