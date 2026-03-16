@@ -1,3 +1,14 @@
+# [1.13.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.12.0...v1.13.0) (2026-03-16)
+
+
+### Features
+
+* add cross-session conflict detection, OpenCode TDD parity, and LSP diagnostics ([0a6f1ad](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0a6f1adf247b0b4e168ffb775977637c13534ecd))
+* add project_context MCP tool and pre-edit guidance hook ([afba4b8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/afba4b8826c3fe0a5843c0e866ea130e4572b0b6))
+* add shareable project memory via .sentinal/project-memory.json ([2c046c0](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2c046c0dfee93347996923f23922adfd923b9ecc))
+* add smart memory with semantic restore, quality scoring, and failed approach detection ([49cf331](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/49cf33138b0f6642e477bc028cf6c982dceb7c4a))
+* move quality checks into sidecar with incremental tsc and quality_report MCP tool ([749d25b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/749d25b8f5e4bbe866c0ab6c8946d51c54b83aab))
+
 # [1.12.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.11.2...v1.12.0) (2026-03-15)
 
 
