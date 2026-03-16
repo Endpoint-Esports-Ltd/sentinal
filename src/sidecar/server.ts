@@ -53,12 +53,16 @@ export interface SidecarServerOptions {
   port?: number;
 }
 
-// ─── Idle Tracking ───────────────────────────────────────────────────────────
+// ─── Session-Aware Lifecycle ─────────────────────────────────────────────────
 
-/** Default idle timeout: 5 minutes */
-export const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 /** Default check interval: 30 seconds */
 export const DEFAULT_CHECK_INTERVAL_MS = 30 * 1000;
+/** Grace period after last session ends before shutdown (default: 60s) */
+export const SESSION_GRACE_PERIOD_MS = 60 * 1000;
+/** Idle timeout when no sessions have ever been created (default: 30 min) */
+export const FALLBACK_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+/** If sessions exist but no HTTP activity for this long, treat as stale (default: 1h) */
+export const STALE_ACTIVITY_THRESHOLD_MS = 60 * 60 * 1000;
 
 let lastActivityTime = Date.now();
 
@@ -72,43 +76,93 @@ export function getLastActivityTime(): number {
   return lastActivityTime;
 }
 
-export interface IdleShutdownOptions {
-  /** Idle timeout in ms before auto-shutdown (default: 5 min) */
-  timeoutMs?: number;
-  /** How often to check for idle in ms (default: 30s) */
+export interface SessionAwareShutdownOptions {
+  /** Grace period in ms after last session ends (default: 60s) */
+  gracePeriodMs?: number;
+  /** Idle timeout in ms when no sessions ever created (default: 30 min) */
+  fallbackIdleMs?: number;
+  /** Stale activity threshold in ms (default: 1h) */
+  staleActivityMs?: number;
+  /** How often to check in ms (default: 30s) */
   checkIntervalMs?: number;
   /** Custom shutdown callback (default: stopSidecar + process.exit) */
   onShutdown?: () => void;
 }
 
 /**
- * Enable idle auto-shutdown for the sidecar.
+ * Enable session-aware auto-shutdown for the sidecar.
+ *
+ * - Stays alive while any assistant session is active
+ * - Shuts down after gracePeriodMs with zero active sessions
+ * - Falls back to idle timeout when no sessions have ever been created (manual start)
+ * - Detects stale sessions via HTTP activity threshold
+ *
  * Returns a cleanup function that clears the interval.
  */
-export function enableIdleShutdown(
+export function enableSessionAwareShutdown(
   result: SidecarStartResult,
-  opts: IdleShutdownOptions = {}
+  opts: SessionAwareShutdownOptions = {},
 ): () => void {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const gracePeriodMs = opts.gracePeriodMs ?? SESSION_GRACE_PERIOD_MS;
+  const fallbackIdleMs = opts.fallbackIdleMs ?? FALLBACK_IDLE_TIMEOUT_MS;
+  const staleActivityMs = opts.staleActivityMs ?? STALE_ACTIVITY_THRESHOLD_MS;
   const checkIntervalMs = opts.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
 
-  // Reset the activity timestamp when enabling
   touchActivity();
 
+  let sessionsEverSeen = false;
+  let noSessionSince: number | null = null;
+
+  const doShutdown = () => {
+    clearInterval(interval);
+    if (opts.onShutdown) {
+      opts.onShutdown();
+    } else {
+      stopSidecar(result.server, result.ctx, result.httpServer);
+      process.exit(0);
+    }
+  };
+
   const interval = setInterval(() => {
-    const idleMs = Date.now() - lastActivityTime;
-    if (idleMs >= timeoutMs) {
-      clearInterval(interval);
-      if (opts.onShutdown) {
-        opts.onShutdown();
+    const store = result.ctx.store;
+    let activeSessions: unknown[];
+    try {
+      activeSessions = store.getActiveSessions();
+    } catch {
+      // Store closed or unavailable — treat as no sessions
+      activeSessions = [];
+    }
+
+    if (activeSessions.length > 0) {
+      // Sessions exist — check if they're actually alive (recent HTTP activity)
+      const activityAge = Date.now() - lastActivityTime;
+      if (activityAge >= staleActivityMs) {
+        // No HTTP activity for staleActivityMs — sessions are likely from a crashed client
+        // Fall through to the noSessionSince logic
       } else {
-        stopSidecar(result.server, result.ctx, result.httpServer);
-        process.exit(0);
+        // Active sessions with recent activity — stay alive
+        sessionsEverSeen = true;
+        noSessionSince = null;
+        return;
+      }
+    }
+
+    // No active sessions (or stale sessions only)
+    if (sessionsEverSeen) {
+      if (noSessionSince === null) {
+        noSessionSince = Date.now();
+      } else if (Date.now() - noSessionSince >= gracePeriodMs) {
+        doShutdown();
+      }
+    } else {
+      // No sessions ever seen — hybrid idle fallback
+      const idleMs = Date.now() - lastActivityTime;
+      if (idleMs >= fallbackIdleMs) {
+        doShutdown();
       }
     }
   }, checkIntervalMs);
 
-  // Don't let this interval keep the process alive on its own
   if (interval.unref) interval.unref();
 
   return () => clearInterval(interval);

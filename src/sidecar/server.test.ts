@@ -26,7 +26,7 @@ import {
 import {
   startSidecar,
   stopSidecar,
-  enableIdleShutdown,
+  enableSessionAwareShutdown,
   getLastActivityTime,
   cleanupStaleSessionsOnStartup,
 } from "./server.js";
@@ -530,70 +530,154 @@ describe("idle auto-shutdown", () => {
     expect(after).toBeGreaterThan(before);
   });
 
-  it("should return an interval handle from enableIdleShutdown", () => {
-    const cleanup = enableIdleShutdown(sidecar, {
-      timeoutMs: 60_000,
+  it("should return a cleanup function from enableSessionAwareShutdown", () => {
+    const cleanup = enableSessionAwareShutdown(sidecar, {
       checkIntervalMs: 1_000,
+      gracePeriodMs: 60_000,
     });
     expect(cleanup).toBeDefined();
     expect(typeof cleanup).toBe("function");
-    // Clean up the interval
     cleanup();
   });
 
-  it("should call shutdown callback when idle timeout expires", async () => {
+  it("should shutdown after grace period with no active sessions", async () => {
     let shutdownCalled = false;
-    const cleanup = enableIdleShutdown(sidecar, {
-      timeoutMs: 50,
+    // Create an active session so sessionsEverSeen flips true
+    sidecar.ctx.store.insertSession({
+      id: "temp-session", startTime: Date.now(), endTime: null,
+      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+    });
+    await get(base, "/ping");
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
       checkIntervalMs: 20,
-      onShutdown: () => {
-        shutdownCalled = true;
-      },
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: () => { shutdownCalled = true; },
     });
 
-    // Wait for the idle timer to fire (50ms timeout + 20ms check interval + buffer)
+    // Let the checker see the active session
+    await new Promise((r) => setTimeout(r, 50));
+    expect(shutdownCalled).toBe(false);
+
+    // End the session — grace period starts
+    sidecar.ctx.store.endSession("temp-session");
+
+    // Wait for grace period to elapse
     await new Promise((r) => setTimeout(r, 150));
     expect(shutdownCalled).toBe(true);
     cleanup();
   });
 
-  it("should not shutdown when requests keep coming", async () => {
+  it("should stay alive when active sessions exist", async () => {
     let shutdownCalled = false;
-    const cleanup = enableIdleShutdown(sidecar, {
-      timeoutMs: 80,
+    // Create an active session (no end_time)
+    sidecar.ctx.store.insertSession({
+      id: "active-session", startTime: Date.now(), endTime: null,
+      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+    });
+    // Keep activity fresh
+    await get(base, "/ping");
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 30,
       checkIntervalMs: 20,
-      onShutdown: () => {
-        shutdownCalled = true;
-      },
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: () => { shutdownCalled = true; },
     });
 
-    // Send requests every 30ms for 120ms — should keep it alive past the 80ms timeout
+    await new Promise((r) => setTimeout(r, 150));
+    expect(shutdownCalled).toBe(false);
+    cleanup();
+  });
+
+  it("should shutdown when sessions end after being active (transition flow)", async () => {
+    let shutdownCalled = false;
+    // Start with active session
+    sidecar.ctx.store.insertSession({
+      id: "trans-session", startTime: Date.now(), endTime: null,
+      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+    });
+    await get(base, "/ping");
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: () => { shutdownCalled = true; },
+    });
+
+    // Session is active — should stay alive
+    await new Promise((r) => setTimeout(r, 100));
+    expect(shutdownCalled).toBe(false);
+
+    // End the session
+    sidecar.ctx.store.endSession("trans-session");
+
+    // Now grace period starts — should shutdown after ~40ms
+    await new Promise((r) => setTimeout(r, 150));
+    expect(shutdownCalled).toBe(true);
+    cleanup();
+  });
+
+  it("should fallback to idle timeout when no sessions ever created", async () => {
+    let shutdownCalled = false;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 50,
+      staleActivityMs: 600_000,
+      onShutdown: () => { shutdownCalled = true; },
+    });
+
+    // No sessions ever created, idle timeout is 50ms
+    await new Promise((r) => setTimeout(r, 150));
+    expect(shutdownCalled).toBe(true);
+    cleanup();
+  });
+
+  it("should not fallback to idle when requests keep coming and no sessions exist", async () => {
+    let shutdownCalled = false;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 60,
+      staleActivityMs: 600_000,
+      onShutdown: () => { shutdownCalled = true; },
+    });
+
+    // Keep requests flowing — should prevent fallback idle shutdown
     for (let i = 0; i < 4; i++) {
       await get(base, "/ping");
-      await new Promise((r) => setTimeout(r, 30));
+      await new Promise((r) => setTimeout(r, 25));
     }
 
     expect(shutdownCalled).toBe(false);
     cleanup();
   });
 
-  it("should shutdown after requests stop", async () => {
+  it("should shutdown when sessions exist but no HTTP activity for stale threshold", async () => {
     let shutdownCalled = false;
-    const cleanup = enableIdleShutdown(sidecar, {
-      timeoutMs: 60,
+    // Create an active session
+    sidecar.ctx.store.insertSession({
+      id: "stale-client-session", startTime: Date.now(), endTime: null,
+      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+    });
+    // Don't send any requests — activity is stale from the start
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
       checkIntervalMs: 20,
-      onShutdown: () => {
-        shutdownCalled = true;
-      },
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 30, // Very short stale threshold for test
+      onShutdown: () => { shutdownCalled = true; },
     });
 
-    // Send some requests to keep alive
-    await get(base, "/ping");
-    await new Promise((r) => setTimeout(r, 20));
-    await get(base, "/ping");
-
-    // Then stop — should shutdown after idle timeout
-    await new Promise((r) => setTimeout(r, 150));
+    // Session exists but activity is older than staleActivityMs (30ms)
+    await new Promise((r) => setTimeout(r, 200));
     expect(shutdownCalled).toBe(true);
     cleanup();
   });

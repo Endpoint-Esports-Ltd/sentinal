@@ -22,7 +22,7 @@ import {
   startSidecar,
   stopSidecar,
   getSidecarPidPath,
-  enableIdleShutdown,
+  enableSessionAwareShutdown,
 } from "../../sidecar/server.js";
 
 export function registerSidecarCommand(program: Command): void {
@@ -78,10 +78,10 @@ export function registerSidecarCommand(program: Command): void {
           `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`
         );
         console.log(`Listening on ${addr}`);
-        console.log("Press Ctrl+C to stop (auto-shutdown after 5 min idle)");
+        console.log("Press Ctrl+C to stop (auto-shutdown when no sessions active)");
 
-        // Enable idle auto-shutdown — sidecar self-terminates when no clients are connected
-        enableIdleShutdown(result);
+        // Enable session-aware shutdown — sidecar stays alive while sessions exist
+        enableSessionAwareShutdown(result);
 
         const shutdown = () => {
           console.log("\nShutting down sidecar...");
@@ -160,10 +160,10 @@ export function registerSidecarCommand(program: Command): void {
         `Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`
       );
       console.log(`Listening on ${addr}`);
-      console.log("Press Ctrl+C to stop (auto-shutdown after 5 min idle)");
+      console.log("Press Ctrl+C to stop (auto-shutdown when no sessions active)");
 
-      // Enable idle auto-shutdown
-      enableIdleShutdown(result);
+      // Enable session-aware shutdown
+      enableSessionAwareShutdown(result);
 
       const shutdown = () => {
         console.log("\nShutting down sidecar...");

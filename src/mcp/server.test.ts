@@ -19,7 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { createSentinalServer, registerMcpCleanupHandlers, startKeepalive } from "./server.js";
+import { createSentinalServer, registerMcpCleanupHandlers } from "./server.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
@@ -544,59 +544,4 @@ describe("registerMcpCleanupHandlers", () => {
   });
 });
 
-// --- Keepalive Tests ---
-
-describe("startKeepalive", () => {
-  it("should call client.ping() after the interval elapses", async () => {
-    let pingCount = 0;
-    const fakeClient = {
-      ping: async () => { pingCount++; },
-    } as Parameters<typeof startKeepalive>[0];
-
-    const stop = startKeepalive(fakeClient, 20); // 20ms interval for testing
-
-    await new Promise((r) => setTimeout(r, 60));
-    stop();
-
-    expect(pingCount).toBeGreaterThanOrEqual(2);
-  });
-
-  it("should stop pinging after the cleanup function is called", async () => {
-    let pingCount = 0;
-    const fakeClient = {
-      ping: async () => { pingCount++; },
-    } as Parameters<typeof startKeepalive>[0];
-
-    const stop = startKeepalive(fakeClient, 20);
-    await new Promise((r) => setTimeout(r, 50));
-    stop();
-    const countAtStop = pingCount;
-
-    // Wait another interval to confirm no more pings
-    await new Promise((r) => setTimeout(r, 50));
-    expect(pingCount).toBe(countAtStop);
-  });
-
-  it("should be a no-op when called with null client", () => {
-    // Should not throw
-    const stop = startKeepalive(null, 20);
-    expect(typeof stop).toBe("function");
-    stop(); // cleanup should also not throw
-  });
-
-  it("should swallow ping errors without crashing", async () => {
-    let callCount = 0;
-    const fakeClient = {
-      ping: async () => {
-        callCount++;
-        throw new Error("sidecar offline");
-      },
-    } as Parameters<typeof startKeepalive>[0];
-
-    const stop = startKeepalive(fakeClient, 20);
-    await new Promise((r) => setTimeout(r, 50));
-    stop();
-
-    expect(callCount).toBeGreaterThanOrEqual(1);
-  });
-});
+// Keepalive tests removed — keepalive ping no longer needed with session-aware shutdown.

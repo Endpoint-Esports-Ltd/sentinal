@@ -55,37 +55,6 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   return { server, store };
 }
 
-// --- Keepalive ---
-
-/** Default keepalive interval: 2 minutes (well under the 5-min idle timeout) */
-export const DEFAULT_KEEPALIVE_INTERVAL_MS = 2 * 60 * 1000;
-
-/**
- * Start a periodic ping loop to keep the sidecar alive during long sessions
- * where no MCP tools are called. Returns a cleanup function that stops pinging.
- *
- * Pass null to get a no-op cleanup (direct mode / no sidecar).
- */
-export function startKeepalive(
-  client: Pick<SidecarClient, "ping"> | null,
-  intervalMs = DEFAULT_KEEPALIVE_INTERVAL_MS
-): () => void {
-  if (!client) return () => {};
-
-  const timer = setInterval(async () => {
-    try {
-      await client.ping();
-    } catch {
-      // Non-fatal: sidecar may have been manually stopped. Ping silently fails.
-    }
-  }, intervalMs);
-
-  // Don't prevent process exit if this is the only timer remaining
-  if (timer.unref) timer.unref();
-
-  return () => clearInterval(timer);
-}
-
 // --- Cleanup Handlers ---
 
 /**
@@ -131,14 +100,9 @@ export async function main(): Promise<void> {
   const client = await SidecarClient.connectWithRetry();
   const { server, store } = createSentinalServer({ client });
 
-  // Keep the sidecar alive during long sessions where no MCP tools are called
-  const stopKeepalive = startKeepalive(client);
-
-  // Register cleanup handlers so sidecar is stopped when MCP server exits
+  // Register cleanup handlers so sidecar is stopped when MCP server exits (if no sessions remain)
   const cleanup = registerMcpCleanupHandlers(store);
-  process.on("SIGTERM", stopKeepalive);
-  process.on("SIGINT", stopKeepalive);
-  process.on("exit", () => { stopKeepalive(); cleanup(); });
+  process.on("exit", cleanup);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
