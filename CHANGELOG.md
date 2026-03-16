@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.15.0...v1.16.0) (2026-03-16)
+
+
+### Features
+
+* make all quality checks on-demand instead of per-edit ([de2a53d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/de2a53d296391f8cb272a3e0906fe651d62e934f))
+
 # [1.15.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.1...v1.15.0) (2026-03-16)
 
 
