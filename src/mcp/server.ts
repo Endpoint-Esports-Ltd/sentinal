@@ -17,6 +17,7 @@ import { registerSpecTools } from "../spec/mcp-tools.js";
 import { registerWorktreeTools } from "../worktree/mcp-tools.js";
 import { registerTddTools } from "../tdd/mcp-tools.js";
 import { registerAnalysisTools } from "../analysis/mcp-tools.js";
+import { registerProjectTools } from "../project/mcp-tools.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
 
@@ -49,6 +50,7 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   registerWorktreeTools(server, { client, store });
   registerTddTools(server, { client, store });
   registerAnalysisTools(server, { client, store });
+  registerProjectTools(server, { client });
 
   return { server, store };
 }

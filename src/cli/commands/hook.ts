@@ -351,6 +351,18 @@ async function runContextMonitor(): Promise<void> {
   if (warning) output(hintFn("PostToolUse", warning));
 }
 
+async function runPreEditGuide(): Promise<void> {
+  const { processPreEditGuide } = await import("../../hooks/pre-edit-guide.js");
+  const { hint: hintFn } = await import("../../utils/hook-output.js");
+  const input = await readStdin();
+  const filePath = extractFilePath(input.tool_input ?? {});
+  if (!filePath) return;
+  let client: SidecarClient | null = null;
+  try { client = await SidecarClient.connect(); } catch { /* no sidecar */ }
+  const result = await processPreEditGuide({ filePath, cwd: input.cwd, client });
+  if (result) output(hintFn("PreToolUse", result));
+}
+
 const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "tdd-guard": runTddGuard,
   "tdd-tracker": runTddTracker,
@@ -361,6 +373,7 @@ const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "spec-stop-guard": runSpecStopGuard,
   "pre-compact": runPreCompact,
   "post-compact-restore": runPostCompactRestore,
+  "pre-edit-guide": runPreEditGuide,
 };
 
 const CLAUDE_HOOKS: Record<string, () => Promise<void>> = {

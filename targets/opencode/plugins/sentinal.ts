@@ -77,10 +77,7 @@ interface PluginHooks {
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 
-const VAGUE_GREP_INDICATORS = [
-  /^how\s/i, /^what\s/i, /^where\s/i, /^why\s/i,
-  /^find\s.*that/i, /\bworks?\b/i, /\bhandles?\b/i, /\bimplements?\b/i,
-];
+import { getGrepHint, getFetchHint, getPreEditGuide } from "./sentinal-helpers.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -266,24 +263,19 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
         if (guardMsg) throw new Error(guardMsg);
       }
 
+      // Tool redirect hints
       if (tool === "grep" && typeof args.pattern === "string") {
-        if (VAGUE_GREP_INDICATORS.some((r) => r.test(args.pattern as string))) {
-          await client.app.log({
-            body: {
-              service: "sentinal", level: "info",
-              message: `[Hint] This grep pattern looks like a semantic query. Consider using a code search tool or reading relevant files directly.`,
-            },
-          });
-        }
+        const grepHint = getGrepHint(args.pattern as string);
+        if (grepHint) await client.app.log({ body: { service: "sentinal", level: "info", message: grepHint } });
+      }
+      if (tool === "fetch") {
+        await client.app.log({ body: { service: "sentinal", level: "info", message: getFetchHint() } });
       }
 
-      if (tool === "fetch") {
-        await client.app.log({
-          body: {
-            service: "sentinal", level: "info",
-            message: `[Hint] For full page rendering, consider using the MCP web-fetch tool if available.`,
-          },
-        });
+      // Pre-edit guidance: inject file-specific observations
+      if (sidecar && typeof filePath === "string") {
+        const guide = await getPreEditGuide(sidecar, filePath, projectRoot);
+        if (guide) await client.app.log({ body: { service: "sentinal", level: "info", message: guide } });
       }
     },
 

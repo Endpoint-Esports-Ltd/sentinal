@@ -247,6 +247,17 @@ export class SidecarClient {
     return this.get(url);
   }
 
+  // ─── Project Context ────────────────────────────────────────────────────
+
+  async projectContext(
+    projectPath: string,
+    refresh?: boolean,
+  ): Promise<Record<string, unknown>> {
+    let url = `/project-context?project=${encodeURIComponent(projectPath)}`;
+    if (refresh) url += "&refresh=true";
+    return this.get(url);
+  }
+
   // ─── Memory Search/Timeline/Get/Stats (MCP delegation) ─────────────────
 
   /* eslint-disable @typescript-eslint/no-explicit-any */

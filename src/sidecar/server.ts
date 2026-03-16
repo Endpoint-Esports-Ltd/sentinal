@@ -14,6 +14,7 @@ import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "../worktree/store.js";
 import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
+import { handleProjectContextRequest } from "./project-routes.js";
 
 // Re-export path helpers for backward compatibility
 export {
@@ -197,9 +198,11 @@ export async function startSidecar(
 
   const fetchHandler = async (req: Request) => {
     touchActivity();
-    // Quality routes are in a separate handler to keep routes.ts under 400 lines
+    // Quality and project-context routes are in separate handlers to keep routes.ts under 400 lines
     const qualityResponse = await handleQualityRequest(req, ctx);
     if (qualityResponse) return qualityResponse;
+    const projectResponse = await handleProjectContextRequest(req);
+    if (projectResponse) return projectResponse;
     return handleSidecarRequest(req, ctx);
   };
 

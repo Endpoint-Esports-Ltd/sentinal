@@ -43,6 +43,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sentinal hook shared pre-edit-guide",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash|WebSearch|WebFetch|Grep|EnterPlanMode|ExitPlanMode",
         "hooks": [
           {
