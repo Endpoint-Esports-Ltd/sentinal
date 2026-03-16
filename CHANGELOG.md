@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.1...v1.15.0) (2026-03-16)
+
+
+### Features
+
+* push out a release ([2484ee2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2484ee27dce45c54f808d3ab5772302bbdd2eb09))
+
 ## [1.14.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.0...v1.14.1) (2026-03-16)
 
 
