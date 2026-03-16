@@ -49,6 +49,18 @@ When verification reveals errors during a `/spec` workflow, fix ALL of them with
 
 **must_fix** and **should_fix** → Fix immediately. **suggestions** → Implement if quick. The ONLY user interaction in /spec is plan approval.
 
+### Sentinal Quality Tools
+
+Use these MCP tools for efficient verification:
+
+| Tool | When |
+|------|------|
+| `quality_report` | Combined tsc + eslint + prettier in one call. Use for comprehensive checks. |
+| `check_diagnostics` | TypeScript diagnostics with delta tracking (NEW/FIXED since last run). Spec-filtered. |
+| `impact_analysis` | Verify changed files align with active spec. Shows file length warnings and risk score. |
+
+**Prefer `quality_report`** over running tsc/eslint/prettier separately. **Prefer `check_diagnostics`** over raw `npx tsc --noEmit` — it filters to spec-relevant files and tracks deltas.
+
 ### Stop Signals — Verify NOW
 
 If you're about to use uncertain language ("should", "probably"), express satisfaction ("Done!"), commit/push, or mark task complete — run verification first.

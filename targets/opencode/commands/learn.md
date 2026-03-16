@@ -161,9 +161,11 @@ grep -ri "keyword" .claude/skills/ .opencode/skills/ 2>/dev/null
 
 ---
 
-## Phase 3: Create Skill
+## Phase 3: Create Skill & Persist to Memory
 
 Write to BOTH `.claude/skills/{slug}-{skill-name}/SKILL.md` AND `.opencode/skills/{slug}-{skill-name}/SKILL.md` using the template from Phase 0. Both files must have identical content.
+
+**Also persist to Sentinal memory** using `memory_save` MCP tool with `type: "pattern"`, relevant `tags`, and the `project` path. This ensures the knowledge is available via `memory_search` in future sessions even before the skill is activated. Use `memory_search` first to check for existing observations that overlap.
 
 **Determinism checklist** — maximize reliability:
 

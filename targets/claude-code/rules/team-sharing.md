@@ -44,9 +44,14 @@ paths: ["my-product/**"]
 ---
 ```
 
+### Shared Project Memory
+
+Use `memory_share` MCP tool to promote valuable observations (decisions, discoveries, patterns) to `.sentinal/project-memory.json`. This file is committed to git and automatically restored for all team members at session start — sharing institutional knowledge without writing skills.
+
 ### Workflow
 
 1. Create asset in `.claude/` directory
 2. Commit and push via normal PR process
 3. Team members pull and get the asset automatically
 4. Run `/sync` after pulling new assets to update Claude's understanding
+5. Use `memory_share` to promote important observations to shared project memory

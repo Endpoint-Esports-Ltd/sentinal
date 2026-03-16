@@ -66,7 +66,7 @@ ELSE:
 
 ## 0.2 Status-Based Dispatch (existing plans)
 
-Read plan, register association: `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
+Read plan, register association. **Preferred:** Use `spec_register` MCP tool. **Fallback:** `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
 
 | Status   | Approved | Type           | Skill                   |
 | -------- | -------- | -------------- | ----------------------- |

@@ -329,7 +329,7 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
 
    `sentinal worktree diff --json <plan_slug>`
 
-7. **Notify and ask:**
+7. **Notify and ask:** **Preferred:** Use `spec_notify` MCP tool with `type: "info"`, `title`, `message`, and `spec_id`. **Fallback:**
 
    ```bash
    sentinal notify plan_approval "Worktree Sync" "<plan_name> — approve merge" --plan-path "<plan_path>" 2>/dev/null || true

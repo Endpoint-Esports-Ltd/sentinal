@@ -43,8 +43,10 @@ Run all tests. Fix any failures immediately. Re-run until green.
 
 ## Step 3.3: Quality Checks
 
-1. **TypeScript compiler** — `npx tsc --noEmit`. Zero new errors.
-2. **Linter** — `npx eslint .`. Errors are blockers, fix immediately.
+**Preferred:** Use `quality_report` MCP tool for combined tsc + eslint + prettier. Use `check_diagnostics` for spec-filtered TypeScript diagnostics with delta tracking.
+
+1. **TypeScript compiler** — `check_diagnostics` MCP tool (or `npx tsc --noEmit` as fallback). Zero new errors.
+2. **Linter** — `quality_report` with `checks: ["eslint"]` (or `npx eslint .` as fallback). Errors are blockers, fix immediately.
 3. **Angular build (if applicable):** `npx ng build`
 4. **NestJS build (if applicable):** `npx nest build`
 

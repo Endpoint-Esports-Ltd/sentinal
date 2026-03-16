@@ -277,7 +277,7 @@ Type: Bugfix
 
 **When `SENTINAL_PLAN_APPROVAL_ENABLED` is NOT `"false"`:**
 
-0. Notify:
+0. Notify: **Preferred:** Use `spec_notify` MCP tool with `type: "info"`, `title`, `message`, and `spec_id`. **Fallback:**
    ```bash
    sentinal notify plan_approval "Bugfix Plan Ready" "<plan-slug> — approval needed" --plan-path "<plan_path>" 2>/dev/null || true
    ```

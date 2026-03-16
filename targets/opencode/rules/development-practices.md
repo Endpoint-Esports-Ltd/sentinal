@@ -11,13 +11,13 @@ vexor "database connection setup"
 
 ### Project-Specific Policies
 
-**File Size:** Aim for production files under 400 lines. Over 600 lines is blocked by Sentinal hooks (tests exempt).
+**File Size:** Aim for production files under 400 lines. Over 600 lines is blocked by Sentinal hooks (tests exempt). Use `impact_analysis` MCP tool to check file lengths and spec alignment.
 
 **Dependency Check:** Before modifying any function, use Vexor first (then `Grep` or LSP `findReferences` if needed) to find all callers. Update all affected call sites.
 
 **Self-Correction:** Fix obvious mistakes (syntax errors, typos, missing imports) in code you are actively writing. Do not auto-fix errors in code the user edited — report them and let the user decide.
 
-**Diagnostics:** Check before starting work and after changes. Fix all errors before marking complete.
+**Diagnostics:** Use `check_diagnostics` MCP tool (or `npx tsc --noEmit` as fallback) before starting work and after changes. For combined tsc + eslint + prettier, use `quality_report`. Fix all errors before marking complete.
 
 **Formatting:** Let automated formatters handle style (Prettier runs automatically on every edit via Sentinal hooks).
 

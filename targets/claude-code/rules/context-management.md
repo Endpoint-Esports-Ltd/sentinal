@@ -6,8 +6,10 @@
 
 1. **PreCompact hook** → captures Sentinal state (plan, tasks, decisions) to Memory
 2. **Compaction** → summarizes conversation, preserving recent work
-3. **SessionStart(compact) hook** → re-injects Sentinal context
+3. **SessionStart(compact) hook** → re-injects Sentinal context (memory restore + shared project memory)
 4. You continue working — no interruption needed
+
+**Tip:** Use `project_context` MCP tool after compaction to quickly re-orient on tech stack, structure, and conventions.
 
 ## ⛔ NEVER Rush or Skip
 

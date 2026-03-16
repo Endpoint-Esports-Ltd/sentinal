@@ -259,9 +259,10 @@ For each selected improvement: read target file → apply specific fix → show 
 
 ### Step 4.1: Setup
 
-1. Check `vexor --version` — if available, use Vexor for semantic exploration (Step 4.2). If not installed, use Grep/Glob/Read in Step 4.3.
-2. **Directory structure:** `tree -L 3 -I 'node_modules|.git|dist|build|.next|coverage|.cache'`
-3. **Technologies:** Check `package.json`, `tsconfig.json`, `angular.json`
+1. **Quick project overview:** Use `project_context` MCP tool to get tech stack, structure, conventions, and commands in one call.
+2. Check `vexor --version` — if available, use Vexor for semantic exploration (Step 4.2). If not installed, use Grep/Glob/Read in Step 4.3.
+3. **Directory structure:** `tree -L 3 -I 'node_modules|.git|dist|build|.next|coverage|.cache'`
+4. **Technologies:** Check `package.json`, `tsconfig.json`, `angular.json` (or use `project_context` output from step 1)
 4. **Source documents:** Find and read canonical docs — `docs/`, `**/ARCHITECTURE.md`, `**/CONTRIBUTING.md`. These are the source of truth for generated rules.
 
 ### Step 4.2: Semantic Exploration with Vexor — OPTIONAL

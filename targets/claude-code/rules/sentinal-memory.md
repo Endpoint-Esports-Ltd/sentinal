@@ -1,8 +1,23 @@
 ## Sentinal Memory & Learning
 
-### Memory Tools
+### Memory MCP Tools
 
-See `mcp-servers.md` → mem-search for the 3-step search workflow and tool reference.
+Sentinal provides these MCP tools for direct memory operations:
+
+| Tool | Purpose |
+|------|---------|
+| `memory_save` | Save observations (decisions, discoveries, errors, fixes, patterns) |
+| `memory_search` | Semantic + keyword search across observations |
+| `memory_get` | Retrieve full observation details by ID |
+| `memory_timeline` | Chronological context around an observation |
+| `memory_stats` | Database statistics (totals, breakdowns by type/project) |
+| `memory_share` | Promote observations to shared `.sentinal/project-memory.json` (committable) |
+
+**Use `memory_save` proactively** for decisions, discoveries, error patterns, and fixes worth preserving across sessions. Use `memory_search` before starting work to check for relevant past context.
+
+**Team sharing:** Use `memory_share` to promote valuable observations to `.sentinal/project-memory.json` — this file is committed to git and automatically restored for all team members.
+
+See also `mcp-servers.md` → mem-search for the external 3-step search workflow.
 
 Use `<private>` tags to exclude content from storage. Web viewer at the Sentinal dashboard.
 

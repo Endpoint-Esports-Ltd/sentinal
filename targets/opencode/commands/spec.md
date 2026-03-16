@@ -53,7 +53,7 @@ If worktree disabled and type clear: skip all questions, load skill with `--work
 
 ## 0.2 Status-Based Dispatch (existing plans)
 
-Read plan. Register: `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
+Read plan. Register: **Preferred:** Use `spec_register` MCP tool. **Fallback:** `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
 
 | Status   | Approved | Type           | Skill                   |
 | -------- | -------- | -------------- | ----------------------- |

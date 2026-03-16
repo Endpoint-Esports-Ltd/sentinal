@@ -22,11 +22,11 @@ Run these checks in sequence:
    - Expected: 0 failures
 
 2. **TypeScript compiles:**
-   - `npx tsc --noEmit`
+   - **Preferred:** `check_diagnostics` MCP tool (spec-filtered, delta tracking). **Fallback:** `npx tsc --noEmit`
    - Expected: 0 errors
 
 3. **Linting passes:**
-   - `npx eslint .`
+   - **Preferred:** `quality_report` MCP tool with `checks: ["eslint"]`. **Fallback:** `npx eslint .`
    - Expected: 0 errors
 
 4. **Angular build (if applicable):**
