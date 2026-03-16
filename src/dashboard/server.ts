@@ -9,7 +9,11 @@
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { layout } from "./views/layout.js";
-import { dashboardView, dashboardFragment, type DashboardData } from "./views/dashboard.js";
+import {
+  dashboardView,
+  dashboardFragment,
+  type DashboardData,
+} from "./views/dashboard.js";
 import {
   healthHandler,
   dashboardHandler,
@@ -88,7 +92,10 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
       response = notificationsHandler(ctx, url);
     } else if (path === "/api/notifications/read" && method === "POST") {
       response = markAllNotificationsReadHandler(ctx);
-    } else if (path.match(/^\/api\/notifications\/\d+\/read$/) && method === "POST") {
+    } else if (
+      path.match(/^\/api\/notifications\/\d+\/read$/) &&
+      method === "POST"
+    ) {
       const id = parseInt(path.split("/")[3], 10);
       response = markNotificationReadHandler(ctx, id);
     } else if (path === "/api/settings" && method === "GET") {
@@ -96,17 +103,23 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
     } else if (path === "/api/settings" && method === "POST") {
       response = await settingsPostHandler(ctx, req);
 
-    // ─── Fragment Routes (htmx partial swaps) ─────────────────────
+      // ─── Fragment Routes (htmx partial swaps) ─────────────────────
     } else if (path === "/fragments/dashboard") {
       const data = getDashboardData(ctx);
       response = html(dashboardFragment(data));
 
-    // ─── HTML View Routes ─────────────────────────────────────────
+      // ─── HTML View Routes ─────────────────────────────────────────
     } else if (path === "/") {
       const data = getDashboardData(ctx);
       const unread = ctx.store.getUnreadNotificationCount();
       response = html(
-        layout("Dashboard", dashboardView(data), "dashboard", unread, ctx.version),
+        layout(
+          "Dashboard",
+          dashboardView(data),
+          "dashboard",
+          unread,
+          ctx.version,
+        ),
       );
     } else if (path === "/specifications") {
       response = await renderView("specifications", ctx);
@@ -117,17 +130,24 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
     } else if (path === "/settings") {
       response = await renderView("settings", ctx);
 
-    // ─── 404 ──────────────────────────────────────────────────────
+      // ─── 404 ──────────────────────────────────────────────────────
     } else {
       response = html(
-        layout("Not Found", '<p class="text-gray-400">Page not found.</p>', "dashboard", 0, ctx.version),
+        layout(
+          "Not Found",
+          '<p class="text-gray-400">Page not found.</p>',
+          "dashboard",
+          0,
+          ctx.version,
+        ),
         404,
       );
     }
 
     return addHeaders(response);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal server error";
+    const message =
+      err instanceof Error ? err.message : "Internal server error";
     return addHeaders(
       new Response(JSON.stringify({ error: message }), {
         status: 500,
@@ -167,7 +187,8 @@ async function renderView(
   try {
     switch (page) {
       case "specifications": {
-        const { specificationsView } = await import("./views/specifications.js");
+        const { specificationsView } =
+          await import("./views/specifications.js");
         const specs = ctx.specStore.listAllSpecs(100);
         content = specificationsView(specs);
         break;

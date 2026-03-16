@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 /**
  * Command Template Generator
- * 
+ *
  * Generates Claude Code and OpenCode command files from shared templates.
- * 
+ *
  * Usage:
  *   node scripts/generate-commands.js
  *   node scripts/generate-commands.js --claude
  *   node scripts/generate-commands.js --opencode
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,40 +46,50 @@ const VARIANTS = {
 function processTemplate(templatePath, variant) {
   let content = readFileSync(templatePath, "utf-8");
   const vars = VARIANTS[variant];
-  const filename = templatePath.replace(TEMPLATES_DIR + "/", "").replace(".md", "");
-  
+  const filename = templatePath
+    .replace(TEMPLATES_DIR + "/", "")
+    .replace(".md", "");
+
   // Replace variables in frontmatter
   content = content.replace(/{{description}}/g, getDescription(filename));
   content = content.replace(/{{agent}}/g, "");
   content = content.replace(/{{subtask}}/g, "");
-  
+
   // Replace dispatch tools instruction (target-specific)
   if (vars.dispatchTools) {
     content = content.replace(/{{dispatchTools}}/g, vars.dispatchTools);
   }
-  
+
   // Process route replacements ([\w-]+ to match hyphenated names like spec-plan)
-  content = content.replace(/Skill\(skill='([\w-]+)', args='([^']+)'\)/g, (_, name, args) => {
-    return vars.routeSkill(name, args);
-  });
-  
+  content = content.replace(
+    /Skill\(skill='([\w-]+)', args='([^']+)'\)/g,
+    (_, name, args) => {
+      return vars.routeSkill(name, args);
+    },
+  );
+
   // Clean up empty frontmatter fields
   content = content.replace(/^(\w+): $\n/gm, "");
   content = content.replace(/^(\w+): \n/gm, "");
-  
+
   return content;
 }
 
 function getDescription(filename) {
   const descriptions = {
-    "spec": "Spec-driven development - plan, implement, verify workflow",
-    "spec-plan": "Feature planning phase - explore codebase, design plan, get approval",
-    "spec-bugfix-plan": "Bugfix planning phase - analyze bug, design fix, get approval",
-    "spec-implement": "TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR",
-    "spec-verify": "Feature verification phase - tests, automated checks, code review, E2E",
-    "spec-bugfix-verify": "Bugfix verification phase - Behavior Contract audit, tests, process compliance",
-    "sync": "Sync project rules and generate AGENTS.md from codebase analysis",
-    "learn": "Extract reusable knowledge from the current session",
+    spec: "Spec-driven development - plan, implement, verify workflow",
+    "spec-plan":
+      "Feature planning phase - explore codebase, design plan, get approval",
+    "spec-bugfix-plan":
+      "Bugfix planning phase - analyze bug, design fix, get approval",
+    "spec-implement":
+      "TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR",
+    "spec-verify":
+      "Feature verification phase - tests, automated checks, code review, E2E",
+    "spec-bugfix-verify":
+      "Bugfix verification phase - Behavior Contract audit, tests, process compliance",
+    sync: "Sync project rules and generate AGENTS.md from codebase analysis",
+    learn: "Extract reusable knowledge from the current session",
   };
   return descriptions[filename] || filename;
 }
@@ -82,16 +98,20 @@ function getDescription(filename) {
 const args = process.argv.slice(2);
 const target = args[0]?.replace("--", "") || "both";
 
-console.log("═══════════════════════════════════════════════════════════════════");
+console.log(
+  "═══════════════════════════════════════════════════════════════════",
+);
 console.log("  Sentinal Command Generator");
-console.log("═══════════════════════════════════════════════════════════════════\n");
+console.log(
+  "═══════════════════════════════════════════════════════════════════\n",
+);
 
 if (!existsSync(TEMPLATES_DIR)) {
   console.error("Templates directory not found:", TEMPLATES_DIR);
   process.exit(1);
 }
 
-const templates = readdirSync(TEMPLATES_DIR).filter(f => f.endsWith(".md"));
+const templates = readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith(".md"));
 
 if (target === "both" || target === "claude") {
   console.log("Generating Claude Code commands...");

@@ -1,5 +1,3 @@
-
-
 ## Backend Development Standards
 
 ### API Design

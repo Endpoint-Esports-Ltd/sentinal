@@ -80,14 +80,14 @@ sentinal/
 
 6 lifecycle events with TypeScript hooks:
 
-| Event | Hook | Purpose |
-|-------|------|---------|
-| **SessionStart** | `post-compact-restore.ts` | Re-inject active plan path + task state after compaction |
-| **PreToolUse** | `tool-redirect.ts` | Block `WebSearch`/`WebFetch` (force MCP), block `EnterPlanMode`/`ExitPlanMode` (force `/spec`), hint at better tool choices |
-| **PostToolUse** | `file-checker.ts` | On Write/Edit: Prettier, ESLint, `tsc --noEmit`, Angular/NestJS checks, file length (400 warn/600 block), TDD enforcement |
-| **PostToolUse** | `context-monitor.ts` | Monitor context usage %, warn at thresholds, prompt `/learn` |
-| **PreCompact** | `pre-compact.ts` | Capture active plan + task state to memory |
-| **Stop** | `spec-stop-guard.ts` | Block session exit if active spec plan is PENDING/COMPLETE |
+| Event            | Hook                      | Purpose                                                                                                                     |
+| ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **SessionStart** | `post-compact-restore.ts` | Re-inject active plan path + task state after compaction                                                                    |
+| **PreToolUse**   | `tool-redirect.ts`        | Block `WebSearch`/`WebFetch` (force MCP), block `EnterPlanMode`/`ExitPlanMode` (force `/spec`), hint at better tool choices |
+| **PostToolUse**  | `file-checker.ts`         | On Write/Edit: Prettier, ESLint, `tsc --noEmit`, Angular/NestJS checks, file length (400 warn/600 block), TDD enforcement   |
+| **PostToolUse**  | `context-monitor.ts`      | Monitor context usage %, warn at thresholds, prompt `/learn`                                                                |
+| **PreCompact**   | `pre-compact.ts`          | Capture active plan + task state to memory                                                                                  |
+| **Stop**         | `spec-stop-guard.ts`      | Block session exit if active spec plan is PENDING/COMPLETE                                                                  |
 
 ### file-checker.ts Details
 
@@ -231,12 +231,12 @@ curl -fsSL https://raw.githubusercontent.com/<org>/sentinal/main/install.sh | ba
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| TypeScript-native hooks | Single runtime, dogfoods the language it enforces |
-| Full /spec workflow | Proven structure from market research, adapted for Angular/NestJS |
-| Auto-detect tooling | Projects use different package managers and test runners |
-| Vexor for semantic search | Already works with TypeScript, no need to reimplement |
-| Angular 17+ defaults | Modern Angular patterns (standalone, signals, control flow) |
-| Tailwind-first frontend | User requirement, most common choice in modern Angular |
-| Full quality suite on edit | Catches issues immediately, not at commit time |
+| Decision                   | Rationale                                                     |
+| -------------------------- | ------------------------------------------------------------- |
+| TypeScript-native hooks    | Single runtime, dogfoods the language it enforces             |
+| Full /spec workflow        | Proven structure from market research, adapted for Angular/NestJS |
+| Auto-detect tooling        | Projects use different package managers and test runners      |
+| Vexor for semantic search  | Already works with TypeScript, no need to reimplement         |
+| Angular 17+ defaults       | Modern Angular patterns (standalone, signals, control flow)   |
+| Tailwind-first frontend    | User requirement, most common choice in modern Angular        |
+| Full quality suite on edit | Catches issues immediately, not at commit time                |

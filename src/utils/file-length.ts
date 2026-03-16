@@ -1,6 +1,12 @@
 const WARN_THRESHOLD = 400;
 const BLOCK_THRESHOLD = 600;
-const TEST_PATTERNS = [/\.spec\.ts$/, /\.test\.ts$/, /\.e2e-spec\.ts$/, /\.spec\.js$/, /\.test\.js$/];
+const TEST_PATTERNS = [
+  /\.spec\.ts$/,
+  /\.test\.ts$/,
+  /\.e2e-spec\.ts$/,
+  /\.spec\.js$/,
+  /\.test\.js$/,
+];
 
 export interface FileLengthResult {
   severity: "warn" | "block";

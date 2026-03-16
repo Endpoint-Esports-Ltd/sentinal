@@ -7,7 +7,9 @@ import { MemoryService } from "./service.js";
 import { MemoryStore } from "./store.js";
 import type { CreateObservation } from "./types.js";
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "session-1",
     projectPath: "/test/project",
@@ -70,8 +72,18 @@ describe("MemoryService", () => {
 
   describe("searchSync (FTS-only mode)", () => {
     it("should return results for keyword search", () => {
-      service.addObservation(makeObservation({ title: "JWT authentication", content: "Token handling" }));
-      service.addObservation(makeObservation({ title: "Database migration", content: "Schema update" }));
+      service.addObservation(
+        makeObservation({
+          title: "JWT authentication",
+          content: "Token handling",
+        }),
+      );
+      service.addObservation(
+        makeObservation({
+          title: "Database migration",
+          content: "Schema update",
+        }),
+      );
 
       const results = service.searchSync("authentication");
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -87,8 +99,12 @@ describe("MemoryService", () => {
     });
 
     it("should filter by type", () => {
-      service.addObservation(makeObservation({ type: "decision", title: "Chose Angular" }));
-      service.addObservation(makeObservation({ type: "error", title: "Build failed" }));
+      service.addObservation(
+        makeObservation({ type: "decision", title: "Chose Angular" }),
+      );
+      service.addObservation(
+        makeObservation({ type: "error", title: "Build failed" }),
+      );
 
       const results = service.searchSync("", { type: "decision" });
       expect(results).toHaveLength(1);
@@ -96,14 +112,20 @@ describe("MemoryService", () => {
     });
 
     it("should include estimated tokens in results", () => {
-      service.addObservation(makeObservation({ title: "Short", content: "Brief" }));
+      service.addObservation(
+        makeObservation({ title: "Short", content: "Brief" }),
+      );
 
       const results = service.searchSync("Short");
       expect(results[0].estimatedTokens).toBeGreaterThan(0);
     });
 
     it("should include snippet in results", () => {
-      service.addObservation(makeObservation({ content: "A very long content that should be truncated" }));
+      service.addObservation(
+        makeObservation({
+          content: "A very long content that should be truncated",
+        }),
+      );
 
       const results = service.searchSync("");
       expect(results[0].snippet.length).toBeLessThanOrEqual(201); // SNIPPET_LENGTH + 1
@@ -112,7 +134,12 @@ describe("MemoryService", () => {
 
   describe("search (async, FTS-only without orchestrator)", () => {
     it("should return results for keyword search", async () => {
-      service.addObservation(makeObservation({ title: "JWT authentication", content: "Token handling" }));
+      service.addObservation(
+        makeObservation({
+          title: "JWT authentication",
+          content: "Token handling",
+        }),
+      );
 
       const results = await service.search("authentication");
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -130,9 +157,15 @@ describe("MemoryService", () => {
 
   describe("timeline", () => {
     it("should return context around an anchor observation", () => {
-      service.addObservation(makeObservation({ timestamp: 100, title: "Before" }));
-      const anchor = service.addObservation(makeObservation({ timestamp: 200, title: "Anchor" }));
-      service.addObservation(makeObservation({ timestamp: 300, title: "After" }));
+      service.addObservation(
+        makeObservation({ timestamp: 100, title: "Before" }),
+      );
+      const anchor = service.addObservation(
+        makeObservation({ timestamp: 200, title: "Anchor" }),
+      );
+      service.addObservation(
+        makeObservation({ timestamp: 300, title: "After" }),
+      );
 
       const result = service.timeline(anchor.id, 10, 10);
 

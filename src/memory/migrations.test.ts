@@ -7,7 +7,10 @@ import { runMigrations } from "./migrations.js";
 import { DB_CONSTANTS } from "./types.js";
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-mig-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-mig-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -28,7 +31,9 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+      )
       .all() as Array<{ name: string }>;
     const tableNames = tables.map((t) => t.name);
 
@@ -46,7 +51,9 @@ describe("runMigrations", () => {
     db = new Database(dbPath, { create: true });
     runMigrations(db, dbPath);
 
-    const row = db.prepare("SELECT MAX(version) as version FROM schema_version").get() as { version: number };
+    const row = db
+      .prepare("SELECT MAX(version) as version FROM schema_version")
+      .get() as { version: number };
     expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
   });
 
@@ -57,7 +64,9 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
     runMigrations(db, dbPath);
 
-    const row = db.prepare("SELECT MAX(version) as version FROM schema_version").get() as { version: number };
+    const row = db
+      .prepare("SELECT MAX(version) as version FROM schema_version")
+      .get() as { version: number };
     expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
   });
 
@@ -68,7 +77,9 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observations_fts'")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='observations_fts'",
+      )
       .all();
     expect(tables).toHaveLength(1);
   });
@@ -79,7 +90,9 @@ describe("runMigrations", () => {
     db = new Database(dbPath, { create: true });
     runMigrations(db, dbPath);
 
-    const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+    const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+      name: string;
+    }>;
     expect(cols.some((c) => c.name === "transcript_path")).toBe(true);
   });
 
@@ -90,11 +103,15 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'",
+      )
       .all();
     expect(tables).toHaveLength(1);
 
-    const cols = db.prepare("PRAGMA table_info(notifications)").all() as Array<{ name: string }>;
+    const cols = db.prepare("PRAGMA table_info(notifications)").all() as Array<{
+      name: string;
+    }>;
     const colNames = cols.map((c) => c.name);
     expect(colNames).toContain("id");
     expect(colNames).toContain("type");
@@ -114,7 +131,9 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name",
+      )
       .all() as Array<{ name: string }>;
     const indexNames = indexes.map((i) => i.name);
 
@@ -132,7 +151,10 @@ describe("runMigrations", () => {
     db = new Database(dbPath, { create: true });
     runMigrations(db, dbPath);
 
-    const cols = db.prepare("PRAGMA table_info(observations)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const cols = db.prepare("PRAGMA table_info(observations)").all() as Array<{
+      name: string;
+      dflt_value: string | null;
+    }>;
     const qualityCol = cols.find((c) => c.name === "quality_score");
 
     expect(qualityCol).toBeDefined();
@@ -146,7 +168,9 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_obs_quality'")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_obs_quality'",
+      )
       .all() as Array<{ name: string }>;
 
     expect(indexes).toHaveLength(1);
@@ -189,11 +213,13 @@ describe("runMigrations", () => {
     runMigrations(db, dbPath);
 
     // Check backfilled values
-    const rows = db.prepare("SELECT id, quality_score FROM observations ORDER BY id").all() as Array<{ id: number; quality_score: number }>;
+    const rows = db
+      .prepare("SELECT id, quality_score FROM observations ORDER BY id")
+      .all() as Array<{ id: number; quality_score: number }>;
 
     expect(rows[0]!.quality_score).toBeCloseTo(0.85); // from metadata.confidence
-    expect(rows[1]!.quality_score).toBe(1.0);          // no confidence → default
-    expect(rows[2]!.quality_score).toBe(1.0);          // null metadata → default
+    expect(rows[1]!.quality_score).toBe(1.0); // no confidence → default
+    expect(rows[2]!.quality_score).toBe(1.0); // null metadata → default
   });
 
   it("should set schema version to 8 after V8 migration", () => {
@@ -202,7 +228,9 @@ describe("runMigrations", () => {
     db = new Database(dbPath, { create: true });
     runMigrations(db, dbPath);
 
-    const row = db.prepare("SELECT MAX(version) as version FROM schema_version").get() as { version: number };
+    const row = db
+      .prepare("SELECT MAX(version) as version FROM schema_version")
+      .get() as { version: number };
     expect(row.version).toBe(8);
   });
 });

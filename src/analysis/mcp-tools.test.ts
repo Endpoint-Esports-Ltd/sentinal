@@ -19,16 +19,22 @@ import type { SidecarClient } from "../sidecar/client.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-analysis-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-analysis-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+) => Promise<{ content: { type: string; text: string }[] }>;
 
-function captureTools(
-  deps: { client?: SidecarClient | null; store?: MemoryStore | null },
-): Map<string, ToolHandler> {
+function captureTools(deps: {
+  client?: SidecarClient | null;
+  store?: MemoryStore | null;
+}): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>();
   const server = new McpServer({ name: "test", version: "0.0.1" });
 
@@ -47,7 +53,11 @@ function captureTools(
 }
 
 // Minimal plan file content for tests
-function writePlan(dir: string, slug: string, filesSection: string = ""): string {
+function writePlan(
+  dir: string,
+  slug: string,
+  filesSection: string = "",
+): string {
   const plansDir = join(dir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const content = `# ${slug}
@@ -188,7 +198,11 @@ describe("check_diagnostics", () => {
 
   it("should filter to spec-relevant files when active spec exists", async () => {
     const specStore = new SpecStore(store);
-    const planPath = writePlan(tmpDir, "my-spec", "- Modify: src/auth/auth.service.ts");
+    const planPath = writePlan(
+      tmpDir,
+      "my-spec",
+      "- Modify: src/auth/auth.service.ts",
+    );
     specStore.syncFromPlanFile(planPath, tmpDir);
 
     const origSpawn = Bun.spawn;
@@ -220,7 +234,9 @@ describe("check_diagnostics", () => {
     (Bun as any).spawn = mock(() => ({
       stdout: { text: async () => "" },
       stderr: { text: async () => "partial output" },
-      exited: new Promise(() => { /* never resolves */ }),
+      exited: new Promise(() => {
+        /* never resolves */
+      }),
       kill: () => {},
     }));
 
@@ -305,25 +321,50 @@ describe("impact_analysis", () => {
 
   it("should return LOW risk when only expected spec files changed", async () => {
     const specStore = new SpecStore(store);
-    const planPath = writePlan(tmpDir, "my-spec", "- Modify: src/auth/auth.service.ts");
+    const planPath = writePlan(
+      tmpDir,
+      "my-spec",
+      "- Modify: src/auth/auth.service.ts",
+    );
     specStore.syncFromPlanFile(planPath, tmpDir);
 
     // Write the file so we can read its line count
     mkdirSync(join(tmpDir, "src", "auth"), { recursive: true });
-    writeFileSync(join(tmpDir, "src/auth/auth.service.ts"), "export function foo() {}\n".repeat(10));
+    writeFileSync(
+      join(tmpDir, "src/auth/auth.service.ts"),
+      "export function foo() {}\n".repeat(10),
+    );
 
     const origSpawn = Bun.spawn;
     let callCount = 0;
     (Bun as any).spawn = mock((cmd: string[]) => {
       callCount++;
       if (cmd.includes("--name-only")) {
-        return { stdout: { text: async () => "src/auth/auth.service.ts\n" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: { text: async () => "src/auth/auth.service.ts\n" },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
       if (cmd.includes("--stat")) {
-        return { stdout: { text: async () => " src/auth/auth.service.ts | 5 +++++\n 1 file changed, 5 insertions(+)" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: {
+            text: async () =>
+              " src/auth/auth.service.ts | 5 +++++\n 1 file changed, 5 insertions(+)",
+          },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
       // grep for importers
-      return { stdout: { text: async () => "" }, stderr: { text: async () => "" }, exited: Promise.resolve(1), kill: () => {} };
+      return {
+        stdout: { text: async () => "" },
+        stderr: { text: async () => "" },
+        exited: Promise.resolve(1),
+        kill: () => {},
+      };
     });
 
     const handler = tools.get("impact_analysis")!;
@@ -337,22 +378,46 @@ describe("impact_analysis", () => {
 
   it("should return HIGH risk when unexpected files changed", async () => {
     const specStore = new SpecStore(store);
-    const planPath = writePlan(tmpDir, "my-spec", "- Modify: src/auth/auth.service.ts");
+    const planPath = writePlan(
+      tmpDir,
+      "my-spec",
+      "- Modify: src/auth/auth.service.ts",
+    );
     specStore.syncFromPlanFile(planPath, tmpDir);
 
     mkdirSync(join(tmpDir, "src", "routes"), { recursive: true });
-    writeFileSync(join(tmpDir, "src/routes/routes.ts"), "// routes\n".repeat(10));
+    writeFileSync(
+      join(tmpDir, "src/routes/routes.ts"),
+      "// routes\n".repeat(10),
+    );
 
     const origSpawn = Bun.spawn;
     (Bun as any).spawn = mock((cmd: string[]) => {
       if (cmd.includes("--name-only")) {
         // Returns a file NOT in the spec
-        return { stdout: { text: async () => "src/routes/routes.ts\n" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: { text: async () => "src/routes/routes.ts\n" },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
       if (cmd.includes("--stat")) {
-        return { stdout: { text: async () => " src/routes/routes.ts | 3 +++\n 1 file changed" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: {
+            text: async () => " src/routes/routes.ts | 3 +++\n 1 file changed",
+          },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
-      return { stdout: { text: async () => "" }, stderr: { text: async () => "" }, exited: Promise.resolve(1), kill: () => {} };
+      return {
+        stdout: { text: async () => "" },
+        stderr: { text: async () => "" },
+        exited: Promise.resolve(1),
+        kill: () => {},
+      };
     });
 
     const handler = tools.get("impact_analysis")!;
@@ -375,12 +440,30 @@ describe("impact_analysis", () => {
     const origSpawn = Bun.spawn;
     (Bun as any).spawn = mock((cmd: string[]) => {
       if (cmd.includes("--name-only")) {
-        return { stdout: { text: async () => "src/big/big.ts\n" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: { text: async () => "src/big/big.ts\n" },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
       if (cmd.includes("--stat")) {
-        return { stdout: { text: async () => " src/big/big.ts | 10 ++++++++++\n 1 file changed" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: {
+            text: async () =>
+              " src/big/big.ts | 10 ++++++++++\n 1 file changed",
+          },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
-      return { stdout: { text: async () => "" }, stderr: { text: async () => "" }, exited: Promise.resolve(1), kill: () => {} };
+      return {
+        stdout: { text: async () => "" },
+        stderr: { text: async () => "" },
+        exited: Promise.resolve(1),
+        kill: () => {},
+      };
     });
 
     const handler = tools.get("impact_analysis")!;
@@ -394,17 +477,35 @@ describe("impact_analysis", () => {
 
   it("should return LOW risk with no active spec", async () => {
     mkdirSync(join(tmpDir, "src"), { recursive: true });
-    writeFileSync(join(tmpDir, "src/foo.ts"), "export const x = 1;\n".repeat(5));
+    writeFileSync(
+      join(tmpDir, "src/foo.ts"),
+      "export const x = 1;\n".repeat(5),
+    );
 
     const origSpawn = Bun.spawn;
     (Bun as any).spawn = mock((cmd: string[]) => {
       if (cmd.includes("--name-only")) {
-        return { stdout: { text: async () => "src/foo.ts\n" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: { text: async () => "src/foo.ts\n" },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
       if (cmd.includes("--stat")) {
-        return { stdout: { text: async () => " src/foo.ts | 2 ++\n 1 file changed" }, stderr: { text: async () => "" }, exited: Promise.resolve(0), kill: () => {} };
+        return {
+          stdout: { text: async () => " src/foo.ts | 2 ++\n 1 file changed" },
+          stderr: { text: async () => "" },
+          exited: Promise.resolve(0),
+          kill: () => {},
+        };
       }
-      return { stdout: { text: async () => "" }, stderr: { text: async () => "" }, exited: Promise.resolve(1), kill: () => {} };
+      return {
+        stdout: { text: async () => "" },
+        stderr: { text: async () => "" },
+        exited: Promise.resolve(1),
+        kill: () => {},
+      };
     });
 
     const handler = tools.get("impact_analysis")!;
@@ -455,7 +556,11 @@ describe("quality_report MCP tool", () => {
     const handler = tools.get("quality_report")!;
     const projectPath = join(import.meta.dir, "../..");
 
-    const result = await handler({ project: projectPath, checks: ["tsc"], timeout_ms: 60000 });
+    const result = await handler({
+      project: projectPath,
+      checks: ["tsc"],
+      timeout_ms: 60000,
+    });
 
     expect(result.content).toBeDefined();
     expect(result.content.length).toBeGreaterThan(0);

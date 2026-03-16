@@ -16,6 +16,7 @@ curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
 ```
 
 The installer will:
+
 1. Download the latest binary for your platform (linux/darwin, x64/arm64)
 2. Install it to `~/.sentinal/bin/sentinal`
 3. Add `~/.sentinal/bin` to your `PATH` (bash, zsh, or fish)
@@ -34,10 +35,10 @@ sentinal install both       # Both
 
 ## Supported AI Assistants
 
-| Assistant | Status | Installation |
-|-----------|--------|--------------|
-| **Claude Code** | Full support | `sentinal install claude` |
-| **OpenCode** | Full support | `sentinal install opencode` |
+| Assistant       | Status       | Installation                |
+| --------------- | ------------ | --------------------------- |
+| **Claude Code** | Full support | `sentinal install claude`   |
+| **OpenCode**    | Full support | `sentinal install opencode` |
 
 Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `sentinal install` with no argument auto-detects available assistants and prompts interactively if both are found.
 
@@ -112,6 +113,7 @@ sentinal install claude
 ```
 
 The installer:
+
 1. Verifies Node.js 18+, Bun, and Claude Code CLI are installed
 2. Installs dependencies and compiles hooks (skipped for global installs)
 3. Creates a local plugin marketplace at `~/.claude/plugins/sentinal-marketplace/`
@@ -134,6 +136,7 @@ sentinal install opencode
 ```
 
 The installer:
+
 1. Verifies OpenCode, Bun, and Node.js are installed
 2. Checks `~/.npmrc` for `@endpoint:registry` scoped registry config
 3. Installs `@endpoint/sentinal` globally via `bun add -g`
@@ -157,6 +160,7 @@ opencode
 ### Both Assistants
 
 Claude Code and OpenCode can coexist. Each uses separate config directories:
+
 - Claude Code: installed via marketplace to `~/.claude/plugins/cache/` (managed by `claude plugin`)
 - OpenCode: `~/.config/opencode/` (plugin, commands, rules merged into existing config)
 
@@ -265,16 +269,16 @@ Sentinal integrates with each assistant through its native extension mechanism. 
 
 Claude Code uses compiled TypeScript hooks that intercept lifecycle events:
 
-| Event | Hook | What It Does |
-|-------|------|-------------|
-| `SessionStart` | post-compact-restore | Restores the active `/spec` plan path after context compaction |
-| `SessionStart` | memory-restore | Restores relevant memories for the current project |
-| `PreToolUse` | tool-redirect | Denies `WebSearch`/`WebFetch` (use MCP instead), blocks `EnterPlanMode` (use `/spec`), hints on vague Grep patterns |
-| `PostToolUse` | file-checker | Runs Prettier, ESLint, `tsc`, framework-specific checks, file length enforcement, and TDD checks on every `Write`/`Edit` |
-| `PostToolUse` | context-monitor | Monitors context window usage %, warns at 65/75/85%+ thresholds |
-| `PreCompact` | pre-compact | Saves active plan path and metadata to `.sentinal/compact-state.json` |
-| `Stop` | spec-stop-guard | Blocks session exit if a `/spec` plan is in PENDING or COMPLETE state |
-| `SessionEnd` | session-end | Captures end-of-session memories and cleanup |
+| Event          | Hook                 | What It Does                                                                                                             |
+| -------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `SessionStart` | post-compact-restore | Restores the active `/spec` plan path after context compaction                                                           |
+| `SessionStart` | memory-restore       | Restores relevant memories for the current project                                                                       |
+| `PreToolUse`   | tool-redirect        | Denies `WebSearch`/`WebFetch` (use MCP instead), blocks `EnterPlanMode` (use `/spec`), hints on vague Grep patterns      |
+| `PostToolUse`  | file-checker         | Runs Prettier, ESLint, `tsc`, framework-specific checks, file length enforcement, and TDD checks on every `Write`/`Edit` |
+| `PostToolUse`  | context-monitor      | Monitors context window usage %, warns at 65/75/85%+ thresholds                                                          |
+| `PreCompact`   | pre-compact          | Saves active plan path and metadata to `.sentinal/compact-state.json`                                                    |
+| `Stop`         | spec-stop-guard      | Blocks session exit if a `/spec` plan is in PENDING or COMPLETE state                                                    |
+| `SessionEnd`   | session-end          | Captures end-of-session memories and cleanup                                                                             |
 
 Hooks are compiled from `src/` to `targets/claude-code/hooks/dist/` and executed by Bun at runtime. The hook I/O protocol uses JSON on stdin/stdout (see [Hook I/O Protocol](#hook-io-protocol) below).
 
@@ -282,13 +286,13 @@ Hooks are compiled from `src/` to `targets/claude-code/hooks/dist/` and executed
 
 OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) executed natively by Bun:
 
-| Event | What It Does |
-|-------|-------------|
-| `tool.execute.before` | Hints on better tool choices |
-| `tool.execute.after` | Quality checks on file edits (file length, TDD, NestJS patterns, tsc) |
-| `experimental.session.compacting` | Inject /spec plan state into context summary |
-| `session.created` | Restore state after session start |
-| `session.idle` | Warn about incomplete /spec plans |
+| Event                             | What It Does                                                          |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `tool.execute.before`             | Hints on better tool choices                                          |
+| `tool.execute.after`              | Quality checks on file edits (file length, TDD, NestJS patterns, tsc) |
+| `experimental.session.compacting` | Inject /spec plan state into context summary                          |
+| `session.created`                 | Restore state after session start                                     |
+| `session.idle`                    | Warn about incomplete /spec plans                                     |
 
 The plugin imports shared checkers and utilities from the `@endpoint/sentinal` package, so the same quality logic runs in both targets.
 
@@ -296,21 +300,23 @@ The plugin imports shared checkers and utilities from the `@endpoint/sentinal` p
 
 The two targets have different extension mechanisms but deliver the same quality enforcement:
 
-| Feature | Claude Code | OpenCode |
-|---------|-------------|----------|
-| **Extension type** | Compiled hook scripts | Native TypeScript plugin |
-| **Hook system** | 6 lifecycle events | Plugin events |
-| **Formatters** | Explicit in hooks | Built-in automatically |
-| **Runtime** | Compiled JS executed by Bun | Native TypeScript via Bun |
-| **Tool blocking** | Exit code 2 | Throw Error |
-| **Compaction** | Save state to file | Inject context directly |
+| Feature            | Claude Code                 | OpenCode                  |
+| ------------------ | --------------------------- | ------------------------- |
+| **Extension type** | Compiled hook scripts       | Native TypeScript plugin  |
+| **Hook system**    | 6 lifecycle events          | Plugin events             |
+| **Formatters**     | Explicit in hooks           | Built-in automatically    |
+| **Runtime**        | Compiled JS executed by Bun | Native TypeScript via Bun |
+| **Tool blocking**  | Exit code 2                 | Throw Error               |
+| **Compaction**     | Save state to file          | Inject context directly   |
 
 **Claude Code advantages:**
+
 - Full tool blocking/denial via exit codes
 - Fine-grained hook matchers (regex on tool names)
 - Sub-agents for background review tasks
 
 **OpenCode advantages:**
+
 - Built-in Prettier/ESLint on every file write (no manual execution)
 - Native TypeScript execution (no compilation step)
 - Direct context injection during compaction
@@ -335,11 +341,11 @@ All feedback is returned as structured hints that the assistant acts on automati
 
 Sentinal auto-detects your project setup:
 
-| Detection | Method |
-|-----------|--------|
+| Detection           | Method                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------ |
 | **Package manager** | Lockfile presence: `pnpm-lock.yaml` / `yarn.lock` / `bun.lock` / `package-lock.json` |
-| **Test runner** | Config files: `jest.config.*` / `vitest.config.*` / `karma.conf.*` |
-| **Framework** | Dependency inspection: `@angular/core` / `@nestjs/core` in `package.json` |
+| **Test runner**     | Config files: `jest.config.*` / `vitest.config.*` / `karma.conf.*`                   |
+| **Framework**       | Dependency inspection: `@angular/core` / `@nestjs/core` in `package.json`            |
 
 ### Hook I/O Protocol
 
@@ -369,6 +375,7 @@ Claude Code hooks receive JSON on stdin and output JSON to stdout:
 Sentinal ships 5 rule sets that activate based on file patterns:
 
 ### TypeScript (`**/*.ts`, `**/*.tsx`)
+
 - Strict types: `noImplicitAny`, no `any` casts, explicit return types
 - `node:` prefix for built-in imports
 - kebab-case filenames
@@ -377,6 +384,7 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - Async/await over `.then()`, typed errors, dependency injection
 
 ### Angular (`.component.ts`, `.directive.ts`, `.pipe.ts`, etc.)
+
 - Standalone components by default (Angular 17+)
 - `OnPush` change detection everywhere
 - Signals over RxJS for component state
@@ -386,6 +394,7 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - Virtual scrolling for lists > 100 items
 
 ### NestJS (`.controller.ts`, `.service.ts`, `.module.ts`, etc.)
+
 - Module encapsulation, dependency injection (never `new Service()`)
 - Repository pattern for data access
 - One controller per resource, Swagger decorators on every endpoint
@@ -394,12 +403,14 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - TypeORM or Prisma with migrations
 
 ### Frontend (`.html`, `.css`, `.scss`, `.component.html`)
+
 - Tailwind CSS utility-first
 - WCAG 2.1 AA accessibility: semantic HTML, ARIA labels, keyboard nav, 4.5:1 contrast
 - Responsive mobile-first, fluid typography with `clamp()`
 - Lazy images, bundle splitting, preload critical assets
 
 ### Backend (`controllers/`, `services/`, `entities/`, etc.)
+
 - RESTful API design with consistent response format
 - Parameterized queries (SQL injection prevention), input validation at boundaries
 - Rate limiting, CORS, Helmet middleware
@@ -433,6 +444,7 @@ The primary workflow command. Provides a plan-implement-verify cycle for feature
 Plan files are written to `docs/plans/YYYY-MM-DD-<slug>.md` with status tracking (PENDING -> COMPLETE -> VERIFIED).
 
 **Sub-agents** (Claude Code only, launched in background during verification):
+
 - **plan-reviewer** — Reviews feature plans with > 3 tasks for completeness
 - **spec-reviewer** — Reviews implementation for quality and standards compliance
 
@@ -456,13 +468,13 @@ Captures non-obvious solutions, workarounds, and workflows from the current sess
 
 Sentinal configures 5 MCP servers for enhanced capabilities:
 
-| Server | Purpose | Package |
-|--------|---------|---------|
-| **context7** | Up-to-date library/framework documentation | `@upstash/context7-mcp` |
-| **web-search** | Web search via DuckDuckGo/Bing/Exa | `open-websearch` |
-| **grep-mcp** | GitHub code search across 1M+ public repos | `mcp.grep.app` |
-| **web-fetch** | Full web page fetching via Playwright | `fetcher-mcp` |
-| **sentinal** | Persistent memory + spec workflow tools | `@endpoint/sentinal` |
+| Server         | Purpose                                    | Package                 |
+| -------------- | ------------------------------------------ | ----------------------- |
+| **context7**   | Up-to-date library/framework documentation | `@upstash/context7-mcp` |
+| **web-search** | Web search via DuckDuckGo/Bing/Exa         | `open-websearch`        |
+| **grep-mcp**   | GitHub code search across 1M+ public repos | `mcp.grep.app`          |
+| **web-fetch**  | Full web page fetching via Playwright      | `fetcher-mcp`           |
+| **sentinal**   | Persistent memory + spec workflow tools    | `@endpoint/sentinal`    |
 
 These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
 
@@ -504,6 +516,7 @@ bun src/cli/index.ts install claude    # Build, create marketplace, install plug
 ```
 
 **Adding a new hook:**
+
 1. Create `src/hooks/my-hook.ts` implementing the hook I/O protocol
 2. Add a test file `src/hooks/my-hook.test.ts`
 3. Register the hook in `targets/claude-code/hooks/hooks.json` with the appropriate event and matcher
@@ -521,6 +534,7 @@ bun src/cli/index.ts install opencode --local  # Install to .opencode/ in curren
 OpenCode plugins are written in TypeScript and executed directly by Bun. No compilation step required. The plugin imports shared logic from the `@endpoint/sentinal` package.
 
 **Adding a new feature:**
+
 1. Edit `targets/opencode/plugins/sentinal.ts` to add new plugin events
 2. Reinstall: `bun src/cli/index.ts install opencode`
 
@@ -539,13 +553,13 @@ Checkers are shared between both targets:
 
 Configured via `targets/claude-code/settings.json`:
 
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `CLAUDE_CODE_ENABLE_TASKS` | `true` | Enable task management tools |
-| `ENABLE_TOOL_SEARCH` | `true` | Enable MCP tool discovery |
-| `ENABLE_LSP_TOOL` | `true` | Enable LSP integration |
-| `alwaysThinkingEnabled` | `true` | Extended thinking for better analysis |
-| `respectGitignore` | `false` | Plugin needs access to `dist/` files |
+| Setting                    | Value   | Purpose                               |
+| -------------------------- | ------- | ------------------------------------- |
+| `CLAUDE_CODE_ENABLE_TASKS` | `true`  | Enable task management tools          |
+| `ENABLE_TOOL_SEARCH`       | `true`  | Enable MCP tool discovery             |
+| `ENABLE_LSP_TOOL`          | `true`  | Enable LSP integration                |
+| `alwaysThinkingEnabled`    | `true`  | Extended thinking for better analysis |
+| `respectGitignore`         | `false` | Plugin needs access to `dist/` files  |
 
 Pre-approved permissions include common dev tools (npm, bun, ng, nest, tsc, prettier, eslint, jest, vitest, git), file operations, MCP servers, `/spec` workflow skills, and sub-agents.
 

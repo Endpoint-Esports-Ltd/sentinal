@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - New `POST /quality-check` sidecar endpoint (single-file and project-wide modes)
 - Incremental tsc via `--tsBuildInfoFile` caching in `~/.sentinal/tsbuildinfo/`
 - ESLint and Prettier subprocess execution with timeouts
@@ -27,6 +28,7 @@ Type: Feature
 - Structured JSON responses with per-tool results
 
 ### Out of Scope
+
 - In-process TypeScript API (future optimization)
 - In-process ESLint/Prettier API (future optimization)
 - Angular `ng build --dry-run` (keep as-is — rare and already has timeout)
@@ -90,17 +92,17 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| tsc `--incremental` with `--noEmit` not available in project's TS version | Low | High | Check TS version at runtime; fall back to non-incremental |
-| tsbuildinfo stale after branch switch or major refactor | Medium | Low | Clear tsbuildinfo on known triggers (git branch change, package.json change). Fallback: full re-check. |
-| eslint/prettier config resolution fails in sidecar context | Low | Medium | Run with explicit `--config` path if default resolution fails |
-| Sidecar quality check times out for very large projects | Medium | Medium | Configurable timeout (default 30s), partial results on timeout |
-| Hook/plugin change breaks existing quality checks | Low | High | Keep old subprocess path as fallback; gradually migrate |
+| Risk                                                                      | Likelihood | Impact | Mitigation                                                                                             |
+| ------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| tsc `--incremental` with `--noEmit` not available in project's TS version | Low        | High   | Check TS version at runtime; fall back to non-incremental                                              |
+| tsbuildinfo stale after branch switch or major refactor                   | Medium     | Low    | Clear tsbuildinfo on known triggers (git branch change, package.json change). Fallback: full re-check. |
+| eslint/prettier config resolution fails in sidecar context                | Low        | Medium | Run with explicit `--config` path if default resolution fails                                          |
+| Sidecar quality check times out for very large projects                   | Medium     | Medium | Configurable timeout (default 30s), partial results on timeout                                         |
+| Hook/plugin change breaks existing quality checks                         | Low        | High   | Keep old subprocess path as fallback; gradually migrate                                                |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **tsbuildinfo doesn't actually speed up subsequent runs** (Task 1) — Trigger: second run of tsc with tsbuildinfo takes >3s (same as without). This could happen if the tsbuildinfo file is invalidated between runs, or if `--noEmit` mode doesn't produce a usable tsbuildinfo. Check during Task 1 implementation by measuring before/after latency.
 
@@ -111,6 +113,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. Quality checks run through the sidecar endpoint, not as direct subprocesses from hooks
 2. tsc uses `--incremental` with a persisted tsbuildinfo file for faster subsequent runs
 3. eslint and prettier run as async subprocesses with configurable timeouts
@@ -120,6 +123,7 @@ Type: Feature
 7. All subprocesses have timeout protection
 
 ### Artifacts
+
 - `src/sidecar/quality-routes.ts` (new) — Quality check route handler
 - `src/sidecar/quality-routes.test.ts` (new) — Tests
 - `src/sidecar/client.ts` (modified) — New `qualityCheck()` method
@@ -128,6 +132,7 @@ Type: Feature
 - `src/analysis/mcp-tools.ts` (modified) — New `quality_report` tool
 
 ### Key Links
+
 - `POST /quality-check` sidecar endpoint ← called by SidecarClient.qualityCheck()
 - `SidecarClient.qualityCheck()` ← called by file-checker hook and OpenCode plugin
 - `quality_report` MCP tool ← called by LLM for batch checking
@@ -153,11 +158,13 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/sidecar/quality-routes.ts`
 - Create: `src/sidecar/quality-routes.test.ts`
 - Modify: `src/sidecar/server.ts` (wire new route handler into fetch dispatch)
 
 **Key Decisions / Notes:**
+
 - **New file `quality-routes.ts`** — routes.ts is at 398 lines, can't add more. Create a separate route handler file.
 - **Dispatch wiring in `server.ts`:** Modify `fetchHandler` at `server.ts:197-199` to check `url.pathname.startsWith("/quality")` and route to `handleQualityRequest(req, ctx)`, else fall through to `handleSidecarRequest(req, ctx)`. This is a 3-line change.
 - **tsc single-file clarification:** tsc always runs project-wide (type-checking requires the full project graph). The `filePath` parameter only scopes eslint/prettier. tsc runs the same regardless.
@@ -166,17 +173,32 @@ Type: Feature
   ```json
   {
     "projectPath": "/abs/path/to/project",
-    "filePath": "/abs/path/to/file.ts",  // optional, for single-file mode
-    "checks": ["tsc", "eslint", "prettier"],  // optional, default all
-    "timeout": 30000  // optional, default 30s per check
+    "filePath": "/abs/path/to/file.ts", // optional, for single-file mode
+    "checks": ["tsc", "eslint", "prettier"], // optional, default all
+    "timeout": 30000 // optional, default 30s per check
   }
   ```
 - **Response shape:**
   ```json
   {
-    "tsc": { "ok": true, "errors": [], "incremental": true, "durationMs": 1200 },
-    "eslint": { "ok": true, "errors": [], "autoFixed": false, "durationMs": 150 },
-    "prettier": { "ok": true, "errors": [], "autoFixed": true, "durationMs": 80 }
+    "tsc": {
+      "ok": true,
+      "errors": [],
+      "incremental": true,
+      "durationMs": 1200
+    },
+    "eslint": {
+      "ok": true,
+      "errors": [],
+      "autoFixed": false,
+      "durationMs": 150
+    },
+    "prettier": {
+      "ok": true,
+      "errors": [],
+      "autoFixed": true,
+      "durationMs": 80
+    }
   }
   ```
 - **tsc incremental:** Run `tsc --noEmit --incremental --tsBuildInfoFile ~/.sentinal/tsbuildinfo/<hash>.tsbuildinfo`. Hash the project path (same approach as `check_diagnostics` uses for its baseline cache — see `src/analysis/helpers.ts:47-49`). Create `~/.sentinal/tsbuildinfo/` directory on first run.
@@ -187,6 +209,7 @@ Type: Feature
 - **prettier:** Run `<runner> prettier --check <filePath>` first. If issues found, run `<runner> prettier --write <filePath>`. Parse stderr.
 
 **Definition of Done:**
+
 - [ ] `POST /quality-check` endpoint returns structured results
 - [ ] tsc uses `--incremental` with persisted tsbuildinfo file
 - [ ] Second tsc run is measurably faster than first (target: <3s for typical project)
@@ -195,6 +218,7 @@ Type: Feature
 - [ ] Tests cover: tsc success, tsc errors, eslint fix, prettier fix, timeout, missing tools
 
 **Verify:**
+
 - `bun test src/sidecar/quality-routes.test.ts`
 
 ---
@@ -206,21 +230,25 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/sidecar/quality-routes.ts`
 
 **Key Decisions / Notes:**
+
 - Use a simple counting semaphore (not a full async queue). Max 2 concurrent quality checks (one per project is typical; 2 allows some overlap).
 - When the semaphore is full, return a `429 Too Many Requests` with a helpful message.
 - Each individual check (tsc, eslint, prettier) has its own timeout (default 30s). The overall request has no additional timeout — it's bounded by the sum of individual timeouts.
 - Track active quality checks in a module-level `Set<string>` keyed by `projectPath` to prevent duplicate checks for the same project.
 
 **Definition of Done:**
+
 - [ ] Concurrent quality check requests are limited to 2
 - [ ] Duplicate requests for the same project are rejected
 - [ ] 429 response includes retry guidance
 - [ ] Tests verify concurrency limiting
 
 **Verify:**
+
 - `bun test src/sidecar/quality-routes.test.ts`
 
 ---
@@ -232,9 +260,11 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/analysis/mcp-tools.ts`
 
 **Key Decisions / Notes:**
+
 - Register as part of `registerAnalysisTools()` alongside `check_diagnostics` and `impact_analysis`.
 - **Parameters:**
   - `project` (required, string) — absolute path to project root
@@ -243,6 +273,7 @@ Type: Feature
   - `timeout_ms` (optional, number) — per-check timeout. Default: 30000.
 - **Execution:** Call `SidecarClient.qualityCheck()` if sidecar available. Fallback: if sidecar unavailable, call the quality check handler function directly (same-process, no HTTP round-trip). Extract the async subprocess logic from `quality-routes.ts` into a shared `runQualityChecks()` function that both the route handler and MCP tool can call. Do NOT fall back to `Bun.spawnSync` — always use the async subprocess path with timeouts.
 - **Return format:** Markdown text with structured sections:
+
   ```
   ## Quality Report
   **Project:** /path/to/project
@@ -259,6 +290,7 @@ Type: Feature
   ```
 
 **Definition of Done:**
+
 - [ ] `quality_report` tool registered with Zod schema
 - [ ] Supports both single-file and project-wide modes
 - [ ] Returns structured markdown with timing info
@@ -266,6 +298,7 @@ Type: Feature
 - [ ] Tests cover: sidecar path, direct fallback, single file, project-wide
 
 **Verify:**
+
 - `bun test src/analysis/mcp-tools.test.ts`
 
 ---
@@ -277,9 +310,11 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/sidecar/client.ts`
 
 **Key Decisions / Notes:**
+
 - Add `async qualityCheck(opts)` method following the pattern of `addObservation()` at `client.ts:197-208`.
 - **Parameters:** `{ projectPath: string, filePath?: string, checks?: string[], timeout?: number }`
 - **Returns:** The structured response from `POST /quality-check`
@@ -287,11 +322,13 @@ Type: Feature
 - Export the `QualityCheckResult` type so the hook and plugin can use it.
 
 **Definition of Done:**
+
 - [ ] `SidecarClient.qualityCheck()` calls `POST /quality-check`
 - [ ] Response is properly typed
 - [ ] Method is exported and usable from hooks and plugin
 
 **Verify:**
+
 - `bun test src/sidecar/client.test.ts`
 
 ---
@@ -303,22 +340,26 @@ Type: Feature
 **Dependencies:** Task 4
 
 **Files:**
+
 - Modify: `src/hooks/file-checker.ts`
 - Modify: `src/hooks/file-checker.test.ts`
 
 **Key Decisions / Notes:**
+
 - **SidecarClient import and connection:** Import `SidecarClient` from `../sidecar/client.js`. Use `SidecarClient.connect()` (NOT `connectWithRetry`) with a short implicit timeout (~500ms) to avoid adding latency when sidecar is down. Wrap in try/catch and fall back to `runTypeScriptChecks()`.
 - **Keep non-TS checks local:** File length, NestJS patterns, companion test file — these are all instant (<5ms) and don't need the sidecar. Only tsc/eslint/prettier move to sidecar.
 - **Output format:** Must produce the same hint string format as before, so the AI sees consistent feedback. Map the structured sidecar response back to the existing message format.
 - The hook currently uses `Bun.spawnSync()` (synchronous). The sidecar call is async. The hook already uses `async function processFileCheck()` — no change needed for async support.
 
 **Definition of Done:**
+
 - [ ] Hook delegates tsc/eslint/prettier to sidecar when available
 - [ ] Falls back to direct subprocess when sidecar unavailable
 - [ ] Output format is identical to previous behavior
 - [ ] Tests verify both sidecar and fallback paths
 
 **Verify:**
+
 - `bun test src/hooks/file-checker.test.ts`
 
 ---
@@ -330,9 +371,11 @@ Type: Feature
 **Dependencies:** Task 4
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts`
 
 **Key Decisions / Notes:**
+
 - The plugin already has a `sidecar: SidecarClient | null` variable. Use `sidecar.qualityCheck()` when available.
 - **Currently only runs tsc** (line 358). With the sidecar, it can now also get eslint and prettier — call sidecar with `checks: ["tsc", "eslint", "prettier"]` to enable all three. This is intentional scope expansion: OpenCode previously skipped eslint/prettier due to subprocess overhead, which the sidecar eliminates.
 - **Fallback:** If sidecar is null, fall back to the existing `$\`npx tsc --noEmit\`` subprocess (keep current behavior as fallback).
@@ -340,6 +383,7 @@ Type: Feature
 - **Line count:** Plugin is at 589 lines. This change should net ~0 lines (replacing inline tsc with sidecar call).
 
 **Definition of Done:**
+
 - [ ] Plugin delegates quality checks to sidecar when available
 - [ ] Falls back to inline tsc subprocess when sidecar unavailable
 - [ ] eslint and prettier now run for OpenCode (previously skipped)
@@ -347,5 +391,6 @@ Type: Feature
 - [ ] `bun run embed-assets` succeeds
 
 **Verify:**
+
 - `bun test`
 - `wc -l targets/opencode/plugins/sentinal.ts`

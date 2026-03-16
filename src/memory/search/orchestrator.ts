@@ -65,10 +65,7 @@ export class SearchOrchestrator {
    * Get the name of the strategy that would be used for a given query.
    * Useful for debugging and logging.
    */
-  getStrategyName(
-    query: string,
-    rawFilters?: Partial<SearchFilters>,
-  ): string {
+  getStrategyName(query: string, rawFilters?: Partial<SearchFilters>): string {
     const filters = SearchFiltersSchema.parse(rawFilters ?? {});
     return this.selectStrategy(query, filters).name;
   }

@@ -53,9 +53,10 @@ export function layout(
     return `<a href="${item.href}" class="${classes}">${item.label}</a>`;
   }).join("\n          ");
 
-  const badge = unreadCount > 0
-    ? `<span class="ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-600 text-white">${unreadCount}</span>`
-    : "";
+  const badge =
+    unreadCount > 0
+      ? `<span class="ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-600 text-white">${unreadCount}</span>`
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="en" class="h-full bg-gray-950">

@@ -357,14 +357,16 @@ describe("restoreContext", () => {
 
     try {
       // Write shared observations to the project
-      writeSharedMemory(projectDir, [{
-        type: "decision",
-        title: "Shared architecture decision",
-        content: "We use event-driven architecture",
-        tags: ["architecture"],
-        filePaths: [],
-        createdAt: "2026-03-15",
-      }]);
+      writeSharedMemory(projectDir, [
+        {
+          type: "decision",
+          title: "Shared architecture decision",
+          content: "We use event-driven architecture",
+          tags: ["architecture"],
+          filePaths: [],
+          createdAt: "2026-03-15",
+        },
+      ]);
 
       const result = await restoreContext(service, {
         projectPath: projectDir,

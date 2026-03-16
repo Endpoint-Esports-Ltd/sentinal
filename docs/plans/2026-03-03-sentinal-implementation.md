@@ -15,6 +15,7 @@
 ### Task 1: Project Scaffolding
 
 **Files:**
+
 - Create: `package.json`
 - Create: `tsconfig.json`
 - Create: `.gitignore`
@@ -99,6 +100,7 @@ git commit -m "chore: scaffold project with TypeScript + Bun"
 ### Task 2: Plugin Manifest and Configuration Files
 
 **Files:**
+
 - Create: `plugin/.claude-plugin/plugin.json`
 - Create: `plugin/settings.json`
 - Create: `plugin/.mcp.json`
@@ -272,6 +274,7 @@ git commit -m "feat: add plugin manifest, settings, MCP, and LSP configs"
 ### Task 3: Hook Output Utilities
 
 **Files:**
+
 - Create: `src/utils/hook-output.ts`
 - Create: `src/utils/hook-output.test.ts`
 
@@ -412,6 +415,7 @@ git commit -m "feat: add hook output utility functions (deny, hint, block)"
 ### Task 4: File Length Utility
 
 **Files:**
+
 - Create: `src/utils/file-length.ts`
 - Create: `src/utils/file-length.test.ts`
 
@@ -474,7 +478,13 @@ Create `src/utils/file-length.ts`:
 ```typescript
 const WARN_THRESHOLD = 400;
 const BLOCK_THRESHOLD = 600;
-const TEST_PATTERNS = [/\.spec\.ts$/, /\.test\.ts$/, /\.e2e-spec\.ts$/, /\.spec\.js$/, /\.test\.js$/];
+const TEST_PATTERNS = [
+  /\.spec\.ts$/,
+  /\.test\.ts$/,
+  /\.e2e-spec\.ts$/,
+  /\.spec\.js$/,
+  /\.test\.js$/,
+];
 
 interface FileLengthResult {
   severity: "warn" | "block";
@@ -524,6 +534,7 @@ git commit -m "feat: add file length enforcement utility (400 warn, 600 block)"
 ### Task 5: Git Utilities
 
 **Files:**
+
 - Create: `src/utils/git.ts`
 - Create: `src/utils/git.test.ts`
 
@@ -607,6 +618,7 @@ git commit -m "feat: add git utility functions (findGitRoot, isInsideGitRepo)"
 ### Task 6: TDD Enforcement Utility
 
 **Files:**
+
 - Create: `src/utils/tdd.ts`
 - Create: `src/utils/tdd.test.ts`
 
@@ -692,7 +704,12 @@ Expected: FAIL
 Create `src/utils/tdd.ts`:
 
 ```typescript
-const TEST_FILE_PATTERNS = [/\.spec\.ts$/, /\.test\.ts$/, /\.spec\.js$/, /\.test\.js$/];
+const TEST_FILE_PATTERNS = [
+  /\.spec\.ts$/,
+  /\.test\.ts$/,
+  /\.spec\.js$/,
+  /\.test\.js$/,
+];
 const SKIP_TEST_PATTERNS = [
   /\.module\.ts$/,
   /\.dto\.ts$/,
@@ -752,6 +769,7 @@ git commit -m "feat: add TDD enforcement utility (test file detection, path gene
 ### Task 7: Tooling Detection (Package Manager, Test Runner, Framework)
 
 **Files:**
+
 - Create: `src/checkers/detect.ts`
 - Create: `src/checkers/detect.test.ts`
 
@@ -956,6 +974,7 @@ git commit -m "feat: add package manager, test runner, and framework detection"
 ### Task 8: TypeScript Checker (Prettier + ESLint + tsc)
 
 **Files:**
+
 - Create: `src/checkers/typescript.ts`
 - Create: `src/checkers/typescript.test.ts`
 
@@ -977,7 +996,11 @@ describe("typescript checker", () => {
 
     it("should include prettier in the check pipeline", () => {
       // Verify the function handles the prettier step without crashing
-      const results = runTypeScriptChecks("/nonexistent/file.ts", "/tmp", "npx");
+      const results = runTypeScriptChecks(
+        "/nonexistent/file.ts",
+        "/tmp",
+        "npx",
+      );
       expect(Array.isArray(results)).toBe(true);
     });
   });
@@ -1009,18 +1032,24 @@ export function runTypeScriptChecks(
   const results: CheckResult[] = [];
 
   // Prettier check + auto-fix
-  const prettierCheck = Bun.spawnSync([runner, "prettier", "--check", filePath], {
-    cwd: projectRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (prettierCheck.exitCode !== 0) {
-    const prettierFix = Bun.spawnSync([runner, "prettier", "--write", filePath], {
+  const prettierCheck = Bun.spawnSync(
+    [runner, "prettier", "--check", filePath],
+    {
       cwd: projectRoot,
       stdout: "pipe",
       stderr: "pipe",
-    });
+    },
+  );
+
+  if (prettierCheck.exitCode !== 0) {
+    const prettierFix = Bun.spawnSync(
+      [runner, "prettier", "--write", filePath],
+      {
+        cwd: projectRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
 
     if (prettierFix.exitCode === 0) {
       results.push({
@@ -1089,6 +1118,7 @@ git commit -m "feat: add TypeScript checker (Prettier + ESLint + tsc)"
 ### Task 9: Angular Checker
 
 **Files:**
+
 - Create: `src/checkers/angular.ts`
 - Create: `src/checkers/angular.test.ts`
 
@@ -1193,6 +1223,7 @@ git commit -m "feat: add Angular checker (ng build --dry-run)"
 ### Task 10: NestJS Checker
 
 **Files:**
+
 - Create: `src/checkers/nestjs.ts`
 - Create: `src/checkers/nestjs.test.ts`
 
@@ -1256,7 +1287,9 @@ export class CreateUserDto {
   email: string;
 }`;
       const results = checkNestPatterns("create-user.dto.ts", content);
-      expect(results.some((r) => r.message.includes("class-validator"))).toBe(true);
+      expect(results.some((r) => r.message.includes("class-validator"))).toBe(
+        true,
+      );
     });
 
     it("should not warn for well-decorated DTOs", () => {
@@ -1271,7 +1304,9 @@ export class CreateUserDto {
   email: string;
 }`;
       const results = checkNestPatterns("create-user.dto.ts", content);
-      expect(results.filter((r) => r.message.includes("class-validator"))).toEqual([]);
+      expect(
+        results.filter((r) => r.message.includes("class-validator")),
+      ).toEqual([]);
     });
   });
 });
@@ -1366,6 +1401,7 @@ git commit -m "feat: add NestJS checker (pattern validation for controllers, DTO
 ### Task 11: Tool Redirect Hook (PreToolUse)
 
 **Files:**
+
 - Create: `src/hooks/tool-redirect.ts`
 - Create: `src/hooks/tool-redirect.test.ts`
 
@@ -1433,13 +1469,24 @@ Expected: FAIL
 Create `src/hooks/tool-redirect.ts`:
 
 ```typescript
-import { deny, hint, readStdin, output, type DenyOutput, type HintOutput } from "../utils/hook-output.js";
+import {
+  deny,
+  hint,
+  readStdin,
+  output,
+  type DenyOutput,
+  type HintOutput,
+} from "../utils/hook-output.js";
 
 const BLOCKED_TOOLS: Record<string, string> = {
-  WebSearch: "WebSearch is blocked. Use MCP web-search instead: ToolSearch(query='+web-search search')",
-  WebFetch: "WebFetch is blocked. Use MCP web-fetch instead: ToolSearch(query='+web-fetch fetch')",
-  EnterPlanMode: "EnterPlanMode is blocked. Use /spec for structured planning workflows.",
-  ExitPlanMode: "ExitPlanMode is blocked. Use /spec for structured planning workflows.",
+  WebSearch:
+    "WebSearch is blocked. Use MCP web-search instead: ToolSearch(query='+web-search search')",
+  WebFetch:
+    "WebFetch is blocked. Use MCP web-fetch instead: ToolSearch(query='+web-fetch fetch')",
+  EnterPlanMode:
+    "EnterPlanMode is blocked. Use /spec for structured planning workflows.",
+  ExitPlanMode:
+    "ExitPlanMode is blocked. Use /spec for structured planning workflows.",
 };
 
 const VAGUE_GREP_INDICATORS = [
@@ -1458,7 +1505,9 @@ export function processToolRedirect(
   toolInput: Record<string, unknown>,
 ): (DenyOutput & { permissionDecision: "deny" }) | HintOutput | null {
   if (toolName in BLOCKED_TOOLS) {
-    return deny(BLOCKED_TOOLS[toolName]) as DenyOutput & { permissionDecision: "deny" };
+    return deny(BLOCKED_TOOLS[toolName]) as DenyOutput & {
+      permissionDecision: "deny";
+    };
   }
 
   if (toolName === "Grep" && typeof toolInput.pattern === "string") {
@@ -1483,7 +1532,10 @@ async function main(): Promise<void> {
   );
   if (result) {
     output(result);
-    if ("permissionDecision" in result && result.permissionDecision === "deny") {
+    if (
+      "permissionDecision" in result &&
+      result.permissionDecision === "deny"
+    ) {
       process.exit(2);
     }
   }
@@ -1512,6 +1564,7 @@ git commit -m "feat: add tool-redirect hook (blocks WebSearch/WebFetch/PlanMode,
 ### Task 12: File Checker Hook (PostToolUse)
 
 **Files:**
+
 - Create: `src/hooks/file-checker.ts`
 - Create: `src/hooks/file-checker.test.ts`
 
@@ -1633,7 +1686,8 @@ export async function processFileCheck(
 async function main(): Promise<void> {
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
-  const filePath = (toolInput?.file_path as string) ?? (toolInput?.path as string);
+  const filePath =
+    (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
 
   const result = await processFileCheck(filePath, input.cwd);
@@ -1665,6 +1719,7 @@ git commit -m "feat: add file-checker hook (Prettier, ESLint, tsc, file length, 
 ### Task 13: Context Monitor Hook (PostToolUse)
 
 **Files:**
+
 - Create: `src/hooks/context-monitor.ts`
 - Create: `src/hooks/context-monitor.test.ts`
 
@@ -1766,6 +1821,7 @@ git commit -m "feat: add context monitor hook (warns at 80%/90% effective contex
 ### Task 14: Spec Stop Guard Hook
 
 **Files:**
+
 - Create: `src/hooks/spec-stop-guard.ts`
 - Create: `src/hooks/spec-stop-guard.test.ts`
 
@@ -1843,7 +1899,9 @@ function findActivePlanStatus(cwd: string): string | null {
 
     for (const file of files) {
       const content = readFileSync(join(plansDir, file), "utf-8");
-      const statusMatch = content.match(/\*\*Status:\*\*\s*(PENDING|COMPLETE|VERIFIED)/);
+      const statusMatch = content.match(
+        /\*\*Status:\*\*\s*(PENDING|COMPLETE|VERIFIED)/,
+      );
       if (statusMatch) {
         const status = statusMatch[1];
         if (status !== "VERIFIED") return status;
@@ -1890,6 +1948,7 @@ git commit -m "feat: add spec stop guard (blocks exit during active PENDING/COMP
 ### Task 15: Pre-Compact and Post-Compact Hooks
 
 **Files:**
+
 - Create: `src/hooks/pre-compact.ts`
 - Create: `src/hooks/post-compact-restore.ts`
 
@@ -1898,7 +1957,13 @@ git commit -m "feat: add spec stop guard (blocks exit during active PENDING/COMP
 Create `src/hooks/pre-compact.ts`:
 
 ```typescript
-import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { readStdin } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
@@ -1975,7 +2040,9 @@ async function main(): Promise<void> {
 
     if (state.activePlan) {
       messages.push(`Active plan: ${state.activePlan}`);
-      messages.push("Resume the /spec workflow by reading the plan file and continuing from where you left off.");
+      messages.push(
+        "Resume the /spec workflow by reading the plan file and continuing from where you left off.",
+      );
     }
 
     output(hint("PostToolUse", messages.join("\n")));
@@ -1999,6 +2066,7 @@ git commit -m "feat: add pre-compact and post-compact-restore hooks for state pr
 ### Task 16: Session End Hook
 
 **Files:**
+
 - Create: `src/hooks/session-end.ts`
 
 **Step 1: Implement session-end.ts**
@@ -2029,6 +2097,7 @@ git commit -m "feat: add session-end hook (cleanup placeholder)"
 ### Task 17: hooks.json — Hook Pipeline Definition
 
 **Files:**
+
 - Create: `plugin/hooks/hooks.json`
 
 **Step 1: Create hooks.json**
@@ -2132,6 +2201,7 @@ git commit -m "feat: add hooks.json pipeline (6 lifecycle events)"
 ### Task 18: TypeScript Coding Standards Rule
 
 **Files:**
+
 - Create: `plugin/rules/standards-typescript.md`
 
 **Step 1: Create the rule** (see design doc for full content — strict types, no any, kebab-case, barrel exports, organized imports, early returns, async/await)
@@ -2148,6 +2218,7 @@ git commit -m "feat: add TypeScript coding standards rule"
 ### Task 19: Angular Coding Standards Rule
 
 **Files:**
+
 - Create: `plugin/rules/standards-angular.md`
 
 **Step 1: Create the rule** (see design doc for full content — standalone components, signals, @if/@for control flow, OnPush, Tailwind CSS, lazy routes, reactive forms)
@@ -2164,6 +2235,7 @@ git commit -m "feat: add Angular 17+ coding standards rule"
 ### Task 20: NestJS Coding Standards Rule
 
 **Files:**
+
 - Create: `plugin/rules/standards-nestjs.md`
 
 **Step 1: Create the rule** (see design doc for full content — DTOs with class-validator, guards, Swagger decorators, repository pattern, @nestjs/config)
@@ -2180,6 +2252,7 @@ git commit -m "feat: add NestJS coding standards rule"
 ### Task 21: Frontend and Backend Standards Rules
 
 **Files:**
+
 - Create: `plugin/rules/standards-frontend.md`
 - Create: `plugin/rules/standards-backend.md`
 
@@ -2199,6 +2272,7 @@ git commit -m "feat: add frontend and backend standards rules"
 ### Task 22: /spec Dispatcher Command
 
 **Files:**
+
 - Create: `plugin/commands/spec.md`
 
 **Step 1: Create the /spec dispatcher** (thin router: detect feature vs bugfix, ask worktree, route to spec-plan or spec-bugfix-plan)
@@ -2215,6 +2289,7 @@ git commit -m "feat: add /spec dispatcher command"
 ### Task 23: Spec Plan Command (Feature Planning)
 
 **Files:**
+
 - Create: `plugin/commands/spec-plan.md`
 
 **Step 1: Create spec-plan** (explore codebase, write plan to docs/plans/, optional plan-reviewer, user approval)
@@ -2231,6 +2306,7 @@ git commit -m "feat: add spec-plan command (feature planning)"
 ### Task 24: Spec Bugfix Plan Command
 
 **Files:**
+
 - Create: `plugin/commands/spec-bugfix-plan.md`
 
 **Step 1: Create spec-bugfix-plan** (trace bug to file:line, Behavior Contract, user approval)
@@ -2247,6 +2323,7 @@ git commit -m "feat: add spec-bugfix-plan command (Behavior Contract)"
 ### Task 25: Spec Implement Command
 
 **Files:**
+
 - Create: `plugin/commands/spec-implement.md`
 
 **Step 1: Create spec-implement** (TDD loop per task: RED-GREEN-REFACTOR, plan file updates)
@@ -2263,6 +2340,7 @@ git commit -m "feat: add spec-implement command (TDD implementation)"
 ### Task 26: Spec Verify and Spec Bugfix Verify Commands
 
 **Files:**
+
 - Create: `plugin/commands/spec-verify.md`
 - Create: `plugin/commands/spec-bugfix-verify.md`
 
@@ -2282,6 +2360,7 @@ git commit -m "feat: add spec-verify and spec-bugfix-verify commands"
 ### Task 27: Sync and Learn Commands
 
 **Files:**
+
 - Create: `plugin/commands/sync.md`
 - Create: `plugin/commands/learn.md`
 
@@ -2301,6 +2380,7 @@ git commit -m "feat: add /sync and /learn commands"
 ### Task 28: Plan Reviewer and Spec Reviewer Agents
 
 **Files:**
+
 - Create: `plugin/agents/plan-reviewer.md`
 - Create: `plugin/agents/spec-reviewer.md`
 
@@ -2341,6 +2421,7 @@ git commit -m "chore: verify build system compiles hooks"
 ### Task 30: Install Script
 
 **Files:**
+
 - Create: `install.sh`
 
 **Step 1: Create installer** (check Node 18+, check Bun, install deps, build, copy plugin to ~/.claude/sentinal/, copy rules)
@@ -2386,36 +2467,36 @@ git commit -m "chore: verify all tests pass and build succeeds"
 
 ## Summary
 
-| Task | Component | What it builds |
-|------|-----------|---------------|
-| 1 | Scaffolding | package.json, tsconfig.json, .gitignore |
-| 2 | Config | plugin.json, settings.json, .mcp.json, .lsp.json |
-| 3 | Utilities | hook-output.ts (deny/hint/block/readStdin) |
-| 4 | Utilities | file-length.ts (400 warn, 600 block) |
-| 5 | Utilities | git.ts (findGitRoot, isInsideGitRepo) |
-| 6 | Utilities | tdd.ts (test file detection, path generation) |
-| 7 | Checkers | detect.ts (package manager, test runner, framework) |
-| 8 | Checkers | typescript.ts (Prettier + ESLint + tsc) |
-| 9 | Checkers | angular.ts (ng build, file detection) |
-| 10 | Checkers | nestjs.ts (pattern validation) |
-| 11 | Hooks | tool-redirect.ts (PreToolUse guard) |
-| 12 | Hooks | file-checker.ts (PostToolUse quality gate) |
-| 13 | Hooks | context-monitor.ts (context % warnings) |
-| 14 | Hooks | spec-stop-guard.ts (Stop guard) |
-| 15 | Hooks | pre-compact.ts + post-compact-restore.ts |
-| 16 | Hooks | session-end.ts |
-| 17 | Config | hooks.json (pipeline definition) |
-| 18 | Rules | standards-typescript.md |
-| 19 | Rules | standards-angular.md |
-| 20 | Rules | standards-nestjs.md |
-| 21 | Rules | standards-frontend.md + standards-backend.md |
-| 22 | Commands | spec.md (dispatcher) |
-| 23 | Commands | spec-plan.md (feature planning) |
-| 24 | Commands | spec-bugfix-plan.md (bugfix planning) |
-| 25 | Commands | spec-implement.md (TDD implementation) |
-| 26 | Commands | spec-verify.md + spec-bugfix-verify.md |
-| 27 | Commands | sync.md + learn.md |
-| 28 | Agents | plan-reviewer.md + spec-reviewer.md |
-| 29 | Build | Verify TypeScript compilation |
-| 30 | Install | install.sh |
-| 31 | Verify | Run all tests + build |
+| Task | Component   | What it builds                                      |
+| ---- | ----------- | --------------------------------------------------- |
+| 1    | Scaffolding | package.json, tsconfig.json, .gitignore             |
+| 2    | Config      | plugin.json, settings.json, .mcp.json, .lsp.json    |
+| 3    | Utilities   | hook-output.ts (deny/hint/block/readStdin)          |
+| 4    | Utilities   | file-length.ts (400 warn, 600 block)                |
+| 5    | Utilities   | git.ts (findGitRoot, isInsideGitRepo)               |
+| 6    | Utilities   | tdd.ts (test file detection, path generation)       |
+| 7    | Checkers    | detect.ts (package manager, test runner, framework) |
+| 8    | Checkers    | typescript.ts (Prettier + ESLint + tsc)             |
+| 9    | Checkers    | angular.ts (ng build, file detection)               |
+| 10   | Checkers    | nestjs.ts (pattern validation)                      |
+| 11   | Hooks       | tool-redirect.ts (PreToolUse guard)                 |
+| 12   | Hooks       | file-checker.ts (PostToolUse quality gate)          |
+| 13   | Hooks       | context-monitor.ts (context % warnings)             |
+| 14   | Hooks       | spec-stop-guard.ts (Stop guard)                     |
+| 15   | Hooks       | pre-compact.ts + post-compact-restore.ts            |
+| 16   | Hooks       | session-end.ts                                      |
+| 17   | Config      | hooks.json (pipeline definition)                    |
+| 18   | Rules       | standards-typescript.md                             |
+| 19   | Rules       | standards-angular.md                                |
+| 20   | Rules       | standards-nestjs.md                                 |
+| 21   | Rules       | standards-frontend.md + standards-backend.md        |
+| 22   | Commands    | spec.md (dispatcher)                                |
+| 23   | Commands    | spec-plan.md (feature planning)                     |
+| 24   | Commands    | spec-bugfix-plan.md (bugfix planning)               |
+| 25   | Commands    | spec-implement.md (TDD implementation)              |
+| 26   | Commands    | spec-verify.md + spec-bugfix-verify.md              |
+| 27   | Commands    | sync.md + learn.md                                  |
+| 28   | Agents      | plan-reviewer.md + spec-reviewer.md                 |
+| 29   | Build       | Verify TypeScript compilation                       |
+| 30   | Install     | install.sh                                          |
+| 31   | Verify      | Run all tests + build                               |

@@ -22,13 +22,13 @@ model: sonnet
                     → Bugfix:  Skill('spec-bugfix-plan') → Investigate → Plan → Implement → Verify
 ```
 
-| Phase | Skill | Model |
-|-------|-------|-------|
-| Feature Planning | `spec-plan` | Opus |
-| Bugfix Planning | `spec-bugfix-plan` | Opus |
-| Implementation | `spec-implement` | Sonnet |
-| Feature Verification | `spec-verify` | Sonnet |
-| Bugfix Verification | `spec-bugfix-verify` | Sonnet |
+| Phase                | Skill                | Model  |
+| -------------------- | -------------------- | ------ |
+| Feature Planning     | `spec-plan`          | Opus   |
+| Bugfix Planning      | `spec-bugfix-plan`   | Opus   |
+| Implementation       | `spec-implement`     | Sonnet |
+| Feature Verification | `spec-verify`        | Sonnet |
+| Bugfix Verification  | `spec-bugfix-verify` | Sonnet |
 
 ---
 
@@ -52,6 +52,7 @@ ELSE:
 **⛔ Check `$SENTINAL_WORKTREE_ENABLED` first** using `Bash("echo $SENTINAL_WORKTREE_ENABLED $SENTINAL_PLAN_QUESTIONS_ENABLED $SENTINAL_PLAN_APPROVAL_ENABLED")`. If `SENTINAL_WORKTREE_ENABLED` is `"false"`, skip the worktree question entirely and always pass `--worktree=no`.
 
 **If `$SENTINAL_WORKTREE_ENABLED` is NOT `"false"`:**
+
 - If type is clear: Ask worktree only.
 - If ambiguous: Combine type + worktree in single AskUserQuestion.
 
@@ -67,13 +68,13 @@ ELSE:
 
 Read plan, register association: `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
 
-| Status | Approved | Type | Skill |
-|--------|----------|------|-------|
-| PENDING | No | Feature/absent | `spec-plan` |
-| PENDING | No | Bugfix | `spec-bugfix-plan` |
-| PENDING | Yes | * | `spec-implement` |
-| COMPLETE | * | Feature/absent | `spec-verify` |
-| COMPLETE | * | Bugfix | `spec-bugfix-verify` |
-| VERIFIED | * | * | Report completion, done |
+| Status   | Approved | Type           | Skill                   |
+| -------- | -------- | -------------- | ----------------------- |
+| PENDING  | No       | Feature/absent | `spec-plan`             |
+| PENDING  | No       | Bugfix         | `spec-bugfix-plan`      |
+| PENDING  | Yes      | \*             | `spec-implement`        |
+| COMPLETE | \*       | Feature/absent | `spec-verify`           |
+| COMPLETE | \*       | Bugfix         | `spec-bugfix-verify`    |
+| VERIFIED | \*       | \*             | Report completion, done |
 
 ARGUMENTS: $ARGUMENTS

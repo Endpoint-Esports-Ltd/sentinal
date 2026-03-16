@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - `.sentinal/project-memory.json` file format (human-editable JSON array of observations)
 - `.sentinal/.gitignore` that ignores everything EXCEPT `project-memory.json`
 - Loading shared observations during `restoreContext()` (merged with SQLite)
@@ -26,6 +27,7 @@ Type: Feature
 - Deduplication: shared observations are tagged to avoid double-counting during restore
 
 ### Out of Scope
+
 - Conflict resolution when multiple team members edit the shared file simultaneously (handled by git merge)
 - Automatic promotion of observations (manual curation only)
 - Syncing shared observations back to SQLite (they stay in the JSON file)
@@ -69,7 +71,7 @@ Type: Feature
 - `.sentinal/` directory exists in projects where Sentinal is used — supported by: the memory.db and compact-state.json are already written there — Tasks 1, 3 depend on this
 - Git nested `.gitignore` with `!filename` pattern works to re-include a file in a gitignored directory — supported by: standard git behavior documented in gitignore(5) — Task 1 depends on this
 - Shared observations merged into restore won't cause confusing duplicates — supported by: we tag shared observations with `metadata.source: "shared"` and dedup by title — Task 2 depends on this
-- The shared memory file will be small enough to read synchronously without performance impact — supported by: 5-50 entries * ~200 bytes each = ~10KB max — Task 2 depends on this
+- The shared memory file will be small enough to read synchronously without performance impact — supported by: 5-50 entries \* ~200 bytes each = ~10KB max — Task 2 depends on this
 
 ## Testing Strategy
 
@@ -80,16 +82,16 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Git merge conflicts in project-memory.json | Medium | Low | Human-editable JSON format makes manual conflict resolution easy. Each entry is self-contained. |
-| Shared observations are stale/irrelevant | Low | Low | Manual curation only — team reviews what gets shared. memory_share requires explicit action. |
-| Nested .gitignore doesn't work in all git versions | Very Low | Medium | Document in README. Fallback: place file outside .sentinal/ if needed. |
-| restore.ts exceeds 400-line limit | Medium | Medium | Shared observation loading is a simple file read + concat. Minimal line addition. |
+| Risk                                               | Likelihood | Impact | Mitigation                                                                                      |
+| -------------------------------------------------- | ---------- | ------ | ----------------------------------------------------------------------------------------------- |
+| Git merge conflicts in project-memory.json         | Medium     | Low    | Human-editable JSON format makes manual conflict resolution easy. Each entry is self-contained. |
+| Shared observations are stale/irrelevant           | Low        | Low    | Manual curation only — team reviews what gets shared. memory_share requires explicit action.    |
+| Nested .gitignore doesn't work in all git versions | Very Low   | Medium | Document in README. Fallback: place file outside .sentinal/ if needed.                          |
+| restore.ts exceeds 400-line limit                  | Medium     | Medium | Shared observation loading is a simple file read + concat. Minimal line addition.               |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Shared observations pollute the restore context with irrelevant entries** (Task 2) — Trigger: the restore markdown becomes too long because shared observations are always included regardless of relevance. Mitigation: shared observations are limited to decisions and patterns (most stable types). Limit to 5 shared entries in restore.
 
@@ -100,6 +102,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `.sentinal/project-memory.json` exists as a human-editable JSON file
 2. `.sentinal/.gitignore` re-includes `project-memory.json` so it can be committed
 3. Shared observations are loaded during `restoreContext()` and appear in the restore markdown
@@ -108,12 +111,14 @@ Type: Feature
 6. Shared memory parse failures don't crash restore — fallback to SQLite-only
 
 ### Artifacts
+
 - `src/memory/shared.ts` (new) — read/write shared memory file
 - `src/memory/shared.test.ts` (new) — tests
 - `src/memory/restore.ts` (modified) — merge shared observations
 - `src/memory/mcp-tools.ts` (modified) — memory_share tool + shared parameter on memory_save
 
 ### Key Links
+
 - `restoreContext()` ← loads shared observations via `readSharedMemory()` ← merges with SQLite observations
 - `memory_share` MCP tool ← reads observation from SQLite ← writes to shared memory file
 - `memory_save` with `shared: true` ← writes directly to shared memory file
@@ -135,10 +140,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/memory/shared.ts`
 - Create: `src/memory/shared.test.ts`
 
 **Key Decisions / Notes:**
+
 - **File format:** Human-editable JSON with this structure:
   ```json
   {
@@ -165,6 +172,7 @@ Type: Feature
 - **Conversion:** `toObservation(shared: SharedObservation, projectPath: string): Observation` — converts a SharedObservation to a full Observation for use in restore. Generates synthetic `id` (negative, starting from -1), `sessionId: "shared"`, `timestamp` from `createdAt`, `metadata: { source: "shared" }`, `qualityScore: 1.0` (shared observations don't decay).
 
 **Definition of Done:**
+
 - [ ] `readSharedMemory()` reads and parses the JSON file
 - [ ] `readSharedMemory()` returns empty array on missing file or parse error
 - [ ] `writeSharedMemory()` writes formatted JSON
@@ -173,6 +181,7 @@ Type: Feature
 - [ ] Tests verify read, write, dedup, parse error handling
 
 **Verify:**
+
 - `bun test src/memory/shared.test.ts`
 
 ---
@@ -184,10 +193,12 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/memory/restore.ts`
 - Modify: `src/memory/restore.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Merge point:** In both `restoreContextSync()` and `restoreContextAsync()`, after fetching SQLite observations, also call `readSharedMemory(projectPath)` and convert via `toObservation()`. Concat shared observations with SQLite observations before passing to `buildRestoreMarkdown()`.
 - **Deduplication:** Filter out shared observations whose titles already exist in the SQLite results (SQLite is more recent and authoritative).
 - **Limit:** Include at most 15 shared observations. If more exist, show a note like "Showing 15 of N shared observations" in the restore markdown.
@@ -195,6 +206,7 @@ Type: Feature
 - **No changes to `buildRestoreMarkdown()`** — it already categorizes by type and formats. Shared observations will naturally appear in the correct sections (decisions, patterns, etc.).
 
 **Definition of Done:**
+
 - [ ] Shared observations appear in the restore markdown
 - [ ] Shared observations are deduplicated against SQLite observations
 - [ ] Maximum 15 shared observations included (with truncation note if more exist)
@@ -202,6 +214,7 @@ Type: Feature
 - [ ] Tests verify shared observations appear in restore output
 
 **Verify:**
+
 - `bun test src/memory/restore.test.ts`
 
 ---
@@ -213,9 +226,11 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/memory/mcp-tools.ts`
 
 **Key Decisions / Notes:**
+
 - **`memory_share` tool:**
   - Parameters: `ids` (number array, required), `project` (string, required)
   - Reads observations from SQLite by ID
@@ -232,11 +247,13 @@ Type: Feature
 - **Author field:** When promoting or saving shared, auto-detect via `git config user.name` (async). Fall back to `"unknown"` if git unavailable. Make `author` optional in SharedObservation schema.
 
 **Files:**
+
 - Modify: `src/memory/mcp-tools.ts` (import + register call + shared param on memory_save)
 - Modify: `src/memory/shared.ts` (add registerSharedTools + saveToSharedIfRequested)
 - Create: `src/memory/shared-tools.test.ts` (test memory_share tool and shared save)
 
 **Definition of Done:**
+
 - [ ] `memory_share` tool registered on MCP server
 - [ ] Only allows promoting `decision`, `discovery`, `pattern` types
 - [ ] Promoted observations appear in `.sentinal/project-memory.json`
@@ -245,6 +262,7 @@ Type: Feature
 - [ ] Tests verify share tool and shared save parameter
 
 **Verify:**
+
 - `bun test src/memory/`
 
 ---
@@ -256,9 +274,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/memory/shared.ts` (create .gitignore alongside project-memory.json)
 
 **Key Decisions / Notes:**
+
 - **Approach:** When `writeSharedMemory()` creates the `.sentinal/` directory (or writes the file for the first time), also create `.sentinal/.gitignore` with these contents:
   ```
   # Ignore everything in .sentinal/ except shared project memory
@@ -271,10 +291,12 @@ Type: Feature
 - **Integration with install:** The `sentinal install` command could also create this `.gitignore` — but that's out of scope for this task. The write path handles it.
 
 **Definition of Done:**
+
 - [ ] `.sentinal/.gitignore` is created when shared memory is first written
 - [ ] Gitignore contains `*`, `!.gitignore`, `!project-memory.json`
 - [ ] Only created if it doesn't already exist
 - [ ] Tests verify gitignore creation
 
 **Verify:**
+
 - `bun test src/memory/shared.test.ts`

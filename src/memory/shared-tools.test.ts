@@ -10,16 +10,25 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
-import { readSharedMemory, addSharedObservation, saveToSharedIfRequested } from "./shared.js";
+import {
+  readSharedMemory,
+  addSharedObservation,
+  saveToSharedIfRequested,
+} from "./shared.js";
 import type { CreateObservation } from "./types.js";
 
 function makeTmpProject(): string {
-  const dir = join(tmpdir(), `sentinal-share-tools-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-share-tools-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "test-session",
     projectPath: "/test/project",
@@ -37,8 +46,12 @@ function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObse
 describe("saveToSharedIfRequested", () => {
   let projectDir: string;
 
-  beforeEach(() => { projectDir = makeTmpProject(); });
-  afterEach(() => { rmSync(projectDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    projectDir = makeTmpProject();
+  });
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 
   it("should save to shared file when shared is true and type is allowed", async () => {
     await saveToSharedIfRequested({
@@ -140,14 +153,16 @@ describe("memory_share promotion logic", () => {
   });
 
   it("should promote decision observations to shared memory", () => {
-    const obs = service.addObservation(makeObservation({
-      type: "decision",
-      title: "Architecture choice",
-      content: "We chose X over Y",
-      projectPath: projectDir,
-      tags: ["arch"],
-      filePaths: ["src/main.ts"],
-    }));
+    const obs = service.addObservation(
+      makeObservation({
+        type: "decision",
+        title: "Architecture choice",
+        content: "We chose X over Y",
+        projectPath: projectDir,
+        tags: ["arch"],
+        filePaths: ["src/main.ts"],
+      }),
+    );
 
     // Simulate promotion: read from store, convert, add to shared
     const retrieved = service.getObservation(obs.id);
@@ -168,11 +183,13 @@ describe("memory_share promotion logic", () => {
   });
 
   it("should reject promotion of error observations", () => {
-    const obs = service.addObservation(makeObservation({
-      type: "error",
-      title: "Build error",
-      projectPath: projectDir,
-    }));
+    const obs = service.addObservation(
+      makeObservation({
+        type: "error",
+        title: "Build error",
+        projectPath: projectDir,
+      }),
+    );
 
     // Simulating rejection — the MCP tool handler would check type
     const SHAREABLE_TYPES = ["decision", "discovery", "pattern"];

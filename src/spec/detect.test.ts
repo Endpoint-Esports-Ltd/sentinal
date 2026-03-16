@@ -10,7 +10,10 @@ describe("findActivePlan", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `sentinal-detect-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `sentinal-detect-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
   });
 
@@ -110,11 +113,18 @@ describe("detectSpecType", () => {
   });
 
   it("should detect bugfix from content keywords", () => {
-    expect(detectSpecType("Authentication issue", "This patch resolves a regression")).toBe("bugfix");
+    expect(
+      detectSpecType(
+        "Authentication issue",
+        "This patch resolves a regression",
+      ),
+    ).toBe("bugfix");
   });
 
   it("should detect feature when no bugfix keywords", () => {
-    expect(detectSpecType("Add user profiles", "New feature for user management")).toBe("feature");
+    expect(
+      detectSpecType("Add user profiles", "New feature for user management"),
+    ).toBe("feature");
   });
 
   it("should detect feature with only one bugfix keyword", () => {
@@ -122,6 +132,8 @@ describe("detectSpecType", () => {
   });
 
   it("should detect bugfix with multiple keywords", () => {
-    expect(detectSpecType("Hotfix for defect", "Critical production issue")).toBe("bugfix");
+    expect(
+      detectSpecType("Hotfix for defect", "Critical production issue"),
+    ).toBe("bugfix");
   });
 });

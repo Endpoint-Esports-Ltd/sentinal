@@ -14,16 +14,16 @@ model: opus
 
 ### Triggers
 
-| Trigger | Example |
-|---------|---------|
-| **Non-obvious debugging** | Spent 10+ minutes; solution wasn't in docs |
-| **Misleading errors** | Error message pointed wrong direction; found real cause |
-| **Workarounds** | Found limitation and creative solution |
-| **Tool integration** | Undocumented API/tool usage |
-| **Trial-and-error** | Tried multiple approaches before finding what worked |
-| **Repeatable workflow** | Multi-step task that will recur |
-| **External service queries** | Fetched from Jira, GitHub, Confluence |
-| **User-facing automation** | Reports, status checks user will ask for again |
+| Trigger                      | Example                                                 |
+| ---------------------------- | ------------------------------------------------------- |
+| **Non-obvious debugging**    | Spent 10+ minutes; solution wasn't in docs              |
+| **Misleading errors**        | Error message pointed wrong direction; found real cause |
+| **Workarounds**              | Found limitation and creative solution                  |
+| **Tool integration**         | Undocumented API/tool usage                             |
+| **Trial-and-error**          | Tried multiple approaches before finding what worked    |
+| **Repeatable workflow**      | Multi-step task that will recur                         |
+| **External service queries** | Fetched from Jira, GitHub, Confluence                   |
+| **User-facing automation**   | Reports, status checks user will ask for again          |
 
 ### Quality Criteria
 
@@ -43,6 +43,7 @@ SLUG=$(basename "$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')" 2>
 ```
 
 Skill directories (ALWAYS write to BOTH):
+
 - `.claude/skills/{slug}-{name}/SKILL.md`
 - `.opencode/skills/{slug}-{name}/SKILL.md`
 
@@ -54,13 +55,13 @@ Both files must have identical content. This ensures teams using either Claude C
 
 Before writing, decide WHERE your skill falls. **Move left whenever possible** — simpler skills are more reliable, cheaper to execute, and work across more models.
 
-| Level | Style | Determinism | Best For |
-|-------|-------|-------------|----------|
-| **Passive** | Context only | N/A | Background knowledge, coding standards |
-| **Instructional** | Rules + guidelines | Medium | Code review, style guides |
-| **CLI Wrapper** | Calls a binary/script | **High** | Automation, integrations, data processing |
-| **Workflow** | Multi-step with validation | Medium | Deploy pipelines, migrations |
-| **Generative** | Asks agent to write code | Low | Scaffolding, code generation |
+| Level             | Style                      | Determinism | Best For                                  |
+| ----------------- | -------------------------- | ----------- | ----------------------------------------- |
+| **Passive**       | Context only               | N/A         | Background knowledge, coding standards    |
+| **Instructional** | Rules + guidelines         | Medium      | Code review, style guides                 |
+| **CLI Wrapper**   | Calls a binary/script      | **High**    | Automation, integrations, data processing |
+| **Workflow**      | Multi-step with validation | Medium      | Deploy pipelines, migrations              |
+| **Generative**    | Asks agent to write code   | Low         | Scaffolding, code generation              |
 
 **Key insight:** A skill that says "run `eslint --fix`" works on any model. A skill that says "analyze the code and suggest improvements" requires expensive reasoning. Prefer commands over descriptions, scripts over instructions, explicit values over judgment.
 
@@ -88,18 +89,23 @@ version: 1.0.0
 # Skill Name
 
 ## When to Use
+
 [Specific trigger conditions — be precise]
 
 ## Solution
+
 [Steps — ordered, concrete, verifiable. Prefer exact commands over descriptions.]
 
 ## Verification
+
 [How to confirm it worked]
 
 ## When NOT to Use
+
 [Explicit exclusions — prevents scope creep and misactivation]
 
 ## Example
+
 [Concrete input/output example]
 
 ## References
@@ -114,10 +120,10 @@ version: 1.0.0
 
 Don't dump everything into SKILL.md. Layer content so the AI loads only what it needs.
 
-| Layer | What | Context Cost |
-|-------|------|--------------|
-| **Metadata** | `description` in frontmatter | Always loaded (~100 tokens) |
-| **Body** | SKILL.md instructions | Loaded on activation |
+| Layer              | What                            | Context Cost                              |
+| ------------------ | ------------------------------- | ----------------------------------------- |
+| **Metadata**       | `description` in frontmatter    | Always loaded (~100 tokens)               |
+| **Body**           | SKILL.md instructions           | Loaded on activation                      |
 | **Scripts/Assets** | `scripts/`, `examples/` subdirs | Executed or path-referenced, never loaded |
 
 **Rule of thumb:** "Is this line worth the context tokens it costs?" Don't explain what AI already knows. Only add your project's specific conventions, internal APIs, and domain rules.
@@ -147,11 +153,11 @@ ls .claude/skills/ .opencode/skills/ 2>/dev/null
 grep -ri "keyword" .claude/skills/ .opencode/skills/ 2>/dev/null
 ```
 
-| Found | Action |
-|-------|--------|
-| Nothing related | Create new |
+| Found            | Action                         |
+| ---------------- | ------------------------------ |
+| Nothing related  | Create new                     |
 | Same trigger/fix | Update existing (bump version) |
-| Partial overlap | Update with new variant |
+| Partial overlap  | Update with new variant        |
 
 ---
 
@@ -188,14 +194,14 @@ Write to BOTH `.claude/skills/{slug}-{skill-name}/SKILL.md` AND `.opencode/skill
 
 ## Anti-Patterns
 
-| Anti-Pattern | Fix |
-|--------------|-----|
-| **Kitchen sink** — skill does too many things | One skill = one purpose. Split it. |
-| **Vague instructions** — "properly format the code" | Name the specific tool and command |
-| **Explaining AI knowledge** — "NestJS is a Node.js framework..." | Only add what AI doesn't know: YOUR conventions |
-| **Too many options** — "use option A, B, or C..." | Give one default, mention alternatives only if needed |
-| **No verification** — "deploy to staging" (how do you know it worked?) | Always include a verification command |
-| **Hardcoded paths** — `/Users/john/projects/my-app/...` | Relative paths or environment variables |
+| Anti-Pattern                                                           | Fix                                                   |
+| ---------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Kitchen sink** — skill does too many things                          | One skill = one purpose. Split it.                    |
+| **Vague instructions** — "properly format the code"                    | Name the specific tool and command                    |
+| **Explaining AI knowledge** — "NestJS is a Node.js framework..."       | Only add what AI doesn't know: YOUR conventions       |
+| **Too many options** — "use option A, B, or C..."                      | Give one default, mention alternatives only if needed |
+| **No verification** — "deploy to staging" (how do you know it worked?) | Always include a verification command                 |
+| **Hardcoded paths** — `/Users/john/projects/my-app/...`                | Relative paths or environment variables               |
 
 ---
 

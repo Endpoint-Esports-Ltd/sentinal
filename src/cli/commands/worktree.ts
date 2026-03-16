@@ -19,9 +19,16 @@ import type { Command } from "commander";
 import { MemoryStore } from "../../memory/store.js";
 import { WorktreeStore } from "../../worktree/store.js";
 import { WorktreeManager } from "../../worktree/manager.js";
-import { WorktreeError, DEFAULT_WORKTREE_CONFIG } from "../../worktree/types.js";
+import {
+  WorktreeError,
+  DEFAULT_WORKTREE_CONFIG,
+} from "../../worktree/types.js";
 
-function createManager(): { manager: WorktreeManager; wtStore: WorktreeStore; store: MemoryStore } {
+function createManager(): {
+  manager: WorktreeManager;
+  wtStore: WorktreeStore;
+  store: MemoryStore;
+} {
   const memStore = new MemoryStore();
   const wtStore = new WorktreeStore(memStore);
   const manager = new WorktreeManager(wtStore, DEFAULT_WORKTREE_CONFIG);
@@ -29,7 +36,12 @@ function createManager(): { manager: WorktreeManager; wtStore: WorktreeStore; st
 }
 
 function handleError(err: unknown, json?: boolean): void {
-  const msg = err instanceof WorktreeError ? err.message : err instanceof Error ? err.message : String(err);
+  const msg =
+    err instanceof WorktreeError
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err);
   if (json) {
     console.log(JSON.stringify({ error: msg }));
   } else {
@@ -41,14 +53,19 @@ function handleError(err: unknown, json?: boolean): void {
 export function registerWorktreeCommand(program: Command): void {
   const wt = program
     .command("worktree")
-    .description("Git worktree management — list, status, diff, merge, abandon, cleanup");
+    .description(
+      "Git worktree management — list, status, diff, merge, abandon, cleanup",
+    );
 
   // ─── list ─────────────────────────────────────────────────────────────
 
   wt.command("list")
     .description("List all worktrees")
     .option("-p, --project <path>", "Filter by project path")
-    .option("-s, --status <status>", "Filter by status (active, merged, abandoned)")
+    .option(
+      "-s, --status <status>",
+      "Filter by status (active, merged, abandoned)",
+    )
     .option("--json", "Output as JSON")
     .action((opts: { project?: string; status?: string; json?: boolean }) => {
       const { manager, store } = createManager();
@@ -63,12 +80,16 @@ export function registerWorktreeCommand(program: Command): void {
         } else if (worktrees.length === 0) {
           console.log("No worktrees found.");
         } else {
-          const header = "  ID                               | Status         | Branch                         | Base";
-          const sep =    "  ---------------------------------|----------------|--------------------------------|------";
+          const header =
+            "  ID                               | Status         | Branch                         | Base";
+          const sep =
+            "  ---------------------------------|----------------|--------------------------------|------";
           console.log(header);
           console.log(sep);
           for (const w of worktrees) {
-            console.log(`  ${w.id.padEnd(33)} | ${w.status.padEnd(14)} | ${w.branchName.padEnd(30)} | ${w.baseBranch}`);
+            console.log(
+              `  ${w.id.padEnd(33)} | ${w.status.padEnd(14)} | ${w.branchName.padEnd(30)} | ${w.baseBranch}`,
+            );
           }
         }
       } catch (err) {
@@ -94,11 +115,15 @@ export function registerWorktreeCommand(program: Command): void {
           console.log(`Worktree: ${result.id}`);
           console.log(`  Status:     ${result.status}`);
           console.log(`  Branch:     ${result.branchName}`);
-          console.log(`  Base:       ${result.baseBranch} (${result.baseCommit.slice(0, 8)})`);
+          console.log(
+            `  Base:       ${result.baseBranch} (${result.baseCommit.slice(0, 8)})`,
+          );
           console.log(`  Path:       ${result.worktreePath}`);
           console.log(`  On disk:    ${result.existsOnDisk ? "yes" : "NO"}`);
           if (result.diffSummary && result.diffSummary.filesChanged > 0) {
-            console.log(`  Changes:    ${result.diffSummary.filesChanged} files (+${result.diffSummary.insertions} -${result.diffSummary.deletions})`);
+            console.log(
+              `  Changes:    ${result.diffSummary.filesChanged} files (+${result.diffSummary.insertions} -${result.diffSummary.deletions})`,
+            );
           }
         }
       } catch (err) {
@@ -121,10 +146,21 @@ export function registerWorktreeCommand(program: Command): void {
         if (opts.json) {
           console.log(JSON.stringify(diff));
         } else {
-          console.log(`${diff.filesChanged} files changed, +${diff.insertions} -${diff.deletions}`);
+          console.log(
+            `${diff.filesChanged} files changed, +${diff.insertions} -${diff.deletions}`,
+          );
           for (const f of diff.files) {
-            const indicator = f.status === "added" ? "A" : f.status === "deleted" ? "D" : f.status === "renamed" ? "R" : "M";
-            console.log(`  ${indicator} ${f.path} (+${f.insertions} -${f.deletions})`);
+            const indicator =
+              f.status === "added"
+                ? "A"
+                : f.status === "deleted"
+                  ? "D"
+                  : f.status === "renamed"
+                    ? "R"
+                    : "M";
+            console.log(
+              `  ${indicator} ${f.path} (+${f.insertions} -${f.deletions})`,
+            );
           }
         }
       } catch (err) {
@@ -147,9 +183,16 @@ export function registerWorktreeCommand(program: Command): void {
         // Check conflicts first
         if (manager.hasConflicts(id)) {
           if (opts.json) {
-            console.log(JSON.stringify({ error: "Merge conflicts detected", conflicts: true }));
+            console.log(
+              JSON.stringify({
+                error: "Merge conflicts detected",
+                conflicts: true,
+              }),
+            );
           } else {
-            console.error("Error: Merge conflicts detected. Resolve conflicts manually before merging.");
+            console.error(
+              "Error: Merge conflicts detected. Resolve conflicts manually before merging.",
+            );
           }
           process.exitCode = 1;
           return;
@@ -157,7 +200,9 @@ export function registerWorktreeCommand(program: Command): void {
 
         const commit = manager.squashMerge(id, opts.message);
         if (opts.json) {
-          console.log(JSON.stringify({ mergeCommit: commit, status: "merged" }));
+          console.log(
+            JSON.stringify({ mergeCommit: commit, status: "merged" }),
+          );
         } else {
           console.log(`Merged: ${commit.slice(0, 8)}`);
           console.log(`  Worktree removed and branch deleted.`);
@@ -232,14 +277,18 @@ export function registerWorktreeCommand(program: Command): void {
           return;
         }
         if (opts.json) {
-          console.log(JSON.stringify({
-            path: wt.worktreePath,
-            branch: wt.branchName,
-            baseBranch: wt.baseBranch,
-            status: wt.status,
-          }));
+          console.log(
+            JSON.stringify({
+              path: wt.worktreePath,
+              branch: wt.branchName,
+              baseBranch: wt.baseBranch,
+              status: wt.status,
+            }),
+          );
         } else {
-          console.log(`Worktree found: ${wt.worktreePath} (branch: ${wt.branchName})`);
+          console.log(
+            `Worktree found: ${wt.worktreePath} (branch: ${wt.branchName})`,
+          );
         }
       } catch (err) {
         handleError(err, opts.json);
@@ -254,27 +303,39 @@ export function registerWorktreeCommand(program: Command): void {
     .description("Create a new worktree for a plan slug")
     .argument("<slug>", "Plan slug (e.g. '2026-03-12-add-auth')")
     .option("-p, --project <path>", "Project path", process.cwd())
-    .option("-b, --base <branch>", "Base branch to create from (auto-detected if omitted)")
+    .option(
+      "-b, --base <branch>",
+      "Base branch to create from (auto-detected if omitted)",
+    )
     .option("--json", "Output as JSON")
-    .action((slug: string, opts: { project: string; base?: string; json?: boolean }) => {
-      const { manager, store } = createManager();
-      try {
-        const wt = manager.create(slug, opts.project, opts.base);
-        if (opts.json) {
-          console.log(JSON.stringify({
-            path: wt.worktreePath,
-            branch: wt.branchName,
-            baseBranch: wt.baseBranch,
-          }));
-        } else {
-          console.log(`Created worktree: ${wt.worktreePath} (branch: ${wt.branchName})`);
+    .action(
+      (
+        slug: string,
+        opts: { project: string; base?: string; json?: boolean },
+      ) => {
+        const { manager, store } = createManager();
+        try {
+          const wt = manager.create(slug, opts.project, opts.base);
+          if (opts.json) {
+            console.log(
+              JSON.stringify({
+                path: wt.worktreePath,
+                branch: wt.branchName,
+                baseBranch: wt.baseBranch,
+              }),
+            );
+          } else {
+            console.log(
+              `Created worktree: ${wt.worktreePath} (branch: ${wt.branchName})`,
+            );
+          }
+        } catch (err) {
+          handleError(err, opts.json);
+        } finally {
+          store.close();
         }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
+      },
+    );
 
   // ─── sync ─────────────────────────────────────────────────────────────
 
@@ -284,40 +345,62 @@ export function registerWorktreeCommand(program: Command): void {
     .option("-m, --message <msg>", "Commit message")
     .option("-p, --project <path>", "Project path", process.cwd())
     .option("--json", "Output as JSON")
-    .action((slug: string, opts: { message?: string; project: string; json?: boolean }) => {
-      const { manager, wtStore, store } = createManager();
-      try {
-        const wt = wtStore.resolveBySlug(slug, opts.project);
-        if (!wt) {
-          if (opts.json) {
-            console.log(JSON.stringify({ error: `No worktree found for: ${slug}` }));
-          } else {
-            console.error(`Error: No worktree found for: ${slug}`);
+    .action(
+      (
+        slug: string,
+        opts: { message?: string; project: string; json?: boolean },
+      ) => {
+        const { manager, wtStore, store } = createManager();
+        try {
+          const wt = wtStore.resolveBySlug(slug, opts.project);
+          if (!wt) {
+            if (opts.json) {
+              console.log(
+                JSON.stringify({ error: `No worktree found for: ${slug}` }),
+              );
+            } else {
+              console.error(`Error: No worktree found for: ${slug}`);
+            }
+            process.exitCode = 1;
+            return;
           }
-          process.exitCode = 1;
-          return;
-        }
 
-        if (manager.hasConflicts(wt.id)) {
-          if (opts.json) {
-            console.log(JSON.stringify({ error: "Merge conflicts detected", conflicts: true }));
-          } else {
-            console.error("Error: Merge conflicts detected. Resolve conflicts manually before syncing.");
+          if (manager.hasConflicts(wt.id)) {
+            if (opts.json) {
+              console.log(
+                JSON.stringify({
+                  error: "Merge conflicts detected",
+                  conflicts: true,
+                }),
+              );
+            } else {
+              console.error(
+                "Error: Merge conflicts detected. Resolve conflicts manually before syncing.",
+              );
+            }
+            process.exitCode = 1;
+            return;
           }
-          process.exitCode = 1;
-          return;
-        }
 
-        const commit = manager.squashMerge(wt.id, opts.message);
-        if (opts.json) {
-          console.log(JSON.stringify({ commit, branch: wt.branchName, baseBranch: wt.baseBranch }));
-        } else {
-          console.log(`Merged: ${commit.slice(0, 8)} (branch: ${wt.branchName} → ${wt.baseBranch})`);
+          const commit = manager.squashMerge(wt.id, opts.message);
+          if (opts.json) {
+            console.log(
+              JSON.stringify({
+                commit,
+                branch: wt.branchName,
+                baseBranch: wt.baseBranch,
+              }),
+            );
+          } else {
+            console.log(
+              `Merged: ${commit.slice(0, 8)} (branch: ${wt.branchName} → ${wt.baseBranch})`,
+            );
+          }
+        } catch (err) {
+          handleError(err, opts.json);
+        } finally {
+          store.close();
         }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
+      },
+    );
 }

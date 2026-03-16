@@ -94,7 +94,10 @@ export function upsertBlock(existingContent: string, block: string): string {
   }
 
   // Append — ensure newline separation
-  const separator = existingContent.length > 0 && !existingContent.endsWith("\n") ? "\n\n" : "\n";
+  const separator =
+    existingContent.length > 0 && !existingContent.endsWith("\n")
+      ? "\n\n"
+      : "\n";
   return existingContent + separator + block + "\n";
 }
 
@@ -129,7 +132,9 @@ export function applyShellInit(shell: ShellType): ShellInitResult {
   const configPath = getShellConfigPath(shell);
   const block = generateShellBlock(shell);
 
-  const existing = existsSync(configPath) ? readFileSync(configPath, "utf-8") : "";
+  const existing = existsSync(configPath)
+    ? readFileSync(configPath, "utf-8")
+    : "";
 
   // Check if already up-to-date
   if (existing.includes(block)) {
@@ -170,14 +175,18 @@ export function registerShellInitCommand(program: Command): void {
       }
 
       if (!["bash", "zsh", "fish"].includes(shell)) {
-        console.error(`Unsupported shell: ${shell}. Supported: bash, zsh, fish`);
+        console.error(
+          `Unsupported shell: ${shell}. Supported: bash, zsh, fish`,
+        );
         process.exit(1);
       }
 
       const configPath = getShellConfigPath(shell);
 
       if (opts.remove) {
-        const existing = existsSync(configPath) ? readFileSync(configPath, "utf-8") : "";
+        const existing = existsSync(configPath)
+          ? readFileSync(configPath, "utf-8")
+          : "";
         const result = removeBlock(existing);
         if (!result) {
           console.log(`No sentinal block found in ${configPath}`);

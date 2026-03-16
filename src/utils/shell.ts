@@ -5,7 +5,15 @@
  * filesystem helpers, and interactive prompts.
  */
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, unlinkSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  readFileSync,
+} from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -64,7 +72,11 @@ export function commandExists(name: string): boolean {
 
 /** Get the Node.js major version number, or null if node is not available. */
 export function getNodeMajorVersion(): number | null {
-  const result = run(["node", "-e", "console.log(process.versions.node.split('.')[0])"]);
+  const result = run([
+    "node",
+    "-e",
+    "console.log(process.versions.node.split('.')[0])",
+  ]);
   if (!result.ok) return null;
   const major = parseInt(result.stdout, 10);
   return isNaN(major) ? null : major;
@@ -211,7 +223,9 @@ export async function promptMenu(
   choices: string[],
 ): Promise<number> {
   if (!process.stdin.isTTY) {
-    err("Error: Interactive prompt requires a TTY. Use an explicit target argument.");
+    err(
+      "Error: Interactive prompt requires a TTY. Use an explicit target argument.",
+    );
     process.exit(1);
   }
 
@@ -276,7 +290,12 @@ export function stripJsoncComments(text: string): string {
         continue;
       }
 
-      if (!inString && ch === "/" && i + 1 < line.length && line[i + 1] === "/") {
+      if (
+        !inString &&
+        ch === "/" &&
+        i + 1 < line.length &&
+        line[i + 1] === "/"
+      ) {
         commentStart = i;
         break;
       }

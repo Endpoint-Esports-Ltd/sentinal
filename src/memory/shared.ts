@@ -18,7 +18,7 @@ export interface SharedObservation {
   content: string;
   tags: string[];
   filePaths: string[];
-  createdAt: string;  // YYYY-MM-DD, human-friendly
+  createdAt: string; // YYYY-MM-DD, human-friendly
   author?: string;
 }
 
@@ -64,12 +64,19 @@ export function readSharedMemory(projectPath: string): SharedObservation[] {
  * Write shared observations to the project memory file.
  * Creates `.sentinal/` directory if needed. Writes formatted JSON.
  */
-export function writeSharedMemory(projectPath: string, observations: SharedObservation[]): void {
+export function writeSharedMemory(
+  projectPath: string,
+  observations: SharedObservation[],
+): void {
   const dir = join(projectPath, SENTINAL_DIR);
   mkdirSync(dir, { recursive: true });
 
   const data: SharedMemoryFile = { version: 1, observations };
-  writeFileSync(sharedMemoryPath(projectPath), JSON.stringify(data, null, 2) + "\n", "utf-8");
+  writeFileSync(
+    sharedMemoryPath(projectPath),
+    JSON.stringify(data, null, 2) + "\n",
+    "utf-8",
+  );
 
   // Ensure .gitignore exists for shared memory discoverability
   ensureGitignore(dir);
@@ -79,7 +86,10 @@ export function writeSharedMemory(projectPath: string, observations: SharedObser
  * Add a single observation to shared memory. Deduplicates by title —
  * if an observation with the same title exists, it is replaced.
  */
-export function addSharedObservation(projectPath: string, obs: SharedObservation): void {
+export function addSharedObservation(
+  projectPath: string,
+  obs: SharedObservation,
+): void {
   const existing = readSharedMemory(projectPath);
   const filtered = existing.filter((o) => o.title !== obs.title);
   filtered.push(obs);
@@ -140,7 +150,9 @@ interface SharedSaveOptions {
  * Only decision, discovery, and pattern types can be shared.
  * Returns true if saved, false if skipped.
  */
-export async function saveToSharedIfRequested(opts: SharedSaveOptions): Promise<boolean> {
+export async function saveToSharedIfRequested(
+  opts: SharedSaveOptions,
+): Promise<boolean> {
   if (!opts.shared) return false;
   if (!SHAREABLE_TYPES.has(opts.type)) return false;
 
@@ -153,7 +165,9 @@ export async function saveToSharedIfRequested(opts: SharedSaveOptions): Promise<
     });
     const text = await new Response(proc.stdout).text();
     if (text.trim()) author = text.trim();
-  } catch { /* git unavailable */ }
+  } catch {
+    /* git unavailable */
+  }
 
   addSharedObservation(opts.project, {
     type: opts.type as ObservationType,
@@ -181,23 +195,34 @@ export interface SharedToolsDeps {
   service?: MemoryService | null;
 }
 
-export function registerSharedTools(server: McpServer, deps: SharedToolsDeps): void {
+export function registerSharedTools(
+  server: McpServer,
+  deps: SharedToolsDeps,
+): void {
   const { client = null, service = null } = deps;
 
   server.tool(
     "memory_share",
     "Promote existing observations to shared project memory (.sentinal/project-memory.json). Only decision, discovery, and pattern types are allowed.",
     {
-      ids: z.array(z.number()).min(1).max(20).describe("Observation IDs to promote"),
+      ids: z
+        .array(z.number())
+        .min(1)
+        .max(20)
+        .describe("Observation IDs to promote"),
       project: z.string().describe("Project root path"),
     },
     async ({ ids, project }) => {
       const observations = client
         ? await client.memoryGet(ids)
-        : service?.getObservations(ids) ?? [];
+        : (service?.getObservations(ids) ?? []);
 
       if (observations.length === 0) {
-        return { content: [{ type: "text", text: "No observations found for the given IDs." }] };
+        return {
+          content: [
+            { type: "text", text: "No observations found for the given IDs." },
+          ],
+        };
       }
 
       let shared = 0;
@@ -219,8 +244,13 @@ export function registerSharedTools(server: McpServer, deps: SharedToolsDeps): v
         shared++;
       }
 
-      const parts = [`Promoted ${shared} observation(s) to shared project memory.`];
-      if (rejected > 0) parts.push(`Rejected ${rejected} (only decision/discovery/pattern types allowed).`);
+      const parts = [
+        `Promoted ${shared} observation(s) to shared project memory.`,
+      ];
+      if (rejected > 0)
+        parts.push(
+          `Rejected ${rejected} (only decision/discovery/pattern types allowed).`,
+        );
       return { content: [{ type: "text", text: parts.join(" ") }] };
     },
   );

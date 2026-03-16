@@ -59,7 +59,17 @@ const SKIP_TEST_PATTERNS = [
 
 // ─── Implementation Extensions (files the TDD guard can protect) ────────────
 
-const IMPL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".go", ".py", ".rs", ".c", ".cpp"];
+const IMPL_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".go",
+  ".py",
+  ".rs",
+  ".c",
+  ".cpp",
+];
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -168,7 +178,9 @@ export function getImplPathForTest(testFilePath: string): string | null {
   }
 
   // Prefix convention: dir/test_foo.py → dir/foo.py, dir/test_foo.c → dir/foo.c
-  const prefixMatch = testFilePath.match(/^(.*[/\\])?test_([^/\\]+)\.(py|c|cpp)$/);
+  const prefixMatch = testFilePath.match(
+    /^(.*[/\\])?test_([^/\\]+)\.(py|c|cpp)$/,
+  );
   if (prefixMatch) {
     const dir = prefixMatch[1] ?? "";
     return `${dir}${prefixMatch[2]}.${prefixMatch[3]}`;

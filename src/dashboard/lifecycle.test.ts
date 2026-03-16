@@ -4,7 +4,13 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 
@@ -15,7 +21,10 @@ describe("Dashboard Lifecycle", () => {
   let tmpDir: string;
 
   function makeTmpDir(): string {
-    const dir = join(realpathSync(tmpdir()), `sentinal-lc-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const dir = join(
+      realpathSync(tmpdir()),
+      `sentinal-lc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(dir, { recursive: true });
     return dir;
   }

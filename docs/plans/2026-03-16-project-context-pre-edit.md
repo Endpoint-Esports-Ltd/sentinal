@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - `project_context` MCP tool returning structured project summary
 - Sidecar `/project-context` endpoint with in-memory caching
 - Live analysis: package.json, tsconfig.json, directory tree, framework detection
@@ -27,6 +28,7 @@ Type: Feature
 - Observation-gated triggering (silent when no relevant observations)
 
 ### Out of Scope
+
 - Automatic project context generation on first session (future `/sync` enhancement)
 - Real-time file watching for context invalidation (cache cleared per-session is sufficient)
 - Changing existing `/sync` command behavior or output format
@@ -96,17 +98,17 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Pre-edit hook adds latency to every Write/Edit | Medium | Medium | Skip path (<5ms) when no observations exist. Only query sidecar when file has known observations. |
-| Project analysis returns stale data after package changes | Low | Low | Cache per-session only. User can call `project_context` again to refresh. |
-| Sync rule files don't exist (user never ran /sync) | Medium | Low | Live analysis is always available. Rule files are supplementary. |
-| OpenCode plugin exceeds 600-line limit | High | Medium | Delegate all logic to imported helper functions. Plugin only adds 2-3 lines. |
-| routes.ts exceeds 400-line limit | High | Medium | New routes go in a separate `project-routes.ts` file, wired in via server.ts. |
+| Risk                                                      | Likelihood | Impact | Mitigation                                                                                        |
+| --------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------- |
+| Pre-edit hook adds latency to every Write/Edit            | Medium     | Medium | Skip path (<5ms) when no observations exist. Only query sidecar when file has known observations. |
+| Project analysis returns stale data after package changes | Low        | Low    | Cache per-session only. User can call `project_context` again to refresh.                         |
+| Sync rule files don't exist (user never ran /sync)        | Medium     | Low    | Live analysis is always available. Rule files are supplementary.                                  |
+| OpenCode plugin exceeds 600-line limit                    | High       | Medium | Delegate all logic to imported helper functions. Plugin only adds 2-3 lines.                      |
+| routes.ts exceeds 400-line limit                          | High       | Medium | New routes go in a separate `project-routes.ts` file, wired in via server.ts.                     |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Pre-edit guidance is too noisy or too slow** (Task 4) — Trigger: LLMs start ignoring the hints because they fire too often or contain irrelevant information. Mitigation: strict observation-gated triggering — only fire when there are observations specifically about the target file (not general project observations).
 
@@ -117,6 +119,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `project_context` MCP tool returns a structured project summary including tech stack, directory structure, and conventions
 2. Project analysis reads package.json, tsconfig.json, and directory tree from the filesystem
 3. Existing sync-generated rule files are included in the project context when available
@@ -126,6 +129,7 @@ Type: Feature
 7. Pre-edit guidance works on both Claude Code (PreToolUse hook) and OpenCode (tool.execute.before)
 
 ### Artifacts
+
 - `src/project/context.ts` (new) — project analysis logic
 - `src/project/context.test.ts` (new) — tests
 - `src/project/mcp-tools.ts` (new) — `project_context` MCP tool registration
@@ -140,6 +144,7 @@ Type: Feature
 - `targets/opencode/plugins/sentinal.ts` (modified) — add pre-edit guide in before handler
 
 ### Key Links
+
 - `project_context` MCP tool ← calls sidecar `/project-context` ← `analyzeProject()` + cache
 - `pre-edit-guide` hook ← queries sidecar for file observations ← returns hint or nothing
 - hooks.json ← PreToolUse matcher for Write|Edit|MultiEdit ← `sentinal hook shared pre-edit-guide`
@@ -163,21 +168,23 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/project/context.ts`
 - Create: `src/project/context.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Function signature:** `analyzeProject(projectPath: string): ProjectContext`
 - **`ProjectContext` type:**
   ```ts
   interface ProjectContext {
-    name: string;            // from package.json name or directory basename
-    techStack: TechStack;    // framework, language, packageManager, testRunner
-    structure: string[];     // top-level directory listing with annotations
-    conventions: string[];   // discovered conventions (from rules + analysis)
+    name: string; // from package.json name or directory basename
+    techStack: TechStack; // framework, language, packageManager, testRunner
+    structure: string[]; // top-level directory listing with annotations
+    conventions: string[]; // discovered conventions (from rules + analysis)
     commands: Record<string, string>; // build, test, lint, dev from package.json scripts
-    rulesContent: string | null;  // content of sync-generated rules file if exists
-    analyzedAt: number;      // timestamp for cache freshness
+    rulesContent: string | null; // content of sync-generated rules file if exists
+    analyzedAt: number; // timestamp for cache freshness
   }
   ```
 - **Tech stack detection:** Use existing `detectPackageManager()` and `detectFramework()` from `src/checkers/detect.ts`
@@ -188,6 +195,7 @@ Type: Feature
 - **Output format:** `formatProjectContext(ctx: ProjectContext): string` — formats as markdown for MCP tool output.
 
 **Definition of Done:**
+
 - [ ] `analyzeProject()` reads package.json and extracts name, scripts, dependencies
 - [ ] Tech stack detected (framework, packageManager, testRunner)
 - [ ] Directory structure captured (top-level + src/ one level)
@@ -196,6 +204,7 @@ Type: Feature
 - [ ] Tests verify analysis with mock filesystem
 
 **Verify:**
+
 - `bun test src/project/context.test.ts`
 
 ---
@@ -207,11 +216,13 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Create: `src/sidecar/project-routes.ts`
 - Modify: `src/sidecar/server.ts` (wire handler, add cache to SidecarContext)
 - Modify: `src/sidecar/client.ts` (add `projectContext()` method)
 
 **Key Decisions / Notes:**
+
 - **Route:** `GET /project-context?project=<path>&refresh=<bool>`
 - **Cache:** `Map<string, ProjectContext>` held on `SidecarContext`. Cleared on sidecar restart (per-session).
 - **Cache key:** Normalized project path (use `path.resolve()`)
@@ -221,6 +232,7 @@ Type: Feature
 - **Line count:** `routes.ts` stays unchanged (399 lines). `server.ts` grows by ~3 lines (import + route check). `client.ts` grows by ~8 lines.
 
 **Definition of Done:**
+
 - [ ] `GET /project-context` returns analyzed project context
 - [ ] Response is cached per project path
 - [ ] `refresh=true` forces re-analysis
@@ -228,6 +240,7 @@ Type: Feature
 - [ ] Handler is in separate `project-routes.ts` file
 
 **Verify:**
+
 - `bun test src/sidecar/`
 
 ---
@@ -239,11 +252,13 @@ Type: Feature
 **Dependencies:** Task 1, Task 2
 
 **Files:**
+
 - Create: `src/project/mcp-tools.ts`
 - Create: `src/project/mcp-tools.test.ts`
 - Modify: `src/mcp/server.ts` (import and register)
 
 **Key Decisions / Notes:**
+
 - **Tool name:** `project_context`
 - **Description:** "Get a structured project summary including tech stack, directory layout, key commands, and conventions. Call once per session for project understanding."
 - **Parameters:**
@@ -254,6 +269,7 @@ Type: Feature
 - **Line impact:** `server.ts` grows by 2 lines (import + register call). New file ~60 lines.
 
 **Definition of Done:**
+
 - [ ] `project_context` tool registered on MCP server
 - [ ] Returns formatted markdown with tech stack, structure, commands, conventions
 - [ ] Routes through sidecar when available, falls back to direct
@@ -261,6 +277,7 @@ Type: Feature
 - [ ] Tests verify tool registration, sidecar-first with direct fallback, and refresh parameter
 
 **Verify:**
+
 - `bun test src/project/`
 
 ---
@@ -272,10 +289,12 @@ Type: Feature
 **Dependencies:** None (uses existing MemoryStore/service)
 
 **Files:**
+
 - Create: `src/hooks/pre-edit-guide.ts`
 - Create: `src/hooks/pre-edit-guide.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Core function:** `processPreEditGuide(input: PreEditInput): Promise<string | null>`
   - `PreEditInput`: `{ filePath: string; cwd: string }`
   - Returns formatted hint string or `null` (silent skip)
@@ -295,6 +314,7 @@ Type: Feature
 - **Performance:** The fast path (no observations) must be <10ms. Use sidecar when available (avoids MemoryStore cold start). When no sidecar, open store, query, close (~5ms for SQLite read).
 
 **Definition of Done:**
+
 - [ ] `processPreEditGuide()` returns file-specific observations as formatted hint
 - [ ] Returns `null` (silent) when no observations exist for the file
 - [ ] Fast path: <10ms when no observations
@@ -302,6 +322,7 @@ Type: Feature
 - [ ] Tests verify: observation found returns hint, no observation returns null
 
 **Verify:**
+
 - `bun test src/hooks/pre-edit-guide.test.ts`
 
 ---
@@ -313,21 +334,25 @@ Type: Feature
 **Dependencies:** Task 4
 
 **Files:**
+
 - Modify: `src/cli/commands/hook.ts` (add `pre-edit-guide` to SHARED_HOOKS)
 - Modify: `templates/claude/hooks.json` (add PreToolUse entry for Write|Edit|MultiEdit)
 - Modify: `targets/opencode/plugins/sentinal.ts` (add pre-edit guide call in before handler)
 - Run: `bun run embed-assets` (regenerates embedded-assets.ts)
 
 **Key Decisions / Notes:**
+
 - **Claude Code:** Add a new PreToolUse entry in hooks.json:
   ```json
   {
     "matcher": "Write|Edit|MultiEdit",
-    "hooks": [{
-      "type": "command",
-      "command": "sentinal hook shared pre-edit-guide",
-      "timeout": 5
-    }]
+    "hooks": [
+      {
+        "type": "command",
+        "command": "sentinal hook shared pre-edit-guide",
+        "timeout": 5
+      }
+    ]
   }
   ```
   Place AFTER the tdd-guard entry (TDD guard runs first, if it denies, pre-edit guide doesn't run).
@@ -337,7 +362,10 @@ Type: Feature
   ```ts
   if (sidecar && typeof filePath === "string") {
     const guide = await getPreEditGuide(sidecar, filePath, projectRoot);
-    if (guide) await client.app.log({ body: { service: "sentinal", level: "info", message: guide } });
+    if (guide)
+      await client.app.log({
+        body: { service: "sentinal", level: "info", message: guide },
+      });
   }
   ```
   `getPreEditGuide()` is imported from the helpers file.
@@ -345,6 +373,7 @@ Type: Feature
 - **After template changes:** Run `bun run embed-assets` to rebuild `src/cli/embedded-assets.ts`.
 
 **Definition of Done:**
+
 - [ ] Pre-edit guidance fires on Write/Edit/MultiEdit in Claude Code
 - [ ] Pre-edit guidance fires in OpenCode plugin before handler
 - [ ] TDD guard runs before pre-edit guidance (correct ordering)
@@ -353,6 +382,7 @@ Type: Feature
 - [ ] Full test suite passes
 
 **Verify:**
+
 - `bun test src/hooks/ src/cli/`
 - `bun run embed-assets`
 - `bun run build:cli`

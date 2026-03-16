@@ -37,7 +37,10 @@ export class UserService {
     return this.userRepository.findOne({ where: { username } });
   }
 
-  async findByProvider(provider: string, providerId: string): Promise<User | null> {
+  async findByProvider(
+    provider: string,
+    providerId: string,
+  ): Promise<User | null> {
     return this.userRepository.findOne({ where: { provider, providerId } });
   }
 
@@ -136,7 +139,10 @@ export class UserService {
       .getMany();
   }
 
-  async findPaginated(page: number, limit: number): Promise<{ users: User[]; total: number }> {
+  async findPaginated(
+    page: number,
+    limit: number,
+  ): Promise<{ users: User[]; total: number }> {
     const [users, total] = await this.userRepository.findAndCount({
       skip: (page - 1) * limit,
       take: limit,
@@ -201,7 +207,9 @@ export class UserService {
   async removePermission(id: string, permission: string): Promise<void> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException("User not found");
-    const permissions = (user.permissions || []).filter((p) => p !== permission);
+    const permissions = (user.permissions || []).filter(
+      (p) => p !== permission,
+    );
     await this.userRepository.update(id, { permissions });
   }
 
@@ -271,7 +279,10 @@ export class UserService {
   }
 
   async lockAccount(id: string): Promise<void> {
-    await this.userRepository.update(id, { isLocked: true, lockedAt: new Date() });
+    await this.userRepository.update(id, {
+      isLocked: true,
+      lockedAt: new Date(),
+    });
   }
 
   async unlockAccount(id: string): Promise<void> {
@@ -308,7 +319,10 @@ export class UserService {
   }
 
   async verifyUser(id: string): Promise<void> {
-    await this.userRepository.update(id, { isVerified: true, verifiedAt: new Date() });
+    await this.userRepository.update(id, {
+      isVerified: true,
+      verifiedAt: new Date(),
+    });
   }
 
   async sendVerificationEmail(id: string): Promise<void> {
@@ -328,7 +342,10 @@ export class UserService {
     return token;
   }
 
-  async validatePasswordResetToken(id: string, token: string): Promise<boolean> {
+  async validatePasswordResetToken(
+    id: string,
+    token: string,
+  ): Promise<boolean> {
     const user = await this.findById(id);
     if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
       return false;
@@ -366,12 +383,19 @@ export class UserService {
     return [];
   }
 
-  async isPasswordInHistory(id: string, passwordHash: string): Promise<boolean> {
+  async isPasswordInHistory(
+    id: string,
+    passwordHash: string,
+  ): Promise<boolean> {
     const history = await this.findPasswordHistory(id);
     return history.some((entry) => entry.passwordHash === passwordHash);
   }
 
-  async auditLog(id: string, action: string, metadata?: Record<string, unknown>): Promise<void> {
+  async auditLog(
+    id: string,
+    action: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     // Would create audit log entry
   }
 
@@ -518,7 +542,11 @@ export class UserService {
     });
   }
 
-  async suspendUser(id: string, reason: string, duration?: number): Promise<void> {
+  async suspendUser(
+    id: string,
+    reason: string,
+    duration?: number,
+  ): Promise<void> {
     await this.userRepository.update(id, {
       isActive: false,
       suspendedAt: new Date(),
@@ -558,7 +586,9 @@ export class UserService {
     if (!user) throw new NotFoundException("User not found");
 
     const currentExpiry = user.subscriptionExpiresAt || new Date();
-    const newExpiry = new Date(currentExpiry.getTime() + days * 24 * 60 * 60 * 1000);
+    const newExpiry = new Date(
+      currentExpiry.getTime() + days * 24 * 60 * 60 * 1000,
+    );
 
     await this.userRepository.update(id, { subscriptionExpiresAt: newExpiry });
   }
@@ -586,9 +616,7 @@ export class UserService {
     until.setDate(until.getDate() + days);
     return this.userRepository.find({
       where: {
-        subscriptionExpiresAt: MoreThan(new Date()).and(
-          LessThan(until),
-        ),
+        subscriptionExpiresAt: MoreThan(new Date()).and(LessThan(until)),
       },
     });
   }
@@ -601,7 +629,10 @@ export class UserService {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException("User not found");
 
-    if (!user.subscriptionExpiresAt || user.subscriptionExpiresAt < new Date()) {
+    if (
+      !user.subscriptionExpiresAt ||
+      user.subscriptionExpiresAt < new Date()
+    ) {
       return { active: false, tier: user.subscriptionTier, expiresAt: null };
     }
 
@@ -626,7 +657,9 @@ export class UserService {
     });
   }
 
-  async getUserCountByDate(days: number): Promise<{ date: Date; count: number }[]> {
+  async getUserCountByDate(
+    days: number,
+  ): Promise<{ date: Date; count: number }[]> {
     // Would aggregate user creation by date
     return [];
   }
@@ -663,7 +696,10 @@ export class UserService {
     });
   }
 
-  async getUserActivityReport(startDate: Date, endDate: Date): Promise<ActivityReport> {
+  async getUserActivityReport(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<ActivityReport> {
     const users = await this.findUsersByDateRange(startDate, endDate);
     return {
       total: users.length,
@@ -729,26 +765,40 @@ export class UserService {
     const subscriptions = user.newsletterSubscriptions || [];
     if (!subscriptions.includes(newsletter)) {
       subscriptions.push(newsletter);
-      await this.userRepository.update(id, { newsletterSubscriptions: subscriptions });
+      await this.userRepository.update(id, {
+        newsletterSubscriptions: subscriptions,
+      });
     }
   }
 
-  async unsubscribeFromNewsletter(id: string, newsletter: string): Promise<void> {
+  async unsubscribeFromNewsletter(
+    id: string,
+    newsletter: string,
+  ): Promise<void> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException("User not found");
 
-    const subscriptions = (user.newsletterSubscriptions || []).filter((n) => n !== newsletter);
-    await this.userRepository.update(id, { newsletterSubscriptions: subscriptions });
+    const subscriptions = (user.newsletterSubscriptions || []).filter(
+      (n) => n !== newsletter,
+    );
+    await this.userRepository.update(id, {
+      newsletterSubscriptions: subscriptions,
+    });
   }
 
   async findSubscribedToNewsletter(newsletter: string): Promise<User[]> {
     return this.userRepository
       .createQueryBuilder("user")
-      .where("user.newsletterSubscriptions LIKE :newsletter", { newsletter: `%${newsletter}%` })
+      .where("user.newsletterSubscriptions LIKE :newsletter", {
+        newsletter: `%${newsletter}%`,
+      })
       .getMany();
   }
 
-  async setPreferences(id: string, preferences: UserPreferences): Promise<void> {
+  async setPreferences(
+    id: string,
+    preferences: UserPreferences,
+  ): Promise<void> {
     await this.userRepository.update(id, { preferences });
   }
 
@@ -790,7 +840,11 @@ export class UserService {
       .getMany();
   }
 
-  async addSocialConnection(id: string, provider: string, profileId: string): Promise<void> {
+  async addSocialConnection(
+    id: string,
+    provider: string,
+    profileId: string,
+  ): Promise<void> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException("User not found");
 
@@ -818,12 +872,20 @@ export class UserService {
     return !!connections[provider];
   }
 
-  async findBySocialConnection(provider: string, profileId: string): Promise<User | null> {
+  async findBySocialConnection(
+    provider: string,
+    profileId: string,
+  ): Promise<User | null> {
     const users = await this.userRepository.find();
-    return users.find((u) => u.socialConnections?.[provider] === profileId) || null;
+    return (
+      users.find((u) => u.socialConnections?.[provider] === profileId) || null
+    );
   }
 
-  async mergeSocialConnections(sourceId: string, targetId: string): Promise<void> {
+  async mergeSocialConnections(
+    sourceId: string,
+    targetId: string,
+  ): Promise<void> {
     const source = await this.findById(sourceId);
     const target = await this.findById(targetId);
 
@@ -831,7 +893,10 @@ export class UserService {
       throw new NotFoundException("One or both users not found");
     }
 
-    const merged = { ...(target.socialConnections || {}), ...(source.socialConnections || {}) };
+    const merged = {
+      ...(target.socialConnections || {}),
+      ...(source.socialConnections || {}),
+    };
     await this.userRepository.update(targetId, { socialConnections: merged });
     await this.removeSocialConnection(sourceId, "all");
   }
@@ -860,7 +925,9 @@ export class UserService {
   async findUsersWithIncompleteProfiles(): Promise<User[]> {
     return this.userRepository
       .createQueryBuilder("user")
-      .where("user.firstName IS NULL OR user.lastName IS NULL OR user.avatarUrl IS NULL")
+      .where(
+        "user.firstName IS NULL OR user.lastName IS NULL OR user.avatarUrl IS NULL",
+      )
       .getMany();
   }
 
@@ -905,7 +972,9 @@ export class UserService {
     return ranked.sort((a, b) => b.score - a.score);
   }
 
-  async getLeaderboard(limit: number): Promise<{ user: User; score: number }[]> {
+  async getLeaderboard(
+    limit: number,
+  ): Promise<{ user: User; score: number }[]> {
     const ranked = await this.rankUsersByScore();
     return ranked.slice(0, limit);
   }

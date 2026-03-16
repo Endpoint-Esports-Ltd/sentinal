@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { detectPackageManager, detectTestRunner, detectFramework } from "./detect";
+import {
+  detectPackageManager,
+  detectTestRunner,
+  detectFramework,
+} from "./detect";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

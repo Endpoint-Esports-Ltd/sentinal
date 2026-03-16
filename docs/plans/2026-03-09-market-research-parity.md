@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - `sentinal` CLI binary with all commands (check-context, register-plan, worktree, sessions, serve, greet, notify, update)
 - SQLite-backed persistent memory (observations: CRUD, search, timeline)
 - Memory MCP server (replaces legacy's mem-search backend)
@@ -34,6 +35,7 @@ Type: Feature
 - Conditional rule activation (file glob patterns)
 
 ### Out of Scope
+
 - License/registration system (explicitly excluded)
 - VS Code extension support (explicitly excluded)
 - Team asset sharing via `sx` (deferred — needs separate spec)
@@ -44,6 +46,7 @@ Type: Feature
 > Write for an implementer who has never seen the codebase.
 
 **Patterns to follow:**
+
 - Hooks in `src/hooks/*.ts` follow a pattern: import utils, export testable function, async `main()` at bottom with `if (import.meta.main)` guard (`src/hooks/context-monitor.ts:10-21`)
 - Checkers in `src/checkers/*.ts` export pure functions, tested via Bun test (`src/checkers/detect.ts`)
 - Utils in `src/utils/*.ts` are small, focused modules (`src/utils/hook-output.ts` — 56 lines)
@@ -51,6 +54,7 @@ Type: Feature
 - Build output goes to `plugin/hooks/dist/` via `tsc`
 
 **Conventions:**
+
 - ESM modules (`"type": "module"` in package.json)
 - `.js` extensions in imports (TypeScript compiles ESM)
 - `Bun.spawnSync` for subprocess calls in hooks
@@ -58,6 +62,7 @@ Type: Feature
 - kebab-case filenames
 
 **Key files:**
+
 - `src/hooks/context-monitor.ts` — Currently calls `~/.legacy/bin/legacy check-context --json` (line 12) — must be replaced
 - `src/hooks/session-end.ts` — No-op placeholder (8 lines) — must implement
 - `targets/claude-code/hooks/hooks.json` — Hook pipeline definition
@@ -69,6 +74,7 @@ Type: Feature
 - `src/cli/commands/uninstall.ts` — Unified uninstaller (replaced shell scripts)
 
 **Gotchas:**
+
 - Hooks receive input via stdin JSON (see `HookInput` interface in `src/utils/hook-output.ts:1-9`)
 - `transcript_path` in hook input points to Claude Code's conversation file — useful for context estimation
 - The plugin uses `${CLAUDE_PLUGIN_ROOT}` variable in hooks.json for path resolution
@@ -76,6 +82,7 @@ Type: Feature
 - OpenCode target (`targets/opencode/`) also needs updates when CLI changes, but its plugin architecture differs
 
 **Domain context:**
+
 - market research's `check-context` returns `{"percent": N}` where N is 0-100 raw context usage
 - Claude Code reserves ~16.5% as compaction buffer, triggering at ~83.5% raw
 - Effective % rescales: `effective = raw / 0.835 * 100`, capped at 100
@@ -115,6 +122,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/cli/index.ts` — Main entry point with commander
 - Create: `src/cli/commands/serve.ts` — Placeholder serve command
 - Create: `src/cli/commands/greet.ts` — ASCII art greeting
@@ -124,6 +132,7 @@ Type: Feature
 - Create: `tsconfig.cli.json` — Separate config for CLI compilation targeting src/cli/ and shared modules
 
 **Key Decisions / Notes:**
+
 - Use `commander` (npm) for CLI parsing — mature, TypeScript-friendly
 - Binary compiled via `bun build --compile src/cli/index.ts --outfile dist/sentinal`
 - `sentinal` command (no args) = `sentinal run` = launch claude with `--plugin` flag
@@ -133,6 +142,7 @@ Type: Feature
 - **Install pipeline fix:** `targets/claude-code/install.sh` must copy `plugin/hooks/dist/` into the cache directory so `${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/*.js` resolves correctly at runtime. Currently only `targets/claude-code/*` is copied, which omits built JS files.
 
 **Definition of Done:**
+
 - [x] `bun run build:cli` produces a working binary at `dist/sentinal`
 - [x] `./dist/sentinal --help` shows available commands
 - [x] `./dist/sentinal greet` outputs ASCII banner
@@ -143,6 +153,7 @@ Type: Feature
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
+
 - `src/cli/index.ts` — Commander.js dispatcher with commands: `mcp-server`, `memory`, `greet`, `spec`, `install`, `uninstall`
 - `src/cli/commands/spec.ts` — `sentinal spec list/current/sync` subcommands for spec workflow management
 - `src/cli/commands/greet.ts` — ASCII art banner with version display
@@ -156,12 +167,14 @@ Type: Feature
 - All 6 shell scripts deleted: `install.sh`, `uninstall.sh`, `targets/claude-code/install.sh`, `targets/claude-code/uninstall.sh`, `targets/opencode/install.sh`, `targets/opencode/uninstall.sh`
 
 **Not yet implemented from plan:**
+
 - `src/cli/commands/serve.ts` — Placeholder serve command (depends on Task 8)
 - `src/cli/commands/run.ts` — Launch Claude Code with sentinal plugin
 - `tsconfig.cli.json` — Separate config for CLI compilation (not needed yet — Bun handles TS natively)
 - Build separation: hooks build still compiles all of `src/` including CLI files
 
 **Verify:**
+
 ```bash
 bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 ```
@@ -175,6 +188,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 **Dependencies:** Task 1
 
 **Files:**
+
 - Create: `src/db/database.ts` — Database connection manager (singleton, lazy init)
 - Create: `src/db/schema.ts` — Table creation SQL, migration runner
 - Create: `src/db/types.ts` — TypeScript interfaces for DB records
@@ -182,6 +196,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 - Create: `src/db/schema.test.ts` — Schema migration tests
 
 **Key Decisions / Notes:**
+
 - Database at `~/.sentinal/sentinal.db`
 - Use `bun:sqlite` (Bun's built-in SQLite module — synchronous API, no native compilation, bundles into compiled binary seamlessly)
 - Schema version tracked in a `_migrations` table
@@ -194,6 +209,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 - Indices on `observations(type)`, `observations(project)`, `observations(created_at)`, `sessions(status)`
 
 **Definition of Done:**
+
 - [x] Database created at `~/.sentinal/sentinal.db` on first access (actual path: `~/.sentinal/memory.db`)
 - [~] All tables created with correct schemas (`observations`, `sessions`, `observations_fts`, `specs`, `spec_tasks` done via v1+v2 migrations; `settings` done via v3 migration; `plans` table not yet created)
 - [x] Migration runner handles version upgrades (`schema_version` table with sequential migration functions)
@@ -202,6 +218,7 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
+
 - Database module lives at `src/memory/store.ts` (not `src/db/database.ts` as planned)
 - Types at `src/memory/types.ts` (not `src/db/types.ts`)
 - DB filename is `memory.db` (not `sentinal.db`)
@@ -211,9 +228,11 @@ bun run build:cli && ./dist/sentinal --help && ./dist/sentinal greet
 - V2 migration adds `specs` and `spec_tasks` tables (for spec workflow tracking)
 
 **Not yet implemented from plan:**
+
 - `plans` table (id, path, status, session_id, registered_at) — needed for Task 5 (note: `specs` table partially covers this)
 
 **Verify:**
+
 ```bash
 bun test src/memory/store.test.ts
 ```
@@ -227,11 +246,13 @@ bun test src/memory/store.test.ts
 **Dependencies:** Task 2
 
 **Files:**
+
 - Create: `src/memory/observations.ts` — CRUD operations, search, timeline
 - Create: `src/memory/types.ts` — Observation types, query interfaces
 - Create: `src/memory/observations.test.ts` — Full test coverage
 
 **Key Decisions / Notes:**
+
 - SQLite FTS5 for full-text search on `title` and `text` columns
 - `search(query, opts)` → returns observation summaries (id, title, type, created_at) — lightweight index
 - `timeline(anchor, depth_before, depth_after)` → returns observations around an anchor ID, chronologically sorted
@@ -242,6 +263,7 @@ bun test src/memory/store.test.ts
 - Project auto-detected from git remote or cwd basename
 
 **Definition of Done:**
+
 - [x] `saveObservation` stores with auto-generated ID and timestamp (AUTOINCREMENT PK; timestamp caller-provided)
 - [x] `search` returns ranked results using FTS5 (`searchFTS()` with MATCH and rank ordering)
 - [x] `timeline` returns chronological context around an anchor (`getTimelineAround()` with before/after)
@@ -251,6 +273,7 @@ bun test src/memory/store.test.ts
 - [ ] No diagnostics errors (pre-existing Bun type LSP issues only)
 
 **What was implemented (differs from plan):**
+
 - Implementation lives in `src/memory/` (not separate `src/memory/observations.ts`)
 - `store.ts` handles storage, `service.ts` handles business logic
 - Observation types are `decision, discovery, error, fix, pattern` (plan said `bugfix, feature, refactor, discovery, decision, change`)
@@ -258,6 +281,7 @@ bun test src/memory/store.test.ts
 - CLI for memory management: `cli.ts` with search, list, get, export, stats, prune, repair commands
 
 **Verify:**
+
 ```bash
 bun test src/memory/
 ```
@@ -271,6 +295,7 @@ bun test src/memory/
 **Dependencies:** Task 2
 
 **Files:**
+
 - Create: `src/sessions/manager.ts` — Session CRUD, lifecycle
 - Create: `src/sessions/context.ts` — Context usage estimation from transcript
 - Create: `src/cli/commands/sessions.ts` — `sentinal sessions` command
@@ -279,6 +304,7 @@ bun test src/memory/
 - Create: `src/sessions/context.test.ts`
 
 **Key Decisions / Notes:**
+
 - Session created on first hook invocation for a given `session_id`
 - `startSession(session_id, project, transcript_path)` — upserts session record
 - `endSession(session_id)` — sets ended_at, status=ended
@@ -294,6 +320,7 @@ bun test src/memory/
 - Stale session cleanup: sessions older than 24h without activity marked as ended
 
 **Definition of Done:**
+
 - [x] Sessions created/updated/ended correctly in SQLite (`insertSession()`, `endSession()`, `getSession()`, `getActiveSessions()`, `listSessions()` all work; `transcript_path` stored via v4 migration)
 - [x] `sentinal sessions list --json` returns session list with filters (`--active`, `--project`)
 - [x] `sentinal check-context --json` returns `{"percent": N, "tokens": N, "fileBytes": N}` (supports `--session <id>` for transcript lookup)
@@ -303,6 +330,7 @@ bun test src/memory/
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
+
 - Session CRUD lives in `src/memory/store.ts` (not a standalone `src/sessions/manager.ts`) — `insertSession()`, `endSession()`, `getSession()`, `getActiveSessions()`, `listSessions()`, `cleanupStaleSessions()`
 - Session start/end hooks: `src/hooks/session-start.ts` and `src/hooks/session-end.ts` call the store methods
 - `src/sessions/context.ts` (63 lines) — `estimateContextUsage(transcriptPath)` with file-size estimation, bytes-per-token ratio (default 3), context window (default 200K), compaction buffer rescaling (raw / 0.835)
@@ -316,11 +344,13 @@ bun test src/memory/
 - Detailed plan: `docs/plans/2026-03-09-session-management-completion.md` (Status: COMPLETE)
 
 **Design decisions (differs from original plan):**
+
 - No `status` column — `end_time IS NULL` is the canonical active check. Redundant column avoided.
 - No standalone `sessions/manager.ts` — CRUD stays on `MemoryStore` (consistent with settings, specs)
 - `transcript_path` nullable — OpenCode passes `null` (no transcript concept)
 
 **Verify:**
+
 ```bash
 bun test src/sessions/ && ./dist/sentinal check-context --json
 ```
@@ -334,6 +364,7 @@ bun test src/sessions/ && ./dist/sentinal check-context --json
 **Dependencies:** Task 2, Task 4
 
 **Files:**
+
 - Create: `src/cli/commands/register-plan.ts` — Plan registration
 - Create: `src/cli/commands/worktree.ts` — Worktree management (create, detect, diff, sync, cleanup, status)
 - Create: `src/cli/commands/notify.ts` — Send notifications (stored in SQLite for dashboard polling)
@@ -341,6 +372,7 @@ bun test src/sessions/ && ./dist/sentinal check-context --json
 - Create: `src/worktree/manager.test.ts`
 
 **Key Decisions / Notes:**
+
 - `sentinal register-plan <path> <status>` — upserts plan in SQLite, associates with current session
 - `sentinal worktree create --json <slug>` — creates git worktree at `.worktrees/spec-<slug>-<hash>/`
 - `sentinal worktree detect --json <slug>` — checks if worktree exists
@@ -353,6 +385,7 @@ bun test src/sessions/ && ./dist/sentinal check-context --json
 - Notifications table: id, type, title, message, plan_path, created_at, read (boolean)
 
 **Definition of Done:**
+
 - [x] `sentinal register-plan` stores plan status in SQLite (with session_id + metadata)
 - [x] All worktree subcommands work (list, status, diff, merge, abandon, cleanup)
 - [ ] `sentinal notify` stores notifications retrievable by dashboard (deferred to Task 8/9)
@@ -361,6 +394,7 @@ bun test src/sessions/ && ./dist/sentinal check-context --json
 - [ ] No diagnostics errors
 
 **What was implemented (differs from plan):**
+
 - `src/memory/migrations.ts` — Extracted all migrations (V1-V5) from MemoryStore to separate module
 - `src/memory/types.ts` — RawObservation + RawSession moved here; SCHEMA_VERSION bumped to 5
 - `src/memory/store.ts` — Reduced from 600→427 lines by extracting migrations + raw row types
@@ -379,10 +413,12 @@ bun test src/sessions/ && ./dist/sentinal check-context --json
 - Detailed plan: `docs/plans/2026-03-09-plan-registration-worktree.md` (Status: COMPLETE)
 
 **Not implemented (deferred):**
+
 - `sentinal notify` command and `notifications` table — deferred to Tasks 8/9 (dashboard), no consumer exists yet
 - Worktree config section in `~/.sentinal/config.json` — uses DEFAULT_WORKTREE_CONFIG; user config integration deferred
 
 **Verify:**
+
 ```bash
 bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/plans/2026-03-09-plan-registration-worktree.md --json && ./dist/sentinal worktree list --json
 ```
@@ -396,6 +432,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 **Dependencies:** Task 4
 
 **Files:**
+
 - Modify: `src/hooks/context-monitor.ts` — Replace `legacy check-context` with `sentinal check-context`, add rescaling
 - Modify: `src/hooks/session-end.ts` — Implement session cleanup and notification
 - Modify: `src/hooks/pre-compact.ts` — Save session state to SQLite (via `sentinal notify` or `sentinal session update`) in addition to compact-state.json, so dashboard and memory search can surface compaction events
@@ -405,6 +442,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - Create: `src/hooks/session-start.test.ts`
 
 **Key Decisions / Notes:**
+
 - Context rescaling formula: `effective = Math.min(100, Math.round(raw / 83.5 * 100))`
 - Warning thresholds change to effective %: 80% effective, 90% effective, 95%+ effective
 - Status bar visualization: `▓` blocks for used, `░` for remaining, final `▓` for compaction buffer
@@ -415,6 +453,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - Update hooks.json to add SessionStart hook (not matcher "compact" — all starts)
 
 **Definition of Done:**
+
 - [x] No references to `~/.legacy/bin/legacy` remain in hook source code
 - [x] Context monitor uses native estimation with valid rescaled percentage (calls `estimateContextUsage()` directly instead of shelling out)
 - [x] SessionStart hook registers sessions in SQLite (`src/hooks/session-start.ts` — `store.insertSession()`)
@@ -427,6 +466,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - [x] `src/hooks/session-start.test.ts` created
 
 **What was implemented (differs from plan):**
+
 - `src/hooks/context-monitor.ts` — REWRITTEN: replaced `legacy check-context` with native `estimateContextUsage()` from `src/sessions/context.ts`. Thresholds: 80%/90%/95% effective. Plain text warnings (no visualization bar).
 - `src/hooks/session-start.ts` — NEW: reads `session_id`/`cwd` from stdin, calls `store.insertSession()` directly (not via CLI subcommand as plan specified)
 - `src/hooks/session-end.ts` — Updated: calls `store.endSession()` + cleans up event buffer file
@@ -436,10 +476,12 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - OpenCode parity: all hook features mirrored in `targets/opencode/plugins/sentinal.ts` (session tracking, spec detection, bash memory capture)
 
 **Not yet implemented from plan (deferred to Task 8/9 — dashboard dependency):**
+
 - Notification on session end (dashboard integration, depends on Task 8)
 - Kill dashboard server on last session end (depends on Task 8)
 
 **Implemented in follow-up (2026-03-09-hook-integration-completion.md):**
+
 - Context bar visualization (`▓`/`░` blocks with token count) in `context-monitor.ts`
 - `Bash(sentinal:*)` permission added to `targets/claude-code/settings.json`
 - `src/hooks/session-start.test.ts` created (6 tests), `detectAssistant()` exported
@@ -449,6 +491,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - Throttled context checks every 5 tool calls to avoid API overhead
 
 **Verify:**
+
 ```bash
 bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null","cwd":"/tmp","permission_mode":"default","hook_event_name":"PostToolUse"}' | bun src/hooks/context-monitor.ts; echo "exit: $?"
 ```
@@ -462,12 +505,14 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 **Dependencies:** Task 3
 
 **Files:**
+
 - Create: `src/mcp/memory-server.ts` — MCP server with search, timeline, get_observations, save_memory tools
 - Create: `src/mcp/types.ts` — MCP protocol types
 - Modify: `targets/claude-code/.mcp.json` — Add mem-search server pointing to sentinal's MCP
 - Modify: `targets/opencode/opencode.json` — Add mem-search server
 
 **Key Decisions / Notes:**
+
 - Use `@modelcontextprotocol/sdk` for MCP server implementation (standard SDK)
 - Server runs via `bun src/mcp/memory-server.ts` (stdio transport)
 - 4 tools exposed: `search`, `timeline`, `get_observations`, `save_memory`
@@ -479,6 +524,7 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 - Server reads/writes to same `~/.sentinal/sentinal.db` as CLI
 
 **Definition of Done:**
+
 - [x] MCP server starts and responds to initialize/list_tools (verified with JSON-RPC initialize)
 - [x] All tools callable and return correct data (5 tools: `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_stats` — plan said 4, `memory_stats` is an addition)
 - [x] Server configured in `.mcp.json` for both targets (Claude Code: `"sentinal": { "command": "sentinal", "args": ["mcp-server"] }`; OpenCode: `sentinal mcp-server`)
@@ -487,6 +533,7 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 - [ ] No diagnostics errors (pre-existing Bun type LSP issues only)
 
 **What was implemented (differs from plan):**
+
 - Originally built at `src/memory/mcp-server.ts`; subsequently refactored to `src/mcp/server.ts` as a universal MCP entrypoint with modular tool registration
 - `src/mcp/server.ts` (67 lines) — `createSentinalServer()`, server name `"sentinal"` v0.2.0
 - `src/memory/mcp-tools.ts` (233 lines) — 5 memory tools extracted: `registerMemoryTools(server, store)`
@@ -499,6 +546,7 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 - Old files deleted: `src/memory/mcp-server.ts`, `src/memory/mcp-server.test.ts`, `bin/sentinal-memory.sh`
 
 **Verify:**
+
 ```bash
 echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1}' | bun src/cli/index.ts mcp-server
 ```
@@ -512,6 +560,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 **Dependencies:** Task 4, Task 5
 
 **Files:**
+
 - Create: `src/dashboard/server.ts` — HTTP server (Bun.serve), API routes, static file serving
 - Create: `src/dashboard/routes/api.ts` — JSON API endpoints
 - Create: `src/dashboard/views/layout.ts` — HTML layout template (header, nav, footer)
@@ -520,6 +569,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Modify: `src/cli/commands/serve.ts` — Wire up server start
 
 **Key Decisions / Notes:**
+
 - Server uses `Bun.serve()` — no external HTTP framework needed
 - HTML generated server-side as template strings (no build step)
 - htmx loaded from CDN: `<script src="https://unpkg.com/htmx.org@2"></script>`
@@ -533,6 +583,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - **Bundle htmx/tailwind as fallback:** Include htmx.min.js as string literal in server code for air-gapped environments. CDN is primary, inline fallback if CDN fetch fails.
 
 **Definition of Done:**
+
 - [x] `sentinal serve` starts HTTP server on port 41778
 - [x] Starting `sentinal serve` when server already running detects existing process and exits with message
 - [x] PID file written to `~/.sentinal/server.pid` on start, removed on stop
@@ -545,6 +596,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - [x] No diagnostics errors
 
 **Verify:**
+
 ```bash
 ./dist/sentinal serve & sleep 2 && curl -s http://localhost:41778/api/health && kill %1
 ```
@@ -558,6 +610,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 **Dependencies:** Task 8
 
 **Files:**
+
 - Create: `src/dashboard/views/specifications.ts` — Specs view with task progress, status
 - Create: `src/dashboard/views/memories.ts` — Memories view with type filters, search
 - Create: `src/dashboard/views/sessions.ts` — Sessions view with active/past, duration
@@ -566,6 +619,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Create: `src/dashboard/views/partials/` — Shared HTML partials (tables, cards, filters)
 
 **Key Decisions / Notes:**
+
 - **Specifications:** Primary data source is the `plans` table in SQLite (populated by `sentinal register-plan` in Task 5). Falls back to reading plan files from `docs/plans/` for plans not in SQLite. Parsed plan metadata cached in server memory (Map with 10s TTL) to avoid repeated disk I/O on 5s polling. Shows task checkboxes, iteration count, phase (plan/implement/verify). Filterable by status.
 - **Memories:** Lists observations from SQLite. Search bar uses htmx `hx-get` with query param. Type filter chips. Expandable observation detail. Pagination.
 - **Sessions:** Table with session ID, project, start time, duration, status. Active sessions highlighted. Sort by recency.
@@ -575,6 +629,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Spec detail API: `GET /api/specs/:filename` returns parsed plan data
 
 **Definition of Done:**
+
 - [x] All 4 views render with real data from SQLite/filesystem
 - [x] Specifications view shows plan status, task progress, iterations
 - [x] Memories view supports search and type filtering
@@ -585,6 +640,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - [x] No diagnostics errors
 
 **Verify:**
+
 ```bash
 ./dist/sentinal serve & sleep 2 && curl -s http://localhost:41778/api/specs && curl -s http://localhost:41778/api/memories && kill %1
 ```
@@ -598,6 +654,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 **Dependencies:** Task 2
 
 **Files:**
+
 - Create: `src/config/settings.ts` — Settings manager (read/write from SQLite)
 - Create: `src/config/model-routing.ts` — Model routing logic and hint generation
 - Create: `src/config/settings.test.ts`
@@ -606,6 +663,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Modify: `templates/commands/spec-verify.md` — Add model routing hint
 
 **Key Decisions / Notes:**
+
 - Default routing: Opus for planning, Sonnet for implementation/verification
 - Settings stored in SQLite `settings` table: `model_routing` key with JSON value
 - Schema: `{ planning: "opus", implementation: "sonnet", verification: "sonnet", plan_reviewer: "sonnet", spec_reviewer: "sonnet" }`
@@ -615,15 +673,17 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Regenerate commands after template changes via `node scripts/generate-commands.js`
 
 **Definition of Done:**
+
 - [x] Settings manager reads/writes model routing from SQLite (`MemoryStore.getSetting/setSetting/deleteSetting/listSettings` + `getModelRouting/setModelRouting/resetModelRouting`)
 - [x] Default model routing set on first access (Zod defaults: opus for planning, sonnet for rest)
 - [x] Command templates include model routing hints (all 10 templates — 4 Opus planning, 6 Sonnet implement/verify)
 - [x] `sentinal config` subcommand works for get/set (`sentinal config list/get/set/reset` with `--json` and dot-path support)
-- [x] Generated commands (both targets) include model hints (Claude Code + OpenCode, all spec-* commands)
+- [x] Generated commands (both targets) include model hints (Claude Code + OpenCode, all spec-\* commands)
 - [x] Tests cover settings CRUD and default initialization (9 settings tests + 9 model-routing tests = 18 new tests)
 - [ ] No diagnostics errors
 
 **What was implemented:**
+
 - `src/memory/types.ts` — `SCHEMA_VERSION` bumped from 2 to 3
 - `src/memory/store.ts` — `migrateV3()` creating `settings` table, plus `getSetting/setSetting/deleteSetting/listSettings` CRUD methods
 - `src/config/types.ts` — `ModelRouting` interface, `ModelRoutingSchema` (Zod), `DEFAULT_MODEL_ROUTING`, `MODEL_ROUTING_KEY`
@@ -637,6 +697,7 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1
 - Detailed plan: `docs/plans/2026-03-09-model-routing-config.md` (Status: COMPLETE)
 
 **Verify:**
+
 ```bash
 bun test src/config/ && ./dist/sentinal config get model_routing --json
 ```
@@ -652,6 +713,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 **Dependencies:** Task 1
 
 **Files:**
+
 - Create: `src/cli/commands/update.ts` — Auto-updater (git fetch, tag compare, pull + rebuild)
 - Create: `src/cli/shell-integration.ts` — Generate shell config for bash/zsh/fish
 - Modify: `src/cli/commands/run.ts` — Add update check before launching Claude
@@ -659,6 +721,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - Create: `src/cli/update.test.ts`
 
 **Key Decisions / Notes:**
+
 - On `sentinal` / `sentinal run`: check remote tags (max once per 24h, cached in SQLite)
 - Compare current version (from package.json) with latest git tag
 - If newer version available: show changelog summary, prompt "Press u to update, any key to continue"
@@ -673,6 +736,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - Also add alias `snt` as shortcut
 
 **Definition of Done:**
+
 - [x] `sentinal update` downloads latest binary from GitHub Releases
 - [x] Update check runs on `sentinal` launch (max once per 24h)
 - [x] `sentinal --skip-update-check` bypasses the check
@@ -684,6 +748,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - [x] Tab completions for bash/zsh/fish
 
 **Verify:**
+
 ```bash
 ./dist/sentinal update --check && ./dist/sentinal run --help
 ```
@@ -697,6 +762,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 **Dependencies:** Task 1, Task 11
 
 **Files:**
+
 - Create: `install-remote.sh` — Curl-installable script (clone + run install.sh)
 - Modify: `install.sh` — Add rollback tracking (trap ERR), step progress
 - Modify: `targets/claude-code/install.sh` — Add rollback, step tracking, shell integration call
@@ -704,6 +770,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - Modify: `targets/claude-code/rules/*.md` — Add `globs:` frontmatter for conditional activation
 
 **Key Decisions / Notes:**
+
 - **Curl installer:** URL uses the project's actual GitHub repo (must be set before Task 12 — read from package.json `repository` field or hardcode). Script runs only via HTTPS.
   - Clones repo to `~/.sentinal/source/`, runs `install.sh`, builds CLI
   - Validates git remote matches expected origin (or prints warning if running from fork)
@@ -721,6 +788,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
   - Only applies to target rules, not template rules
 
 **Definition of Done:**
+
 - [ ] `install-remote.sh` works when piped from curl
 - [ ] Installer rolls back cleanly on any step failure
 - [ ] `sentinal devcontainer` generates valid `.devcontainer/devcontainer.json`
@@ -729,6 +797,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 - [ ] No diagnostics errors
 
 **Verify:**
+
 ```bash
 ./dist/sentinal devcontainer && cat .devcontainer/devcontainer.json
 ```
@@ -755,17 +824,17 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `bun build --compile` fails with commander dependency | Low | Medium | Commander is pure JS, should bundle fine. Fallback: ship as `bun run` script. |
-| Transcript file format changes across Claude Code versions | Low | Medium | Graceful degradation: if parse fails, return 0% and log warning |
-| htmx CDN unavailable in air-gapped environments | Low | Low | Bundle htmx.min.js as string literal in server code (Task 8) |
-| Context rescaling formula doesn't match Claude Code's actual behavior | Medium | Medium | Make compaction threshold and bytes-per-token ratio configurable via `sentinal config`. Default 83.5% threshold, 3 bytes/token. |
-| Context estimation accuracy varies with content type (code vs prose) | Medium | Low | Configurable bytes-per-token ratio. Users can tune based on observed accuracy. Target: within 30 percentage points of actual. |
+| Risk                                                                  | Likelihood | Impact | Mitigation                                                                                                                      |
+| --------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `bun build --compile` fails with commander dependency                 | Low        | Medium | Commander is pure JS, should bundle fine. Fallback: ship as `bun run` script.                                                   |
+| Transcript file format changes across Claude Code versions            | Low        | Medium | Graceful degradation: if parse fails, return 0% and log warning                                                                 |
+| htmx CDN unavailable in air-gapped environments                       | Low        | Low    | Bundle htmx.min.js as string literal in server code (Task 8)                                                                    |
+| Context rescaling formula doesn't match Claude Code's actual behavior | Medium     | Medium | Make compaction threshold and bytes-per-token ratio configurable via `sentinal config`. Default 83.5% threshold, 3 bytes/token. |
+| Context estimation accuracy varies with content type (code vs prose)  | Medium     | Low    | Configurable bytes-per-token ratio. Users can tune based on observed accuracy. Target: within 30 percentage points of actual.   |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Bun compiled binary missing bun:sqlite at runtime** (Task 1-2) → Trigger: `bun build --compile` produces binary but `import { Database } from "bun:sqlite"` throws at runtime. Adaptation: verify in Task 2 that compiled binary can open/query a database; if fails, ship as `bun run` script instead of compiled binary (still fast, just requires Bun installed).
 
@@ -776,6 +845,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 ## Goal Verification
 
 ### Truths
+
 1. Running `sentinal` from any directory launches Claude Code with the sentinal plugin active
 2. The `sentinal check-context --json` command returns accurate context usage percentage
 3. The console dashboard at `http://localhost:41778` shows real-time session and spec data
@@ -784,6 +854,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 6. The installer works from a fresh `curl | bash` invocation on a machine with only Node.js and Bun
 
 ### Artifacts
+
 1. `dist/sentinal` — compiled CLI binary
 2. `~/.sentinal/memory.db` — SQLite database (plan said `sentinal.db`, actual is `memory.db`)
 3. `src/mcp/server.ts` — Universal MCP server entrypoint (plan said `src/mcp/memory-server.ts`)
@@ -792,6 +863,7 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 6. `install-remote.sh` — Curl-installable script (not yet implemented)
 
 ### Key Links
+
 1. CLI binary → SQLite database (all commands read/write)
 2. Hooks → CLI binary (hooks shell out to `sentinal` commands)
 3. MCP server → SQLite database (shared memory store)
@@ -800,7 +872,8 @@ bun test src/config/ && ./dist/sentinal config get model_routing --json
 
 ## Open Questions
 
-*None — all resolved during planning:*
+_None — all resolved during planning:_
+
 - Dashboard lifecycle: Auto-start as background process from `sentinal run`, managed via PID file at `~/.sentinal/server.pid`. Killed by SessionEnd hook when last session ends. Duplicate start detection prevents port conflicts.
 
 ## Deferred Ideas

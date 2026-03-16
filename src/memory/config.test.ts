@@ -6,7 +6,12 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { loadConfig, isMemoryEnabled, clearConfigCache, getConfigPath } from "./config.js";
+import {
+  loadConfig,
+  isMemoryEnabled,
+  clearConfigCache,
+  getConfigPath,
+} from "./config.js";
 
 // We can't easily mock homedir(), so we test the merging/parsing logic
 // by testing loadConfig behavior with clearConfigCache().

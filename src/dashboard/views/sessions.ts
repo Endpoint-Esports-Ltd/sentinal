@@ -5,7 +5,12 @@
  */
 
 import type { Session } from "../../memory/types.js";
-import { statusBadge, formatTimestamp, formatDuration, emptyState } from "./partials.js";
+import {
+  statusBadge,
+  formatTimestamp,
+  formatDuration,
+  emptyState,
+} from "./partials.js";
 import { escapeHtml } from "./layout.js";
 
 export function sessionsView(sessions: Session[]): string {

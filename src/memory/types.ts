@@ -37,7 +37,10 @@ export const ObservationSchema = z.object({
   qualityScore: z.number().min(0).max(1).default(1.0),
 });
 
-export const CreateObservationSchema = ObservationSchema.omit({ id: true, qualityScore: true });
+export const CreateObservationSchema = ObservationSchema.omit({
+  id: true,
+  qualityScore: true,
+});
 
 export const SessionSchema = z.object({
   id: z.string(),
@@ -155,7 +158,12 @@ export const SEARCH_CONSTANTS = {
   SNIPPET_LENGTH: 200,
 } as const;
 
-export const NOTIFICATION_TYPES = ["info", "warning", "error", "success"] as const;
+export const NOTIFICATION_TYPES = [
+  "info",
+  "warning",
+  "error",
+  "success",
+] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export const NotificationSchema = z.object({

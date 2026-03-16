@@ -7,8 +7,6 @@ paths:
   - "**/*.component.html"
 ---
 
-
-
 ## Frontend Development Standards
 
 ### Tailwind CSS

@@ -8,12 +8,15 @@ Worktree: No
 Type: Feature
 
 ## Summary
+
 **Goal:** Extend the TDD guard, tracker, and file-checker to enforce RED-GREEN-REFACTOR for Go, Python, Rust, and C/C++ — not just TypeScript/JavaScript.
 **Architecture:** All language support is centralized in `src/utils/tdd.ts` via data-driven tables mapping extensions to test file conventions. Consumers (`tdd-guard.ts`, `tdd-tracker.ts`, `file-checker.ts`, OpenCode plugin) reference the utility and a new `isGuardedFile()` helper instead of hardcoded regex.
 **Tech Stack:** TypeScript (Bun), no new dependencies.
 
 ## Scope
+
 ### In Scope
+
 - Go: `_test.go` convention (same directory)
 - Python: `test_*.py` and `*_test.py` conventions (same directory)
 - Rust: `*_test.rs` convention (same directory — not inline `#[cfg(test)]` modules)
@@ -23,6 +26,7 @@ Type: Feature
 - Guard and tracker extension to support all above
 
 ### Out of Scope
+
 - Test files in separate `tests/` directories (user chose same-directory only)
 - Rust inline `#[cfg(test)]` module detection (Rust's primary convention — file-based `_test.rs` is a fallback for users who prefer that pattern)
 - Language-specific linting/compilation checks (file-checker only does TS checks)
@@ -30,7 +34,9 @@ Type: Feature
 - C++ `.cc`/`.cxx` extensions (`.cpp` covers majority; can add later if needed)
 
 ## Context for Implementer
+
 > The TDD guard is a three-part system that enforces test-first development:
+>
 > 1. **tdd-guard.ts** (PreToolUse hook) — blocks file edits unless TDD state is `RED_CONFIRMED`
 > 2. **tdd-tracker.ts** (PostToolUse hook) — observes tool events and transitions TDD state
 > 3. **tdd.ts** (utility) — `isTestFile()`, `getExpectedTestPaths()`, `shouldSkipTddGuard()`, `isGuardedFile()` (new)
@@ -52,16 +58,17 @@ Type: Feature
 
 ## Language Test Conventions Reference
 
-| Language | Impl ext | Test convention | Example impl → test |
-|----------|----------|-----------------|---------------------|
-| Go | `.go` | `_test.go` suffix | `auth.go` → `auth_test.go` |
-| Python | `.py` | `test_` prefix OR `_test.py` suffix | `auth.py` → `test_auth.py`, `auth_test.py` |
-| Rust | `.rs` | `_test.rs` suffix (file-based) | `auth.rs` → `auth_test.rs` |
-| C | `.c` | `test_` prefix OR `_test.c` suffix | `auth.c` → `test_auth.c`, `auth_test.c` |
-| C++ | `.cpp` | `test_` prefix OR `_test.cpp` suffix | `auth.cpp` → `test_auth.cpp`, `auth_test.cpp` |
-| C header | `.h` | Not guarded | — |
+| Language | Impl ext | Test convention                      | Example impl → test                           |
+| -------- | -------- | ------------------------------------ | --------------------------------------------- |
+| Go       | `.go`    | `_test.go` suffix                    | `auth.go` → `auth_test.go`                    |
+| Python   | `.py`    | `test_` prefix OR `_test.py` suffix  | `auth.py` → `test_auth.py`, `auth_test.py`    |
+| Rust     | `.rs`    | `_test.rs` suffix (file-based)       | `auth.rs` → `auth_test.rs`                    |
+| C        | `.c`     | `test_` prefix OR `_test.c` suffix   | `auth.c` → `test_auth.c`, `auth_test.c`       |
+| C++      | `.cpp`   | `test_` prefix OR `_test.cpp` suffix | `auth.cpp` → `test_auth.cpp`, `auth_test.cpp` |
+| C header | `.h`     | Not guarded                          | —                                             |
 
 ## Assumptions
+
 - Same-directory test file convention is sufficient — users won't expect `tests/` directory scanning. Supported by user choice.
 - Go's `_test.go` convention is the only Go test pattern needed. Supported by Go standard convention.
 - Rust inline `#[cfg(test)]` modules don't need detection — file-based `_test.rs` is enough for same-directory guard. Supported by user scope choice.
@@ -69,24 +76,30 @@ Type: Feature
 - `TEST_FAIL_INDICATORS` and `TEST_PASS_INDICATORS` in `capture.ts` already match Go (`--- FAIL:`), Python (`1 failed`, `FAILED`), Rust (`test result: FAILED`), and C test runners generically. No changes needed there.
 
 ## Testing Strategy
+
 - **Unit tests:** Extend `src/utils/tdd.test.ts` with cases for every language: `isTestFile()`, `getExpectedTestPaths()`, `shouldSkipTddGuard()`, new `isGuardedFile()`
 - **Integration tests:** Extend `src/hooks/tdd-guard.test.ts` with cases for Go/Python/Rust/C files (pass-through for test files, blocking for impl files)
 - **Existing tests:** Must remain green (preservation property)
 
 ## Risks and Mitigations
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| False positives on non-test files matching patterns | Low | Medium | Patterns are specific (e.g., `_test.go$` not just `test`) |
-| Performance impact from more regex patterns | Very Low | Low | Regex matching is ~microseconds; adding 20 patterns is negligible |
-| OpenCode plugin file length (542 lines) | Medium | Low | Changes are minimal (swap regex for function call) — net line delta ≈0 |
+
+| Risk                                                | Likelihood | Impact | Mitigation                                                             |
+| --------------------------------------------------- | ---------- | ------ | ---------------------------------------------------------------------- |
+| False positives on non-test files matching patterns | Low        | Medium | Patterns are specific (e.g., `_test.go$` not just `test`)              |
+| Performance impact from more regex patterns         | Very Low   | Low    | Regex matching is ~microseconds; adding 20 patterns is negligible      |
+| OpenCode plugin file length (542 lines)             | Medium     | Low    | Changes are minimal (swap regex for function call) — net line delta ≈0 |
 
 ## Pre-Mortem
-*Assume this plan failed. Most likely internal reasons:*
+
+_Assume this plan failed. Most likely internal reasons:_
+
 1. **Go `_test.go` suffix breaks `getImplPathForTest()`** (Task 1) → Trigger: `getImplPathForTest("auth_test.go")` returns `null` because the regex expects `.test.` or `.spec.` separators with extension capture. The Go convention uses `_test` before the single `.go` extension.
 2. **Python prefix convention breaks `getExpectedTestPaths()`** (Task 1) → Trigger: For `test_auth.py`, the impl path isn't simply "strip prefix" — it requires knowing the directory to construct `test_auth.py` from `auth.py`. The function currently only appends suffixes.
 
 ## Goal Verification
+
 ### Truths
+
 1. `isTestFile("auth_test.go")` returns `true`; `isTestFile("auth.go")` returns `false`
 2. `getExpectedTestPaths("auth.go")` returns `["auth_test.go"]`
 3. `getExpectedTestPaths("auth.py")` returns paths including both `test_auth.py` and `auth_test.py`
@@ -96,34 +109,40 @@ Type: Feature
 7. All existing TS/JS/TSX/JSX tests remain green
 
 ### Artifacts
+
 - `src/utils/tdd.ts` — extended pattern arrays + new `isGuardedFile()`
 - `src/utils/tdd.test.ts` — multi-language test cases
 - `src/hooks/tdd-guard.test.ts` — multi-language guard tests
 
 ### Key Links
+
 - `tdd.ts` `isTestFile()` → consumed by `tdd-guard.ts`, `tdd-tracker.ts`, `file-checker.ts`, OpenCode plugin
 - `tdd.ts` `isGuardedFile()` (new) → replaces hardcoded regex in `tdd-guard.ts:57` and `sentinal.ts:143`
 - `tdd.ts` `getExpectedTestPaths()` → consumed by `file-checker.ts` for companion test warnings
 - `tdd-tracker.ts` `getImplPathForTest()` → maps test→impl for TDD state tracking
 
 ## Progress
+
 - [x] Task 1: Core utility multi-language support
 - [x] Task 2: Guard and tracker multi-language support
 - [x] Task 3: File-checker and OpenCode plugin updates
 - [x] Task 4: Verify
-**Total Tasks:** 4 | **Completed:** 4 | **Remaining:** 0
+      **Total Tasks:** 4 | **Completed:** 4 | **Remaining:** 0
 
 ## Implementation Tasks
 
 ### Task 1: Core utility multi-language support
+
 **Objective:** Extend `src/utils/tdd.ts` with Go/Python/Rust/C/C++ support for all utility functions.
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/utils/tdd.ts`
 - Modify: `src/utils/tdd.test.ts`
 
 **Key Decisions / Notes:**
+
 - Add to `TEST_FILE_PATTERNS`: `_test\.go$`, `test_.*\.py$`, `_test\.py$`, `_test\.rs$`, `test_.*\.c$`, `_test\.c$`, `test_.*\.cpp$`, `_test\.cpp$`
 - Add to `IMPL_EXTENSIONS`: `.go`, `.py`, `.rs`, `.c`, `.cpp`
 - Add to `SKIP_TEST_PATTERNS`: `__init__\.py$`, `conftest\.py$`, `setup\.py$`, `mod\.rs$`, `lib\.rs$`, `go\.mod$`, `go\.sum$`, `Makefile$`, `CMakeLists\.txt$`. Note: do NOT skip `main.go` — unlike NestJS `main.ts` (pure bootstrap), Go `main.go` often contains real application logic that should be tested.
@@ -138,6 +157,7 @@ Type: Feature
 - Header files (`.h`, `.hpp`) should NOT be in `IMPL_EXTENSIONS` — not guarded.
 
 **Definition of Done:**
+
 - [ ] `isTestFile()` recognizes test files for all 5 languages
 - [ ] `getExpectedTestPaths()` generates correct paths for all 5 languages
 - [ ] `shouldSkipTddGuard()` skips convention files for all 5 languages
@@ -146,19 +166,23 @@ Type: Feature
 - [ ] New tests cover every language
 
 **Verify:**
+
 - `bun test src/utils/tdd.test.ts`
 
 ### Task 2: Guard and tracker multi-language support
+
 **Objective:** Update `tdd-guard.ts` and `tdd-tracker.ts` to use `isGuardedFile()` instead of hardcoded regex, and extend `getImplPathForTest()`.
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/hooks/tdd-guard.ts`
 - Modify: `src/hooks/tdd-tracker.ts`
 - Modify: `src/hooks/tdd-guard.test.ts`
 - Modify: `src/hooks/tdd-tracker.test.ts`
 
 **Key Decisions / Notes:**
+
 - `tdd-guard.ts:57` — replace `/\.(ts|tsx)$/.test(filePath)` with `isGuardedFile(filePath)` (import from tdd.ts). This means the guard now also checks `isTestFile` and `shouldSkipTddGuard` internally, so the earlier calls at lines 51/54 can be removed (isGuardedFile handles them).
 - `tdd-tracker.ts:47` — extend `getImplPathForTest()` to handle multiple strategies:
   - **Suffix convention** (Go `_test.go`, Rust `_test.rs`, Python `_test.py`, C `_test.c`): strip suffix before ext, e.g., `auth_test.go` → `auth.go`
@@ -168,23 +192,28 @@ Type: Feature
 - Add tdd-tracker.test.ts cases: `getImplPathForTest()` for Go, Python (both conventions), Rust, C.
 
 **Definition of Done:**
+
 - [ ] Guard blocks Go/Python/Rust/C impl files when IDLE with active spec
 - [ ] Guard allows Go/Python/Rust/C test files
 - [ ] `getImplPathForTest()` maps test→impl for all languages
 - [ ] All existing tests still pass
 
 **Verify:**
+
 - `bun test src/hooks/tdd-guard.test.ts src/hooks/tdd-tracker.test.ts`
 
 ### Task 3: File-checker and OpenCode plugin updates
+
 **Objective:** Extend file-checker to warn about missing companion tests for all languages. Update OpenCode plugin's hardcoded regex.
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/hooks/file-checker.ts`
 - Modify: `targets/opencode/plugins/sentinal.ts`
 
 **Key Decisions / Notes:**
+
 - `file-checker.ts` restructuring:
   1. Keep `TS_EXTENSIONS` for gating TypeScript-specific checks (tsc, eslint, Angular, NestJS)
   2. Broaden the early return at line 18: instead of `if (!TS_EXTENSIONS.includes(ext)) return null`, use a broader check that includes all guarded extensions. Any file that `getExpectedTestPaths()` returns results for should continue.
@@ -195,6 +224,7 @@ Type: Feature
 - Minimize changes to `sentinal.ts` (542 lines, over 400 limit).
 
 **Definition of Done:**
+
 - [ ] File-checker warns about missing companion tests for `.go`, `.py`, `.rs`, `.c`, `.cpp` files
 - [ ] File-checker still runs TS-specific checks (tsc, eslint, Angular, NestJS) only for TS/JS files
 - [ ] OpenCode plugin guards all supported languages
@@ -202,10 +232,12 @@ Type: Feature
 - [ ] Build succeeds (`bun run build:cli`)
 
 **Verify:**
+
 - `bun test src/hooks/file-checker.test.ts` (if exists, otherwise manual)
 - `bun run build:cli`
 
 ### Task 4: Verify
+
 **Objective:** Full suite + quality checks + rebuild embedded assets
 **Dependencies:** Tasks 1-3
 

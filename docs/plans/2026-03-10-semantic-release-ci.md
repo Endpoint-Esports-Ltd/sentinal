@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Replace manual `v*` tag-push workflow with `semantic-release` on `main` push
 - `semantic-release` configuration (`.releaserc.json`)
 - `CHANGELOG.md` generation and maintenance
@@ -28,6 +29,7 @@ Type: Feature
 - Conventional Commits enforcement documentation
 
 ### Out of Scope
+
 - macOS code signing (users codesign locally after download)
 - Commit linting CI (commitlint) — can be added later
 - Branch protection rules — organizational decision
@@ -37,6 +39,7 @@ Type: Feature
 > Write for an implementer who has never seen the codebase.
 
 **Current state:**
+
 - Release workflow at `.github/workflows/release.yml` triggers on `v*` tag push
 - Version lives in `package.json` (`"version": "1.2.0"`) — injected at compile time via `--define __SENTINAL_VERSION__`
 - No `VERSION` file exists
@@ -49,6 +52,7 @@ Type: Feature
 - Binary version is injected as `__SENTINAL_VERSION__` compile-time constant
 
 **Patterns to follow:**
+
 - `package.json` scripts use Bun exclusively (not npm)
 - GitHub Actions use `oven-sh/setup-bun@v2` for Bun
 - Binary compilation: `bun build --compile --target=bun-{os}-{arch} src/cli/index.ts --outfile dist/sentinal-{os}-{arch} --define __SENTINAL_VERSION__="'X.Y.Z'"`
@@ -56,6 +60,7 @@ Type: Feature
 - GitHub Release created via `softprops/action-gh-release@v2` (will be replaced by `@semantic-release/github`)
 
 **Gotchas:**
+
 - `semantic-release` runs on Node.js, not Bun — use `actions/setup-node` alongside `setup-bun`
 - `semantic-release` expects `GITHUB_TOKEN` for creating releases and pushing back to the repo
 - `@semantic-release/npm` publishes to the private registry defined in `package.json` `publishConfig.registry` (`https://npm.cloud.endpoint.gg/`). Requires an `NPM_TOKEN` secret in the GitHub repo with write access to the private registry. The token is set via the `NPM_TOKEN` env var, which semantic-release uses to create a temporary `.npmrc` with auth.
@@ -84,10 +89,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `package.json` — Add devDependencies
 - Create: `.releaserc.json` — semantic-release configuration
 
 **Key Decisions / Notes:**
+
 - Install as devDependencies (not needed at runtime):
   - `semantic-release`
   - `@semantic-release/changelog` — generates/updates CHANGELOG.md
@@ -103,23 +110,44 @@ Type: Feature
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
       "@semantic-release/changelog",
-      ["@semantic-release/exec", {
-        "prepareCmd": "echo ${nextRelease.version} > VERSION && node scripts/release-build.mjs ${nextRelease.version}"
-      }],
+      [
+        "@semantic-release/exec",
+        {
+          "prepareCmd": "echo ${nextRelease.version} > VERSION && node scripts/release-build.mjs ${nextRelease.version}"
+        }
+      ],
       "@semantic-release/npm",
-      ["@semantic-release/git", {
-        "assets": ["package.json", "VERSION", "CHANGELOG.md"],
-        "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-      }],
-      ["@semantic-release/github", {
-        "assets": [
-          {"path": "dist/sentinal-linux-x64", "label": "sentinal-linux-x64"},
-          {"path": "dist/sentinal-linux-arm64", "label": "sentinal-linux-arm64"},
-          {"path": "dist/sentinal-darwin-x64", "label": "sentinal-darwin-x64"},
-          {"path": "dist/sentinal-darwin-arm64", "label": "sentinal-darwin-arm64"},
-          {"path": "dist/checksums.txt", "label": "checksums.txt"}
-        ]
-      }]
+      [
+        "@semantic-release/git",
+        {
+          "assets": ["package.json", "VERSION", "CHANGELOG.md"],
+          "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ],
+      [
+        "@semantic-release/github",
+        {
+          "assets": [
+            {
+              "path": "dist/sentinal-linux-x64",
+              "label": "sentinal-linux-x64"
+            },
+            {
+              "path": "dist/sentinal-linux-arm64",
+              "label": "sentinal-linux-arm64"
+            },
+            {
+              "path": "dist/sentinal-darwin-x64",
+              "label": "sentinal-darwin-x64"
+            },
+            {
+              "path": "dist/sentinal-darwin-arm64",
+              "label": "sentinal-darwin-arm64"
+            },
+            { "path": "dist/checksums.txt", "label": "checksums.txt" }
+          ]
+        }
+      ]
     ]
   }
   ```
@@ -133,11 +161,13 @@ Type: Feature
   7. `github` — creates GitHub Release with binary assets
 
 **Definition of Done:**
+
 - [ ] devDependencies added to `package.json`
 - [ ] `.releaserc.json` created with correct plugin chain
 - [ ] `bun install` succeeds
 
 **Verify:**
+
 ```bash
 bun install && cat .releaserc.json
 ```
@@ -151,9 +181,11 @@ bun install && cat .releaserc.json
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `.github/workflows/release.yml` — Replace entirely
 
 **Key Decisions / Notes:**
+
 - Trigger: `push` to `main` branch (replaces `v*` tag trigger)
 - Two jobs:
   1. `test` — Run `bun test` (gate)
@@ -162,18 +194,19 @@ bun install && cat .releaserc.json
 - Needs both `actions/setup-node@v4` (for semantic-release) and `oven-sh/setup-bun@v2` (for compilation)
 - `fetch-depth: 0` required for full git history (commit analysis)
 - Workflow structure:
+
   ```yaml
   name: Release
-  
+
   on:
     push:
       branches: [main]
-  
+
   permissions:
     contents: write
     issues: write
     pull-requests: write
-  
+
   jobs:
     test:
       name: Test
@@ -184,7 +217,7 @@ bun install && cat .releaserc.json
           with: { bun-version: latest }
         - run: bun install
         - run: bun test
-  
+
     release:
       name: Release
       needs: test
@@ -208,6 +241,7 @@ bun install && cat .releaserc.json
 - `NPM_TOKEN` must be added as a repository secret in GitHub Settings > Secrets > Actions. This is an auth token for `https://npm.cloud.endpoint.gg/` with publish rights to `@endpoint/sentinal`. semantic-release uses it to create a temporary `.npmrc` for authentication during `npm publish`.
 
 **Definition of Done:**
+
 - [ ] `.github/workflows/release.yml` replaced with semantic-release workflow
 - [ ] Workflow triggers on push to main (not tag push)
 - [ ] Test job gates the release job
@@ -215,6 +249,7 @@ bun install && cat .releaserc.json
 - [ ] `NPM_TOKEN` secret documented as a prerequisite
 
 **Verify:**
+
 ```bash
 cat .github/workflows/release.yml  # verify trigger is push to main
 ```
@@ -228,20 +263,24 @@ cat .github/workflows/release.yml  # verify trigger is push to main
 **Dependencies:** None
 
 **Files:**
+
 - Create: `VERSION` — Contains current version string
 - Create: `CHANGELOG.md` — Initial changelog header
 
 **Key Decisions / Notes:**
+
 - `VERSION` file: plain text, single line, no `v` prefix, no trailing newline: `1.2.0`
 - `CHANGELOG.md`: minimal header — `@semantic-release/changelog` will prepend entries below it
 - Both files must be committed and tracked in git (not gitignored)
 
 **Definition of Done:**
+
 - [ ] `VERSION` file exists with current version `1.2.0`
 - [ ] `CHANGELOG.md` exists with header
 - [ ] Both files committed to repo
 
 **Verify:**
+
 ```bash
 cat VERSION && echo "" && head -5 CHANGELOG.md
 ```
@@ -255,10 +294,12 @@ cat VERSION && echo "" && head -5 CHANGELOG.md
 **Dependencies:** Task 1
 
 **Files:**
+
 - Create: `scripts/release-build.mjs` — Cross-compilation script
 - Modify: `package.json` — Add `release:build` script (optional convenience alias)
 
 **Key Decisions / Notes:**
+
 - Script accepts version as first argument: `node scripts/release-build.mjs 1.3.0`
 - Uses Node.js `child_process.execSync` (runs in Node.js context from semantic-release)
 - Cross-compiles 4 targets using `bun build --compile --target=bun-{os}-{arch}`
@@ -269,12 +310,14 @@ cat VERSION && echo "" && head -5 CHANGELOG.md
   `echo ${nextRelease.version} > VERSION && node scripts/release-build.mjs ${nextRelease.version}`
 
 **Definition of Done:**
+
 - [ ] `scripts/release-build.mjs` created
 - [ ] Script cross-compiles 4 binaries with version injected
 - [ ] Script generates checksums.txt
 - [ ] Local test: `node scripts/release-build.mjs 99.0.0-test` produces 4 binaries
 
 **Verify:**
+
 ```bash
 node scripts/release-build.mjs 99.0.0-test && ls -la dist/sentinal-* && cat dist/checksums.txt
 ```
@@ -290,6 +333,7 @@ node scripts/release-build.mjs 99.0.0-test && ls -la dist/sentinal-* && cat dist
 **Files:** None (verification only)
 
 **Key Decisions / Notes:**
+
 - Verification steps:
   1. `npx semantic-release --dry-run --no-ci` — should show next version and planned actions
   2. `node scripts/release-build.mjs 99.0.0-test` — should produce 4 binaries
@@ -300,6 +344,7 @@ node scripts/release-build.mjs 99.0.0-test && ls -la dist/sentinal-* && cat dist
   7. Verify `tagFormat: "v${version}"` matches existing tag convention
 
 **Definition of Done:**
+
 - [ ] Dry run succeeds (or shows expected errors for missing GITHUB_TOKEN locally)
 - [ ] 4 platform binaries compile with injected version
 - [ ] Checksums generated
@@ -307,6 +352,7 @@ node scripts/release-build.mjs 99.0.0-test && ls -la dist/sentinal-* && cat dist
 - [ ] No breaking changes to update command's asset name expectations (`sentinal-{os}-{arch}`)
 
 **Verify:**
+
 ```bash
 npx semantic-release --dry-run --no-ci 2>&1 | tail -20
 bun test
@@ -332,12 +378,12 @@ bun test
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `GITHUB_TOKEN` can't push to `main` (branch protection) | Medium | High | Use a PAT secret or adjust branch protection to allow GitHub Actions |
-| Infinite CI loop (release commit triggers another run) | Low | Medium | `[skip ci]` in commit message; semantic-release handles this natively |
-| semantic-release misreads old tags without `v` prefix | Low | Low | Only tags matching `v${version}` are considered — older tags ignored |
-| Bun cross-compilation fails in CI | Low | High | Already proven working in current release.yml |
-| semantic-release and Bun lockfile conflict | Low | Low | Both use `bun install`; semantic-release plugins are Node.js-only |
-| `NPM_TOKEN` not set or expired | Medium | Medium | Release will succeed (GitHub Release created) but npm publish step fails. Fix: update the secret in GitHub repo settings |
-| Private registry unreachable from CI | Low | Medium | npm publish fails but GitHub Release still created. Can re-publish manually with `npm publish` |
+| Risk                                                    | Likelihood | Impact | Mitigation                                                                                                               |
+| ------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN` can't push to `main` (branch protection) | Medium     | High   | Use a PAT secret or adjust branch protection to allow GitHub Actions                                                     |
+| Infinite CI loop (release commit triggers another run)  | Low        | Medium | `[skip ci]` in commit message; semantic-release handles this natively                                                    |
+| semantic-release misreads old tags without `v` prefix   | Low        | Low    | Only tags matching `v${version}` are considered — older tags ignored                                                     |
+| Bun cross-compilation fails in CI                       | Low        | High   | Already proven working in current release.yml                                                                            |
+| semantic-release and Bun lockfile conflict              | Low        | Low    | Both use `bun install`; semantic-release plugins are Node.js-only                                                        |
+| `NPM_TOKEN` not set or expired                          | Medium     | Medium | Release will succeed (GitHub Release created) but npm publish step fails. Fix: update the secret in GitHub repo settings |
+| Private registry unreachable from CI                    | Low        | Medium | npm publish fails but GitHub Release still created. Can re-publish manually with `npm publish`                           |

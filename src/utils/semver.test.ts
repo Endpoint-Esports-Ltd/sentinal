@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseSemver, compareSemver, isNewerVersion, findLatestTag } from "./semver.js";
+import {
+  parseSemver,
+  compareSemver,
+  isNewerVersion,
+  findLatestTag,
+} from "./semver.js";
 
 describe("parseSemver", () => {
   test("parses plain version", () => {

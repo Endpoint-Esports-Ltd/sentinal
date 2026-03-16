@@ -24,9 +24,18 @@
       {
         "assets": [
           { "path": "dist/sentinal-linux-x64", "label": "sentinal-linux-x64" },
-          { "path": "dist/sentinal-linux-arm64", "label": "sentinal-linux-arm64" },
-          { "path": "dist/sentinal-darwin-x64", "label": "sentinal-darwin-x64" },
-          { "path": "dist/sentinal-darwin-arm64", "label": "sentinal-darwin-arm64" },
+          {
+            "path": "dist/sentinal-linux-arm64",
+            "label": "sentinal-linux-arm64"
+          },
+          {
+            "path": "dist/sentinal-darwin-x64",
+            "label": "sentinal-darwin-x64"
+          },
+          {
+            "path": "dist/sentinal-darwin-arm64",
+            "label": "sentinal-darwin-arm64"
+          },
           { "path": "dist/checksums.txt", "label": "checksums.txt" }
         ]
       }

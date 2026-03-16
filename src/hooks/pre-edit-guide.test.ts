@@ -8,7 +8,9 @@ import { MemoryService } from "../memory/service.js";
 import { processPreEditGuide } from "./pre-edit-guide.js";
 import type { CreateObservation } from "../memory/types.js";
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "test-session",
     projectPath: "/test/project",
@@ -47,13 +49,15 @@ describe("processPreEditGuide", () => {
   });
 
   it("should return hint when observations exist for the file", async () => {
-    service.addObservation(makeObservation({
-      type: "decision",
-      title: "Use JWT for authentication",
-      content: "Decided to use JWT tokens for auth",
-      filePaths: ["src/auth/auth.service.ts"],
-      timestamp: Date.now() - 5000,
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "decision",
+        title: "Use JWT for authentication",
+        content: "Decided to use JWT tokens for auth",
+        filePaths: ["src/auth/auth.service.ts"],
+        timestamp: Date.now() - 5000,
+      }),
+    );
 
     const result = await processPreEditGuide({
       filePath: "src/auth/auth.service.ts",
@@ -68,11 +72,13 @@ describe("processPreEditGuide", () => {
   });
 
   it("should not include observations about other files", async () => {
-    service.addObservation(makeObservation({
-      type: "error",
-      title: "Error in unrelated file",
-      filePaths: ["src/other/file.ts"],
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        title: "Error in unrelated file",
+        filePaths: ["src/other/file.ts"],
+      }),
+    );
 
     const result = await processPreEditGuide({
       filePath: "src/auth/auth.service.ts",
@@ -84,18 +90,22 @@ describe("processPreEditGuide", () => {
   });
 
   it("should include multiple observations for the same file", async () => {
-    service.addObservation(makeObservation({
-      type: "decision",
-      title: "Use JWT tokens",
-      filePaths: ["src/auth/auth.service.ts"],
-      timestamp: Date.now() - 10000,
-    }));
-    service.addObservation(makeObservation({
-      type: "error",
-      title: "Race condition in token refresh",
-      filePaths: ["src/auth/auth.service.ts"],
-      timestamp: Date.now() - 5000,
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "decision",
+        title: "Use JWT tokens",
+        filePaths: ["src/auth/auth.service.ts"],
+        timestamp: Date.now() - 10000,
+      }),
+    );
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        title: "Race condition in token refresh",
+        filePaths: ["src/auth/auth.service.ts"],
+        timestamp: Date.now() - 5000,
+      }),
+    );
 
     const result = await processPreEditGuide({
       filePath: "src/auth/auth.service.ts",
@@ -109,11 +119,13 @@ describe("processPreEditGuide", () => {
   });
 
   it("should match file paths that end with the target path", async () => {
-    service.addObservation(makeObservation({
-      type: "pattern",
-      title: "Always validate DTOs",
-      filePaths: ["/absolute/path/src/auth/auth.service.ts"],
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "pattern",
+        title: "Always validate DTOs",
+        filePaths: ["/absolute/path/src/auth/auth.service.ts"],
+      }),
+    );
 
     const result = await processPreEditGuide({
       filePath: "src/auth/auth.service.ts",
@@ -126,11 +138,13 @@ describe("processPreEditGuide", () => {
   });
 
   it("should format the hint with Sentinal prefix", async () => {
-    service.addObservation(makeObservation({
-      type: "fix",
-      title: "Fixed import order",
-      filePaths: ["src/test.ts"],
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "fix",
+        title: "Fixed import order",
+        filePaths: ["src/test.ts"],
+      }),
+    );
 
     const result = await processPreEditGuide({
       filePath: "src/test.ts",

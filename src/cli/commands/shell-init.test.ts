@@ -93,7 +93,8 @@ describe("generateShellBlock", () => {
 });
 
 describe("upsertBlock", () => {
-  const block = "# --- sentinal start ---\nsome content\n# --- sentinal end ---";
+  const block =
+    "# --- sentinal start ---\nsome content\n# --- sentinal end ---";
 
   test("appends to empty file", () => {
     const result = upsertBlock("", block);
@@ -117,7 +118,8 @@ describe("upsertBlock", () => {
       "# after",
     ].join("\n");
 
-    const newBlock = "# --- sentinal start ---\nnew content\n# --- sentinal end ---";
+    const newBlock =
+      "# --- sentinal start ---\nnew content\n# --- sentinal end ---";
     const result = upsertBlock(existing, newBlock);
 
     expect(result).toContain("# before");

@@ -11,8 +11,6 @@ paths:
   - "**/filters/**"
 ---
 
-
-
 ## Backend Development Standards
 
 ### API Design

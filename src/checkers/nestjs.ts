@@ -4,23 +4,34 @@ export interface NestCheckResult {
 }
 
 const NEST_FILE_PATTERNS = [
-  /\.controller\.ts$/, /\.service\.ts$/, /\.module\.ts$/,
-  /\.guard\.ts$/, /\.interceptor\.ts$/, /\.dto\.ts$/,
-  /\.entity\.ts$/, /\.pipe\.ts$/, /\.filter\.ts$/, /\.middleware\.ts$/,
+  /\.controller\.ts$/,
+  /\.service\.ts$/,
+  /\.module\.ts$/,
+  /\.guard\.ts$/,
+  /\.interceptor\.ts$/,
+  /\.dto\.ts$/,
+  /\.entity\.ts$/,
+  /\.pipe\.ts$/,
+  /\.filter\.ts$/,
+  /\.middleware\.ts$/,
 ];
 
 export function isNestFile(filePath: string): boolean {
   return NEST_FILE_PATTERNS.some((p) => p.test(filePath));
 }
 
-export function checkNestPatterns(filePath: string, content: string): NestCheckResult[] {
+export function checkNestPatterns(
+  filePath: string,
+  content: string,
+): NestCheckResult[] {
   const results: NestCheckResult[] = [];
 
   if (filePath.endsWith(".controller.ts")) {
     if (!content.includes("@ApiTags")) {
       results.push({
         severity: "warning",
-        message: "Controller missing @ApiTags decorator. Add Swagger/OpenAPI tags for API documentation.",
+        message:
+          "Controller missing @ApiTags decorator. Add Swagger/OpenAPI tags for API documentation.",
       });
     }
   }
@@ -29,7 +40,8 @@ export function checkNestPatterns(filePath: string, content: string): NestCheckR
     if (!content.includes("class-validator") && !content.match(/@Is\w+\(/)) {
       results.push({
         severity: "warning",
-        message: "DTO missing class-validator decorators. Add validation decorators (@IsString, @IsEmail, etc.) for input validation.",
+        message:
+          "DTO missing class-validator decorators. Add validation decorators (@IsString, @IsEmail, etc.) for input validation.",
       });
     }
   }
@@ -38,7 +50,8 @@ export function checkNestPatterns(filePath: string, content: string): NestCheckR
     if (!content.includes("@Entity") && !content.includes("@model")) {
       results.push({
         severity: "warning",
-        message: "Entity file missing ORM decorator (@Entity for TypeORM, @model for Prisma).",
+        message:
+          "Entity file missing ORM decorator (@Entity for TypeORM, @model for Prisma).",
       });
     }
   }

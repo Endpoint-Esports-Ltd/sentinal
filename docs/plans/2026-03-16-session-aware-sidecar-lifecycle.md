@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Replace `enableIdleShutdown()` with `enableSessionAwareShutdown()` in `server.ts`
 - Hybrid mode: session-aware when sessions exist, 30-min idle fallback otherwise
 - Update CLI `sidecar start` and `sidecar restart` to use new shutdown function
@@ -26,6 +27,7 @@ Type: Feature
 - Update existing tests for the new shutdown logic
 
 ### Out of Scope
+
 - Changing how sessions are created or ended (existing hooks/plugin handle this)
 - Changing the OpenCode `session.deleted` auto-stop logic (it already checks active sessions and explicitly stops the sidecar — this is a complementary safety net)
 - Changing the MCP `registerMcpCleanupHandlers` (it already checks active sessions)
@@ -74,15 +76,15 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Stale sessions keep sidecar alive forever | Low | Medium | `cleanupStaleSessionsOnStartup()` handles 24h-old sessions. The 30-min idle fallback catches the rest. |
-| No sessions created = sidecar stays 30 min | Low | Low | Acceptable for manual/debug use. User can always Ctrl+C. |
-| `getActiveSessions()` slow on large DB | Very Low | Low | Sessions table is small (tens of rows). Index on `end_time IS NULL`. |
+| Risk                                       | Likelihood | Impact | Mitigation                                                                                             |
+| ------------------------------------------ | ---------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| Stale sessions keep sidecar alive forever  | Low        | Medium | `cleanupStaleSessionsOnStartup()` handles 24h-old sessions. The 30-min idle fallback catches the rest. |
+| No sessions created = sidecar stays 30 min | Low        | Low    | Acceptable for manual/debug use. User can always Ctrl+C.                                               |
+| `getActiveSessions()` slow on large DB     | Very Low   | Low    | Sessions table is small (tens of rows). Index on `end_time IS NULL`.                                   |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Sidecar shuts down prematurely during a long Claude Code session** (Task 1) — Trigger: the session hook created a session but the MCP server didn't start fast enough, so the sidecar sees zero sessions and shuts down. Mitigation: the 60-second grace period before shutdown prevents race conditions. Additionally, `touchActivity()` still runs on every request, and the hybrid fallback prevents premature shutdown when no sessions exist.
 
@@ -91,6 +93,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. Sidecar stays alive while any session is active (no 5-minute shutdown)
 2. Sidecar shuts down ~60s after the last session ends
 3. Manual start without sessions falls back to 30-minute idle timeout
@@ -98,6 +101,7 @@ Type: Feature
 5. All existing tests pass (with updated assertions)
 
 ### Artifacts
+
 - `src/sidecar/server.ts` (modified) — `enableSessionAwareShutdown()` replaces `enableIdleShutdown()`
 - `src/sidecar/server.test.ts` (modified) — updated tests
 - `src/mcp/server.ts` (modified) — keepalive removed
@@ -105,6 +109,7 @@ Type: Feature
 - `src/cli/commands/sidecar.ts` (modified) — updated call sites and messages
 
 ### Key Links
+
 - `enableSessionAwareShutdown()` ← queries `store.getActiveSessions()` every 30s ← shuts down when zero for 60s
 - `sidecar start/restart` ← calls `enableSessionAwareShutdown()` instead of `enableIdleShutdown()`
 - MCP `main()` ← no longer calls `startKeepalive()` ← simpler cleanup handlers
@@ -126,9 +131,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/sidecar/server.ts`
 
 **Key Decisions / Notes:**
+
 - **Replace `enableIdleShutdown()`** with `enableSessionAwareShutdown()`. Keep the same function signature pattern (`result: SidecarStartResult, opts?`) and return a cleanup function.
 - **Algorithm:**
   ```
@@ -161,6 +168,7 @@ Type: Feature
 - **New constants:** `SESSION_GRACE_PERIOD_MS = 60_000`, `FALLBACK_IDLE_TIMEOUT_MS = 30 * 60 * 1000`, `STALE_ACTIVITY_THRESHOLD_MS = 60 * 60 * 1000`
 
 **Definition of Done:**
+
 - [ ] `enableSessionAwareShutdown()` keeps sidecar alive while sessions exist
 - [ ] Shuts down after 60s with zero active sessions
 - [ ] Falls back to 30-min idle when no sessions have ever been created
@@ -169,6 +177,7 @@ Type: Feature
 - [ ] Options type supports configurable timings and onShutdown callback for testing
 
 **Verify:**
+
 - `bun test src/sidecar/server.test.ts`
 
 ---
@@ -180,9 +189,11 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/cli/commands/sidecar.ts`
 
 **Key Decisions / Notes:**
+
 - **Two call sites:** Line 84 (`sidecar start`) and line 166 (`sidecar restart`).
 - **Update import:** `enableIdleShutdown` → `enableSessionAwareShutdown`
 - **Update messages:**
@@ -190,11 +201,13 @@ Type: Feature
 - **No functional change to the SIGTERM/SIGINT handlers** — they still call `stopSidecar()` directly.
 
 **Definition of Done:**
+
 - [ ] Both call sites use `enableSessionAwareShutdown()`
 - [ ] Console messages reflect session-aware behavior
 - [ ] `sidecar start` and `sidecar restart` work correctly
 
 **Verify:**
+
 - `bun run build:cli`
 
 ---
@@ -206,9 +219,11 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/mcp/server.ts`
 
 **Key Decisions / Notes:**
+
 - **Remove `startKeepalive()` function** (lines 69-87)
 - **Remove `DEFAULT_KEEPALIVE_INTERVAL_MS` constant** (line 61)
 - **Remove from `main()`:**
@@ -220,12 +235,14 @@ Type: Feature
 - **Line count reduction:** ~30 lines removed, bringing `mcp/server.ts` from 164 to ~134.
 
 **Definition of Done:**
+
 - [ ] `startKeepalive()` function removed
 - [ ] No keepalive references in `main()`
 - [ ] Cleanup handlers simplified (no stopKeepalive in exit handler)
 - [ ] MCP server still starts and connects correctly
 
 **Verify:**
+
 - `bun test src/mcp/server.test.ts`
 
 ---
@@ -237,10 +254,12 @@ Type: Feature
 **Dependencies:** Tasks 1, 2, 3
 
 **Files:**
+
 - Modify: `src/sidecar/server.test.ts`
 - Modify: `src/mcp/server.test.ts`
 
 **Key Decisions / Notes:**
+
 - **`server.test.ts`:** Replace `enableIdleShutdown` tests with `enableSessionAwareShutdown` tests:
   - Test: shuts down when no sessions active for grace period
   - Test: stays alive when sessions are active
@@ -257,10 +276,12 @@ Type: Feature
 - **Keep `registerMcpCleanupHandlers` tests** — they still apply.
 
 **Definition of Done:**
+
 - [ ] `enableSessionAwareShutdown` tests cover session-aware and hybrid paths
 - [ ] `startKeepalive` tests removed
 - [ ] All tests pass
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `bun test src/sidecar/server.test.ts src/mcp/server.test.ts`

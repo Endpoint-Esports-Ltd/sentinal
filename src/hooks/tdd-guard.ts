@@ -13,7 +13,12 @@
  * Triggered before: Write, Edit, MultiEdit
  */
 
-import { deny, readStdin, output, type DenyOutput } from "../utils/hook-output.js";
+import {
+  deny,
+  readStdin,
+  output,
+  type DenyOutput,
+} from "../utils/hook-output.js";
 import { readTddState } from "../memory/tdd-state.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";

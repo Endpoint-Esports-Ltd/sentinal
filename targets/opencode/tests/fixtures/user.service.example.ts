@@ -115,7 +115,9 @@ describe("UserService", () => {
       const result = await service.findByEmail("test@example.com");
 
       expect(result).toEqual(user);
-      expect(repository.findOne).toHaveBeenCalledWith({ where: { email: "test@example.com" } });
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { email: "test@example.com" },
+      });
     });
   });
 
@@ -150,13 +152,18 @@ describe("UserService", () => {
 
   describe("findActive", () => {
     it("should return only active users", async () => {
-      const activeUsers = [{ id: "1", isActive: true }, { id: "2", isActive: true }];
+      const activeUsers = [
+        { id: "1", isActive: true },
+        { id: "2", isActive: true },
+      ];
       repository.find.mockResolvedValue(activeUsers);
 
       const result = await service.findActive();
 
       expect(result).toEqual(activeUsers);
-      expect(repository.find).toHaveBeenCalledWith({ where: { isActive: true } });
+      expect(repository.find).toHaveBeenCalledWith({
+        where: { isActive: true },
+      });
     });
   });
 
@@ -168,7 +175,9 @@ describe("UserService", () => {
       const result = await service.findInactive();
 
       expect(result).toEqual(inactiveUsers);
-      expect(repository.find).toHaveBeenCalledWith({ where: { isActive: false } });
+      expect(repository.find).toHaveBeenCalledWith({
+        where: { isActive: false },
+      });
     });
   });
 

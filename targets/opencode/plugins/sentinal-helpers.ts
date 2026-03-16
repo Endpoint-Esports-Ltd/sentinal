@@ -8,8 +8,14 @@
 // ─── Tool Redirect Hints ──────────────────────────────────────────────────────
 
 const VAGUE_GREP_INDICATORS = [
-  /^how\s/i, /^what\s/i, /^where\s/i, /^why\s/i,
-  /^find\s.*that/i, /\bworks?\b/i, /\bhandles?\b/i, /\bimplements?\b/i,
+  /^how\s/i,
+  /^what\s/i,
+  /^where\s/i,
+  /^why\s/i,
+  /^find\s.*that/i,
+  /\bworks?\b/i,
+  /\bhandles?\b/i,
+  /\bimplements?\b/i,
 ];
 
 export function getGrepHint(pattern: string): string | null {
@@ -26,13 +32,19 @@ export function getFetchHint(): string {
 // ─── Pre-Edit Guidance ────────────────────────────────────────────────────────
 
 interface SidecarLike {
-  memorySearch(opts: { query: string; project: string; limit: number }): Promise<Array<{
-    id: number;
-    title: string;
-    type: string;
-    timestamp: number;
-    filePaths: string[];
-  }>>;
+  memorySearch(opts: {
+    query: string;
+    project: string;
+    limit: number;
+  }): Promise<
+    Array<{
+      id: number;
+      title: string;
+      type: string;
+      timestamp: number;
+      filePaths: string[];
+    }>
+  >;
 }
 
 /**
@@ -53,7 +65,10 @@ export async function getPreEditGuide(
     });
 
     const relevant = results.filter((r) =>
-      r.filePaths?.some((fp) => fp === filePath || filePath.endsWith(fp) || fp.endsWith(filePath)),
+      r.filePaths?.some(
+        (fp) =>
+          fp === filePath || filePath.endsWith(fp) || fp.endsWith(filePath),
+      ),
     );
 
     if (relevant.length === 0) return null;
@@ -72,7 +87,9 @@ export async function getPreEditGuide(
 // ─── Session Conflict Check ───────────────────────────────────────────────────
 
 interface SessionCheckSidecar {
-  getActiveSessions(): Promise<Array<{ id: string; assistant: string; projectPath: string }>>;
+  getActiveSessions(): Promise<
+    Array<{ id: string; assistant: string; projectPath: string }>
+  >;
 }
 
 /**
@@ -86,7 +103,9 @@ export async function checkSessionConflict(
 ): Promise<string | null> {
   try {
     const sessions = await sidecar.getActiveSessions();
-    const others = sessions.filter((s) => s.id !== currentSessionId && s.projectPath === projectRoot);
+    const others = sessions.filter(
+      (s) => s.id !== currentSessionId && s.projectPath === projectRoot,
+    );
     if (others.length === 0) return null;
 
     const descriptions = others.map((s) => `${s.id} (${s.assistant})`);
@@ -99,7 +118,10 @@ export async function checkSessionConflict(
 // ─── TDD Bulk Transition ──────────────────────────────────────────────────────
 
 interface TddTransitionSidecar {
-  tddTransition(action: "confirm_red" | "confirm_green", specId?: string): Promise<{ count: number }>;
+  tddTransition(
+    action: "confirm_red" | "confirm_green",
+    specId?: string,
+  ): Promise<{ count: number }>;
 }
 
 /**
@@ -113,5 +135,7 @@ export async function transitionTddState(
 ): Promise<void> {
   try {
     await sidecar.tddTransition(action, specId);
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }

@@ -20,7 +20,7 @@ import { WorktreeStore } from "../../worktree/store.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `sentinal-wt-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `sentinal-wt-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -29,7 +29,7 @@ function makeTmpDir(): string {
 function createSpec(
   tmpDir: string,
   memoryStore: MemoryStore,
-  specId: string
+  specId: string,
 ): void {
   const plansDir = join(tmpDir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
@@ -89,7 +89,7 @@ describe("worktree CLI subcommand registration", () => {
       ["bun", "run", "src/cli/index.ts", "worktree", "--help"],
       {
         cwd: resolve(import.meta.dir, "..", "..", ".."),
-      }
+      },
     );
     const output = new TextDecoder().decode(result.stdout);
 

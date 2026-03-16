@@ -18,12 +18,12 @@ These are committed to git and shared automatically via normal code review and p
 
 ### Asset Types
 
-| Type | Path | Best for |
-|------|------|----------|
-| **Rules** | `.claude/rules/<name>.md` | Conventions Claude should always follow |
-| **Commands** | `.claude/commands/<name>.md` | Specific workflows or multi-step tasks |
-| **Skills** | `.claude/skills/<name>/SKILL.md` | Reusable knowledge from past sessions |
-| **Agents** | `.claude/agents/<name>.md` | Custom sub-agents |
+| Type         | Path                             | Best for                                |
+| ------------ | -------------------------------- | --------------------------------------- |
+| **Rules**    | `.claude/rules/<name>.md`        | Conventions Claude should always follow |
+| **Commands** | `.claude/commands/<name>.md`     | Specific workflows or multi-step tasks  |
+| **Skills**   | `.claude/skills/<name>/SKILL.md` | Reusable knowledge from past sessions   |
+| **Agents**   | `.claude/agents/<name>.md`       | Custom sub-agents                       |
 
 ### Monorepo Support
 

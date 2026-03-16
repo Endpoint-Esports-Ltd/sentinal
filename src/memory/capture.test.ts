@@ -221,7 +221,8 @@ describe("analyzeEvent", () => {
         makeEvent({
           toolName: "Bash",
           success: true,
-          output: "FAIL src/auth.test.ts\n  1 fail\n  expect(received).toBe(expected)",
+          output:
+            "FAIL src/auth.test.ts\n  1 fail\n  expect(received).toBe(expected)",
         }),
       );
 
@@ -246,7 +247,9 @@ describe("analyzeEvent", () => {
       expect(decision.shouldCapture).toBe(true);
       expect(decision.type).toBe("fix");
       expect(decision.tags).toContain("tdd");
-      expect(decision.confidence).toBeGreaterThanOrEqual(MIN_CAPTURE_CONFIDENCE);
+      expect(decision.confidence).toBeGreaterThanOrEqual(
+        MIN_CAPTURE_CONFIDENCE,
+      );
       expect(decision.filePaths).toContain("src/auth/auth.service.ts");
     });
 
@@ -376,18 +379,47 @@ describe("analyzeEvent", () => {
       const filePath = "src/auth/auth.service.ts";
 
       // 2 error events in buffer
-      buffer.push(makeEvent({ toolName: "Bash", filePath, success: false, output: "error TS2345: type mismatch", timestamp: Date.now() - 2000 }));
-      buffer.push(makeEvent({ toolName: "Edit", filePath, success: true, timestamp: Date.now() - 1500 }));
-      buffer.push(makeEvent({ toolName: "Bash", filePath, success: false, output: "error TS2345: still failing", timestamp: Date.now() - 1000 }));
+      buffer.push(
+        makeEvent({
+          toolName: "Bash",
+          filePath,
+          success: false,
+          output: "error TS2345: type mismatch",
+          timestamp: Date.now() - 2000,
+        }),
+      );
+      buffer.push(
+        makeEvent({
+          toolName: "Edit",
+          filePath,
+          success: true,
+          timestamp: Date.now() - 1500,
+        }),
+      );
+      buffer.push(
+        makeEvent({
+          toolName: "Bash",
+          filePath,
+          success: false,
+          output: "error TS2345: still failing",
+          timestamp: Date.now() - 1000,
+        }),
+      );
 
       // 3rd error event triggers failed approach detection
-      const event = makeEvent({ toolName: "Bash", filePath, success: false, output: "error TS2345: third failure", timestamp: Date.now() });
+      const event = makeEvent({
+        toolName: "Bash",
+        filePath,
+        success: false,
+        output: "error TS2345: third failure",
+        timestamp: Date.now(),
+      });
       const decision = analyzeEvent(event, buffer);
 
       expect(decision.shouldCapture).toBe(true);
       expect(decision.type).toBe("pattern");
       expect(decision.tags).toContain("failed-approach");
-      expect(decision.confidence).toBe(0.60);
+      expect(decision.confidence).toBe(0.6);
     });
 
     it("should detect git restore/checkout as failed approach", () => {
@@ -395,11 +427,30 @@ describe("analyzeEvent", () => {
       const filePath = "src/auth/auth.service.ts";
 
       // Edit a file then git restore it
-      buffer.push(makeEvent({ toolName: "Edit", filePath, success: true, timestamp: Date.now() - 2000 }));
-      buffer.push(makeEvent({ toolName: "Edit", filePath, success: true, timestamp: Date.now() - 1500 }));
+      buffer.push(
+        makeEvent({
+          toolName: "Edit",
+          filePath,
+          success: true,
+          timestamp: Date.now() - 2000,
+        }),
+      );
+      buffer.push(
+        makeEvent({
+          toolName: "Edit",
+          filePath,
+          success: true,
+          timestamp: Date.now() - 1500,
+        }),
+      );
 
       // Git restore event
-      const event = makeEvent({ toolName: "Bash", success: true, output: `git restore src/auth/auth.service.ts`, timestamp: Date.now() });
+      const event = makeEvent({
+        toolName: "Bash",
+        success: true,
+        output: `git restore src/auth/auth.service.ts`,
+        timestamp: Date.now(),
+      });
       const decision = analyzeEvent(event, buffer);
 
       expect(decision.shouldCapture).toBe(true);
@@ -412,12 +463,40 @@ describe("analyzeEvent", () => {
       const filePath = "src/auth/auth.service.ts";
 
       // Error → edit → success (normal iteration, not failed approach)
-      buffer.push(makeEvent({ toolName: "Bash", filePath, success: false, output: "error TS2345", timestamp: Date.now() - 3000 }));
-      buffer.push(makeEvent({ toolName: "Edit", filePath, success: true, timestamp: Date.now() - 2000 }));
-      buffer.push(makeEvent({ toolName: "Bash", filePath, success: true, output: "tests passed", timestamp: Date.now() - 1000 }));
+      buffer.push(
+        makeEvent({
+          toolName: "Bash",
+          filePath,
+          success: false,
+          output: "error TS2345",
+          timestamp: Date.now() - 3000,
+        }),
+      );
+      buffer.push(
+        makeEvent({
+          toolName: "Edit",
+          filePath,
+          success: true,
+          timestamp: Date.now() - 2000,
+        }),
+      );
+      buffer.push(
+        makeEvent({
+          toolName: "Bash",
+          filePath,
+          success: true,
+          output: "tests passed",
+          timestamp: Date.now() - 1000,
+        }),
+      );
 
       // Another edit — should NOT trigger (there was a success between errors)
-      const event = makeEvent({ toolName: "Edit", filePath, success: true, timestamp: Date.now() });
+      const event = makeEvent({
+        toolName: "Edit",
+        filePath,
+        success: true,
+        timestamp: Date.now(),
+      });
       const decision = analyzeEvent(event, buffer);
 
       // Should NOT be a failed-approach capture

@@ -10,18 +10,18 @@ Implement a persistent memory system that captures and preserves context across 
 
 prior art uses a **dual-database architecture**: SQLite for structured storage + ChromaDB for vector embeddings. After detailed analysis of their implementation, here is how Sentinal's approach compares:
 
-| Aspect | prior art (market research) | Sentinal (This Plan) |
-|--------|-------------------------|----------------------|
-| Structured storage | SQLite | SQLite |
-| Keyword search | SQLite FTS5 | SQLite FTS5 |
-| Semantic search | ChromaDB (separate process via MCP) | sqlite-vec (embedded extension) |
-| Embedding model | ChromaDB default (sentence-transformers) | Configurable: local (onnxruntime) or API |
-| Process model | Worker service + ChromaDB subprocess + MCP | Single process (SQLite + extension) |
-| Search strategy | 3-layer progressive disclosure | 3-layer progressive disclosure (adopted) |
-| Document model | Granular (each field is a separate vector) | Granular (adopted from prior art) |
-| Recency filtering | 90-day window | 90-day window (configurable) |
-| Token savings | ~10x via progressive disclosure | ~10x via progressive disclosure |
-| Dual-target | Claude Code only | Claude Code + OpenCode |
+| Aspect             | prior art (market research)                   | Sentinal (This Plan)                     |
+| ------------------ | ------------------------------------------ | ---------------------------------------- |
+| Structured storage | SQLite                                     | SQLite                                   |
+| Keyword search     | SQLite FTS5                                | SQLite FTS5                              |
+| Semantic search    | ChromaDB (separate process via MCP)        | sqlite-vec (embedded extension)          |
+| Embedding model    | ChromaDB default (sentence-transformers)   | Configurable: local (onnxruntime) or API |
+| Process model      | Worker service + ChromaDB subprocess + MCP | Single process (SQLite + extension)      |
+| Search strategy    | 3-layer progressive disclosure             | 3-layer progressive disclosure (adopted) |
+| Document model     | Granular (each field is a separate vector) | Granular (adopted from prior art)       |
+| Recency filtering  | 90-day window                              | 90-day window (configurable)             |
+| Token savings      | ~10x via progressive disclosure            | ~10x via progressive disclosure          |
+| Dual-target        | Claude Code only                           | Claude Code + OpenCode                   |
 
 ### Why sqlite-vec over ChromaDB
 
@@ -134,6 +134,7 @@ CREATE INDEX idx_sessions_project ON sessions(project_path);
 ### Embedding Strategy
 
 **Model**: `all-MiniLM-L6-v2` (384 dimensions)
+
 - Small (80MB), fast (<10ms per embedding), good quality
 - Runs locally via `onnxruntime-node` -- no API calls, no network dependency
 - Same model family used by ChromaDB's default
@@ -141,12 +142,12 @@ CREATE INDEX idx_sessions_project ON sessions(project_path);
 **Granular document model** (adopted from prior art):
 Each observation produces multiple vector documents for better retrieval precision:
 
-| Vector Document ID | Text Embedded | field_type |
-|---------------------|---------------|------------|
-| `obs_{id}_title` | observation.title | `title` |
-| `obs_{id}_content` | observation.content | `content` |
-| `obs_{id}_tag_0` | tags[0] | `tag` |
-| `obs_{id}_tag_1` | tags[1] | `tag` |
+| Vector Document ID | Text Embedded       | field_type |
+| ------------------ | ------------------- | ---------- |
+| `obs_{id}_title`   | observation.title   | `title`    |
+| `obs_{id}_content` | observation.content | `content`  |
+| `obs_{id}_tag_0`   | tags[0]             | `tag`      |
+| `obs_{id}_tag_1`   | tags[1]             | `tag`      |
 
 A query about "database migration" can match a tag document without needing the full content to be the best match.
 
@@ -170,27 +171,30 @@ Progressive:     20 indexes + 3 full results  =  3,500 tokens (78% savings)
 ```typescript
 function selectStrategy(params: SearchParams): SearchStrategy {
   if (!params.query) {
-    return new FilterStrategy();        // Date range, type, project filters only
+    return new FilterStrategy(); // Date range, type, project filters only
   }
   if (!vectorStoreAvailable) {
-    return new FTSStrategy();           // FTS5 keyword search (fallback)
+    return new FTSStrategy(); // FTS5 keyword search (fallback)
   }
   if (params.exactMatch) {
-    return new FTSStrategy();           // User wants exact keyword match
+    return new FTSStrategy(); // User wants exact keyword match
   }
-  return new HybridStrategy();          // Vector similarity + FTS5 boost
+  return new HybridStrategy(); // Vector similarity + FTS5 boost
 }
 ```
 
 #### Hybrid Search Algorithm
 
 ```typescript
-async function hybridSearch(query: string, filters: SearchFilters): Promise<SearchResult[]> {
+async function hybridSearch(
+  query: string,
+  filters: SearchFilters,
+): Promise<SearchResult[]> {
   // 1. Vector search: semantic similarity via sqlite-vec
   const vectorResults = await vectorStore.search(query, {
     limit: 100,
     project: filters.project,
-    recencyWindow: 90 * 24 * 60 * 60 * 1000,  // 90 days
+    recencyWindow: 90 * 24 * 60 * 60 * 1000, // 90 days
   });
 
   // 2. FTS5 search: keyword matching
@@ -206,17 +210,18 @@ async function hybridSearch(query: string, filters: SearchFilters): Promise<Sear
 
 ### Memory Types
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `decision` | Architecture choices, design pattern selections | "Chose repository pattern for data access layer" |
-| `discovery` | Non-obvious findings, workarounds | "Angular CDK virtual scroll requires explicit height" |
-| `error` | Bugs encountered and root causes | "Race condition in auth middleware when token expires" |
-| `fix` | Solutions to problems | "Added mutex lock around token refresh call" |
-| `pattern` | Recurring solutions, project conventions | "All DTOs use class-validator with whitelist: true" |
+| Type        | Description                                     | Example                                                |
+| ----------- | ----------------------------------------------- | ------------------------------------------------------ |
+| `decision`  | Architecture choices, design pattern selections | "Chose repository pattern for data access layer"       |
+| `discovery` | Non-obvious findings, workarounds               | "Angular CDK virtual scroll requires explicit height"  |
+| `error`     | Bugs encountered and root causes                | "Race condition in auth middleware when token expires" |
+| `fix`       | Solutions to problems                           | "Added mutex lock around token refresh call"           |
+| `pattern`   | Recurring solutions, project conventions        | "All DTOs use class-validator with whitelist: true"    |
 
 ### Capture Triggers
 
 **Automatic (heuristic-based):**
+
 - Error-fix sequence detected (error log followed by successful edit)
 - Significant file changes (new module, architectural file)
 - TDD cycle completion (test fail -> implementation -> test pass)
@@ -224,18 +229,21 @@ async function hybridSearch(query: string, filters: SearchFilters): Promise<Sear
 - Configuration changes
 
 **Manual:**
+
 - `/learn` command invocation
 - Explicit observation annotations in prompts
 
 ### Restoration Strategy
 
 On session start, load the most relevant observations:
+
 1. Last 10 observations from the same project
 2. Any active spec/plan state
 3. Key decisions from past 30 days
 4. Error patterns relevant to current file context
 
 Format as a compact context block injected via:
+
 - Claude Code: `SessionStart` hook output
 - OpenCode: `event` handler for `session.created`
 
@@ -244,6 +252,7 @@ Format as a compact context block injected via:
 ### Phase 1: Core Infrastructure
 
 **Files to create:**
+
 - `src/memory/types.ts` -- Interfaces, Zod schemas, constants
 - `src/memory/store.ts` -- SQLite connection, migrations, raw queries
 - `src/memory/service.ts` -- Business logic, CRUD, search
@@ -251,6 +260,7 @@ Format as a compact context block injected via:
 - `src/memory/service.test.ts` -- Service unit tests
 
 **Key interfaces:**
+
 ```typescript
 interface Observation {
   id: number;
@@ -270,18 +280,21 @@ interface SearchResult {
   title: string;
   type: ObservationType;
   timestamp: number;
-  score: number;           // relevance score
+  score: number; // relevance score
   estimatedTokens: number; // estimated read cost
-  snippet: string;         // content preview
+  snippet: string; // content preview
 }
 
 interface MemoryService {
-  addObservation(obs: Omit<Observation, 'id'>): Promise<Observation>;
+  addObservation(obs: Omit<Observation, "id">): Promise<Observation>;
   getObservation(id: number): Promise<Observation | null>;
   getObservations(ids: number[]): Promise<Observation[]>;
   search(query: string, filters?: SearchFilters): Promise<SearchResult[]>;
   timeline(anchor: number | string, depth?: number): Promise<TimelineResult>;
-  getRecentForProject(projectPath: string, limit?: number): Promise<Observation[]>;
+  getRecentForProject(
+    projectPath: string,
+    limit?: number,
+  ): Promise<Observation[]>;
   deleteObservation(id: number): Promise<void>;
   startSession(projectPath: string, assistant: string): Promise<Session>;
   endSession(sessionId: string, summary?: string): Promise<void>;
@@ -289,6 +302,7 @@ interface MemoryService {
 ```
 
 **Dependencies to add:**
+
 - `better-sqlite3` -- SQLite driver (works with both Node and Bun)
 - `@types/better-sqlite3` -- Type definitions
 - `sqlite-vec` -- Vector search SQLite extension
@@ -296,6 +310,7 @@ interface MemoryService {
 ### Phase 2: Vector Search Layer
 
 **Files to create:**
+
 - `src/memory/vector-store.ts` -- sqlite-vec operations
 - `src/memory/embeddings.ts` -- Embedding generation
 - `src/memory/search/orchestrator.ts` -- Strategy selection
@@ -307,6 +322,7 @@ interface MemoryService {
 - `src/memory/embeddings.test.ts`
 
 **Embedding generation:**
+
 ```typescript
 import * as ort from "onnxruntime-node";
 
@@ -331,41 +347,67 @@ class EmbeddingService {
 ```
 
 **sqlite-vec integration:**
+
 ```typescript
 class VectorStore {
-  async addDocument(docId: string, text: string, metadata: VectorMetadata): Promise<void> {
+  async addDocument(
+    docId: string,
+    text: string,
+    metadata: VectorMetadata,
+  ): Promise<void> {
     const embedding = await this.embeddings.embed(text);
     this.db.run(
       `INSERT INTO observation_vectors(doc_id, embedding, observation_id, field_type, project, timestamp)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [docId, embedding, metadata.observationId, metadata.fieldType, metadata.project, metadata.timestamp]
+      [
+        docId,
+        embedding,
+        metadata.observationId,
+        metadata.fieldType,
+        metadata.project,
+        metadata.timestamp,
+      ],
     );
   }
 
-  async search(query: string, options: VectorSearchOptions): Promise<VectorResult[]> {
+  async search(
+    query: string,
+    options: VectorSearchOptions,
+  ): Promise<VectorResult[]> {
     const queryEmbedding = await this.embeddings.embed(query);
-    const recencyCutoff = Date.now() - (options.recencyWindow || 90 * 24 * 60 * 60 * 1000);
+    const recencyCutoff =
+      Date.now() - (options.recencyWindow || 90 * 24 * 60 * 60 * 1000);
 
-    return this.db.all(`
+    return this.db.all(
+      `
       SELECT doc_id, observation_id, field_type, distance
       FROM observation_vectors
       WHERE embedding MATCH ?
         AND k = ?
         AND timestamp > ?
-        ${options.project ? 'AND project = ?' : ''}
+        ${options.project ? "AND project = ?" : ""}
       ORDER BY distance
-    `, [queryEmbedding, options.limit || 100, recencyCutoff, ...(options.project ? [options.project] : [])]);
+    `,
+      [
+        queryEmbedding,
+        options.limit || 100,
+        recencyCutoff,
+        ...(options.project ? [options.project] : []),
+      ],
+    );
   }
 }
 ```
 
 **Dependencies to add:**
+
 - `onnxruntime-node` -- Local embedding inference
 - Model file: `all-MiniLM-L6-v2.onnx` (~80MB, downloaded on first use)
 
 ### Phase 3: Capture & Restoration Hooks
 
 **Files to create:**
+
 - `src/memory/capture.ts` -- Capture heuristics and event detection
 - `src/hooks/memory-observer.ts` -- Claude Code PostToolUse hook
 - `src/hooks/memory-restore.ts` -- Claude Code SessionStart hook
@@ -374,30 +416,39 @@ class VectorStore {
 - `src/memory/restore.test.ts`
 
 **Files to modify:**
+
 - `targets/opencode/plugins/sentinal.ts` -- Add memory capture + restore
 - `src/hooks/hooks.json` -- Register new hooks (Claude Code)
 - `src/index.ts` -- Export memory module
 
 **Claude Code hook registration:**
+
 ```json
 {
-  "SessionStart": [{
-    "type": "command",
-    "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-restore.js\"",
-    "timeout": 5
-  }],
-  "PostToolUse": [{
-    "matcher": "Write|Edit|MultiEdit|Bash",
-    "hooks": [{
+  "SessionStart": [
+    {
       "type": "command",
-      "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-observer.js\"",
+      "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-restore.js\"",
       "timeout": 5
-    }]
-  }]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit|MultiEdit|Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bun \"${CLAUDE_PLUGIN_ROOT}/hooks/dist/hooks/memory-observer.js\"",
+          "timeout": 5
+        }
+      ]
+    }
+  ]
 }
 ```
 
 **Restoration output format:**
+
 ```markdown
 ## Sentinal Memory Context
 
@@ -405,39 +456,47 @@ class VectorStore {
 **Last Session:** 2026-03-08 (45 min, 12 observations)
 
 ### Key Decisions
+
 - Chose repository pattern for data access (2026-03-07)
 - Using Angular signals over RxJS for component state (2026-03-05)
 
 ### Recent Discoveries
+
 - CDK virtual scroll needs explicit container height (2026-03-08)
 - NestJS ConfigModule must be imported before TypeOrmModule (2026-03-06)
 
 ### Active Issues
+
 - Race condition in auth token refresh (investigating)
 ```
 
 ### Phase 4: MCP Server & CLI
 
 **Files to create:**
+
 - `src/memory/mcp-server.ts` -- MCP server exposing memory tools
 - `src/memory/cli.ts` -- CLI commands
 
 **MCP tools (3-layer progressive disclosure):**
+
 ```typescript
 const tools = [
   {
     name: "memory_search",
-    description: "Search memory. Returns compact index with IDs. Use memory_get for full details.",
+    description:
+      "Search memory. Returns compact index with IDs. Use memory_get for full details.",
     // Returns: | ID | Time | Type | Title | ~Tokens |
   },
   {
     name: "memory_timeline",
-    description: "Get chronological context around an observation or timestamp.",
+    description:
+      "Get chronological context around an observation or timestamp.",
     // Returns: observations before and after the anchor point
   },
   {
     name: "memory_get",
-    description: "Fetch full observation details by IDs. Only call after filtering with search/timeline.",
+    description:
+      "Fetch full observation details by IDs. Only call after filtering with search/timeline.",
     // Returns: full observation content for specified IDs
   },
   {
@@ -448,6 +507,7 @@ const tools = [
 ```
 
 **CLI commands:**
+
 ```bash
 sentinal memory search "auth token"
 sentinal memory list --project . --type decision --limit 20
@@ -461,9 +521,11 @@ sentinal memory prune --older-than 90d
 ### Phase 5: /learn Command Enhancement
 
 **Files to modify:**
+
 - `templates/commands/learn.md` -- Enhanced with memory integration
 
 **Learn workflow:**
+
 1. User invokes `/learn` or `/learn <topic>`
 2. AI summarizes the key insight
 3. AI proposes observation type and tags
@@ -474,6 +536,7 @@ sentinal memory prune --older-than 90d
 ## Technical Considerations
 
 ### Performance
+
 - Async capture -- never block the main tool flow
 - Connection pooling -- reuse SQLite connections
 - Batch writes -- group rapid-fire observations
@@ -483,6 +546,7 @@ sentinal memory prune --older-than 90d
 - Lazy model loading -- only load ONNX model on first search
 
 ### Privacy & Security
+
 - Local-only storage -- no cloud sync, no API calls for embeddings
 - Sanitization -- strip secrets/credentials from content
 - Configurable retention -- auto-prune old observations
@@ -490,6 +554,7 @@ sentinal memory prune --older-than 90d
 - Model runs locally -- no data leaves the machine
 
 ### Cross-Platform
+
 - Use `better-sqlite3` for Node/Bun compatibility
 - `sqlite-vec` loadable extension (prebuilt binaries for macOS, Linux, Windows)
 - `onnxruntime-node` (prebuilt for all platforms)
@@ -498,6 +563,7 @@ sentinal memory prune --older-than 90d
 - `~/Library/Application Support` on macOS
 
 ### Data Integrity
+
 - WAL mode for concurrent reads
 - Foreign key constraints
 - FTS rebuild on corruption
@@ -506,38 +572,38 @@ sentinal memory prune --older-than 90d
 
 ### Graceful Degradation
 
-| Component Missing | Behavior |
-|-------------------|----------|
-| sqlite-vec not available | FTS5-only search (keyword matching) |
-| onnxruntime not available | FTS5-only search (no embeddings) |
-| ONNX model not downloaded | Prompt to download, fall back to FTS5 |
-| Both missing | Filter-only search (date, type, project) |
+| Component Missing         | Behavior                                 |
+| ------------------------- | ---------------------------------------- |
+| sqlite-vec not available  | FTS5-only search (keyword matching)      |
+| onnxruntime not available | FTS5-only search (no embeddings)         |
+| ONNX model not downloaded | Prompt to download, fall back to FTS5    |
+| Both missing              | Filter-only search (date, type, project) |
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Context retention | 90%+ of key decisions preserved |
-| Compaction recovery | <5s to restore working context |
-| Semantic search relevance | 80%+ relevant results in top 5 |
-| FTS5 search relevance | 60%+ relevant results in top 5 |
-| Capture latency | <50ms per observation (async) |
-| Embedding latency | <10ms per text (local ONNX) |
-| Storage efficiency | <5MB per 1000 observations (with vectors) |
-| Token savings | 70%+ reduction vs naive full-text retrieval |
+| Metric                    | Target                                      |
+| ------------------------- | ------------------------------------------- |
+| Context retention         | 90%+ of key decisions preserved             |
+| Compaction recovery       | <5s to restore working context              |
+| Semantic search relevance | 80%+ relevant results in top 5              |
+| FTS5 search relevance     | 60%+ relevant results in top 5              |
+| Capture latency           | <50ms per observation (async)               |
+| Embedding latency         | <10ms per text (local ONNX)                 |
+| Storage efficiency        | <5MB per 1000 observations (with vectors)   |
+| Token savings             | 70%+ reduction vs naive full-text retrieval |
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| Storage bloat from vectors | Auto-prune, 90-day recency, configurable retention |
-| Performance impact | Async capture, lazy model loading, batch operations |
-| Privacy concerns | Local-only, local embeddings, no API calls |
-| Capture noise | Heuristic tuning, confidence thresholds |
-| SQLite locking | WAL mode, connection pooling, retry logic |
-| ONNX model size (80MB) | Download on first use, graceful degradation without it |
-| sqlite-vec platform support | Prebuilt binaries available; FTS5 fallback if missing |
-| Embedding quality | all-MiniLM-L6-v2 is well-tested; configurable model path for upgrades |
+| Risk                        | Mitigation                                                            |
+| --------------------------- | --------------------------------------------------------------------- |
+| Storage bloat from vectors  | Auto-prune, 90-day recency, configurable retention                    |
+| Performance impact          | Async capture, lazy model loading, batch operations                   |
+| Privacy concerns            | Local-only, local embeddings, no API calls                            |
+| Capture noise               | Heuristic tuning, confidence thresholds                               |
+| SQLite locking              | WAL mode, connection pooling, retry logic                             |
+| ONNX model size (80MB)      | Download on first use, graceful degradation without it                |
+| sqlite-vec platform support | Prebuilt binaries available; FTS5 fallback if missing                 |
+| Embedding quality           | all-MiniLM-L6-v2 is well-tested; configurable model path for upgrades |
 
 ## Future Enhancements
 

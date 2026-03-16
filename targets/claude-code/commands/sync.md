@@ -3,6 +3,7 @@ description: Sync project rules and skills with codebase - reads existing rules/
 user-invocable: true
 model: opus
 ---
+
 # /sync - Sync Project Rules & Skills
 
 **Sync custom rules and skills with the current codebase.** Reads existing rules/skills, explores code patterns, identifies gaps, updates documentation, creates new skills.
@@ -39,6 +40,7 @@ Use `{slug}-` prefix on everything: `{slug}-project.md`, `{slug}-mcp-servers.md`
 **Custom rules** in `.claude/rules/`: `{slug}-project.md` (tech stack, structure), `{slug}-mcp-servers.md` (custom MCP servers), `{slug}-{pattern-name}.md` (tribal knowledge).
 
 **Custom skills** — ALWAYS write to BOTH paths with identical content:
+
 - `.claude/skills/{slug}-{name}/SKILL.md`
 - `.opencode/skills/{slug}-{name}/SKILL.md`
 
@@ -71,11 +73,11 @@ Use unique names (not `plan`, `implement`, `verify`, `standards-*`) for custom s
 
 **Scoping rules:**
 
-| Directory Level | `paths` Frontmatter | Loaded When |
-|-----------------|---------------------|-------------|
-| Root (`.claude/rules/*.md`) | Optional | Every session (keep lean) |
-| Product (`{product}/*.md`) | Recommended | Files matching product paths |
-| Team (`{product}/{team}/*.md`) | **MANDATORY** | Files matching team paths only |
+| Directory Level                | `paths` Frontmatter | Loaded When                    |
+| ------------------------------ | ------------------- | ------------------------------ |
+| Root (`.claude/rules/*.md`)    | Optional            | Every session (keep lean)      |
+| Product (`{product}/*.md`)     | Recommended         | Files matching product paths   |
+| Team (`{product}/{team}/*.md`) | **MANDATORY**       | Files matching team paths only |
 
 **⛔ Team-level rules without `paths` frontmatter load every session for every file** — defeating the purpose of scoping. Always add `paths` to team-level rules.
 
@@ -93,13 +95,13 @@ paths:
 
 ### Error Handling
 
-| Issue | Action |
-|-------|--------|
-| Vexor not installed | Use Grep/Glob for codebase exploration (all Vexor steps have fallbacks) |
-| `/learn` skill not available | Create skills manually (write SKILL.md directly) |
-| No MCP servers | Skip MCP documentation |
-| No README.md | Ask user for description |
-| No package.json | Infer from file extensions |
+| Issue                        | Action                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| Vexor not installed          | Use Grep/Glob for codebase exploration (all Vexor steps have fallbacks) |
+| `/learn` skill not available | Create skills manually (write SKILL.md directly)                        |
+| No MCP servers               | Skip MCP documentation                                                  |
+| No README.md                 | Ask user for description                                                |
+| No package.json              | Infer from file extensions                                              |
 
 ### Writing Rules
 
@@ -193,18 +195,18 @@ AskUserQuestion: "Found unscoped assets that should be prefixed with '{slug}-' f
 
 For each rule file and CLAUDE.md found in Phase 1, evaluate:
 
-| Check | What to look for | Severity |
-|-------|-----------------|----------|
-| **Size** | Files over 200 lines (context bloat, reduced adherence) | Warning |
-| **Specificity** | Vague instructions: "format properly", "write clean code" — suggest concrete alternatives | Warning |
-| **Redundancy** | Standard conventions Claude already knows | Info |
-| **Conflicts** | Contradicting instructions across different files | Error |
-| **Path-scoping** | Rules mentioning specific file types but lacking `paths` frontmatter | Info |
-| **Nested path-scoping** | Rules in team-level subdirectories without `paths` frontmatter | Error |
-| **Skills candidates** | Multi-step workflows in rules better as skills (on demand vs every session) | Info |
-| **Structure** | Dense paragraphs without headers/bullets, poor scanability | Warning |
-| **Stale references** | References to files, commands, or tools that no longer exist | Error |
-| **CLAUDE.md overlap** | Content duplicated between CLAUDE.md and `.claude/rules/` files | Warning |
+| Check                   | What to look for                                                                          | Severity |
+| ----------------------- | ----------------------------------------------------------------------------------------- | -------- |
+| **Size**                | Files over 200 lines (context bloat, reduced adherence)                                   | Warning  |
+| **Specificity**         | Vague instructions: "format properly", "write clean code" — suggest concrete alternatives | Warning  |
+| **Redundancy**          | Standard conventions Claude already knows                                                 | Info     |
+| **Conflicts**           | Contradicting instructions across different files                                         | Error    |
+| **Path-scoping**        | Rules mentioning specific file types but lacking `paths` frontmatter                      | Info     |
+| **Nested path-scoping** | Rules in team-level subdirectories without `paths` frontmatter                            | Error    |
+| **Skills candidates**   | Multi-step workflows in rules better as skills (on demand vs every session)               | Info     |
+| **Structure**           | Dense paragraphs without headers/bullets, poor scanability                                | Warning  |
+| **Stale references**    | References to files, commands, or tools that no longer exist                              | Error    |
+| **CLAUDE.md overlap**   | Content duplicated between CLAUDE.md and `.claude/rules/` files                           | Warning  |
 
 **How to check for stale references:**
 
@@ -343,24 +345,30 @@ If doesn't exist, create:
 **Last Updated:** [Date]
 
 ## Overview
+
 [Brief description from README or ask user]
 
 ## Technology Stack
+
 - **Language / Framework / Build Tool / Testing / Package Manager**
 - NestJS / Angular / TypeScript — include versions from package.json
 
 ## Directory Structure
+
 [Simplified tree — key directories only]
 
 ## Key Files
+
 - **Configuration / Entry Points / Tests**
 
 ## Development Commands
-| Task | Command |
-|------|---------|
+
+| Task                                | Command     |
+| ----------------------------------- | ----------- |
 | Install / Dev / Build / Test / Lint | `[command]` |
 
 ## Architecture Notes
+
 [Brief patterns description — NestJS modules, Angular standalone/module structure, etc.]
 ```
 
@@ -378,15 +386,16 @@ Create or update `.claude/rules/README.md`:
 > Auto-generated by `/sync` on [Date].
 
 ## How Rules Work
+
 Rules in `.claude/rules/` load into Claude's context each session.
 Use `paths` frontmatter to scope rules to specific files — unscoped rules load every time.
 
 ## Organization
 
-| Directory | Scope | Contents |
-|-----------|-------|----------|
-| `./` | Repo-wide | [List root-level rule files with one-line descriptions] |
-| `./{product}/` | Product-wide | [List product rules with descriptions] |
+| Directory             | Scope         | Contents                                                    |
+| --------------------- | ------------- | ----------------------------------------------------------- |
+| `./`                  | Repo-wide     | [List root-level rule files with one-line descriptions]     |
+| `./{product}/`        | Product-wide  | [List product rules with descriptions]                      |
 | `./{product}/{team}/` | Team-specific | [List team rules with descriptions and their `paths` globs] |
 
 ## Adding Rules
@@ -435,12 +444,13 @@ Create/update `.claude/rules/{slug}-mcp-servers.md`:
 
 ```markdown
 ### [server-name]
+
 **Source:** `.mcp.json`
 **Purpose:** [Brief description]
 **Status:** ✅ All working | ⚠️ Partial | ❌ Broken
 
 | Tool | Status | Description |
-|------|--------|-------------|
+| ---- | ------ | ----------- |
 
 **Example:** `ToolSearch(query="+server-name keyword")` then call directly.
 ```
@@ -463,6 +473,7 @@ If obsolete: AskUserQuestion "Yes, remove it" | "Keep it" | "Update instead". If
 
 1. List undocumented areas (comparing Phase 1 + Phase 4)
 2. For each candidate area, find actual patterns before drafting:
+
    ```bash
    # With Vexor (preferred)
    vexor search "how is [pattern] implemented across the codebase" ./ --max-results 5 --max-tokens 2000
@@ -472,6 +483,7 @@ If obsolete: AskUserQuestion "Yes, remove it" | "Keep it" | "Update instead". If
    # Grep(pattern="[pattern]", head_limit=10)
    # Read representative files directly
    ```
+
 3. Prioritize by: frequency, uniqueness, mistake likelihood
 4. AskUserQuestion (multiSelect): which areas to document
 5. For each: ask clarifying questions, draft rule using search results and code examples, confirm before creating
@@ -482,6 +494,7 @@ If obsolete: AskUserQuestion "Yes, remove it" | "Keep it" | "Update instead". If
    - Create product/team directories as needed (`mkdir -p`)
 
 **Angular/NestJS discovery areas to prioritize:**
+
 - State management patterns (NgRx, Signals, RxJS)
 - NestJS module organization and dependency injection
 - TypeORM entity conventions and migrations

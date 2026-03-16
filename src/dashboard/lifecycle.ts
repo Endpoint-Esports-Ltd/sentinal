@@ -7,12 +7,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import {
-  readFileSync,
-  writeFileSync,
-  unlinkSync,
-  existsSync,
-} from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { DB_CONSTANTS } from "../memory/types.js";
 
 const PID_FILE = "server.pid";

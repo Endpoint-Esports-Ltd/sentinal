@@ -8,16 +8,26 @@ import { join } from "node:path";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
-import { rebuildFtsIndex, backupDatabase, checkIntegrity, decayQualityScores } from "./maintenance.js";
+import {
+  rebuildFtsIndex,
+  backupDatabase,
+  checkIntegrity,
+  decayQualityScores,
+} from "./maintenance.js";
 import type { CreateObservation } from "./types.js";
 
 function makeTmpDb(): string {
-  const dir = join(tmpdir(), `sentinal-maint-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-maint-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return join(dir, "test.db");
 }
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "test-session",
     projectPath: "/test/project",
@@ -47,7 +57,9 @@ describe("rebuildFtsIndex", () => {
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
   });
 
   it("should rebuild FTS index for empty database", () => {
@@ -65,10 +77,12 @@ describe("rebuildFtsIndex", () => {
   });
 
   it("should restore search functionality after rebuild", async () => {
-    service.addObservation(makeObservation({
-      title: "Database migration strategy",
-      content: "Chose sequential migrations",
-    }));
+    service.addObservation(
+      makeObservation({
+        title: "Database migration strategy",
+        content: "Chose sequential migrations",
+      }),
+    );
 
     rebuildFtsIndex(store);
 
@@ -132,7 +146,9 @@ describe("checkIntegrity", () => {
 
   afterEach(() => {
     store.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
   });
 
   it("should return null for healthy database", () => {
@@ -166,22 +182,28 @@ describe("decayQualityScores", () => {
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
   });
 
   it("should decay scores based on observation age and type", () => {
     const now = Date.now();
     // 60 days old = 2 decay periods
-    service.addObservation(makeObservation({
-      type: "decision",
-      timestamp: now - 2 * THIRTY_DAYS_MS,
-      title: "Old decision",
-    }));
-    service.addObservation(makeObservation({
-      type: "error",
-      timestamp: now - 2 * THIRTY_DAYS_MS,
-      title: "Old error",
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "decision",
+        timestamp: now - 2 * THIRTY_DAYS_MS,
+        title: "Old decision",
+      }),
+    );
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        timestamp: now - 2 * THIRTY_DAYS_MS,
+        title: "Old error",
+      }),
+    );
 
     const result = decayQualityScores(store);
 
@@ -198,11 +220,13 @@ describe("decayQualityScores", () => {
   });
 
   it("should not decay recent observations", () => {
-    service.addObservation(makeObservation({
-      type: "error",
-      timestamp: Date.now(),
-      title: "Fresh error",
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        timestamp: Date.now(),
+        title: "Fresh error",
+      }),
+    );
 
     decayQualityScores(store);
 
@@ -214,11 +238,13 @@ describe("decayQualityScores", () => {
   it("should enforce minimum score of 0.1", () => {
     // 365 days old = 12+ decay periods — error type decays fast
     const now = Date.now();
-    service.addObservation(makeObservation({
-      type: "error",
-      timestamp: now - 365 * 24 * 60 * 60 * 1000,
-      title: "Very old error",
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        timestamp: now - 365 * 24 * 60 * 60 * 1000,
+        title: "Very old error",
+      }),
+    );
 
     decayQualityScores(store);
 
@@ -231,11 +257,21 @@ describe("decayQualityScores", () => {
     const now = Date.now();
     const age = now - THIRTY_DAYS_MS; // exactly 1 period
 
-    service.addObservation(makeObservation({ type: "decision", timestamp: age, title: "D" }));
-    service.addObservation(makeObservation({ type: "discovery", timestamp: age, title: "Disc" }));
-    service.addObservation(makeObservation({ type: "pattern", timestamp: age, title: "P" }));
-    service.addObservation(makeObservation({ type: "fix", timestamp: age, title: "F" }));
-    service.addObservation(makeObservation({ type: "error", timestamp: age, title: "E" }));
+    service.addObservation(
+      makeObservation({ type: "decision", timestamp: age, title: "D" }),
+    );
+    service.addObservation(
+      makeObservation({ type: "discovery", timestamp: age, title: "Disc" }),
+    );
+    service.addObservation(
+      makeObservation({ type: "pattern", timestamp: age, title: "P" }),
+    );
+    service.addObservation(
+      makeObservation({ type: "fix", timestamp: age, title: "F" }),
+    );
+    service.addObservation(
+      makeObservation({ type: "error", timestamp: age, title: "E" }),
+    );
 
     decayQualityScores(store);
 
@@ -247,19 +283,21 @@ describe("decayQualityScores", () => {
 
     // After 1 period: score = 1.0 * rate
     expect(d.qualityScore).toBeCloseTo(0.95, 2);
-    expect(disc.qualityScore).toBeCloseTo(0.90, 2);
+    expect(disc.qualityScore).toBeCloseTo(0.9, 2);
     expect(p.qualityScore).toBeCloseTo(0.85, 2);
-    expect(f.qualityScore).toBeCloseTo(0.80, 2);
+    expect(f.qualityScore).toBeCloseTo(0.8, 2);
     expect(e.qualityScore).toBeCloseTo(0.75, 2);
   });
 
   it("should support dry_run mode", () => {
     const now = Date.now();
-    service.addObservation(makeObservation({
-      type: "error",
-      timestamp: now - 2 * THIRTY_DAYS_MS,
-      title: "Old error",
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        timestamp: now - 2 * THIRTY_DAYS_MS,
+        title: "Old error",
+      }),
+    );
 
     const result = decayQualityScores(store, { dryRun: true });
 
@@ -273,16 +311,20 @@ describe("decayQualityScores", () => {
 
   it("should return counts of updated and decayed observations", () => {
     const now = Date.now();
-    service.addObservation(makeObservation({
-      type: "decision",
-      timestamp: now - THIRTY_DAYS_MS,
-      title: "Old",
-    }));
-    service.addObservation(makeObservation({
-      type: "fix",
-      timestamp: now, // fresh — won't decay significantly
-      title: "New",
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "decision",
+        timestamp: now - THIRTY_DAYS_MS,
+        title: "Old",
+      }),
+    );
+    service.addObservation(
+      makeObservation({
+        type: "fix",
+        timestamp: now, // fresh — won't decay significantly
+        title: "New",
+      }),
+    );
 
     const result = decayQualityScores(store);
 
@@ -293,12 +335,14 @@ describe("decayQualityScores", () => {
   it("should never boost quality_score above its initial value", () => {
     const now = Date.now();
     // Insert with low confidence (quality_score = 0.6)
-    service.addObservation(makeObservation({
-      type: "error",
-      timestamp: now - 10 * 24 * 60 * 60 * 1000, // 10 days old
-      title: "Low confidence error",
-      metadata: { confidence: 0.6 },
-    }));
+    service.addObservation(
+      makeObservation({
+        type: "error",
+        timestamp: now - 10 * 24 * 60 * 60 * 1000, // 10 days old
+        title: "Low confidence error",
+        metadata: { confidence: 0.6 },
+      }),
+    );
 
     decayQualityScores(store);
 

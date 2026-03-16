@@ -42,9 +42,7 @@ describe("formatContextBar", () => {
 
   it("should render full bar at 100%", () => {
     const bar = formatContextBar(100, 167000);
-    expect(bar).toBe(
-      "Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100% | ~167k tokens",
-    );
+    expect(bar).toBe("Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100% | ~167k tokens");
   });
 
   it("should respect custom width", () => {

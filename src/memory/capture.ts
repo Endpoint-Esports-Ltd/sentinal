@@ -320,7 +320,10 @@ function detectTddCycle(
   const editPaths: string[] = [];
   let foundFail = false;
   for (const prev of recent) {
-    if (prev === testFailEvent) { foundFail = true; break; }
+    if (prev === testFailEvent) {
+      foundFail = true;
+      break;
+    }
     if (isEditTool(prev.toolName) && prev.filePath) {
       editPaths.push(prev.filePath);
     }
@@ -341,10 +344,7 @@ function detectTddCycle(
 
 // ─── Failed Approach Detection ────────────────────────────────────────────────
 
-const GIT_RESTORE_PATTERNS = [
-  /git\s+checkout\s+--?\s/,
-  /git\s+restore\s/,
-];
+const GIT_RESTORE_PATTERNS = [/git\s+checkout\s+--?\s/, /git\s+restore\s/];
 
 /**
  * Detect failed approaches:
@@ -360,10 +360,14 @@ function detectFailedApproach(
     for (const pattern of GIT_RESTORE_PATTERNS) {
       if (pattern.test(event.output)) {
         // Check if any recently edited file was restored
-        const recentEdits = buffer.recent(10).filter((e) => isEditTool(e.toolName) && e.filePath);
+        const recentEdits = buffer
+          .recent(10)
+          .filter((e) => isEditTool(e.toolName) && e.filePath);
         const editedFiles = new Set(recentEdits.map((e) => e.filePath));
         // Check if the git restore targets a recently edited file
-        const restoredFile = [...editedFiles].find((fp) => fp && event.output!.includes(basename(fp)));
+        const restoredFile = [...editedFiles].find(
+          (fp) => fp && event.output!.includes(basename(fp)),
+        );
         if (restoredFile) {
           return {
             shouldCapture: true,
@@ -372,7 +376,7 @@ function detectFailedApproach(
             content: `Approach was abandoned — file was edited then reverted via git restore/checkout. Output: ${event.output.slice(0, 200)}`,
             filePaths: compact([restoredFile]),
             tags: ["failed-approach", "auto-captured"],
-            confidence: 0.60,
+            confidence: 0.6,
           };
         }
       }
@@ -400,7 +404,7 @@ function detectFailedApproach(
         content: `${errorCount} errors detected on ${event.filePath} without successful resolution. The current approach may not be working.`,
         filePaths: [event.filePath],
         tags: ["failed-approach", "auto-captured"],
-        confidence: 0.60,
+        confidence: 0.6,
       };
     }
   }
@@ -467,13 +471,13 @@ function buildTddContent(
     lines.push(`**Tests passing:** ${snippet}`);
   }
 
-  return lines.join("\n\n") || "TDD cycle: tests failed, implementation fixed, tests passing.";
+  return (
+    lines.join("\n\n") ||
+    "TDD cycle: tests failed, implementation fixed, tests passing."
+  );
 }
 
-function buildFixContent(
-  errorEvent: ToolEvent,
-  fixEvent: ToolEvent,
-): string {
+function buildFixContent(errorEvent: ToolEvent, fixEvent: ToolEvent): string {
   const lines: string[] = [];
 
   if (errorEvent.output) {

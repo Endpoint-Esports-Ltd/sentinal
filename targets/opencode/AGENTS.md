@@ -28,12 +28,12 @@ src/
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
-| `npm test` | Run tests |
-| `npm run lint` | Run linter |
+| Command         | Description              |
+| --------------- | ------------------------ |
+| `npm run dev`   | Start development server |
+| `npm run build` | Build for production     |
+| `npm test`      | Run tests                |
+| `npm run lint`  | Run linter               |
 
 ## Coding Standards
 

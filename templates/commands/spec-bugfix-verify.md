@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <path/to/plan.md>
 ---
 
@@ -24,12 +24,14 @@ Read the plan file and verify:
 ## Phase 2: Full Test Suite
 
 Run the complete test suite:
+
 - All tests pass (0 failures)
 - No regressions introduced
 
 ## Phase 3: Process Compliance
 
 Verify:
+
 - Root cause was traced (not just symptom patched)
 - Fix is at the source, not where the error appeared
 - Minimal code change (no scope creep)

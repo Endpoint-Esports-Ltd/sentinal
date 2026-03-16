@@ -42,8 +42,15 @@ export class WorktreeStore {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        wt.id, wt.specId ?? null, wt.projectPath, wt.worktreePath,
-        wt.branchName, wt.baseBranch, wt.baseCommit, wt.status, wt.createdAt,
+        wt.id,
+        wt.specId ?? null,
+        wt.projectPath,
+        wt.worktreePath,
+        wt.branchName,
+        wt.baseBranch,
+        wt.baseCommit,
+        wt.status,
+        wt.createdAt,
       );
     return this.get(wt.id)!;
   }
@@ -59,7 +66,9 @@ export class WorktreeStore {
   /** Get the active worktree for a spec (not merged or abandoned). */
   getBySpecId(specId: string): Worktree | null {
     const row = this.db
-      .prepare("SELECT * FROM worktrees WHERE spec_id = ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT * FROM worktrees WHERE spec_id = ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
+      )
       .get(specId) as RawWorktree | null;
     return row ? this.deserialize(row) : null;
   }
@@ -94,7 +103,9 @@ export class WorktreeStore {
   updateStatus(id: string, status: WorktreeStatus, mergeCommit?: string): void {
     if (status === "merged" && mergeCommit) {
       this.db
-        .prepare("UPDATE worktrees SET status = ?, merged_at = ?, merge_commit = ? WHERE id = ?")
+        .prepare(
+          "UPDATE worktrees SET status = ?, merged_at = ?, merge_commit = ? WHERE id = ?",
+        )
         .run(status, Date.now(), mergeCommit, id);
     } else {
       this.db
@@ -105,7 +116,9 @@ export class WorktreeStore {
 
   /** Delete a worktree record. Returns true if a row was deleted. */
   delete(id: string): boolean {
-    const exists = this.db.prepare("SELECT 1 FROM worktrees WHERE id = ?").get(id);
+    const exists = this.db
+      .prepare("SELECT 1 FROM worktrees WHERE id = ?")
+      .get(id);
     if (!exists) return false;
     this.db.prepare("DELETE FROM worktrees WHERE id = ?").run(id);
     return true;
@@ -115,12 +128,16 @@ export class WorktreeStore {
   countActive(projectPath?: string): number {
     if (projectPath) {
       const row = this.db
-        .prepare("SELECT COUNT(*) as count FROM worktrees WHERE status = 'active' AND project_path = ?")
+        .prepare(
+          "SELECT COUNT(*) as count FROM worktrees WHERE status = 'active' AND project_path = ?",
+        )
         .get(projectPath) as { count: number };
       return row.count;
     }
     const row = this.db
-      .prepare("SELECT COUNT(*) as count FROM worktrees WHERE status = 'active'")
+      .prepare(
+        "SELECT COUNT(*) as count FROM worktrees WHERE status = 'active'",
+      )
       .get() as { count: number };
     return row.count;
   }

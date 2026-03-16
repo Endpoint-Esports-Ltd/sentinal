@@ -20,14 +20,22 @@ import type { SidecarClient } from "../sidecar/client.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-tdd-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-tdd-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+) => Promise<{ content: { type: string; text: string }[] }>;
 
-function captureTools(deps: { client?: SidecarClient | null; store?: MemoryStore | null }): Map<string, ToolHandler> {
+function captureTools(deps: {
+  client?: SidecarClient | null;
+  store?: MemoryStore | null;
+}): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>();
   const server = new McpServer({ name: "test", version: "0.0.1" });
 
@@ -103,14 +111,28 @@ describe("TDD MCP tools (direct mode)", () => {
     // Create specs for FK constraint
     const plansDir = join(tmpDir, "docs", "plans");
     mkdirSync(plansDir, { recursive: true });
-    writeFileSync(join(plansDir, "s1.md"), "# S1\n\nStatus: PENDING\nType: Feature\n");
-    writeFileSync(join(plansDir, "s2.md"), "# S2\n\nStatus: PENDING\nType: Feature\n");
+    writeFileSync(
+      join(plansDir, "s1.md"),
+      "# S1\n\nStatus: PENDING\nType: Feature\n",
+    );
+    writeFileSync(
+      join(plansDir, "s2.md"),
+      "# S2\n\nStatus: PENDING\nType: Feature\n",
+    );
     const specStore = new SpecStore(store);
     specStore.syncFromPlanFile(join(plansDir, "s1.md"), tmpDir);
     specStore.syncFromPlanFile(join(plansDir, "s2.md"), tmpDir);
 
-    store.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "s1" });
-    store.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "s2" });
+    store.setTddState({
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "s1",
+    });
+    store.setTddState({
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "s2",
+    });
 
     const handler = tools.get("tdd_status")!;
     const result = await handler({ spec_id: "s1" });
@@ -123,7 +145,10 @@ describe("TDD MCP tools (direct mode)", () => {
 
   it("tdd_set_state should set RED_CONFIRMED for a file", async () => {
     const handler = tools.get("tdd_set_state")!;
-    const result = await handler({ file_path: "/src/foo.ts", state: "RED_CONFIRMED" });
+    const result = await handler({
+      file_path: "/src/foo.ts",
+      state: "RED_CONFIRMED",
+    });
     expect(result.content[0].text).toContain("Set");
     expect(result.content[0].text).toContain("RED_CONFIRMED");
 
@@ -134,7 +159,10 @@ describe("TDD MCP tools (direct mode)", () => {
   it("tdd_set_state should set state with spec_id and test_file_path", async () => {
     const plansDir = join(tmpDir, "docs", "plans");
     mkdirSync(plansDir, { recursive: true });
-    writeFileSync(join(plansDir, "my-spec.md"), "# My Spec\n\nStatus: PENDING\nType: Feature\n");
+    writeFileSync(
+      join(plansDir, "my-spec.md"),
+      "# My Spec\n\nStatus: PENDING\nType: Feature\n",
+    );
     const specStore = new SpecStore(store);
     specStore.syncFromPlanFile(join(plansDir, "my-spec.md"), tmpDir);
 
@@ -168,12 +196,23 @@ describe("TDD MCP tools (direct mode)", () => {
   it("tdd_clear should clear all states for a spec", async () => {
     const plansDir = join(tmpDir, "docs", "plans");
     mkdirSync(plansDir, { recursive: true });
-    writeFileSync(join(plansDir, "clear-spec.md"), "# Clear Spec\n\nStatus: PENDING\nType: Feature\n");
+    writeFileSync(
+      join(plansDir, "clear-spec.md"),
+      "# Clear Spec\n\nStatus: PENDING\nType: Feature\n",
+    );
     const specStore = new SpecStore(store);
     specStore.syncFromPlanFile(join(plansDir, "clear-spec.md"), tmpDir);
 
-    store.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "clear-spec" });
-    store.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "clear-spec" });
+    store.setTddState({
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "clear-spec",
+    });
+    store.setTddState({
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "clear-spec",
+    });
 
     const handler = tools.get("tdd_clear")!;
     const result = await handler({ spec_id: "clear-spec" });
@@ -211,7 +250,11 @@ describe("TDD MCP tools (sidecar mode)", () => {
   it("tdd_status should delegate to client.listActiveTddStates for list", async () => {
     const mockClient = {
       listActiveTddStates: async () => [
-        { filePath: "/src/a.ts", state: "RED_CONFIRMED", updatedAt: Date.now() },
+        {
+          filePath: "/src/a.ts",
+          state: "RED_CONFIRMED",
+          updatedAt: Date.now(),
+        },
         { filePath: "/src/b.ts", state: "TEST_WRITTEN", updatedAt: Date.now() },
       ],
     } as unknown as SidecarClient;
@@ -225,7 +268,9 @@ describe("TDD MCP tools (sidecar mode)", () => {
   it("tdd_set_state should delegate to client.setTddState", async () => {
     let calledWith: any = null;
     const mockClient = {
-      setTddState: async (opts: any) => { calledWith = opts; },
+      setTddState: async (opts: any) => {
+        calledWith = opts;
+      },
     } as unknown as SidecarClient;
 
     const tools = captureTools({ client: mockClient });
@@ -240,7 +285,9 @@ describe("TDD MCP tools (sidecar mode)", () => {
   it("tdd_clear should delegate to client.clearTddState for file", async () => {
     const calls: string[] = [];
     const mockClient = {
-      clearTddState: async (fp: string) => { calls.push(fp); },
+      clearTddState: async (fp: string) => {
+        calls.push(fp);
+      },
     } as unknown as SidecarClient;
 
     const tools = captureTools({ client: mockClient });
@@ -253,7 +300,9 @@ describe("TDD MCP tools (sidecar mode)", () => {
   it("tdd_clear should delegate to client.clearTddStatesForSpec for spec", async () => {
     const calls: string[] = [];
     const mockClient = {
-      clearTddStatesForSpec: async (id: string) => { calls.push(id); },
+      clearTddStatesForSpec: async (id: string) => {
+        calls.push(id);
+      },
     } as unknown as SidecarClient;
 
     const tools = captureTools({ client: mockClient });

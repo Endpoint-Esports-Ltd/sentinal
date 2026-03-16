@@ -94,8 +94,12 @@ describe("generateFishCompletion", () => {
 
   test("duplicates completions for snt alias", () => {
     // Every sentinal completion should have a matching snt one
-    const sentinalLines = output.split("\n").filter((l) => l.includes("complete -c sentinal"));
-    const sntLines = output.split("\n").filter((l) => l.includes("complete -c snt"));
+    const sentinalLines = output
+      .split("\n")
+      .filter((l) => l.includes("complete -c sentinal"));
+    const sntLines = output
+      .split("\n")
+      .filter((l) => l.includes("complete -c snt"));
     // snt should have at least as many completion entries (minus the -f line)
     expect(sntLines.length).toBeGreaterThanOrEqual(sentinalLines.length - 1);
   });

@@ -20,7 +20,10 @@ import { WorktreeError } from "../worktree/types.js";
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const raw = join(tmpdir(), `sentinal-git-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const raw = join(
+    tmpdir(),
+    `sentinal-git-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(raw, { recursive: true });
   // Resolve symlinks (macOS /var → /private/var) so paths match git output
   return realpathSync(raw);
@@ -66,14 +69,21 @@ describe("git utils", () => {
   describe("gitExecOrThrow", () => {
     it("should return stdout on success", () => {
       initRepo(tmpDir);
-      const out = gitExecOrThrow(["rev-parse", "--is-inside-work-tree"], tmpDir);
+      const out = gitExecOrThrow(
+        ["rev-parse", "--is-inside-work-tree"],
+        tmpDir,
+      );
       expect(out).toBe("true");
     });
 
     it("should throw WorktreeError on failure", () => {
       initRepo(tmpDir);
-      expect(() => gitExecOrThrow(["rev-parse", "--verify", "refs/heads/nonexistent"], tmpDir))
-        .toThrow(WorktreeError);
+      expect(() =>
+        gitExecOrThrow(
+          ["rev-parse", "--verify", "refs/heads/nonexistent"],
+          tmpDir,
+        ),
+      ).toThrow(WorktreeError);
     });
   });
 
@@ -108,7 +118,9 @@ describe("git utils", () => {
 
     it("should detect master branch when main doesn't exist", () => {
       Bun.spawnSync(["git", "init", "-b", "master"], { cwd: tmpDir });
-      Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: tmpDir });
+      Bun.spawnSync(["git", "config", "user.email", "test@test.com"], {
+        cwd: tmpDir,
+      });
       Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: tmpDir });
       writeFileSync(join(tmpDir, "README.md"), "# Test\n");
       Bun.spawnSync(["git", "add", "."], { cwd: tmpDir });

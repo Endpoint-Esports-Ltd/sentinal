@@ -53,6 +53,9 @@ async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     cwd: input.cwd,
   };
-  writeFileSync(join(stateDir, "compact-state.json"), JSON.stringify(state, null, 2));
+  writeFileSync(
+    join(stateDir, "compact-state.json"),
+    JSON.stringify(state, null, 2),
+  );
 }
 main().catch(() => {});

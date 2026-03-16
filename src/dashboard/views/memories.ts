@@ -38,12 +38,14 @@ export function memoriesView(
              class="px-2 py-1 rounded text-xs ${!activeType ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}"
              hx-get="/fragments/memories"
              hx-target="#memories-list">All</a>
-          ${OBSERVATION_TYPES.map((t) => `
+          ${OBSERVATION_TYPES.map(
+            (t) => `
             <a href="/memories?type=${t}"
                class="px-2 py-1 rounded text-xs ${activeType === t ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}"
                hx-get="/fragments/memories?type=${t}"
                hx-target="#memories-list">${t}</a>
-          `).join("")}
+          `,
+          ).join("")}
           <input type="hidden" name="type" value="${activeType ?? ""}" />
         </div>
       </div>
@@ -63,9 +65,10 @@ export function memoriesListFragment(
 
   const cards = observations
     .map((obs) => {
-      const snippet = obs.content.length > 200
-        ? obs.content.slice(0, 200) + "..."
-        : obs.content;
+      const snippet =
+        obs.content.length > 200
+          ? obs.content.slice(0, 200) + "..."
+          : obs.content;
 
       return `
         <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
@@ -77,14 +80,22 @@ export function memoriesListFragment(
             <span class="text-xs text-gray-600 whitespace-nowrap ml-2">${formatTimestamp(obs.timestamp)}</span>
           </div>
           <p class="text-xs text-gray-400 mt-1">${escapeHtml(snippet)}</p>
-          ${obs.tags.length > 0 ? `
+          ${
+            obs.tags.length > 0
+              ? `
             <div class="flex gap-1 mt-2">
               ${obs.tags.map((t) => `<span class="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">${escapeHtml(t)}</span>`).join("")}
             </div>
-          ` : ""}
-          ${obs.filePaths.length > 0 ? `
+          `
+              : ""
+          }
+          ${
+            obs.filePaths.length > 0
+              ? `
             <p class="text-xs text-gray-600 mt-1">${obs.filePaths.map((f) => escapeHtml(f)).join(", ")}</p>
-          ` : ""}
+          `
+              : ""
+          }
         </div>
       `;
     })

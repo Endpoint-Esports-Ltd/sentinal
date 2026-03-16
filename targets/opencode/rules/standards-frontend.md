@@ -1,5 +1,3 @@
-
-
 ## Frontend Development Standards
 
 ### Tailwind CSS

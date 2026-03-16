@@ -2,6 +2,7 @@
 name: spec-verify
 description: Spec verification phase - tests, execution, code review, E2E
 ---
+
 ---
 
 # /spec-verify - Verification Phase
@@ -58,11 +59,11 @@ Final:
 
 **Determine verification depth based on what changed:**
 
-| Profile | Criteria | Phase B Scope |
-|---------|----------|---------------|
-| **Minimal** | No server, no UI, no built artifacts (libraries, CLI tools, hooks, scripts) | Build check only |
-| **API** | NestJS API but no frontend changes | Build + program execution + DoD audit. Skip E2E. |
-| **Full** | Angular frontend changes or full-stack features | All Phase B steps |
+| Profile     | Criteria                                                                    | Phase B Scope                                    |
+| ----------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| **Minimal** | No server, no UI, no built artifacts (libraries, CLI tools, hooks, scripts) | Build check only                                 |
+| **API**     | NestJS API but no frontend changes                                          | Build + program execution + DoD audit. Skip E2E. |
+| **Full**    | Angular frontend changes or full-stack features                             | All Phase B steps                                |
 
 Read the plan's Runtime Environment section (if present) and the changed file types to classify.
 
@@ -168,6 +169,7 @@ Then Read the file once. If not READY after ~8 min, re-launch synchronously.
 For each fix: implement → run relevant tests → log "Fixed: [title]"
 
 **Angular/NestJS specific checks to act on:**
+
 - Unsubscribed observables (use `takeUntilDestroyed` or `async` pipe)
 - Missing `OnPush` change detection where appropriate
 - NestJS DTOs without `class-validator` decorators
@@ -175,6 +177,7 @@ For each fix: implement → run relevant tests → log "Fixed: [title]"
 - Direct DOM manipulation instead of Angular's renderer
 
 **Report:**
+
 ```
 ## Code Verification Complete
 **Issues Found:** X
@@ -243,8 +246,8 @@ If any criterion unmet: fix inline if possible, or add task and loop back.
 
 List what was **NOT** verified and why. Include in the verification report (Step 3.13).
 
-| Not Verified | Reason |
-|-------------|--------|
+| Not Verified            | Reason                                                                |
+| ----------------------- | --------------------------------------------------------------------- |
 | [criterion or scenario] | No test environment / Out of scope / Untestable statically / Deferred |
 
 "None — all criteria have automated verification" is a valid answer if true.
@@ -275,13 +278,13 @@ playwright-cli -s="$PW_SESSION" snapshot  # verify result
 
 #### 3.9c: Edge Cases
 
-| Category | What to test |
-|----------|-------------|
-| Empty state | No data, no results |
-| Invalid input | Bad params, wrong types, injection |
-| Stale state | References to deleted data |
-| Error state | Backend unreachable, NestJS 400/404/500 |
-| Boundary | Max values, zero, single item |
+| Category      | What to test                            |
+| ------------- | --------------------------------------- |
+| Empty state   | No data, no results                     |
+| Invalid input | Bad params, wrong types, injection      |
+| Stale state   | References to deleted data              |
+| Error state   | Backend unreachable, NestJS 400/404/500 |
+| Boundary      | Max values, zero, single item           |
 
 ```bash
 playwright-cli -s="$PW_SESSION" close  # Always cleanup after E2E
@@ -306,12 +309,15 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
 3. **If no worktree:** Skip to Step 3.13.
 
 4. **Pre-sync:** Verify clean working tree:
+
    ```bash
    git -C <project_root> status --porcelain
    ```
+
    If dirty: report "Cannot sync: main branch has uncommitted changes. Please commit or `git stash` first, then re-run `/spec <plan_path>`." Do NOT proceed.
 
 5. **Save plan to project root:**
+
    ```bash
    mkdir -p <project_root>/docs/plans
    cp <worktree_plan_path> <project_root>/docs/plans/<plan_filename>
@@ -324,9 +330,11 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
    `sentinal worktree diff --json <plan_slug>`
 
 7. **Notify and ask:**
+
    ```bash
    sentinal notify plan_approval "Worktree Sync" "<plan_name> — approve merge" --plan-path "<plan_path>" 2>/dev/null || true
    ```
+
    AskUserQuestion: "Yes, squash merge" (Recommended) | "No, keep worktree" | "Discard all changes"
 
 8. **Handle choice:**
@@ -340,6 +348,7 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
    # Then cleanup + cd in SAME bash call:
    PROJECT_ROOT=$(sentinal worktree cleanup --force --json <plan_slug> | python3 -c "import sys,json; print(json.load(sys.stdin)['project_root'])") && cd "$PROJECT_ROOT"
    ```
+
    ⛔ NEVER call cleanup and cd in separate Bash calls — worktree deletion invalidates CWD.
 
    **Keep worktree:** Report path, user can sync later.
@@ -366,6 +375,7 @@ If any fails: fix on base branch, re-run, commit fix separately (e.g., `fix: res
 2. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
 
    Register: `sentinal register-plan "<plan_path>" "VERIFIED" 2>/dev/null || true`
+
 3. Report completion:
    ```
    ## Verification Complete
@@ -382,6 +392,7 @@ If any fails: fix on base branch, re-run, commit fix separately (e.g., `fix: res
 3. **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
 
    Register: `sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true`
+
 4. Write `## Verification Gaps` table to plan:
    ```markdown
    | Gap | Type | Severity | Affected Files | Fix Description |

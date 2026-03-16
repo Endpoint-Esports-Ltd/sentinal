@@ -31,14 +31,14 @@ import type { CreateObservation } from "../memory/types.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function makeObservation(
-  overrides: Partial<CreateObservation> = {}
+  overrides: Partial<CreateObservation> = {},
 ): CreateObservation {
   return {
     sessionId: "test-session",
@@ -113,7 +113,7 @@ describe("memory_search tool logic", () => {
         title: "Database migration strategy",
         content: "Chose sequential migrations over auto-sync",
         tags: ["database", "migration"],
-      })
+      }),
     );
 
     const results = await service.search("migration");
@@ -126,13 +126,13 @@ describe("memory_search tool logic", () => {
       makeObservation({
         projectPath: "/project/alpha",
         title: "Alpha discovery",
-      })
+      }),
     );
     service.addObservation(
       makeObservation({
         projectPath: "/project/beta",
         title: "Beta discovery",
-      })
+      }),
     );
 
     const results = await service.search("discovery", {
@@ -144,10 +144,10 @@ describe("memory_search tool logic", () => {
 
   it("should filter by type", async () => {
     service.addObservation(
-      makeObservation({ type: "decision", title: "A decision" })
+      makeObservation({ type: "decision", title: "A decision" }),
     );
     service.addObservation(
-      makeObservation({ type: "error", title: "An error" })
+      makeObservation({ type: "error", title: "An error" }),
     );
 
     const results = await service.search("", { type: "decision" });
@@ -194,7 +194,7 @@ describe("memory_timeline tool logic", () => {
         makeObservation({
           title: `Event ${i}`,
           timestamp: baseTime + i * 10000,
-        })
+        }),
       );
       obs.push(o.id);
     }
@@ -211,21 +211,21 @@ describe("memory_timeline tool logic", () => {
         projectPath: "/proj/a",
         title: "A1",
         timestamp: baseTime,
-      })
+      }),
     );
     const anchor = service.addObservation(
       makeObservation({
         projectPath: "/proj/a",
         title: "A2",
         timestamp: baseTime + 10000,
-      })
+      }),
     );
     service.addObservation(
       makeObservation({
         projectPath: "/proj/b",
         title: "B1",
         timestamp: baseTime + 20000,
-      })
+      }),
     );
 
     const result = service.timeline(anchor.id, 5, 5, "/proj/a");
@@ -264,7 +264,7 @@ describe("memory_get tool logic", () => {
         content: "Very detailed content here",
         tags: ["tag1", "tag2"],
         filePaths: ["/src/foo.ts"],
-      })
+      }),
     );
 
     const obs = service.getObservations([created.id]);
@@ -325,7 +325,7 @@ describe("memory_save tool logic", () => {
     const obs = service.addObservation(
       makeObservation({
         title: "Retrievable observation",
-      })
+      }),
     );
 
     const retrieved = service.getObservation(obs.id);
@@ -464,7 +464,7 @@ Type: Feature
 - [x] Task 1: Setup
 - [~] Task 2: Implementation
 - [ ] Task 3: Testing
-`
+`,
     );
 
     specStore.syncFromPlanFile(planFile, "/test/project");
@@ -501,7 +501,7 @@ describe("registerMcpCleanupHandlers", () => {
 
     const stopSpy = spyOn(
       lifecycleModule,
-      "stopSidecarProcess"
+      "stopSidecarProcess",
     ).mockReturnValue(true);
 
     // Register cleanup with a store that has no active sessions
@@ -531,7 +531,7 @@ describe("registerMcpCleanupHandlers", () => {
 
     const stopSpy = spyOn(
       lifecycleModule,
-      "stopSidecarProcess"
+      "stopSidecarProcess",
     ).mockReturnValue(true);
 
     const cleanup = registerMcpCleanupHandlers(store);

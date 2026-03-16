@@ -33,30 +33,22 @@ describe("formatContextBar", () => {
 
   it("should render half-filled bar at 50%", () => {
     const bar = formatContextBar(50, 83000);
-    expect(bar).toBe(
-      "Context: [▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 50% | ~83k tokens",
-    );
+    expect(bar).toBe("Context: [▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░] 50% | ~83k tokens");
   });
 
   it("should render mostly-filled bar at 80%", () => {
     const bar = formatContextBar(80, 133000);
-    expect(bar).toBe(
-      "Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░] 80% | ~133k tokens",
-    );
+    expect(bar).toBe("Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░] 80% | ~133k tokens");
   });
 
   it("should render nearly-full bar at 95%", () => {
     const bar = formatContextBar(95, 158000);
-    expect(bar).toBe(
-      "Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 95% | ~158k tokens",
-    );
+    expect(bar).toBe("Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░] 95% | ~158k tokens");
   });
 
   it("should render full bar at 100%", () => {
     const bar = formatContextBar(100, 167000);
-    expect(bar).toBe(
-      "Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100% | ~167k tokens",
-    );
+    expect(bar).toBe("Context: [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100% | ~167k tokens");
   });
 
   it("should clamp values above 100", () => {

@@ -30,8 +30,8 @@ When compaction occurs, preserve these in your summary:
 
 ## Context Levels
 
-| Level | Action |
-|-------|--------|
-| < 80% | Work normally |
-| 80%+ | Work normally — auto-compact handles it when needed |
-| 100% | Auto-compaction fires — state preserved, context restored |
+| Level | Action                                                    |
+| ----- | --------------------------------------------------------- |
+| < 80% | Work normally                                             |
+| 80%+  | Work normally — auto-compact handles it when needed       |
+| 100%  | Auto-compaction fires — state preserved, context restored |

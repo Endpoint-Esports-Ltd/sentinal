@@ -31,7 +31,9 @@ export function settingsView(
     <div class="space-y-6">
       <h1 class="text-xl font-bold text-white">Settings</h1>
 
-      ${card("Model Routing", `
+      ${card(
+        "Model Routing",
+        `
         <p class="text-xs text-gray-500 mb-4">
           Advisory model preferences per spec phase. These are hints shown in command templates —
           actual model switching depends on the AI assistant.
@@ -58,9 +60,12 @@ export function settingsView(
           </div>
           <div id="settings-feedback" class="mt-3"></div>
         </form>
-      `)}
+      `,
+      )}
 
-      ${card("System Information", `
+      ${card(
+        "System Information",
+        `
         <dl class="grid grid-cols-2 gap-y-2 text-sm">
           <dt class="text-gray-500">Version</dt>
           <dd class="text-gray-300">${escapeHtml(version)}</dd>
@@ -69,7 +74,8 @@ export function settingsView(
           <dt class="text-gray-500">Database Size</dt>
           <dd class="text-gray-300">${escapeHtml(dbSize)}</dd>
         </dl>
-      `)}
+      `,
+      )}
     </div>
   `;
 }

@@ -164,7 +164,12 @@ describe("detectFileConflict", () => {
       transcriptPath: null,
     });
 
-    const result = detectFileConflict(store, "src/app.ts", "/test/project", "session-1");
+    const result = detectFileConflict(
+      store,
+      "src/app.ts",
+      "/test/project",
+      "session-1",
+    );
     expect(result).toBeNull();
   });
 
@@ -202,7 +207,12 @@ describe("detectFileConflict", () => {
       transcriptPath: null,
     });
 
-    const result = detectFileConflict(store, "src/app.ts", "/test/project", "session-2");
+    const result = detectFileConflict(
+      store,
+      "src/app.ts",
+      "/test/project",
+      "session-2",
+    );
     expect(result).not.toBeNull();
     expect(result!.message).toContain("app.ts");
     expect(result!.sessionId).toBe("session-1");
@@ -240,7 +250,12 @@ describe("detectFileConflict", () => {
       transcriptPath: null,
     });
 
-    const result = detectFileConflict(store, "src/app.ts", "/test/project", "session-2");
+    const result = detectFileConflict(
+      store,
+      "src/app.ts",
+      "/test/project",
+      "session-2",
+    );
     expect(result).toBeNull();
   });
 
@@ -276,7 +291,12 @@ describe("detectFileConflict", () => {
       transcriptPath: null,
     });
 
-    const result = detectFileConflict(store, "src/app.ts", "/test/project", "session-2");
+    const result = detectFileConflict(
+      store,
+      "src/app.ts",
+      "/test/project",
+      "session-2",
+    );
     expect(result).toBeNull();
   });
 });

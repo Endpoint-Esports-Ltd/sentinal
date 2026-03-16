@@ -10,17 +10,17 @@ Full Vexor reference in `cli-tools.md`. Full MCP tool reference in `mcp-servers.
 
 ### Tool Selection Guide
 
-| Need | Tool | Notes |
-|------|------|-------|
-| **Codebase search** | **Vexor** (`vexor "query"`) | Always first. Semantic, by intent. Run via Bash. |
-| Exact pattern / known symbol | Grep / Glob | Only after Vexor misses |
-| Library/framework docs | Context7 (MCP) | `resolve-library-id` → `query-docs` |
-| Production code examples | grep-mcp (MCP) | Literal code patterns, not keywords |
-| Web search | web-search (MCP) | DuckDuckGo/Bing/Exa |
-| Full web page | web-fetch (MCP) | Playwright-based, handles JS |
-| GitHub README | web-search (MCP) | `fetchGithubReadme` |
-| GitHub operations | `gh` CLI | Authenticated, `--json` + `--jq` |
-| Past work / decisions | mem-search (MCP) | `search` → `timeline` → `get_observations` |
+| Need                         | Tool                        | Notes                                            |
+| ---------------------------- | --------------------------- | ------------------------------------------------ |
+| **Codebase search**          | **Vexor** (`vexor "query"`) | Always first. Semantic, by intent. Run via Bash. |
+| Exact pattern / known symbol | Grep / Glob                 | Only after Vexor misses                          |
+| Library/framework docs       | Context7 (MCP)              | `resolve-library-id` → `query-docs`              |
+| Production code examples     | grep-mcp (MCP)              | Literal code patterns, not keywords              |
+| Web search                   | web-search (MCP)            | DuckDuckGo/Bing/Exa                              |
+| Full web page                | web-fetch (MCP)             | Playwright-based, handles JS                     |
+| GitHub README                | web-search (MCP)            | `fetchGithubReadme`                              |
+| GitHub operations            | `gh` CLI                    | Authenticated, `--json` + `--jq`                 |
+| Past work / decisions        | mem-search (MCP)            | `search` → `timeline` → `get_observations`       |
 
 ### ⛔ Explore Agent
 
@@ -30,8 +30,8 @@ Full Vexor reference in `cli-tools.md`. Full MCP tool reference in `mcp-servers.
 
 **NEVER use built-in `WebFetch` or `WebSearch` — blocked by hook.** Use MCP alternatives via `ToolSearch`:
 
-| Need | ToolSearch query |
-|------|-----------------|
-| Web search | `+web-search search` |
-| GitHub README | `+web-search fetch` |
-| Fetch page | `+web-fetch fetch` |
+| Need          | ToolSearch query     |
+| ------------- | -------------------- |
+| Web search    | `+web-search search` |
+| GitHub README | `+web-search fetch`  |
+| Fetch page    | `+web-fetch fetch`   |

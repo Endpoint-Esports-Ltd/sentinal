@@ -8,7 +8,12 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export const MARKETPLACE_DIR = join(homedir(), ".claude", "plugins", "sentinal-marketplace");
+export const MARKETPLACE_DIR = join(
+  homedir(),
+  ".claude",
+  "plugins",
+  "sentinal-marketplace",
+);
 export const MARKETPLACE_NAME = "sentinal-marketplace";
 export const PLUGIN_NAME = "sentinal";
 

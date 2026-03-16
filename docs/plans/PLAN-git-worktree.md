@@ -140,7 +140,7 @@ interface WorktreeManager {
   status(worktreeId: string): Promise<Worktree>;
   diff(worktreeId: string): Promise<DiffSummary>;
   squashMerge(worktreeId: string, message?: string): Promise<string>;
-  cleanup(): Promise<number>;  // returns count of cleaned up worktrees
+  cleanup(): Promise<number>; // returns count of cleaned up worktrees
 }
 ```
 
@@ -149,6 +149,7 @@ interface WorktreeManager {
 ### Phase 1: Core Worktree Operations (Week 1)
 
 **Files to create:**
+
 - `src/git/worktree-types.ts`
 - `src/git/worktree-store.ts`
 - `src/git/worktree-manager.ts`
@@ -156,6 +157,7 @@ interface WorktreeManager {
 - `src/git/worktree-store.test.ts`
 
 **Git operations (via child_process):**
+
 ```typescript
 // Create worktree
 git worktree add -b sentinal/spec-<slug> .sentinal/worktrees/<slug> <base-branch>
@@ -174,6 +176,7 @@ git symbolic-ref refs/remotes/origin/HEAD  // or check for main/master/develop
 ```
 
 **Worktree directory structure:**
+
 ```
 project-root/
   .sentinal/
@@ -188,6 +191,7 @@ project-root/
 ```
 
 **Base branch detection:**
+
 ```typescript
 async function detectBaseBranch(projectPath: string): Promise<string> {
   // 1. Check for origin/HEAD
@@ -204,12 +208,14 @@ async function detectBaseBranch(projectPath: string): Promise<string> {
 ### Phase 2: Spec Integration (Week 2)
 
 **Files to modify:**
+
 - `src/spec/engine.ts` -- Create worktree on PENDING -> IMPLEMENTING transition
 - `src/spec/phases/implementation.ts` -- Route file operations to worktree
 - `src/spec/phases/verification.ts` -- Run verification in worktree context
 - `templates/commands/spec.md` -- Add worktree awareness
 
 **Automatic worktree creation:**
+
 ```typescript
 // In spec engine, on transition to IMPLEMENTING
 async function onImplementationStart(spec: Spec): Promise<void> {
@@ -217,7 +223,7 @@ async function onImplementationStart(spec: Spec): Promise<void> {
   if (config.worktree.enabled) {
     const worktree = await worktreeManager.create(spec.id);
     await specStore.update(spec.id, { worktreeId: worktree.id });
-    
+
     // Notify AI of context change
     return `Working in isolated worktree: ${worktree.worktreePath}
 All file operations should target this directory.
@@ -227,11 +233,12 @@ Base branch: ${worktree.baseBranch} (commit: ${worktree.baseCommit})`;
 ```
 
 **Path translation for hooks:**
+
 ```typescript
 // In quality hooks, translate paths to worktree
 function resolveFilePath(filePath: string, activeWorktree?: Worktree): string {
   if (!activeWorktree) return filePath;
-  
+
   const projectRoot = activeWorktree.projectPath;
   if (filePath.startsWith(projectRoot)) {
     const relative = path.relative(projectRoot, filePath);
@@ -244,56 +251,63 @@ function resolveFilePath(filePath: string, activeWorktree?: Worktree): string {
 ### Phase 3: Merge Management (Week 3)
 
 **Files to create:**
+
 - `src/git/worktree-merge.ts`
 - `src/git/worktree-merge.test.ts`
 
 **Squash merge flow:**
+
 ```typescript
-async function squashMerge(worktreeId: string, message?: string): Promise<string> {
+async function squashMerge(
+  worktreeId: string,
+  message?: string,
+): Promise<string> {
   const wt = await store.get(worktreeId);
-  
+
   // 1. Switch to base branch in main project
   await exec(`git checkout ${wt.baseBranch}`, { cwd: wt.projectPath });
-  
+
   // 2. Squash merge
   const commitMsg = message || generateCommitMessage(wt);
   await exec(`git merge --squash ${wt.branchName}`, { cwd: wt.projectPath });
   await exec(`git commit -m "${commitMsg}"`, { cwd: wt.projectPath });
-  
+
   // 3. Get merge commit hash
   const hash = await exec(`git rev-parse HEAD`, { cwd: wt.projectPath });
-  
+
   // 4. Cleanup
   await exec(`git worktree remove ${wt.worktreePath}`, { cwd: wt.projectPath });
   await exec(`git branch -D ${wt.branchName}`, { cwd: wt.projectPath });
-  
+
   // 5. Update state
   await store.update(worktreeId, {
     status: WorktreeStatus.MERGED,
     mergedAt: Date.now(),
     mergeCommit: hash.trim(),
   });
-  
+
   return hash.trim();
 }
 ```
 
 **Commit message generation:**
+
 ```typescript
 function generateCommitMessage(wt: Worktree, spec?: Spec): string {
   if (!spec) return `feat: ${wt.branchName.replace("sentinal/spec-", "")}`;
-  
+
   const prefix = spec.type === "bugfix" ? "fix" : "feat";
   const taskSummary = spec.tasks
-    .filter(t => t.status === "complete")
-    .map(t => `- ${t.title}`)
+    .filter((t) => t.status === "complete")
+    .map((t) => `- ${t.title}`)
     .join("\n");
-  
+
   return `${prefix}: ${spec.title}\n\n${taskSummary}`;
 }
 ```
 
 **Conflict detection:**
+
 ```typescript
 async function hasConflicts(worktreeId: string): Promise<boolean> {
   const wt = await store.get(worktreeId);
@@ -301,7 +315,7 @@ async function hasConflicts(worktreeId: string): Promise<boolean> {
     // Dry-run merge to check for conflicts
     await exec(
       `git merge-tree $(git merge-base ${wt.baseBranch} ${wt.branchName}) ${wt.baseBranch} ${wt.branchName}`,
-      { cwd: wt.projectPath }
+      { cwd: wt.projectPath },
     );
     return false;
   } catch {
@@ -313,6 +327,7 @@ async function hasConflicts(worktreeId: string): Promise<boolean> {
 ### Phase 4: CLI & Configuration (Week 4)
 
 **CLI commands:**
+
 ```bash
 sentinal worktree list                  # List all active worktrees
 sentinal worktree status <id|slug>      # Show worktree details + diff summary
@@ -323,6 +338,7 @@ sentinal worktree cleanup               # Remove orphaned/stale worktrees
 ```
 
 **Configuration (`~/.sentinal/config.json`):**
+
 ```json
 {
   "worktree": {
@@ -338,6 +354,7 @@ sentinal worktree cleanup               # Remove orphaned/stale worktrees
 ```
 
 **Opt-in behavior:**
+
 - Default: `enabled: false` (non-breaking for existing users)
 - When enabled: worktrees created automatically for `/spec`
 - Can be disabled per-spec: `/spec --no-worktree "quick fix"`
@@ -345,7 +362,9 @@ sentinal worktree cleanup               # Remove orphaned/stale worktrees
 ## Edge Cases
 
 ### Dependency installation
+
 When creating a worktree, check for lock files and run install:
+
 ```typescript
 async function setupWorktree(worktreePath: string): Promise<void> {
   const pm = detectPackageManager(worktreePath);
@@ -356,22 +375,29 @@ async function setupWorktree(worktreePath: string): Promise<void> {
 ```
 
 ### Stale worktrees
+
 Auto-cleanup worktrees where:
+
 - Associated spec is VERIFIED or CANCELLED
 - Worktree is older than 30 days with no changes
 - Branch has been deleted externally
 
 ### Multiple projects
+
 Worktrees are scoped to the git repository root, not the cwd. Handle monorepos by detecting the repo root:
+
 ```typescript
 const repoRoot = await exec("git rev-parse --show-toplevel");
 ```
 
 ### Submodules
+
 ```typescript
 async function initSubmodules(worktreePath: string): Promise<void> {
   if (existsSync(join(worktreePath, ".gitmodules"))) {
-    await exec("git submodule update --init --recursive", { cwd: worktreePath });
+    await exec("git submodule update --init --recursive", {
+      cwd: worktreePath,
+    });
   }
 }
 ```
@@ -379,44 +405,48 @@ async function initSubmodules(worktreePath: string): Promise<void> {
 ## Technical Considerations
 
 ### Performance
+
 - Worktree creation: ~1-3s (git checkout)
 - Dependency install: varies (cached if using lockfile)
 - Squash merge: ~1s
 - Disk usage: full copy of working tree (deduped by git)
 
 ### Git version requirements
+
 - `git worktree` requires Git 2.5+
 - `git worktree remove` requires Git 2.17+
 - Detect and warn on older versions
 
 ### Disk space
+
 - Each worktree is a full working copy
 - Git objects are shared (not duplicated)
 - `node_modules` can be large -- consider symlinking or `.gitignore` optimization
 - Auto-cleanup helps manage disk usage
 
 ### CI/CD compatibility
+
 - Worktrees are local-only, no impact on CI
 - Squash merge produces standard commits
 - Branch naming convention avoids conflicts with CI branches
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Isolation effectiveness | 100% of changes contained in worktree |
-| Merge success rate | >95% automatic squash merge |
-| Conflict rate | <5% of merges have conflicts |
-| Disk overhead | <2x repository size per active worktree |
-| Create/teardown time | <10s including dependency install |
+| Metric                  | Target                                  |
+| ----------------------- | --------------------------------------- |
+| Isolation effectiveness | 100% of changes contained in worktree   |
+| Merge success rate      | >95% automatic squash merge             |
+| Conflict rate           | <5% of merges have conflicts            |
+| Disk overhead           | <2x repository size per active worktree |
+| Create/teardown time    | <10s including dependency install       |
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| Disk space exhaustion | Max worktree limit, auto-cleanup, size warnings |
-| Git corruption | Integrity checks, backup before merge, recovery procedures |
-| Merge conflicts | Early conflict detection, user notification, manual resolution guide |
-| Old Git version | Version check on init, graceful degradation, clear error messages |
-| Orphaned worktrees | Periodic cleanup, session end cleanup, manual prune command |
-| Large monorepos | Sparse checkout option, selective dependency install |
+| Risk                  | Mitigation                                                           |
+| --------------------- | -------------------------------------------------------------------- |
+| Disk space exhaustion | Max worktree limit, auto-cleanup, size warnings                      |
+| Git corruption        | Integrity checks, backup before merge, recovery procedures           |
+| Merge conflicts       | Early conflict detection, user notification, manual resolution guide |
+| Old Git version       | Version check on init, graceful degradation, clear error messages    |
+| Orphaned worktrees    | Periodic cleanup, session end cleanup, manual prune command          |
+| Large monorepos       | Sparse checkout option, selective dependency install                 |

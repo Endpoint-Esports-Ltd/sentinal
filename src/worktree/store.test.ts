@@ -10,13 +10,18 @@ import type { Worktree, WorktreeStatus } from "./types.js";
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-wts-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-wts-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 /** Create a worktree record. specId defaults to null (no FK constraint). */
-function makeWorktree(overrides: Partial<Worktree> = {}): Omit<Worktree, "mergedAt" | "mergeCommit"> {
+function makeWorktree(
+  overrides: Partial<Worktree> = {},
+): Omit<Worktree, "mergedAt" | "mergeCommit"> {
   return {
     id: `wt-${Math.random().toString(36).slice(2)}`,
     specId: undefined,
@@ -32,7 +37,11 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Omit<Worktree, "merged
 }
 
 /** Create a spec in the DB so it can be referenced by FK. */
-function createSpec(tmpDir: string, memoryStore: MemoryStore, specId: string): void {
+function createSpec(
+  tmpDir: string,
+  memoryStore: MemoryStore,
+  specId: string,
+): void {
   const plansDir = join(tmpDir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const planFile = join(plansDir, `${specId}.md`);
@@ -195,11 +204,13 @@ describe("WorktreeStore", () => {
   describe("resolveBySlug", () => {
     it("should resolve by exact spec_id match", () => {
       createSpec(tmpDir, memoryStore, "2026-03-12-my-feature");
-      store.insert(makeWorktree({
-        id: "wt-slug-1",
-        specId: "2026-03-12-my-feature",
-        branchName: "spec/2026-03-12-my-feature",
-      }));
+      store.insert(
+        makeWorktree({
+          id: "wt-slug-1",
+          specId: "2026-03-12-my-feature",
+          branchName: "spec/2026-03-12-my-feature",
+        }),
+      );
 
       const result = store.resolveBySlug("2026-03-12-my-feature");
       expect(result).not.toBeNull();
@@ -208,13 +219,18 @@ describe("WorktreeStore", () => {
 
     it("should fall back to branch name pattern matching", () => {
       // Insert worktree without spec_id but with matching branch name
-      store.insert(makeWorktree({
-        id: "wt-slug-2",
-        branchName: "spec/2026-03-12-add-auth",
-        projectPath: "/test/project",
-      }));
+      store.insert(
+        makeWorktree({
+          id: "wt-slug-2",
+          branchName: "spec/2026-03-12-add-auth",
+          projectPath: "/test/project",
+        }),
+      );
 
-      const result = store.resolveBySlug("2026-03-12-add-auth", "/test/project");
+      const result = store.resolveBySlug(
+        "2026-03-12-add-auth",
+        "/test/project",
+      );
       expect(result).not.toBeNull();
       expect(result!.id).toBe("wt-slug-2");
     });
@@ -226,16 +242,20 @@ describe("WorktreeStore", () => {
 
     it("should prefer spec_id match over branch name match", () => {
       createSpec(tmpDir, memoryStore, "my-slug");
-      store.insert(makeWorktree({
-        id: "wt-specid",
-        specId: "my-slug",
-        branchName: "spec/something-else",
-      }));
-      store.insert(makeWorktree({
-        id: "wt-branch",
-        branchName: "spec/my-slug",
-        projectPath: "/test/project",
-      }));
+      store.insert(
+        makeWorktree({
+          id: "wt-specid",
+          specId: "my-slug",
+          branchName: "spec/something-else",
+        }),
+      );
+      store.insert(
+        makeWorktree({
+          id: "wt-branch",
+          branchName: "spec/my-slug",
+          projectPath: "/test/project",
+        }),
+      );
 
       const result = store.resolveBySlug("my-slug", "/test/project");
       expect(result).not.toBeNull();

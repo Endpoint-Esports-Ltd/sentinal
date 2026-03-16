@@ -8,8 +8,6 @@ paths:
   - "**/*.mts"
 ---
 
-
-
 ## TypeScript Development Standards
 
 **Auto-detect package manager from lockfile:** pnpm-lock.yaml -> pnpm | yarn.lock -> yarn | bun.lockb -> bun | package-lock.json -> npm. Use the detected manager for all install/run commands.

@@ -9,7 +9,10 @@ import type { AuditResult } from "./store.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-spec-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-spec-store-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -42,7 +45,10 @@ describe("SpecStore", () => {
 
   describe("syncFromPlanFile", () => {
     it("should sync a plan file and return the spec", () => {
-      const planFile = writePlan(tmpDir, "2026-03-09-feature.md", `# Feature Plan
+      const planFile = writePlan(
+        tmpDir,
+        "2026-03-09-feature.md",
+        `# Feature Plan
 
 Status: PENDING
 Type: Feature
@@ -51,7 +57,8 @@ Type: Feature
 
 - [ ] Task 1: Setup
 - [ ] Task 2: Build
-`);
+`,
+      );
 
       const spec = specStore.syncFromPlanFile(planFile, "/test/project");
       expect(spec.id).toBe("2026-03-09-feature");
@@ -61,11 +68,15 @@ Type: Feature
     });
 
     it("should be retrievable after sync", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-test.md", `# Test Plan
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-test.md",
+        `# Test Plan
 
 Status: IN PROGRESS
 Type: Feature
-`);
+`,
+      );
 
       specStore.syncFromPlanFile(planFile, "/test/project");
       const spec = specStore.getSpec("2026-01-01-test");
@@ -94,9 +105,16 @@ Type: Feature
     it("should sync all plan files from a directory", () => {
       writePlan(tmpDir, "2026-01-01-alpha.md", "# Alpha\n\nStatus: VERIFIED\n");
       writePlan(tmpDir, "2026-02-01-beta.md", "# Beta\n\nStatus: PENDING\n");
-      writePlan(tmpDir, "2026-03-01-gamma.md", "# Gamma\n\nStatus: IN PROGRESS\n");
+      writePlan(
+        tmpDir,
+        "2026-03-01-gamma.md",
+        "# Gamma\n\nStatus: IN PROGRESS\n",
+      );
 
-      const count = specStore.syncAllPlans(join(tmpDir, "docs", "plans"), "/test/project");
+      const count = specStore.syncAllPlans(
+        join(tmpDir, "docs", "plans"),
+        "/test/project",
+      );
       expect(count).toBe(3);
 
       const specs = specStore.listSpecs("/test/project");
@@ -104,7 +122,10 @@ Type: Feature
     });
 
     it("should return 0 for non-existent directory", () => {
-      const count = specStore.syncAllPlans("/nonexistent/path", "/test/project");
+      const count = specStore.syncAllPlans(
+        "/nonexistent/path",
+        "/test/project",
+      );
       expect(count).toBe(0);
     });
   });
@@ -112,7 +133,11 @@ Type: Feature
   describe("getCurrentSpec", () => {
     it("should return the most recent active spec", () => {
       writePlan(tmpDir, "2026-01-01-old.md", "# Old\n\nStatus: VERIFIED\n");
-      const activePath = writePlan(tmpDir, "2026-02-01-active.md", "# Active\n\nStatus: PENDING\n");
+      const activePath = writePlan(
+        tmpDir,
+        "2026-02-01-active.md",
+        "# Active\n\nStatus: PENDING\n",
+      );
 
       specStore.syncAllPlans(join(tmpDir, "docs", "plans"), "/test/project");
       const current = specStore.getCurrentSpec("/test/project");
@@ -129,7 +154,11 @@ Type: Feature
     });
 
     it("should not return specs from other projects", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-test.md", "# Test\n\nStatus: PENDING\n");
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-test.md",
+        "# Test\n\nStatus: PENDING\n",
+      );
       specStore.syncFromPlanFile(planFile, "/other/project");
 
       const current = specStore.getCurrentSpec("/test/project");
@@ -139,7 +168,10 @@ Type: Feature
 
   describe("task persistence", () => {
     it("should persist and retrieve tasks", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-tasks.md", `# Tasks Plan
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-tasks.md",
+        `# Tasks Plan
 
 Status: IN PROGRESS
 Type: Feature
@@ -149,7 +181,8 @@ Type: Feature
 - [x] Task 1: Setup complete
 - [~] Task 2: In progress work
 - [ ] Task 3: Not started
-`);
+`,
+      );
 
       specStore.syncFromPlanFile(planFile, "/test/project");
       const spec = specStore.getSpec("2026-01-01-tasks");
@@ -163,7 +196,11 @@ Type: Feature
 
   describe("session_id persistence", () => {
     it("should persist session_id when provided", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-session.md", "# Session Test\n\nStatus: PENDING\n");
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-session.md",
+        "# Session Test\n\nStatus: PENDING\n",
+      );
       specStore.syncFromPlanFile(planFile, "/test/project", "sess-abc-123");
 
       const spec = specStore.getSpec("2026-01-01-session");
@@ -172,7 +209,11 @@ Type: Feature
     });
 
     it("should have null session_id when not provided", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-nosess.md", "# No Session\n\nStatus: PENDING\n");
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-nosess.md",
+        "# No Session\n\nStatus: PENDING\n",
+      );
       specStore.syncFromPlanFile(planFile, "/test/project");
 
       const spec = specStore.getSpec("2026-01-01-nosess");
@@ -183,13 +224,17 @@ Type: Feature
 
   describe("metadata persistence", () => {
     it("should round-trip worktree metadata", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-wt.md", `# Worktree Plan
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-wt.md",
+        `# Worktree Plan
 
 Status: PENDING
 Type: Feature
 Worktree: Yes
 Iterations: 3
-`);
+`,
+      );
 
       specStore.syncFromPlanFile(planFile, "/test/project");
       const spec = specStore.getSpec("2026-01-01-wt");
@@ -200,7 +245,11 @@ Iterations: 3
     });
 
     it("should handle plans without metadata", () => {
-      const planFile = writePlan(tmpDir, "2026-01-01-plain.md", "# Plain\n\nStatus: PENDING\n");
+      const planFile = writePlan(
+        tmpDir,
+        "2026-01-01-plain.md",
+        "# Plain\n\nStatus: PENDING\n",
+      );
       specStore.syncFromPlanFile(planFile, "/test/project");
 
       const spec = specStore.getSpec("2026-01-01-plain");
@@ -214,26 +263,37 @@ Iterations: 3
 
       writeFileSync(planPath, "# Meta\n\nStatus: PENDING\n");
       specStore.syncFromPlanFile(planPath, "/test/project");
-      expect(specStore.getSpec("2026-01-01-meta")!.metadata.worktree).toBeUndefined();
+      expect(
+        specStore.getSpec("2026-01-01-meta")!.metadata.worktree,
+      ).toBeUndefined();
 
       writeFileSync(planPath, "# Meta\n\nStatus: IN PROGRESS\nWorktree: Yes\n");
       specStore.syncFromPlanFile(planPath, "/test/project");
-      expect(specStore.getSpec("2026-01-01-meta")!.metadata.worktree).toBe(true);
+      expect(specStore.getSpec("2026-01-01-meta")!.metadata.worktree).toBe(
+        true,
+      );
     });
   });
 
   describe("getCurrentTask", () => {
     it("returns null when spec has no tasks", () => {
-      const planFile = writePlan(tmpDir, "empty-tasks.md", `# Empty
+      const planFile = writePlan(
+        tmpDir,
+        "empty-tasks.md",
+        `# Empty
 Status: IN PROGRESS
 Type: Feature
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, tmpDir);
       expect(specStore.getCurrentTask("empty-tasks")).toBeNull();
     });
 
     it("returns the first in-progress task", () => {
-      const planFile = writePlan(tmpDir, "with-tasks.md", `# With Tasks
+      const planFile = writePlan(
+        tmpDir,
+        "with-tasks.md",
+        `# With Tasks
 Status: IN PROGRESS
 Type: Feature
 
@@ -248,7 +308,8 @@ Type: Feature
 
 ### 3. Third task
 - **Status:** pending
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, tmpDir);
       const task = specStore.getCurrentTask("with-tasks");
       expect(task).not.toBeNull();
@@ -258,7 +319,10 @@ Type: Feature
     });
 
     it("falls back to first pending when none in-progress", () => {
-      const planFile = writePlan(tmpDir, "pending-tasks.md", `# Pending
+      const planFile = writePlan(
+        tmpDir,
+        "pending-tasks.md",
+        `# Pending
 Status: PENDING
 Type: Feature
 
@@ -269,7 +333,8 @@ Type: Feature
 
 ### 2. Second task
 - **Status:** pending
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, tmpDir);
       const task = specStore.getCurrentTask("pending-tasks");
       expect(task).not.toBeNull();
@@ -279,7 +344,10 @@ Type: Feature
 
   describe("updateTaskStatus", () => {
     it("updates a task's status", () => {
-      const planFile = writePlan(tmpDir, "update-status.md", `# Update
+      const planFile = writePlan(
+        tmpDir,
+        "update-status.md",
+        `# Update
 Status: IN PROGRESS
 Type: Feature
 
@@ -287,9 +355,12 @@ Type: Feature
 
 ### 1. Task one
 - **Status:** pending
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, tmpDir);
-      specStore.updateTaskStatus("update-status", 1, "in-progress", { startedAt: 1000 });
+      specStore.updateTaskStatus("update-status", 1, "in-progress", {
+        startedAt: 1000,
+      });
       const task = specStore.getCurrentTask("update-status");
       expect(task!.status).toBe("in-progress");
       expect(task!.startedAt).toBe(1000);
@@ -298,7 +369,10 @@ Type: Feature
 
   describe("syncFromPlanFile — rich task fields", () => {
     it("persists testStrategy and definitionOfDone", () => {
-      const planFile = writePlan(tmpDir, "rich-fields.md", `# Rich Fields
+      const planFile = writePlan(
+        tmpDir,
+        "rich-fields.md",
+        `# Rich Fields
 Status: IN PROGRESS
 Type: Feature
 
@@ -308,7 +382,8 @@ Type: Feature
 - **Status:** pending
 - **Test Strategy:** Unit test the entity schema
 - **Definition of Done:** Entity validates correctly
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, tmpDir);
       const task = specStore.getCurrentTask("rich-fields");
       expect(task).not.toBeNull();
@@ -319,8 +394,16 @@ Type: Feature
 
   describe("getSpecsForSession", () => {
     it("returns specs associated with a session", () => {
-      const planA = writePlan(tmpDir, "plan-a.md", `# Plan A\nStatus: IN PROGRESS\nType: Feature\n`);
-      const planB = writePlan(tmpDir, "plan-b.md", `# Plan B\nStatus: PENDING\nType: Feature\n`);
+      const planA = writePlan(
+        tmpDir,
+        "plan-a.md",
+        `# Plan A\nStatus: IN PROGRESS\nType: Feature\n`,
+      );
+      const planB = writePlan(
+        tmpDir,
+        "plan-b.md",
+        `# Plan B\nStatus: PENDING\nType: Feature\n`,
+      );
       specStore.syncFromPlanFile(planA, tmpDir, "sess-1");
       specStore.syncFromPlanFile(planB, tmpDir, "sess-1");
 
@@ -336,8 +419,16 @@ Type: Feature
     });
 
     it("does not return specs from other sessions", () => {
-      const planA = writePlan(tmpDir, "sess-plan-a.md", `# A\nStatus: PENDING\nType: Feature\n`);
-      const planB = writePlan(tmpDir, "sess-plan-b.md", `# B\nStatus: PENDING\nType: Feature\n`);
+      const planA = writePlan(
+        tmpDir,
+        "sess-plan-a.md",
+        `# A\nStatus: PENDING\nType: Feature\n`,
+      );
+      const planB = writePlan(
+        tmpDir,
+        "sess-plan-b.md",
+        `# B\nStatus: PENDING\nType: Feature\n`,
+      );
       specStore.syncFromPlanFile(planA, tmpDir, "sess-X");
       specStore.syncFromPlanFile(planB, tmpDir, "sess-Y");
 
@@ -348,7 +439,10 @@ Type: Feature
 
   describe("auditCompletion", () => {
     it("reports in-sync when md and sqlite agree", () => {
-      const planFile = writePlan(tmpDir, "audit-sync.md", `# Audit Sync
+      const planFile = writePlan(
+        tmpDir,
+        "audit-sync.md",
+        `# Audit Sync
 Status: VERIFIED
 Type: Feature
 
@@ -356,7 +450,8 @@ Type: Feature
 
 - [x] Task 1: First task
 - [x] Task 2: Second task
-`);
+`,
+      );
       specStore.syncFromPlanFile(planFile, "/test/project");
       const result = specStore.auditCompletion("audit-sync");
       expect(result.inSync).toBe(true);
@@ -369,7 +464,9 @@ Type: Feature
       // First sync with unchecked tasks
       const planPath = join(tmpDir, "docs", "plans", "audit-md-ahead.md");
       mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
-      writeFileSync(planPath, `# MD Ahead
+      writeFileSync(
+        planPath,
+        `# MD Ahead
 Status: VERIFIED
 Type: Feature
 
@@ -377,11 +474,14 @@ Type: Feature
 
 - [ ] Task 1: First task
 - [ ] Task 2: Second task
-`);
+`,
+      );
       specStore.syncFromPlanFile(planPath, "/test/project");
 
       // Now update the md to have [x] without re-syncing
-      writeFileSync(planPath, `# MD Ahead
+      writeFileSync(
+        planPath,
+        `# MD Ahead
 Status: VERIFIED
 Type: Feature
 
@@ -389,7 +489,8 @@ Type: Feature
 
 - [x] Task 1: First task
 - [ ] Task 2: Second task
-`);
+`,
+      );
 
       const result = specStore.auditCompletion("audit-md-ahead");
       expect(result.inSync).toBe(false);
@@ -407,7 +508,9 @@ Type: Feature
     it("updates md when sqlite has complete but md has [ ]", () => {
       const planPath = join(tmpDir, "docs", "plans", "audit-sqlite-ahead.md");
       mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
-      writeFileSync(planPath, `# SQLite Ahead
+      writeFileSync(
+        planPath,
+        `# SQLite Ahead
 Status: VERIFIED
 Type: Feature
 
@@ -415,11 +518,14 @@ Type: Feature
 
 - [ ] Task 1: First task
 - [ ] Task 2: Second task
-`);
+`,
+      );
       specStore.syncFromPlanFile(planPath, "/test/project");
 
       // Manually mark task 2 as complete in sqlite
-      specStore.updateTaskStatus("audit-sqlite-ahead", 2, "complete", { completedAt: Date.now() });
+      specStore.updateTaskStatus("audit-sqlite-ahead", 2, "complete", {
+        completedAt: Date.now(),
+      });
 
       const result = specStore.auditCompletion("audit-sqlite-ahead");
       expect(result.inSync).toBe(false);
@@ -437,7 +543,9 @@ Type: Feature
     it("handles mixed discrepancies", () => {
       const planPath = join(tmpDir, "docs", "plans", "audit-mixed.md");
       mkdirSync(join(tmpDir, "docs", "plans"), { recursive: true });
-      writeFileSync(planPath, `# Mixed
+      writeFileSync(
+        planPath,
+        `# Mixed
 Status: VERIFIED
 Type: Feature
 
@@ -446,14 +554,19 @@ Type: Feature
 - [ ] Task 1: First task
 - [ ] Task 2: Second task
 - [ ] Task 3: Third task
-`);
+`,
+      );
       specStore.syncFromPlanFile(planPath, "/test/project");
 
       // Mark task 1 complete in sqlite (sqlite-ahead)
-      specStore.updateTaskStatus("audit-mixed", 1, "complete", { completedAt: Date.now() });
+      specStore.updateTaskStatus("audit-mixed", 1, "complete", {
+        completedAt: Date.now(),
+      });
 
       // Update md to check task 3 (md-ahead)
-      writeFileSync(planPath, `# Mixed
+      writeFileSync(
+        planPath,
+        `# Mixed
 Status: VERIFIED
 Type: Feature
 
@@ -462,7 +575,8 @@ Type: Feature
 - [ ] Task 1: First task
 - [ ] Task 2: Second task
 - [x] Task 3: Third task
-`);
+`,
+      );
 
       const result = specStore.auditCompletion("audit-mixed");
       expect(result.inSync).toBe(false);
@@ -497,7 +611,9 @@ Type: Feature
     it("should have worktrees table available", () => {
       const db = memoryStore.getRawDb();
       const tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='worktrees'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='worktrees'",
+        )
         .all();
       expect(tables).toHaveLength(1);
     });
@@ -505,7 +621,9 @@ Type: Feature
     it("should have worktree indexes", () => {
       const db = memoryStore.getRawDb();
       const indexes = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_wt_%'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_wt_%'",
+        )
         .all() as Array<{ name: string }>;
       const names = indexes.map((i) => i.name);
       expect(names).toContain("idx_wt_project");

@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Add `multiedit` to OpenCode plugin `MEMORY_TOOLS` list
 - Delete dead `src/hooks/memory-observer.ts`
 - Create `src/sidecar/observation-queue.ts` with multi-project queue support
@@ -26,6 +27,7 @@ Type: Feature
 - Update README directory listing
 
 ### Out of Scope
+
 - Changing how `client.app.log()` works (OpenCode API limitation)
 - Making `success` field accurate in Claude Code hooks (requires Claude Code API changes)
 - Adding sidecar reconnection logic (would require refactoring the plugin's sidecar lifecycle)
@@ -76,15 +78,15 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Concurrent writes corrupt queue file | Low | Medium | Read-modify-write with corruption recovery (fresh start) |
-| Queue grows unbounded | Low | Low | Hard cap of 50 entries, oldest dropped |
-| Dead file deletion breaks something | Very Low | High | Verified zero code imports, tests don't import it |
+| Risk                                 | Likelihood | Impact | Mitigation                                               |
+| ------------------------------------ | ---------- | ------ | -------------------------------------------------------- |
+| Concurrent writes corrupt queue file | Low        | Medium | Read-modify-write with corruption recovery (fresh start) |
+| Queue grows unbounded                | Low        | Low    | Hard cap of 50 entries, oldest dropped                   |
+| Dead file deletion breaks something  | Very Low   | High   | Verified zero code imports, tests don't import it        |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Queue file gets corrupted by concurrent plugin instances** (Task 3) — Trigger: two projects simultaneously try to enqueue and one overwrites the other's changes. Mitigation: the queue is append-only in practice (most tool calls succeed), and corruption triggers fresh start, losing at most the queued entries.
 
@@ -93,6 +95,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `multiedit` tool events trigger auto-capture heuristic evaluation in the OpenCode plugin
 2. `src/hooks/memory-observer.ts` no longer exists in the codebase
 3. When sidecar is unavailable, observations are queued to `~/.sentinal/observation-queue.json` instead of being lost
@@ -101,12 +104,14 @@ Type: Feature
 6. Queue file is capped at 50 entries
 
 ### Artifacts
+
 - `src/sidecar/observation-queue.ts` (new)
 - `src/sidecar/observation-queue.test.ts` (new)
 - `targets/opencode/plugins/sentinal.ts` (modified — import queue, integrate at capture + session lifecycle)
 - `src/hooks/memory-observer.ts` (deleted)
 
 ### Key Links
+
 - `ObservationQueue.enqueue()` ← called from plugin's `tool.execute.after` catch block
 - `ObservationQueue.drain(sendFn)` ← called from plugin's `session.created` handler and plugin init, guarded by `draining` flag
 - `MEMORY_TOOLS` list ← gates which tool events reach `analyzeEvent()`
@@ -130,19 +135,23 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts` (line 280)
 
 **Key Decisions / Notes:**
+
 - Add `"multiedit"` to the `MEMORY_TOOLS` array at line 280
 - `isEditTool()` in `capture.ts:353-356` already includes `"multiedit"`, so heuristics will work correctly once events reach `analyzeEvent()`
 - One-line change
 
 **Definition of Done:**
+
 - [ ] `MEMORY_TOOLS` includes `"multiedit"`
 - [ ] Full test suite passes
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `bun test`
 
 ---
@@ -154,21 +163,25 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Delete: `src/hooks/memory-observer.ts`
 - Modify: `README.md` (remove directory listing reference at line 190)
 
 **Key Decisions / Notes:**
+
 - Keep `src/hooks/memory-observer.test.ts` — it tests `EventBuffer`, `analyzeEvent()`, and `MemoryService` patterns used by `hook.ts:runMemoryObserver()`. None of its imports reference the standalone file.
 - The standalone file's functionality was inlined into `hook.ts:113-183` during the plugin-hook-consolidation (2026-03-10). It has two divergences from the current code: reads `toolInput.output` instead of `tool_response.output`, and truncates to 1000 chars instead of 2000.
 - Verify no imports exist (already confirmed via grep)
 
 **Definition of Done:**
+
 - [ ] `src/hooks/memory-observer.ts` does not exist
 - [ ] README no longer references the file
 - [ ] Full test suite passes (no broken imports)
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `bun test`
 - `grep -r "memory-observer.ts" src/`
 
@@ -181,10 +194,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/sidecar/observation-queue.ts`
 - Create: `src/sidecar/observation-queue.test.ts`
 
 **Key Decisions / Notes:**
+
 - **File location:** `~/.sentinal/observation-queue.json` — uses `DB_CONSTANTS.DB_DIR` under `homedir()`, consistent with other sidecar files in `paths.ts`
 - **Queue format:** JSON array of observation payloads. Each entry already contains `projectPath` and `sessionId`, so multi-project is naturally handled without extra fields.
 - **Cap:** 50 entries total (global, not per-project). When full, drop oldest entry and log warning.
@@ -197,6 +212,7 @@ Type: Feature
 - **Export a `getQueuePath()` function** for testability (can be mocked via `spyOn`)
 
 **Definition of Done:**
+
 - [ ] `enqueue()` appends to queue file, respects 50-entry cap
 - [ ] `drain(sendFn)` sends all queued entries via callback, returns counts
 - [ ] `drain()` handles partial failures (some entries fail, others succeed)
@@ -205,6 +221,7 @@ Type: Feature
 - [ ] All tests pass
 
 **Verify:**
+
 - `bun test src/sidecar/observation-queue.test.ts`
 
 ---
@@ -216,9 +233,11 @@ Type: Feature
 **Dependencies:** Task 3
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts`
 
 **Key Decisions / Notes:**
+
 - **Import:** Add `import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";`
 - **Drain guard:** Add `let draining = false;` flag in plugin scope to prevent concurrent drain calls (reviewer finding: plugin init and session.created can fire in quick succession, causing double-sends)
 - **Integration point 1 — memory capture (lines 378-418):**
@@ -233,6 +252,7 @@ Type: Feature
 - **Line count budget:** Adds ~18 lines (import + drain guard + 3 integration points). Plugin goes from 559 → ~577, still under 600.
 
 **Definition of Done:**
+
 - [ ] Auto-capture observations are queued when sidecar is null
 - [ ] Auto-capture observations are queued when `addObservation()` throws
 - [ ] Queued observations are drained on plugin init when sidecar is available
@@ -244,6 +264,7 @@ Type: Feature
 - [ ] Full test suite passes
 
 **Verify:**
+
 - `bun test`
 - `wc -l targets/opencode/plugins/sentinal.ts`
 
@@ -256,9 +277,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts` (near line 482)
 
 **Key Decisions / Notes:**
+
 - Add a 3-line comment above the `client.app.log()` call explaining:
   - `client.app.log()` writes to OpenCode's TUI log panel, not the LLM context
   - Memory is properly injected into LLM context during compaction via `output.context.push()`
@@ -266,8 +289,10 @@ Type: Feature
 - No code change — the compaction path already works correctly
 
 **Definition of Done:**
+
 - [ ] Comment present near the `client.app.log()` memory restore call
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `bun test`

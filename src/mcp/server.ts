@@ -38,7 +38,7 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   store: MemoryStore | null;
 } {
   const client = opts.client ?? null;
-  const store = client ? null : opts.store ?? new MemoryStore();
+  const store = client ? null : (opts.store ?? new MemoryStore());
 
   const server = new McpServer({
     name: "sentinal",
@@ -65,7 +65,7 @@ export function createSentinalServer(opts: ServerOptions = {}): {
  * Only stops the sidecar if no active sessions remain in the store.
  */
 export function registerMcpCleanupHandlers(
-  store: MemoryStore | null
+  store: MemoryStore | null,
 ): () => void {
   const cleanup = () => {
     try {
@@ -109,7 +109,7 @@ export async function main(): Promise<void> {
   console.error(
     `Sentinal MCP Server running on stdio (${
       client ? "sidecar" : "direct"
-    } mode)`
+    } mode)`,
   );
 }
 

@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <topic>
 ---
 
@@ -65,6 +65,7 @@ user-invocable: true
 After running `/learn`:
 
 > Saved 2 observations to memory:
+>
 > - #42: "bun:sqlite result.changes includes trigger changes" (discovery)
 > - #43: "Pre-count rows before DELETE for accurate change tracking" (pattern)
 >

@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <path/to/plan.md>
 ---
 
@@ -58,6 +58,7 @@ Use Playwright to verify the feature works in the running app:
 ## Phase 5: Worktree Sync (if applicable)
 
 If `Worktree: Yes` in the plan:
+
 1. Ask user for approval to merge
 2. Squash merge the worktree branch into the main branch
 3. Clean up the worktree

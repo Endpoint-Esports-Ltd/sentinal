@@ -7,7 +7,10 @@
 
 import { MemoryStore } from "../../memory/store.js";
 import { SpecStore } from "../../spec/store.js";
-import { getModelRouting, setModelRouting } from "../../config/model-routing.js";
+import {
+  getModelRouting,
+  setModelRouting,
+} from "../../config/model-routing.js";
 import type { SearchFilters, ObservationType } from "../../memory/types.js";
 import { SearchFiltersSchema, OBSERVATION_TYPES } from "../../memory/types.js";
 
@@ -96,9 +99,7 @@ export function memoriesHandler(ctx: ApiContext, url: URL): Response {
       );
     }
   } else {
-    observations = ctx.store.searchFilters(
-      SearchFiltersSchema.parse(filters),
-    );
+    observations = ctx.store.searchFilters(SearchFiltersSchema.parse(filters));
   }
 
   return json({ observations, page, limit });
@@ -142,7 +143,12 @@ export async function settingsPostHandler(
   try {
     const body = (await req.json()) as Record<string, unknown>;
     if (body.modelRouting) {
-      setModelRouting(ctx.store, body.modelRouting as Partial<import("../../config/types.js").ModelRouting>);
+      setModelRouting(
+        ctx.store,
+        body.modelRouting as Partial<
+          import("../../config/types.js").ModelRouting
+        >,
+      );
     }
     return json({ success: true });
   } catch (err) {

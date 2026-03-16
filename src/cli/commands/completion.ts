@@ -22,9 +22,15 @@ interface SubcommandInfo {
 
 const SUBCOMMANDS: SubcommandInfo[] = [
   { name: "mcp-server", description: "Start the Sentinal MCP server (stdio)" },
-  { name: "memory", description: "Memory CLI — search, list, get, stats, prune, repair, export" },
+  {
+    name: "memory",
+    description: "Memory CLI — search, list, get, stats, prune, repair, export",
+  },
   { name: "greet", description: "Display the Sentinal banner" },
-  { name: "spec", description: "Spec workflow — list, current, sync plan files" },
+  {
+    name: "spec",
+    description: "Spec workflow — list, current, sync plan files",
+  },
   { name: "config", description: "Manage settings — list, get, set, reset" },
   { name: "sessions", description: "Manage sessions — list, cleanup stale" },
   {

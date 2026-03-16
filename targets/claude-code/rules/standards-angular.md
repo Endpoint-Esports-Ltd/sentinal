@@ -10,13 +10,12 @@ paths:
   - "**/*.interceptor.ts"
 ---
 
-
-
 ## Angular Development Standards (17+)
 
 ### Components
 
 - **Standalone components by default** — no `NgModule` unless wrapping a library
+
   ```typescript
   @Component({
     selector: 'app-user-card',
@@ -34,6 +33,7 @@ paths:
 ### Signals (Angular 17+)
 
 - **Signals over RxJS** for component state:
+
   ```typescript
   // Correct — Signal
   count = signal(0);
@@ -49,17 +49,16 @@ paths:
 ### Template Control Flow (Angular 17+)
 
 - **Use built-in control flow** — no `*ngIf`, `*ngFor`, `*ngSwitch`:
+
   ```html
   @if (user()) {
-    <app-user-card [user]="user()" />
+  <app-user-card [user]="user()" />
   } @else {
-    <app-loading-spinner />
-  }
-
-  @for (item of items(); track item.id) {
-    <app-item-row [item]="item" />
+  <app-loading-spinner />
+  } @for (item of items(); track item.id) {
+  <app-item-row [item]="item" />
   } @empty {
-    <p>No items found.</p>
+  <p>No items found.</p>
   }
   ```
 
@@ -78,7 +77,8 @@ paths:
   ```
 - **Route guards** as functional guards (not class-based):
   ```typescript
-  export const authGuard: CanActivateFn = () => inject(AuthService).isAuthenticated();
+  export const authGuard: CanActivateFn = () =>
+    inject(AuthService).isAuthenticated();
   ```
 
 ### Forms

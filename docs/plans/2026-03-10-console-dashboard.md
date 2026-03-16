@@ -19,6 +19,7 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 ## Scope
 
 ### In Scope
+
 - V6 migration: `notifications` table in SQLite
 - Notification CRUD methods on MemoryStore
 - PID-based server lifecycle management (`~/.sentinal/server.pid`)
@@ -34,6 +35,7 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 - Hook auto-lifecycle: auto-start dashboard on session-start, auto-stop on last session-end
 
 ### Out of Scope
+
 - WebSocket / SSE (htmx polling is sufficient for v1)
 - Authentication (localhost-only by default)
 - React/Vue/Svelte (server-rendered HTML strings only)
@@ -42,6 +44,7 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 ## Context for Implementer
 
 **Patterns to follow:**
+
 - Views are functions returning HTML strings: `function dashboardView(data: DashboardData): string`
 - Fragment functions for htmx partial swaps: `function sessionsFragment(sessions: Session[]): string`
 - Router is a simple `URL.pathname` switch in `src/dashboard/server.ts`
@@ -51,6 +54,7 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 - File length limit: 400 lines warn, 600 lines block
 
 **Key files:**
+
 - `src/memory/store.ts` (427 lines) — will gain notification CRUD methods
 - `src/memory/migrations.ts` (200 lines) — will gain `migrateV6()`
 - `src/memory/types.ts` (160 lines) — will gain `Notification` type, bump SCHEMA_VERSION to 6
@@ -59,6 +63,7 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 - `src/hooks/session-end.ts` (28 lines) — will gain auto-stop dashboard + notification
 
 **Conventions:**
+
 - Port 41778 (configurable via `--port`)
 - Default bind: `127.0.0.1` (configurable via `--host 0.0.0.0` for network access)
 - PID file: `~/.sentinal/server.pid`
@@ -71,11 +76,13 @@ Parent: docs/plans/2026-03-09-market research-parity.md (Tasks 8 + 9)
 **Objective:** Add `notifications` table to SQLite schema.
 
 **Files:**
+
 - Modify: `src/memory/migrations.ts` — Add `migrateV6()`
 - Modify: `src/memory/types.ts` — Bump `SCHEMA_VERSION` to 6, add `Notification` and `NotificationType` types, add `RawNotification` row type
 - Modify: `src/memory/migrations.test.ts` — Add V6 test
 
 **Schema:**
+
 ```sql
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 ```
 
 **Definition of Done:**
+
 - [x] `migrateV6()` creates notifications table
 - [x] `SCHEMA_VERSION` is 6
 - [x] Migration is idempotent
@@ -103,11 +111,13 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Add notification methods to MemoryStore.
 
 **Files:**
+
 - Modify: `src/memory/store.ts` — Add `insertNotification()`, `getNotifications()`, `markNotificationRead()`, `markAllNotificationsRead()`, `getUnreadCount()`, `deleteOldNotifications()`
 - Modify: `src/memory/store.test.ts` — Add notification CRUD tests
 - Modify: `src/index.ts` — Export notification types
 
 **Definition of Done:**
+
 - [x] All 6 notification methods work
 - [x] Tests cover: insert, list, mark read, mark all read, unread count, delete old
 - [x] Types exported from barrel
@@ -117,10 +127,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Manage dashboard server lifecycle via PID file.
 
 **Files:**
+
 - Create: `src/dashboard/lifecycle.ts` — `writePidFile()`, `readPidFile()`, `isServerRunning()`, `removePidFile()`, `stopServer()`
 - Create: `src/dashboard/lifecycle.test.ts`
 
 **Definition of Done:**
+
 - [x] PID file written on server start, removed on stop
 - [x] `isServerRunning()` checks if PID process is alive
 - [x] `stopServer()` sends SIGTERM to PID and removes PID file
@@ -132,10 +144,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the `Bun.serve()` HTTP server with URL routing.
 
 **Files:**
+
 - Create: `src/dashboard/server.ts` — `startServer()`, `createRouter()`, request handler
 - Create: `src/dashboard/server.test.ts` — Integration tests
 
 **Routes:**
+
 - `GET /` → Dashboard view (HTML)
 - `GET /specifications` → Specifications view (HTML)
 - `GET /memories` → Memories view (HTML)
@@ -153,6 +167,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Fragment routes for htmx: `GET /fragments/*`
 
 **Definition of Done:**
+
 - [x] Server starts on configurable port
 - [x] All routes return correct content types
 - [x] 404 for unknown routes
@@ -165,9 +180,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the HTML shell that wraps all views.
 
 **Files:**
+
 - Create: `src/dashboard/views/layout.ts` — `layout()` function wrapping content in HTML shell
 
 **Layout includes:**
+
 - `<head>` with Tailwind CDN + htmx CDN (+ inline fallback)
 - Navigation bar: Dashboard | Specifications | Memories | Sessions | Settings
 - Active nav item highlighting
@@ -177,6 +194,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Responsive: mobile-friendly nav
 
 **Definition of Done:**
+
 - [x] `layout(title, content, activePage)` returns complete HTML document
 - [x] Navigation links to all pages
 - [x] htmx and Tailwind loaded
@@ -187,9 +205,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the main dashboard view showing workspace overview.
 
 **Files:**
+
 - Create: `src/dashboard/views/dashboard.ts` — `dashboardView()` and `dashboardFragment()`
 
 **Displays:**
+
 - Active session count with list (project, assistant, duration)
 - Current/recent spec with task progress bar
 - Recent notifications (last 10)
@@ -197,6 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Auto-refresh via htmx `hx-trigger="every 5s"` on the main content area
 
 **Definition of Done:**
+
 - [x] Dashboard renders with real data
 - [x] Session list shows active sessions
 - [x] Spec progress bar accurate
@@ -208,15 +229,18 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Wire up the `sentinal serve` command.
 
 **Files:**
+
 - Create: `src/cli/commands/serve.ts` — `registerServeCommand()`
 - Modify: `src/cli/index.ts` — Register serve command
 
 **Options:**
+
 - `--port <port>` (default: 41778)
 - `--host <host>` (default: 127.0.0.1)
 - `--background` / `-d` (detach as background process)
 
 **Definition of Done:**
+
 - [x] `sentinal serve` starts the dashboard server
 - [x] `sentinal serve --background` starts detached
 - [x] Duplicate detection: exits if server already running
@@ -228,10 +252,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Implement all JSON API endpoints.
 
 **Files:**
+
 - Create: `src/dashboard/routes/api.ts` — API route handlers
 - Modify: `src/dashboard/server.ts` — Wire API routes
 
 **Endpoints:**
+
 - `GET /api/dashboard` — Active sessions, current spec, recent notifications, stats
 - `GET /api/sessions?active=true&project=...` — Session list with filters
 - `GET /api/specs` — All specs with task counts
@@ -244,6 +270,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - `POST /api/settings` — Upsert settings
 
 **Definition of Done:**
+
 - [x] All endpoints return correct JSON
 - [x] Query param filters work
 - [x] Pagination works for memories
@@ -254,9 +281,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the specifications browser view.
 
 **Files:**
+
 - Create: `src/dashboard/views/specifications.ts` — `specificationsView()` and fragments
 
 **Displays:**
+
 - List of all specs (from SQLite `specs` table)
 - Status badge (approved, in-progress, complete, etc.)
 - Task progress bar (tasks_done / task_count)
@@ -265,6 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Link to plan file path
 
 **Definition of Done:**
+
 - [x] Specs listed with status and progress
 - [x] Task detail expandable
 - [x] Status filter works via htmx
@@ -275,9 +305,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the memories browser with search.
 
 **Files:**
+
 - Create: `src/dashboard/views/memories.ts` — `memoriesView()` and fragments
 
 **Displays:**
+
 - Search bar with htmx `hx-get` on input
 - Type filter chips (decision, discovery, error, fix, pattern)
 - Observation cards: title, type badge, timestamp, snippet
@@ -286,6 +318,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Project filter dropdown
 
 **Definition of Done:**
+
 - [x] Search returns results via htmx
 - [x] Type filters work
 - [x] Pagination works
@@ -296,9 +329,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the sessions browser view.
 
 **Files:**
+
 - Create: `src/dashboard/views/sessions.ts` — `sessionsView()` and fragments
 
 **Displays:**
+
 - Table: session ID (truncated), project, assistant, start time, duration, status
 - Active sessions highlighted (green dot)
 - Sort by recency (default)
@@ -306,6 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Cleanup button: end stale sessions
 
 **Definition of Done:**
+
 - [x] Sessions listed with all fields
 - [x] Active sessions visually distinct
 - [x] Filters work via htmx
@@ -316,9 +352,11 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Create the settings management view.
 
 **Files:**
+
 - Create: `src/dashboard/views/settings.ts` — `settingsView()` and fragments
 
 **Displays:**
+
 - Model routing form:
   - Planning model (text input, default: opus)
   - Implementation model (text input, default: sonnet)
@@ -329,6 +367,7 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 - Display current version
 
 **Definition of Done:**
+
 - [x] Settings form loads current values
 - [x] Save updates SQLite settings
 - [x] Success feedback displayed
@@ -339,14 +378,17 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 **Objective:** Auto-start dashboard on first session, auto-stop when last session ends.
 
 **Files:**
+
 - Modify: `src/hooks/session-start.ts` — Auto-start dashboard if not running
 - Modify: `src/hooks/session-end.ts` — Auto-stop dashboard if no active sessions remain, add session-end notification
 
 **Behavior:**
+
 - `session-start.ts`: After `insertSession()`, check `isServerRunning()`. If not, spawn `sentinal serve --background`.
 - `session-end.ts`: After `endSession()`, check `getActiveSessions()`. If empty, call `stopServer()`. Also insert a notification: `{ type: 'info', title: 'Session ended', source: 'session-end', sessionId }`.
 
 **Definition of Done:**
+
 - [x] Dashboard auto-starts on first session
 - [x] Dashboard auto-stops when last session ends
 - [x] Session-end notification created
@@ -362,8 +404,8 @@ CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| CDN unavailable | Low | Low | Inline htmx fallback bundled in layout |
-| store.ts exceeds 600 lines with notification CRUD | Medium | Medium | Extract notification methods to separate file if needed |
-| PID file race conditions | Low | Low | Check-and-write is atomic enough for single-user tool |
+| Risk                                              | Likelihood | Impact | Mitigation                                              |
+| ------------------------------------------------- | ---------- | ------ | ------------------------------------------------------- |
+| CDN unavailable                                   | Low        | Low    | Inline htmx fallback bundled in layout                  |
+| store.ts exceeds 600 lines with notification CRUD | Medium     | Medium | Extract notification methods to separate file if needed |
+| PID file race conditions                          | Low        | Low    | Check-and-write is atomic enough for single-user tool   |

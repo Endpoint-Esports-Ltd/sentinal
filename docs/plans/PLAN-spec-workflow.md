@@ -1,7 +1,7 @@
 # PLAN: Spec Workflow Orchestration
 
-
 **Status:** VERIFIED
+
 ## Overview
 
 Implement a comprehensive spec-driven development workflow that orchestrates planning, implementation, and verification phases. The `/spec` command becomes a full state machine that manages the entire lifecycle of a feature or bugfix -- from exploration through verified completion.
@@ -100,17 +100,20 @@ Add JWT-based authentication with login, registration, and token refresh endpoin
 ## Scope
 
 **In scope:**
+
 - Login/register API endpoints
 - JWT token generation and validation
 - Auth guard middleware
 - Token refresh mechanism
 
 **Out of scope:**
+
 - OAuth providers (GitHub, Google)
 - Password reset flow
 - Email verification
 
 **Assumptions:**
+
 - Using NestJS with TypeORM
 - PostgreSQL database
 - bcrypt for password hashing
@@ -118,26 +121,31 @@ Add JWT-based authentication with login, registration, and token refresh endpoin
 ## Tasks
 
 ### 1. Create User entity and migration
+
 - **Status:** complete
 - **Test Strategy:** Unit test entity validation, integration test migration
 - **Definition of Done:** Entity created, migration runs, tests pass
 
 ### 2. Create AuthModule with JWT strategy
+
 - **Status:** complete
 - **Test Strategy:** Unit test JWT service, mock strategy
 - **Definition of Done:** Module registers, JWT signs and verifies
 
 ### 3. Implement login/register endpoints
+
 - **Status:** in-progress
 - **Test Strategy:** Integration test with supertest, happy + error paths
 - **Definition of Done:** POST /auth/login and POST /auth/register work
 
 ### 4. Add AuthGuard to protected routes
+
 - **Status:** pending
 - **Test Strategy:** Unit test guard, integration test protected endpoints
 - **Definition of Done:** Unauthorized requests return 401
 
 ### 5. Token refresh endpoint
+
 - **Status:** pending
 - **Test Strategy:** Integration test refresh flow, expired token handling
 - **Definition of Done:** POST /auth/refresh rotates tokens
@@ -154,10 +162,12 @@ Add JWT-based authentication with login, registration, and token refresh endpoin
 ## Implementation Log
 
 ### Task 1 (2026-03-09 10:30)
+
 Created User entity with email, passwordHash, createdAt fields.
 Migration 1710000000000-CreateUser.ts applied successfully.
 
 ### Task 2 (2026-03-09 11:15)
+
 AuthModule with JwtModule.register(), JwtStrategy, and AuthService.
 Used passport-jwt for strategy implementation.
 ```
@@ -273,13 +283,20 @@ interface SpecEngine {
 
 ```typescript
 const BUGFIX_SIGNALS = [
-  /\bfix\b/i, /\bbug\b/i, /\bcrash\b/i, /\bbroken\b/i,
-  /\berror\b/i, /\bfailing?\b/i, /\bregression\b/i,
-  /\bincorrect\b/i, /\bwrong\b/i, /\bissue\b/i,
+  /\bfix\b/i,
+  /\bbug\b/i,
+  /\bcrash\b/i,
+  /\bbroken\b/i,
+  /\berror\b/i,
+  /\bfailing?\b/i,
+  /\bregression\b/i,
+  /\bincorrect\b/i,
+  /\bwrong\b/i,
+  /\bissue\b/i,
 ];
 
 function detectSpecType(description: string): SpecType {
-  const bugfixScore = BUGFIX_SIGNALS.filter(r => r.test(description)).length;
+  const bugfixScore = BUGFIX_SIGNALS.filter((r) => r.test(description)).length;
   return bugfixScore >= 2 ? SpecType.BUGFIX : SpecType.FEATURE;
 }
 ```
@@ -292,6 +309,7 @@ function detectSpecType(description: string): SpecType {
 ### Phase 1: Core Engine (Week 1)
 
 **Files to create:**
+
 - `src/spec/types.ts` -- All interfaces, enums, Zod schemas
 - `src/spec/store.ts` -- SQLite persistence for specs and tasks
 - `src/spec/engine.ts` -- State machine with transition validation
@@ -301,33 +319,37 @@ function detectSpecType(description: string): SpecType {
 - `src/spec/detect.test.ts` -- Detection tests
 
 **State transition rules:**
+
 ```typescript
 const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
   DRAFT: [PLANNING, CANCELLED],
   PLANNING: [PENDING, CANCELLED],
-  PENDING: [IMPLEMENTING, CANCELLED],      // user approval
-  IMPLEMENTING: [VERIFYING, CANCELLED],     // all tasks done
-  VERIFYING: [COMPLETE, IMPLEMENTING],      // pass or loop back
-  COMPLETE: [VERIFIED, CANCELLED],          // user confirms
-  VERIFIED: [],                              // terminal
-  FAILED: [IMPLEMENTING, CANCELLED],        // retry
-  CANCELLED: [],                             // terminal
+  PENDING: [IMPLEMENTING, CANCELLED], // user approval
+  IMPLEMENTING: [VERIFYING, CANCELLED], // all tasks done
+  VERIFYING: [COMPLETE, IMPLEMENTING], // pass or loop back
+  COMPLETE: [VERIFIED, CANCELLED], // user confirms
+  VERIFIED: [], // terminal
+  FAILED: [IMPLEMENTING, CANCELLED], // retry
+  CANCELLED: [], // terminal
 };
 ```
 
 ### Phase 2: Plan Document Management (Week 2)
 
 **Files to create:**
+
 - `src/spec/plan-writer.ts` -- Generate markdown plan from spec
 - `src/spec/plan-parser.ts` -- Parse markdown plan back to spec state
 - `src/spec/plan-writer.test.ts`
 - `src/spec/plan-parser.test.ts`
 
 **Files to modify:**
+
 - `templates/commands/spec.md` -- Router that creates spec and delegates
 - `templates/commands/spec-plan.md` -- Planning phase with engine integration
 
 **Plan file lifecycle:**
+
 1. Created in `docs/plans/YYYY-MM-DD-<slug>.md` during PLANNING
 2. Updated with status changes during IMPLEMENTING
 3. Implementation log appended after each task
@@ -337,13 +359,16 @@ const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
 ### Phase 3: Implementation Orchestration (Week 3)
 
 **Files to create:**
+
 - `src/spec/phases/implementation.ts` -- TDD cycle manager
 - `src/spec/phases/implementation.test.ts`
 
 **Files to modify:**
+
 - `templates/commands/spec-implement.md` -- Enhanced with task tracking
 
 **TDD cycle per task:**
+
 ```
 1. Read task from spec
 2. RED: Write failing test(s) for the task
@@ -354,6 +379,7 @@ const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
 ```
 
 **Stop guard integration:**
+
 - If spec is IMPLEMENTING or VERIFYING, block session stop
 - Force verification to complete before ending
 - Claude Code: existing `spec-stop-guard.ts` hook
@@ -362,13 +388,16 @@ const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
 ### Phase 4: Verification & Loop-back (Week 4)
 
 **Files to create:**
+
 - `src/spec/phases/verification.ts` -- Verification runner
 - `src/spec/phases/verification.test.ts`
 
 **Files to modify:**
+
 - `templates/commands/spec-verify.md` -- Enhanced with engine integration
 
 **Verification checklist:**
+
 1. Run full test suite
 2. Run `tsc --noEmit` (TypeScript projects)
 3. Run linter (ESLint/ruff/golangci-lint)
@@ -377,6 +406,7 @@ const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
 6. Generate verification report
 
 **Loop-back on failure:**
+
 - Identify which checks failed
 - Transition back to IMPLEMENTING
 - Focus on failed verification items
@@ -385,12 +415,16 @@ const VALID_TRANSITIONS: Record<SpecStatus, SpecStatus[]> = {
 ## Compaction Resilience
 
 ### Pre-compact capture
+
 Save full spec state to both:
+
 - SQLite database (structured)
 - `.sentinal/compact-state.json` (quick restore)
 
 ### Post-compact restore
+
 Inject into context:
+
 ```markdown
 ## Active Spec: Add user authentication with JWT
 
@@ -409,20 +443,20 @@ Resume by reading the plan file and continuing implementation:
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Workflow completion rate | >80% of started specs reach VERIFIED |
-| TDD compliance | >95% of tasks have tests written first |
-| Verification pass rate | >70% pass on first attempt |
-| Compaction recovery | 100% state preservation across compaction |
-| Time savings | 30%+ faster than unstructured development |
+| Metric                   | Target                                    |
+| ------------------------ | ----------------------------------------- |
+| Workflow completion rate | >80% of started specs reach VERIFIED      |
+| TDD compliance           | >95% of tasks have tests written first    |
+| Verification pass rate   | >70% pass on first attempt                |
+| Compaction recovery      | 100% state preservation across compaction |
+| Time savings             | 30%+ faster than unstructured development |
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| Over-engineering plans | Keep planning phase time-boxed, simple templates |
-| Rigid workflow | Allow quick mode bypass, cancel at any phase |
-| State corruption | Dual persistence (SQLite + markdown), recovery mode |
-| AI losing context | Compact state injection, plan file as source of truth |
-| Slow verification | Parallel test runs, incremental checking |
+| Risk                   | Mitigation                                            |
+| ---------------------- | ----------------------------------------------------- |
+| Over-engineering plans | Keep planning phase time-boxed, simple templates      |
+| Rigid workflow         | Allow quick mode bypass, cancel at any phase          |
+| State corruption       | Dual persistence (SQLite + markdown), recovery mode   |
+| AI losing context      | Compact state injection, plan file as source of truth |
+| Slow verification      | Parallel test runs, incremental checking              |

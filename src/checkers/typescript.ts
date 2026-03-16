@@ -13,18 +13,24 @@ export function runTypeScriptChecks(
   const results: CheckResult[] = [];
 
   // Prettier check + auto-fix
-  const prettierCheck = Bun.spawnSync([runner, "prettier", "--check", filePath], {
-    cwd: projectRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  if (prettierCheck.exitCode !== 0) {
-    const prettierFix = Bun.spawnSync([runner, "prettier", "--write", filePath], {
+  const prettierCheck = Bun.spawnSync(
+    [runner, "prettier", "--check", filePath],
+    {
       cwd: projectRoot,
       stdout: "pipe",
       stderr: "pipe",
-    });
+    },
+  );
+
+  if (prettierCheck.exitCode !== 0) {
+    const prettierFix = Bun.spawnSync(
+      [runner, "prettier", "--write", filePath],
+      {
+        cwd: projectRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
 
     if (prettierFix.exitCode === 0) {
       results.push({

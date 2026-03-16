@@ -28,7 +28,12 @@ export type SpecStatus = (typeof SPEC_STATUSES)[number];
 export const SPEC_TYPES = ["feature", "bugfix"] as const;
 export type SpecType = (typeof SPEC_TYPES)[number];
 
-export const TASK_STATUSES = ["pending", "in-progress", "complete", "failed"] as const;
+export const TASK_STATUSES = [
+  "pending",
+  "in-progress",
+  "complete",
+  "failed",
+] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** Statuses that indicate the spec is still active (not done). */

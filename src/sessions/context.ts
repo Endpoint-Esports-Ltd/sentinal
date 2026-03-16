@@ -36,8 +36,14 @@ export interface ContextUsage {
  * Returns 0% for missing/empty files (graceful degradation).
  */
 export function estimateContextUsage(transcriptPath: string): ContextUsage {
-  const bytesPerToken = getEnvInt("SENTINAL_BYTES_PER_TOKEN", DEFAULT_BYTES_PER_TOKEN);
-  const contextWindow = getEnvInt("SENTINAL_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW);
+  const bytesPerToken = getEnvInt(
+    "SENTINAL_BYTES_PER_TOKEN",
+    DEFAULT_BYTES_PER_TOKEN,
+  );
+  const contextWindow = getEnvInt(
+    "SENTINAL_CONTEXT_WINDOW",
+    DEFAULT_CONTEXT_WINDOW,
+  );
 
   let fileBytes = 0;
   try {

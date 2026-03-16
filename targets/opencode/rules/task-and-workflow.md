@@ -12,11 +12,11 @@ If a user has already switched to plan mode, respect it — present proposed cha
 
 **Default mode is quick mode (direct execution).** `/spec` is ONLY used when the user explicitly types `/spec`.
 
-| Complexity | Action |
-|------------|--------|
-| **Trivial** (single file, obvious fix) | Execute directly |
-| **Moderate** (2-5 files, clear scope) | Use TaskCreate/TaskUpdate to track, then execute |
-| **High** (architectural, 10+ files) | **Ask user** if they want `/spec` or quick mode |
+| Complexity                             | Action                                           |
+| -------------------------------------- | ------------------------------------------------ |
+| **Trivial** (single file, obvious fix) | Execute directly                                 |
+| **Moderate** (2-5 files, clear scope)  | Use TaskCreate/TaskUpdate to track, then execute |
+| **High** (architectural, 10+ files)    | **Ask user** if they want `/spec` or quick mode  |
 
 **⛔ NEVER auto-invoke `/spec` or `Skill('spec')`.** The user MUST explicitly type `/spec`. If you think it would help, ask — never invoke.
 
@@ -28,13 +28,13 @@ If a user has already switched to plan mode, respect it — present proposed cha
 
 ### When to Create Tasks
 
-| Situation | Action |
-|-----------|--------|
-| User asks for 2+ things | Create a task for each |
-| Work has multiple steps | Create tasks with dependencies |
-| **Deferring a user request** | **TaskCreate IMMEDIATELY — never just say "noted"** |
+| Situation                           | Action                                                            |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| User asks for 2+ things             | Create a task for each                                            |
+| Work has multiple steps             | Create tasks with dependencies                                    |
+| **Deferring a user request**        | **TaskCreate IMMEDIATELY — never just say "noted"**               |
 | **User sends new request mid-task** | **TaskCreate for the new request BEFORE continuing current work** |
-| `/spec` implementation phase | Create tasks from plan |
+| `/spec` implementation phase        | Create tasks from plan                                            |
 
 ### ⛔ Never Drop a User Request
 
@@ -58,14 +58,14 @@ Tasks are scoped per session via `CLAUDE_CODE_TASK_LIST_ID`. Memory is shared ac
 
 ## Sub-Agent and Tool Usage
 
-**Search:** See `research-tools.md` for the priority chain (Vexor → Grep/Glob → Explore). Task agents are for multi-step *reasoning*, not search.
+**Search:** See `research-tools.md` for the priority chain (Vexor → Grep/Glob → Explore). Task agents are for multi-step _reasoning_, not search.
 
 ### /spec Verification Agents
 
-| Phase | Agent (background) | `subagent_type` |
-|-------|-------------------|-----------------|
-| `spec-plan` Step 1.7 (all features) | plan-reviewer | `sentinal:plan-reviewer` |
-| `spec-verify` Step 3.1, 3.4 (features only) | spec-reviewer | `sentinal:spec-reviewer` |
+| Phase                                       | Agent (background) | `subagent_type`          |
+| ------------------------------------------- | ------------------ | ------------------------ |
+| `spec-plan` Step 1.7 (all features)         | plan-reviewer      | `sentinal:plan-reviewer` |
+| `spec-verify` Step 3.1, 3.4 (features only) | spec-reviewer      | `sentinal:spec-reviewer` |
 
 **Plan-reviewer runs by default** for all feature specs when `$SENTINAL_PLAN_REVIEWER_ENABLED` is not `"false"`.
 **Spec-reviewer runs by default** during verification when `$SENTINAL_SPEC_REVIEWER_ENABLED` is not `"false"`.
@@ -75,11 +75,11 @@ Tasks are scoped per session via `CLAUDE_CODE_TASK_LIST_ID`. Memory is shared ac
 
 Three env vars control user interaction points in `/spec`. All default to enabled when unset.
 
-| Toggle | Env Var | When Disabled |
-|--------|---------|---------------|
-| Worktree Support | `$SENTINAL_WORKTREE_ENABLED` | `/spec` never asks about worktree |
-| Ask Questions During Planning | `$SENTINAL_PLAN_QUESTIONS_ENABLED` | `spec-plan` skips all `AskUserQuestion` calls |
-| Plan Approval | `$SENTINAL_PLAN_APPROVAL_ENABLED` | Plan is auto-approved; implementation starts immediately |
+| Toggle                        | Env Var                            | When Disabled                                            |
+| ----------------------------- | ---------------------------------- | -------------------------------------------------------- |
+| Worktree Support              | `$SENTINAL_WORKTREE_ENABLED`       | `/spec` never asks about worktree                        |
+| Ask Questions During Planning | `$SENTINAL_PLAN_QUESTIONS_ENABLED` | `spec-plan` skips all `AskUserQuestion` calls            |
+| Plan Approval                 | `$SENTINAL_PLAN_APPROVAL_ENABLED`  | Plan is auto-approved; implementation starts immediately |
 
 ### Background Bash
 
@@ -91,10 +91,10 @@ Use `run_in_background=true` only for long-running processes (dev servers, watch
 
 **These rules apply only during `/spec` workflows.**
 
-| Type | Trigger | Action | User Input? |
-|------|---------|--------|-------------|
-| **Bug / Missing Critical / Blocking** | Code errors, missing validation, broken imports | Auto-fix inline, document as deviation | No |
-| **Architectural** | Structural change (new DB table, switching libraries, breaking API) | **STOP** — `AskUserQuestion` with options | **Yes** |
+| Type                                  | Trigger                                                             | Action                                    | User Input? |
+| ------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------- | ----------- |
+| **Bug / Missing Critical / Blocking** | Code errors, missing validation, broken imports                     | Auto-fix inline, document as deviation    | No          |
+| **Architectural**                     | Structural change (new DB table, switching libraries, breaking API) | **STOP** — `AskUserQuestion` with options | **Yes**     |
 
 ---
 

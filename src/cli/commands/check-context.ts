@@ -17,56 +17,82 @@ export function registerCheckContextCommand(program: Command): void {
   program
     .command("check-context [path]")
     .description("Estimate context window usage from transcript file size")
-    .option("-s, --session <id>", "Look up transcript path from a session record")
+    .option(
+      "-s, --session <id>",
+      "Look up transcript path from a session record",
+    )
     .option("--json", "Output as JSON")
-    .action((path: string | undefined, opts: { session?: string; json?: boolean }) => {
-      let transcriptPath = path;
+    .action(
+      (
+        path: string | undefined,
+        opts: { session?: string; json?: boolean },
+      ) => {
+        let transcriptPath = path;
 
-      if (opts.session) {
-        const store = new MemoryStore();
-        const session = store.getSession(opts.session);
-        store.close();
+        if (opts.session) {
+          const store = new MemoryStore();
+          const session = store.getSession(opts.session);
+          store.close();
 
-        if (!session) {
+          if (!session) {
+            if (opts.json) {
+              console.log(
+                JSON.stringify({
+                  error: `Session "${opts.session}" not found`,
+                }),
+              );
+            } else {
+              console.error(`Error: Session "${opts.session}" not found.`);
+            }
+            process.exit(1);
+          }
+
+          if (!session.transcriptPath) {
+            if (opts.json) {
+              console.log(
+                JSON.stringify({
+                  error: `Session "${opts.session}" has no transcript path`,
+                }),
+              );
+            } else {
+              console.error(
+                `Error: Session "${opts.session}" has no transcript path stored.`,
+              );
+            }
+            process.exit(1);
+          }
+
+          transcriptPath = session.transcriptPath;
+        }
+
+        if (!transcriptPath) {
           if (opts.json) {
-            console.log(JSON.stringify({ error: `Session "${opts.session}" not found` }));
+            console.log(
+              JSON.stringify({ error: "No transcript path provided" }),
+            );
           } else {
-            console.error(`Error: Session "${opts.session}" not found.`);
+            console.error(
+              "Error: Provide a transcript path or use --session <id>.",
+            );
           }
           process.exit(1);
         }
 
-        if (!session.transcriptPath) {
-          if (opts.json) {
-            console.log(JSON.stringify({ error: `Session "${opts.session}" has no transcript path` }));
-          } else {
-            console.error(`Error: Session "${opts.session}" has no transcript path stored.`);
-          }
-          process.exit(1);
-        }
+        const usage = estimateContextUsage(transcriptPath);
 
-        transcriptPath = session.transcriptPath;
-      }
-
-      if (!transcriptPath) {
         if (opts.json) {
-          console.log(JSON.stringify({ error: "No transcript path provided" }));
+          console.log(JSON.stringify(usage));
         } else {
-          console.error("Error: Provide a transcript path or use --session <id>.");
+          const tokensFormatted = usage.tokens.toLocaleString();
+          console.log(
+            `Context: ${usage.percent}% (~${tokensFormatted} tokens)`,
+          );
+          if (usage.percent >= 90) {
+            console.log(
+              "Warning: Context window nearly full. Consider compacting.",
+            );
+          }
         }
-        process.exit(1);
-      }
-
-      const usage = estimateContextUsage(transcriptPath);
-
-      if (opts.json) {
-        console.log(JSON.stringify(usage));
-      } else {
-        const tokensFormatted = usage.tokens.toLocaleString();
-        console.log(`Context: ${usage.percent}% (~${tokensFormatted} tokens)`);
-        if (usage.percent >= 90) {
-          console.log("Warning: Context window nearly full. Consider compacting.");
-        }
-      }
-    });
+      },
+    );
 }

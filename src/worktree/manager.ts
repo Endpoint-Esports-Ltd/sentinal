@@ -40,7 +40,11 @@ export class WorktreeManager {
    * Create a new git worktree for a spec.
    * Creates a branch and worktree directory, records in SQLite.
    */
-  create(specId: string | undefined, projectPath: string, baseBranch?: string): Worktree {
+  create(
+    specId: string | undefined,
+    projectPath: string,
+    baseBranch?: string,
+  ): Worktree {
     // Check git version
     const versionCheck = checkGitVersion();
     if (!versionCheck.ok) {
@@ -68,7 +72,11 @@ export class WorktreeManager {
     const hash = randomHex(4);
     const id = `${slug}-${hash}`;
     const branchName = `${this.config.branchPrefix}${slug}`;
-    const worktreePath = join(repoRoot, this.config.directory, `spec-${slug}-${hash}`);
+    const worktreePath = join(
+      repoRoot,
+      this.config.directory,
+      `spec-${slug}-${hash}`,
+    );
 
     // Check if branch already exists
     if (branchExists(repoRoot, branchName)) {
@@ -108,9 +116,12 @@ export class WorktreeManager {
   }
 
   /** Get detailed status of a worktree, verifying it still exists on disk. */
-  status(worktreeId: string): Worktree & { existsOnDisk: boolean; diffSummary?: DiffSummary } {
+  status(
+    worktreeId: string,
+  ): Worktree & { existsOnDisk: boolean; diffSummary?: DiffSummary } {
     const wt = this.store.get(worktreeId);
-    if (!wt) throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    if (!wt)
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
 
     const onDisk = existsSync(wt.worktreePath);
     let diffSummary: DiffSummary | undefined;
@@ -129,7 +140,8 @@ export class WorktreeManager {
   /** Get diff summary between worktree branch and base branch. */
   diff(worktreeId: string): DiffSummary {
     const wt = this.store.get(worktreeId);
-    if (!wt) throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    if (!wt)
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
 
     const result = gitExec(
       ["diff", "--stat", "--numstat", `${wt.baseBranch}...${wt.branchName}`],
@@ -146,7 +158,8 @@ export class WorktreeManager {
   /** Check if merging the worktree branch would produce conflicts. */
   hasConflicts(worktreeId: string): boolean {
     const wt = this.store.get(worktreeId);
-    if (!wt) throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    if (!wt)
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
 
     // Use merge-tree to do a dry-run merge
     const mergeBase = gitExec(
@@ -170,7 +183,8 @@ export class WorktreeManager {
    */
   squashMerge(worktreeId: string, message?: string): string {
     const wt = this.store.get(worktreeId);
-    if (!wt) throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    if (!wt)
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
 
     if (wt.status !== "active" && wt.status !== "ready-to-merge") {
       throw new WorktreeError(
@@ -187,7 +201,8 @@ export class WorktreeManager {
       );
     }
 
-    const commitMsg = message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
+    const commitMsg =
+      message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
 
     // Checkout base branch in main project
     gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
@@ -214,11 +229,15 @@ export class WorktreeManager {
   /** Abandon a worktree — remove from disk and mark as abandoned. */
   abandon(worktreeId: string): void {
     const wt = this.store.get(worktreeId);
-    if (!wt) throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    if (!wt)
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
 
     // Remove worktree from disk (force in case of uncommitted changes)
     if (existsSync(wt.worktreePath)) {
-      const result = gitExec(["worktree", "remove", "--force", wt.worktreePath], wt.projectPath);
+      const result = gitExec(
+        ["worktree", "remove", "--force", wt.worktreePath],
+        wt.projectPath,
+      );
       if (result.exitCode !== 0) {
         // Fallback: remove directory manually and prune
         try {

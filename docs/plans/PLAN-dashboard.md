@@ -18,15 +18,15 @@ Create a local web dashboard for monitoring Sentinal sessions, browsing persiste
 
 ### Tech Stack
 
-| Layer | Technology | Rationale |
-|-------|------------|-----------|
-| Backend | Fastify + Node.js | Lightweight, fast, TypeScript-native |
-| API | REST + WebSocket | REST for CRUD, WebSocket for live updates |
-| Frontend | React 19 + TypeScript | Component model, ecosystem, SSR optional |
-| Styling | Tailwind CSS + shadcn/ui | Consistent with Angular/NestJS standards |
-| Database | SQLite (shared) | Same DB as memory/spec systems |
-| Build | Vite | Fast dev server, optimized production build |
-| Bundling | Embedded in `sentinal` binary | Single command to start |
+| Layer    | Technology                    | Rationale                                   |
+| -------- | ----------------------------- | ------------------------------------------- |
+| Backend  | Fastify + Node.js             | Lightweight, fast, TypeScript-native        |
+| API      | REST + WebSocket              | REST for CRUD, WebSocket for live updates   |
+| Frontend | React 19 + TypeScript         | Component model, ecosystem, SSR optional    |
+| Styling  | Tailwind CSS + shadcn/ui      | Consistent with Angular/NestJS standards    |
+| Database | SQLite (shared)               | Same DB as memory/spec systems              |
+| Build    | Vite                          | Fast dev server, optimized production build |
+| Bundling | Embedded in `sentinal` binary | Single command to start                     |
 
 ### Components
 
@@ -137,6 +137,7 @@ WebSocket Events:
 ```
 
 **Change detection strategy:**
+
 - SQLite WAL mode enables concurrent reads
 - Poll-based change detection (500ms interval)
 - Compare row counts and max timestamps
@@ -211,6 +212,7 @@ WebSocket Events:
 ### Phase 1: Backend API (Week 1)
 
 **Files to create:**
+
 - `src/dashboard/server.ts` -- Fastify server setup
 - `src/dashboard/routes/sessions.ts`
 - `src/dashboard/routes/memory.ts`
@@ -223,6 +225,7 @@ WebSocket Events:
 - Tests for each route module
 
 **Server setup:**
+
 ```typescript
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
@@ -231,32 +234,33 @@ import staticFiles from "@fastify/static";
 
 export async function createDashboardServer(port = 3847) {
   const app = Fastify({ logger: true });
-  
+
   await app.register(cors, { origin: true });
   await app.register(websocket);
   await app.register(staticFiles, {
     root: join(__dirname, "client", "dist"),
     prefix: "/",
   });
-  
+
   // Register routes
   await app.register(sessionRoutes, { prefix: "/api/sessions" });
   await app.register(memoryRoutes, { prefix: "/api/memory" });
   await app.register(workflowRoutes, { prefix: "/api/workflows" });
   await app.register(statsRoutes, { prefix: "/api/stats" });
   await app.register(settingsRoutes, { prefix: "/api/settings" });
-  
+
   // WebSocket endpoint
   app.get("/ws", { websocket: true }, (socket) => {
     eventEmitter.addClient(socket);
     socket.on("close", () => eventEmitter.removeClient(socket));
   });
-  
+
   return app;
 }
 ```
 
 **Dependencies to add:**
+
 ```json
 {
   "fastify": "^5.0.0",
@@ -269,6 +273,7 @@ export async function createDashboardServer(port = 3847) {
 ### Phase 2: Frontend Shell (Week 2)
 
 **Setup:**
+
 ```bash
 # Create React app in src/dashboard/client/
 npm create vite@latest client -- --template react-ts
@@ -277,6 +282,7 @@ npx shadcn@latest init
 ```
 
 **Core components to build:**
+
 - Application shell with sidebar navigation
 - Responsive layout (sidebar collapses on mobile)
 - WebSocket connection manager with auto-reconnect
@@ -285,6 +291,7 @@ npx shadcn@latest init
 - Loading/error state components
 
 **Routing:**
+
 ```typescript
 const routes = [
   { path: "/", element: <Dashboard /> },
@@ -300,6 +307,7 @@ const routes = [
 ### Phase 3: Dashboard & Memory Views (Week 3)
 
 **Dashboard widgets:**
+
 - `ActiveSessions` -- Live count with assistant breakdown
 - `QuickStats` -- Today's edits, checks, observations
 - `WorkflowProgress` -- Active spec progress bars
@@ -307,6 +315,7 @@ const routes = [
 - `ContextUsage` -- Effective context % for active sessions
 
 **Memory browser:**
+
 - `SearchBar` -- Debounced full-text search (300ms)
 - `ObservationCard` -- Title, content preview, type badge, tags, timestamp
 - `TagFilter` -- Clickable tag chips for filtering
@@ -316,17 +325,20 @@ const routes = [
 ### Phase 4: Workflows, Settings & Polish (Week 4)
 
 **Workflow components:**
+
 - `SpecCard` -- Status badge, progress bar, task summary
 - `TaskList` -- Ordered tasks with status indicators
 - `VerificationStatus` -- Pass/fail for each check
 - `EventLog` -- Chronological spec events
 
 **Settings components:**
+
 - Form-based configuration editing
 - Save/reset with validation
 - Theme switcher (light/dark/system)
 
 **Polish:**
+
 - Browser notifications API integration
 - Keyboard shortcuts (Ctrl+K for search)
 - Empty states with helpful messaging
@@ -348,18 +360,21 @@ sentinal dashboard status             # Check if running
 ```
 
 **Auto-start option:**
+
 - Configure in `~/.sentinal/config.json`: `"dashboard": { "autoStart": true }`
 - Starts on first `sentinal` invocation, stops when no sessions active
 
 ## Build & Distribution
 
 **Production build pipeline:**
+
 1. Build React SPA with Vite (`npm run build`)
 2. Output to `src/dashboard/client/dist/`
 3. Fastify serves static files from this directory
 4. Single `sentinal dashboard` command serves everything
 
 **Development mode:**
+
 ```bash
 # Terminal 1: Backend with hot reload
 npm run dashboard:dev
@@ -369,6 +384,7 @@ npm run dashboard:client
 ```
 
 **Package scripts:**
+
 ```json
 {
   "dashboard:build": "cd src/dashboard/client && npm run build",
@@ -380,6 +396,7 @@ npm run dashboard:client
 ## Technical Considerations
 
 ### Performance
+
 - Virtual scrolling for large lists (>100 items)
 - Debounced search input (300ms)
 - Paginated API responses (default 50 items)
@@ -387,6 +404,7 @@ npm run dashboard:client
 - Lazy-loaded route components
 
 ### Security
+
 - Local-only by default (binds to 127.0.0.1)
 - Optional token auth for network access
 - CORS restricted to localhost
@@ -394,12 +412,14 @@ npm run dashboard:client
 - XSS prevention via React's built-in escaping
 
 ### Browser Compatibility
+
 - Modern browsers only (Chrome, Firefox, Safari, Edge)
 - No IE11 support
 - PWA manifest for "Add to Home Screen"
 - Service worker for offline caching (settings, recent data)
 
 ### Accessibility
+
 - WCAG 2.1 AA compliance
 - Keyboard navigation for all interactions
 - Screen reader labels on interactive elements
@@ -417,21 +437,21 @@ npm run dashboard:client
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Page load time | <500ms (first contentful paint) |
-| WebSocket latency | <100ms for event delivery |
-| Search response | <200ms for full-text queries |
+| Metric             | Target                                |
+| ------------------ | ------------------------------------- |
+| Page load time     | <500ms (first contentful paint)       |
+| WebSocket latency  | <100ms for event delivery             |
+| Search response    | <200ms for full-text queries          |
 | Daily active usage | 80% of Sentinal users check dashboard |
-| Feature coverage | All 5 views used by 60%+ of users |
+| Feature coverage   | All 5 views used by 60%+ of users     |
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| Port conflicts | Configurable port, auto-detect available port |
-| Bundle size | Code splitting, lazy loading, tree shaking |
-| SQLite contention | WAL mode, read-only connections, retry logic |
-| Browser notifications blocked | Fallback to in-app notification center |
-| Frontend framework churn | Minimal dependencies, component isolation |
-| Development overhead | shadcn/ui for pre-built components, Vite for fast iteration |
+| Risk                          | Mitigation                                                  |
+| ----------------------------- | ----------------------------------------------------------- |
+| Port conflicts                | Configurable port, auto-detect available port               |
+| Bundle size                   | Code splitting, lazy loading, tree shaking                  |
+| SQLite contention             | WAL mode, read-only connections, retry logic                |
+| Browser notifications blocked | Fallback to in-app notification center                      |
+| Frontend framework churn      | Minimal dependencies, component isolation                   |
+| Development overhead          | shadcn/ui for pre-built components, Vite for fast iteration |

@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import { analyzeProject, formatProjectContext } from "./context.js";
 
 function makeTmpProject(): string {
-  const dir = join(tmpdir(), `sentinal-mcp-proj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-mcp-proj-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -19,13 +22,19 @@ describe("project_context tool logic", () => {
 
   beforeEach(() => {
     projectDir = makeTmpProject();
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({
-      name: "test-project",
-      scripts: { build: "tsc", test: "bun test", lint: "eslint ." },
-    }));
-    writeFileSync(join(projectDir, "tsconfig.json"), JSON.stringify({
-      compilerOptions: { strict: true },
-    }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "test-project",
+        scripts: { build: "tsc", test: "bun test", lint: "eslint ." },
+      }),
+    );
+    writeFileSync(
+      join(projectDir, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { strict: true },
+      }),
+    );
     mkdirSync(join(projectDir, "src", "services"), { recursive: true });
   });
 
@@ -62,10 +71,13 @@ describe("project_context tool logic", () => {
     expect(ctx1.commands.build).toBe("tsc");
 
     // Modify package.json
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({
-      name: "updated-project",
-      scripts: { build: "vite build" },
-    }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "updated-project",
+        scripts: { build: "vite build" },
+      }),
+    );
 
     const ctx2 = analyzeProject(projectDir);
     expect(ctx2.name).toBe("updated-project");

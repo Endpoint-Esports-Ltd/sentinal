@@ -31,13 +31,17 @@ export function registerSpecCommand(program: Command): void {
       const specs = specStore.listSpecs(opts.project);
 
       if (specs.length === 0) {
-        console.log("No specs found. Run `sentinal spec sync` to import plan files.");
+        console.log(
+          "No specs found. Run `sentinal spec sync` to import plan files.",
+        );
         store.close();
         return;
       }
 
-      const header = "  ID                                    | Status       | Type    | Tasks";
-      const sep    = "----------------------------------------|--------------|---------|------";
+      const header =
+        "  ID                                    | Status       | Type    | Tasks";
+      const sep =
+        "----------------------------------------|--------------|---------|------";
       const rows = specs.map((s) => {
         const done = s.tasks.filter((t) => t.status === "complete").length;
         return `  ${s.id.padEnd(38)} | ${s.status.padEnd(12)} | ${s.type.padEnd(7)} | ${done}/${s.tasks.length}`;
@@ -65,7 +69,10 @@ export function registerSpecCommand(program: Command): void {
       }
 
       const done = current.tasks.filter((t) => t.status === "complete").length;
-      const pct = current.tasks.length > 0 ? Math.round((done / current.tasks.length) * 100) : 0;
+      const pct =
+        current.tasks.length > 0
+          ? Math.round((done / current.tasks.length) * 100)
+          : 0;
 
       console.log(`${current.title}`);
       console.log(`  ID:       ${current.id}`);
@@ -77,7 +84,12 @@ export function registerSpecCommand(program: Command): void {
       if (current.tasks.length > 0) {
         console.log("");
         for (const task of current.tasks) {
-          const marker = task.status === "complete" ? "[x]" : task.status === "in-progress" ? "[~]" : "[ ]";
+          const marker =
+            task.status === "complete"
+              ? "[x]"
+              : task.status === "in-progress"
+                ? "[~]"
+                : "[ ]";
           console.log(`  ${marker} Task ${task.position}: ${task.title}`);
         }
       }

@@ -30,7 +30,11 @@ import type {
   SpecEventType,
   RawSpecEvent,
 } from "./types.js";
-import { DB_CONSTANTS, SEARCH_CONSTANTS, STALE_SESSION_THRESHOLD_MS } from "./types.js";
+import {
+  DB_CONSTANTS,
+  SEARCH_CONSTANTS,
+  STALE_SESSION_THRESHOLD_MS,
+} from "./types.js";
 import { runMigrations } from "./migrations.js";
 
 // ─── Database Path ────────────────────────────────────────────────────────────
@@ -82,14 +86,24 @@ export class MemoryStore {
     const rows = this.db
       .prepare("SELECT key, value, updated_at FROM settings ORDER BY key")
       .all() as Array<{ key: string; value: string; updated_at: number }>;
-    return rows.map((r) => ({ key: r.key, value: r.value, updatedAt: r.updated_at }));
+    return rows.map((r) => ({
+      key: r.key,
+      value: r.value,
+      updatedAt: r.updated_at,
+    }));
   }
 
   // ─── Observations CRUD ────────────────────────────────────────────────
 
   insertObservation(obs: CreateObservation): Observation {
-    const confidence = typeof obs.metadata?.confidence === "number" ? obs.metadata.confidence : null;
-    const qualityScore = confidence != null && confidence > 0 && confidence <= 1 ? confidence : 1.0;
+    const confidence =
+      typeof obs.metadata?.confidence === "number"
+        ? obs.metadata.confidence
+        : null;
+    const qualityScore =
+      confidence != null && confidence > 0 && confidence <= 1
+        ? confidence
+        : 1.0;
 
     const stmt = this.db.prepare(`
       INSERT INTO observations (session_id, project_path, timestamp, type, title, content, file_paths, tags, metadata, quality_score)
@@ -192,7 +206,11 @@ export class MemoryStore {
     depthBefore: number = 10,
     depthAfter: number = 10,
     projectPath?: string,
-  ): { anchor: Observation | null; before: Observation[]; after: Observation[] } {
+  ): {
+    anchor: Observation | null;
+    before: Observation[];
+    after: Observation[];
+  } {
     const anchor = this.getObservation(anchorId);
     if (!anchor) return { anchor: null, before: [], after: [] };
 
@@ -277,19 +295,31 @@ export class MemoryStore {
     const params: SQLQueryBindings[] = [];
     if (opts.active === true) clauses.push("end_time IS NULL");
     else if (opts.active === false) clauses.push("end_time IS NOT NULL");
-    if (opts.project) { clauses.push("project_path = ?"); params.push(opts.project); }
-    if (opts.assistant) { clauses.push("assistant = ?"); params.push(opts.assistant); }
+    if (opts.project) {
+      clauses.push("project_path = ?");
+      params.push(opts.project);
+    }
+    if (opts.assistant) {
+      clauses.push("assistant = ?");
+      params.push(opts.assistant);
+    }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db
-      .prepare(`SELECT * FROM sessions ${where} ORDER BY start_time DESC LIMIT ? OFFSET ?`)
+      .prepare(
+        `SELECT * FROM sessions ${where} ORDER BY start_time DESC LIMIT ? OFFSET ?`,
+      )
       .all(...params, opts.limit ?? 50, opts.offset ?? 0) as RawSession[];
     return rows.map((r) => this.deserializeSession(r));
   }
 
-  cleanupStaleSessions(thresholdMs: number = STALE_SESSION_THRESHOLD_MS): number {
+  cleanupStaleSessions(
+    thresholdMs: number = STALE_SESSION_THRESHOLD_MS,
+  ): number {
     const cutoff = Date.now() - thresholdMs;
     return this.db
-      .prepare("UPDATE sessions SET end_time = ? WHERE end_time IS NULL AND start_time < ?")
+      .prepare(
+        "UPDATE sessions SET end_time = ? WHERE end_time IS NULL AND start_time < ?",
+      )
       .run(Date.now(), cutoff).changes;
   }
 
@@ -327,18 +357,24 @@ export class MemoryStore {
     return row ? this.deserializeNotification(row) : null;
   }
 
-  getNotifications(opts: {
-    unread?: boolean;
-    limit?: number;
-    offset?: number;
-  } = {}): Notification[] {
+  getNotifications(
+    opts: {
+      unread?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Notification[] {
     const clauses: string[] = [];
     const params: SQLQueryBindings[] = [];
-    if (opts.unread === true) { clauses.push("read = 0"); }
+    if (opts.unread === true) {
+      clauses.push("read = 0");
+    }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     params.push(opts.limit ?? 50, opts.offset ?? 0);
     const rows = this.db
-      .prepare(`SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+      .prepare(
+        `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      )
       .all(...params) as RawNotification[];
     return rows.map((r) => this.deserializeNotification(r));
   }
@@ -361,10 +397,14 @@ export class MemoryStore {
   deleteOldNotifications(olderThanMs: number): number {
     const cutoff = Date.now() - olderThanMs;
     const { count } = this.db
-      .prepare("SELECT COUNT(*) as count FROM notifications WHERE created_at < ?")
+      .prepare(
+        "SELECT COUNT(*) as count FROM notifications WHERE created_at < ?",
+      )
       .get(cutoff) as { count: number };
     if (count > 0) {
-      this.db.prepare("DELETE FROM notifications WHERE created_at < ?").run(cutoff);
+      this.db
+        .prepare("DELETE FROM notifications WHERE created_at < ?")
+        .run(cutoff);
     }
     return count;
   }
@@ -380,9 +420,7 @@ export class MemoryStore {
       .get() as { count: number };
 
     const byTypeRows = this.db
-      .prepare(
-        "SELECT type, COUNT(*) as count FROM observations GROUP BY type",
-      )
+      .prepare("SELECT type, COUNT(*) as count FROM observations GROUP BY type")
       .all() as { type: ObservationType; count: number }[];
     const byType = Object.fromEntries(
       byTypeRows.map((r) => [r.type, r.count]),
@@ -430,7 +468,9 @@ export class MemoryStore {
       .prepare("SELECT COUNT(*) as count FROM observations WHERE timestamp < ?")
       .get(cutoff) as { count: number };
     if (count > 0) {
-      this.db.prepare("DELETE FROM observations WHERE timestamp < ?").run(cutoff);
+      this.db
+        .prepare("DELETE FROM observations WHERE timestamp < ?")
+        .run(cutoff);
     }
     return count;
   }
@@ -483,16 +523,12 @@ export class MemoryStore {
 
   /** Remove TDD cycle state for a specific file. */
   clearTddState(filePath: string): void {
-    this.db
-      .prepare("DELETE FROM tdd_cycles WHERE file_path = ?")
-      .run(filePath);
+    this.db.prepare("DELETE FROM tdd_cycles WHERE file_path = ?").run(filePath);
   }
 
   /** Remove all TDD cycle states associated with a spec. */
   clearTddStatesForSpec(specId: string): void {
-    this.db
-      .prepare("DELETE FROM tdd_cycles WHERE spec_id = ?")
-      .run(specId);
+    this.db.prepare("DELETE FROM tdd_cycles WHERE spec_id = ?").run(specId);
   }
 
   /** List all active (non-IDLE) TDD cycle states, optionally scoped to a spec. */
@@ -664,5 +700,3 @@ export class MemoryStore {
     };
   }
 }
-
-

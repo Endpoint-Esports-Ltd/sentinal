@@ -7,8 +7,12 @@ import { sanitize, sanitizeObservationFields } from "./sanitize.js";
 
 describe("sanitize", () => {
   it("should return unchanged text with no secrets", () => {
-    const result = sanitize("This is a normal observation about database migrations.");
-    expect(result.text).toBe("This is a normal observation about database migrations.");
+    const result = sanitize(
+      "This is a normal observation about database migrations.",
+    );
+    expect(result.text).toBe(
+      "This is a normal observation about database migrations.",
+    );
     expect(result.redactedCount).toBe(0);
   });
 
@@ -20,20 +24,26 @@ describe("sanitize", () => {
   });
 
   it("should redact AWS secret access keys", () => {
-    const result = sanitize("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+    const result = sanitize(
+      "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    );
     expect(result.text).toContain("[REDACTED]");
     expect(result.text).not.toContain("wJalrXUtnFEMI");
     expect(result.redactedCount).toBe(1);
   });
 
   it("should redact Bearer tokens", () => {
-    const result = sanitize("Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkw");
+    const result = sanitize(
+      "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkw",
+    );
     expect(result.text).toContain("Bearer [REDACTED]");
     expect(result.redactedCount).toBeGreaterThanOrEqual(1);
   });
 
   it("should redact JWT tokens", () => {
-    const result = sanitize("token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456");
+    const result = sanitize(
+      "token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456",
+    );
     expect(result.text).toContain("[REDACTED:JWT]");
     expect(result.redactedCount).toBeGreaterThanOrEqual(1);
   });
@@ -58,7 +68,9 @@ MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7
   });
 
   it("should redact connection strings with credentials", () => {
-    const result = sanitize("DATABASE_URL=postgres://admin:s3cretP4ss@db.example.com:5432/mydb");
+    const result = sanitize(
+      "DATABASE_URL=postgres://admin:s3cretP4ss@db.example.com:5432/mydb",
+    );
     expect(result.text).toContain("[REDACTED:CONNECTION_STRING]");
     expect(result.text).not.toContain("s3cretP4ss");
     expect(result.redactedCount).toBe(1);
@@ -71,7 +83,7 @@ MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7
   });
 
   it("should redact password fields", () => {
-    const result = sanitize('Config: password=my_super_secret_pass123');
+    const result = sanitize("Config: password=my_super_secret_pass123");
     expect(result.text).toContain("password=[REDACTED]");
     expect(result.text).not.toContain("my_super_secret_pass123");
     expect(result.redactedCount).toBe(1);
@@ -84,7 +96,9 @@ MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7
   });
 
   it("should redact GitHub tokens", () => {
-    const result = sanitize("Using token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl");
+    const result = sanitize(
+      "Using token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl",
+    );
     expect(result.text).toContain("[REDACTED:GITHUB_TOKEN]");
     expect(result.text).not.toContain("ghp_ABCDEF");
     expect(result.redactedCount).toBe(1);
@@ -97,7 +111,9 @@ MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7
   });
 
   it("should redact npm tokens", () => {
-    const result = sanitize("Found npm_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij in logs");
+    const result = sanitize(
+      "Found npm_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij in logs",
+    );
     expect(result.text).toContain("[REDACTED:NPM_TOKEN]");
     expect(result.redactedCount).toBeGreaterThanOrEqual(1);
   });

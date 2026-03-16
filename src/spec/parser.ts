@@ -11,7 +11,13 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import type { Spec, SpecStatus, SpecType, SpecTask, TaskStatus } from "./types.js";
+import type {
+  Spec,
+  SpecStatus,
+  SpecType,
+  SpecTask,
+  TaskStatus,
+} from "./types.js";
 import { SPEC_STATUSES } from "./types.js";
 
 // --- Public API ---
@@ -31,8 +37,11 @@ export function parsePlanContent(content: string, filePath: string): Spec {
   const tasks = extractTasks(lines);
 
   const status = normalizeStatus(meta.status);
-  const type = (meta.type?.toLowerCase() === "bugfix" ? "bugfix" : "feature") as SpecType;
-  const approved = meta.approved?.toLowerCase() === "yes" || status === "APPROVED";
+  const type = (
+    meta.type?.toLowerCase() === "bugfix" ? "bugfix" : "feature"
+  ) as SpecType;
+  const approved =
+    meta.approved?.toLowerCase() === "yes" || status === "APPROVED";
 
   return {
     id,
@@ -76,7 +85,9 @@ function extractMetadata(lines: string[]): RawMetadata {
     const line = lines[i].trim();
 
     // New format: `Key: Value`
-    const plainMatch = line.match(/^(Status|Type|Approved|Created|Iterations|Worktree):\s*(.+)$/i);
+    const plainMatch = line.match(
+      /^(Status|Type|Approved|Created|Iterations|Worktree):\s*(.+)$/i,
+    );
     if (plainMatch) {
       const key = plainMatch[1].toLowerCase() as keyof RawMetadata;
       meta[key] = plainMatch[2].trim();
@@ -84,7 +95,9 @@ function extractMetadata(lines: string[]): RawMetadata {
     }
 
     // Old format: `**Key:** Value`
-    const boldMatch = line.match(/^\*\*(Status|Type|Approved|Date|Created|Iterations|Worktree):\*\*\s*(.+)$/i);
+    const boldMatch = line.match(
+      /^\*\*(Status|Type|Approved|Date|Created|Iterations|Worktree):\*\*\s*(.+)$/i,
+    );
     if (boldMatch) {
       let key = boldMatch[1].toLowerCase();
       if (key === "date") key = "created";
@@ -162,7 +175,9 @@ function extractProgressTasks(lines: string[]): SpecTask[] {
  */
 function extractImplementationTasks(lines: string[]): SpecTask[] {
   // Try scoped extraction first
-  const hasSection = lines.some((l) => l.trim().startsWith("## Implementation Tasks"));
+  const hasSection = lines.some((l) =>
+    l.trim().startsWith("## Implementation Tasks"),
+  );
   const tasks = scanTaskHeadings(lines, hasSection);
   return tasks;
 }
@@ -177,7 +192,10 @@ interface RawTask {
   definitionOfDone?: string;
 }
 
-function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[] {
+function scanTaskHeadings(
+  lines: string[],
+  scopedToSection: boolean,
+): SpecTask[] {
   const tasks: SpecTask[] = [];
   let inSection = !scopedToSection; // If no section wrapper, start scanning immediately
   let currentTask: RawTask | null = null;
@@ -231,7 +249,9 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
     }
 
     // Test Strategy line: `- **Test Strategy:** description`
-    const testStrategyMatch = line.match(/^-\s+\*\*Test Strategy:\*\*\s*(.+)$/i);
+    const testStrategyMatch = line.match(
+      /^-\s+\*\*Test Strategy:\*\*\s*(.+)$/i,
+    );
     if (testStrategyMatch) {
       currentTask.testStrategy = testStrategyMatch[1].trim();
       inDefinitionOfDone = false;
@@ -252,14 +272,20 @@ function scanTaskHeadings(lines: string[], scopedToSection: boolean): SpecTask[]
     if (line.trim().startsWith("**Test Strategy:**")) {
       inTestStrategy = true;
       inDefinitionOfDone = false;
-      const inline = line.trim().replace(/^\*\*Test Strategy:\*\*\s*/, "").trim();
+      const inline = line
+        .trim()
+        .replace(/^\*\*Test Strategy:\*\*\s*/, "")
+        .trim();
       if (inline) currentTask.testStrategy = inline;
       continue;
     }
     if (line.trim().startsWith("**Definition of Done:**")) {
       inDefinitionOfDone = true;
       inTestStrategy = false;
-      const inline = line.trim().replace(/^\*\*Definition of Done:\*\*\s*/, "").trim();
+      const inline = line
+        .trim()
+        .replace(/^\*\*Definition of Done:\*\*\s*/, "")
+        .trim();
       if (inline) currentTask.definitionOfDone = inline;
       continue;
     }
@@ -308,8 +334,15 @@ function taskFromRaw(task: RawTask): SpecTask {
   if (task.explicitStatus) {
     // Normalize explicit status values
     const s = task.explicitStatus;
-    if (s === "complete" || s === "done" || s === "finished") status = "complete";
-    else if (s === "in-progress" || s === "in progress" || s === "inprogress" || s === "active") status = "in-progress";
+    if (s === "complete" || s === "done" || s === "finished")
+      status = "complete";
+    else if (
+      s === "in-progress" ||
+      s === "in progress" ||
+      s === "inprogress" ||
+      s === "active"
+    )
+      status = "in-progress";
     else if (s === "failed") status = "failed";
     else status = "pending";
   } else if (task.total > 0) {

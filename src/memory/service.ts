@@ -54,10 +54,14 @@ export class MemoryService {
 
   addObservation(obs: CreateObservation): Observation {
     // Sanitize content before storage to strip secrets/credentials
-    const sanitized = sanitizeObservationFields({ title: obs.title, content: obs.content });
-    const cleanObs = sanitized.redactedCount > 0
-      ? { ...obs, title: sanitized.title, content: sanitized.content }
-      : obs;
+    const sanitized = sanitizeObservationFields({
+      title: obs.title,
+      content: obs.content,
+    });
+    const cleanObs =
+      sanitized.redactedCount > 0
+        ? { ...obs, title: sanitized.title, content: sanitized.content }
+        : obs;
 
     const inserted = this.store.insertObservation(cleanObs);
 
@@ -137,10 +141,7 @@ export class MemoryService {
       observations = this.store.searchFilters(filters);
     } else {
       try {
-        observations = this.store.searchFTS(
-          sanitizeFtsQuery(query),
-          filters,
-        );
+        observations = this.store.searchFTS(sanitizeFtsQuery(query), filters);
       } catch {
         observations = this.store.searchFilters(filters);
       }
@@ -188,7 +189,11 @@ export class MemoryService {
 
   // ─── Sessions ─────────────────────────────────────────────────────────
 
-  startSession(projectPath: string, assistant: AssistantType, transcriptPath?: string): Session {
+  startSession(
+    projectPath: string,
+    assistant: AssistantType,
+    transcriptPath?: string,
+  ): Session {
     return this.store.insertSession({
       id: randomUUID(),
       startTime: Date.now(),

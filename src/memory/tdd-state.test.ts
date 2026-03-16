@@ -38,7 +38,11 @@ describe("MemoryStore — TDD cycle state", () => {
 
   it("upserts state on conflict", () => {
     store.setTddState({ filePath: "/src/foo.ts", state: "TEST_WRITTEN" });
-    store.setTddState({ filePath: "/src/foo.ts", state: "RED_CONFIRMED", lastFailOutput: "1 fail" });
+    store.setTddState({
+      filePath: "/src/foo.ts",
+      state: "RED_CONFIRMED",
+      lastFailOutput: "1 fail",
+    });
     const cycle = store.getTddState("/src/foo.ts");
     expect(cycle!.state).toBe("RED_CONFIRMED");
     expect(cycle!.lastFailOutput).toBe("1 fail");
@@ -71,9 +75,21 @@ describe("MemoryStore — TDD cycle state", () => {
     db.run(`INSERT INTO specs (id, project_path, title, slug, type, status, plan_file, created_at, updated_at)
             VALUES ('spec-1', '/proj', 'Test', 'test', 'feature', 'PENDING', '/plan.md', 1, 1)`);
 
-    store.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "spec-1" });
-    store.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "spec-1" });
-    store.setTddState({ filePath: "/src/c.ts", state: "RED_CONFIRMED", specId: null });
+    store.setTddState({
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "/src/c.ts",
+      state: "RED_CONFIRMED",
+      specId: null,
+    });
 
     store.clearTddStatesForSpec("spec-1");
 
@@ -103,8 +119,16 @@ describe("MemoryStore — TDD cycle state", () => {
     db.run(`INSERT INTO specs (id, project_path, title, slug, type, status, plan_file, created_at, updated_at)
             VALUES ('spec-B', '/proj', 'B', 'b', 'feature', 'PENDING', '/b.md', 1, 1)`);
 
-    store.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED", specId: "spec-A" });
-    store.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN", specId: "spec-B" });
+    store.setTddState({
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "spec-A",
+    });
+    store.setTddState({
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-B",
+    });
 
     const activeA = store.listActiveTddStates("spec-A");
     expect(activeA.length).toBe(1);
@@ -141,13 +165,28 @@ describe("MemoryStore — spec events", () => {
     expect(events.length).toBe(1);
     expect(events[0].eventType).toBe("tdd_cycle");
     expect(events[0].specId).toBe("spec-1");
-    expect(events[0].details).toEqual({ phase: "red_confirmed", file: "/src/foo.ts" });
+    expect(events[0].details).toEqual({
+      phase: "red_confirmed",
+      file: "/src/foo.ts",
+    });
   });
 
   it("returns events in descending insertion order", () => {
-    store.logSpecEvent({ specId: "spec-1", eventType: "phase_change", details: { from: "PENDING" } });
-    store.logSpecEvent({ specId: "spec-1", eventType: "task_update", details: { task: 1 } });
-    store.logSpecEvent({ specId: "spec-1", eventType: "tdd_cycle", details: { phase: "green" } });
+    store.logSpecEvent({
+      specId: "spec-1",
+      eventType: "phase_change",
+      details: { from: "PENDING" },
+    });
+    store.logSpecEvent({
+      specId: "spec-1",
+      eventType: "task_update",
+      details: { task: 1 },
+    });
+    store.logSpecEvent({
+      specId: "spec-1",
+      eventType: "tdd_cycle",
+      details: { phase: "green" },
+    });
 
     const events = store.getSpecEvents("spec-1");
     expect(events.length).toBe(3);
@@ -162,7 +201,11 @@ describe("MemoryStore — spec events", () => {
 
   it("respects the limit parameter", () => {
     for (let i = 0; i < 10; i++) {
-      store.logSpecEvent({ specId: "spec-1", eventType: "note", details: { i } });
+      store.logSpecEvent({
+        specId: "spec-1",
+        eventType: "note",
+        details: { i },
+      });
     }
     const events = store.getSpecEvents("spec-1", 3);
     expect(events.length).toBe(3);
@@ -184,7 +227,9 @@ describe("MemoryStore — spec events", () => {
 
 describe("readTddState", () => {
   it("returns IDLE for non-existent database path", () => {
-    expect(readTddState("/src/foo.ts", "/tmp/nonexistent-sentinal-test.db")).toBe("IDLE");
+    expect(
+      readTddState("/src/foo.ts", "/tmp/nonexistent-sentinal-test.db"),
+    ).toBe("IDLE");
   });
 
   it("returns IDLE when file path not in tdd_cycles", () => {
@@ -192,6 +237,8 @@ describe("readTddState", () => {
     // Can't use :memory: with readTddState (different DB connection)
     // We verify the fallback behaviour — no db file = IDLE
     store.close();
-    expect(readTddState("/src/unknown.ts", "/tmp/nonexistent-test-2.db")).toBe("IDLE");
+    expect(readTddState("/src/unknown.ts", "/tmp/nonexistent-test-2.db")).toBe(
+      "IDLE",
+    );
   });
 });

@@ -147,7 +147,6 @@ All subsequent work happens inside the worktree directory.
 **⛔ MANDATORY — Chain to verification phase. Do NOT stop or summarize. Do NOT wait for user input.**
 
 5. Read the plan's `Type:` field and immediately load the appropriate verification skill:
-
    - **Bugfix:** `Skill(skill='spec-bugfix-verify', args='<plan-path>')`
    - **Feature (or absent):** `Skill(skill='spec-verify', args='<plan-path>')`
 

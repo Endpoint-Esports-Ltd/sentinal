@@ -14,6 +14,7 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 ## Scope
 
 ### In Scope
+
 - SQLite `settings` table via `migrateV3()` with generic key-value storage
 - Settings CRUD methods on `MemoryStore` (`getSetting`, `setSetting`, `deleteSetting`, `listSettings`)
 - Model routing defaults: Opus for planning, Sonnet for implementation/verification
@@ -24,6 +25,7 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 - Full test coverage
 
 ### Out of Scope
+
 - Dashboard settings view (depends on Tasks 8-9)
 - MCP tools for settings (not needed until dashboard exists)
 - Dynamic model switching enforcement (Claude Code doesn't support it)
@@ -34,12 +36,14 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Architecture decision:** Settings CRUD lives directly on `MemoryStore` — consistent with `insertSession()`, `endSession()`, `getSession()`, and `SpecStore` patterns. No separate `SettingsManager` class.
 
 **Two config systems, different purposes:**
+
 - `~/.sentinal/config.json` (`src/memory/config.ts`) — Bootstrap config loaded before DB exists. Controls whether memory is enabled. File-based, cached in memory.
 - `settings` SQLite table (`src/memory/store.ts`) — Runtime settings requiring DB. Model routing, future dashboard prefs. JSON values with application-layer validation.
 
 **Model routing is advisory only.** Claude Code and OpenCode don't support forced model switching via plugins. The hints in command templates are static reminders baked into markdown. The SQLite store tracks user preferences for future dashboard display and potential API use.
 
 **Existing patterns to follow:**
+
 - `src/cli/commands/spec.ts` (100 lines) — Best template for new CLI commands
 - `src/memory/store.ts:migrateV2()` — Migration pattern
 - `src/spec/types.ts` — Zod schema pattern for new domain types
@@ -61,11 +65,13 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Objective:** Add a generic key-value `settings` table via `migrateV3()` and CRUD methods on `MemoryStore`.
 
 **Files:**
+
 - Modify: `src/memory/types.ts` — Bump `SCHEMA_VERSION` from 2 to 3
 - Modify: `src/memory/store.ts` — Add `migrateV3()`, `getSetting()`, `setSetting()`, `deleteSetting()`, `listSettings()`
 - Modify: `src/memory/store.test.ts` — Add settings CRUD tests
 
 **Definition of Done:**
+
 - [x] `migrateV3()` creates `settings` table and bumps schema to 3
 - [x] Existing v1/v2 databases migrate cleanly
 - [x] `getSetting`/`setSetting`/`deleteSetting`/`listSettings` all work
@@ -78,11 +84,13 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Objective:** Define the `ModelRouting` interface, Zod schema, defaults, and convenience accessors.
 
 **Files:**
+
 - Create: `src/config/types.ts` — `ModelRouting` interface, `ModelRoutingSchema`, `DEFAULT_MODEL_ROUTING`
 - Create: `src/config/model-routing.ts` — `getModelRouting(store)`, `setModelRouting(store, routing)`, `resetModelRouting(store)`
 - Create: `src/config/model-routing.test.ts` — Tests for get/set/reset/defaults/validation
 
 **Definition of Done:**
+
 - [x] `ModelRouting` interface and Zod schema defined
 - [x] `DEFAULT_MODEL_ROUTING` matches: opus for planning, sonnet for rest
 - [x] `getModelRouting()` returns defaults when no setting exists
@@ -96,10 +104,12 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Objective:** Add `sentinal config list/get/set/reset` CLI subcommand.
 
 **Files:**
+
 - Create: `src/cli/commands/config.ts` — `registerConfigCommand(program)`
 - Modify: `src/cli/index.ts` — Import and register command
 
 **Definition of Done:**
+
 - [x] `sentinal config list` shows all settings
 - [x] `sentinal config get <key>` and `sentinal config get <key.subkey>` work
 - [x] `sentinal config set <key> <value>` and dot-path notation work
@@ -113,6 +123,7 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Objective:** Add static advisory model hints to all spec command templates for both targets.
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-plan.md`
 - Modify: `targets/claude-code/commands/spec-implement.md`
 - Modify: `targets/claude-code/commands/spec-verify.md`
@@ -125,6 +136,7 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 - Modify: `targets/opencode/commands/spec-bugfix-verify.md`
 
 **Definition of Done:**
+
 - [x] All 10 command template files contain appropriate model hint
 - [x] Hints consistent between Claude Code and OpenCode
 - [x] Hints don't break frontmatter parsing
@@ -136,19 +148,21 @@ Add a SQLite-backed settings system with model routing configuration and advisor
 **Objective:** Export new types/functions from `src/index.ts` and verify all tests pass.
 
 **Files:**
+
 - Modify: `src/index.ts` — Add config exports
 
 **Definition of Done:**
+
 - [x] All new modules exported from barrel
 - [x] `bun test` passes (all existing + new tests)
 - [x] Test count increased (339 tests, up from 321 baseline)
 
 ## Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `migrateV3` breaks existing databases | Low | High | Existing backup logic handles this; migration is additive |
-| Model routing values become stale | Medium | Low | Values are freeform strings; user updates via CLI |
+| Risk                                  | Likelihood | Impact | Mitigation                                                |
+| ------------------------------------- | ---------- | ------ | --------------------------------------------------------- |
+| `migrateV3` breaks existing databases | Low        | High   | Existing backup logic handles this; migration is additive |
+| Model routing values become stale     | Medium     | Low    | Values are freeform strings; user updates via CLI         |
 
 ## Goal Verification
 

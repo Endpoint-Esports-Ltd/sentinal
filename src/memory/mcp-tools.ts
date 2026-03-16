@@ -27,7 +27,10 @@ export interface MemoryToolsDeps {
 
 // --- Public API ---
 
-export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | MemoryStore): MemoryService | null {
+export function registerMemoryTools(
+  server: McpServer,
+  deps: MemoryToolsDeps | MemoryStore,
+): MemoryService | null {
   // Backwards compat: if passed a MemoryStore directly, wrap it
   if ("insertSession" in deps) {
     const store = deps as MemoryStore;
@@ -57,23 +60,46 @@ export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | M
 
 // --- Layer 1: Search (compact index) ---
 
-function registerSearchTool(server: McpServer, service: MemoryService | null, client: SidecarClient | null): void {
+function registerSearchTool(
+  server: McpServer,
+  service: MemoryService | null,
+  client: SidecarClient | null,
+): void {
   server.tool(
     "memory_search",
     "Search memory observations. Returns a compact index with IDs and titles. Use memory_get for full details of specific results.",
     {
       query: z.string().describe("Search query (semantic + keyword)"),
       project: z.string().optional().describe("Filter by project path"),
-      type: z.enum(OBSERVATION_TYPES).optional().describe("Filter by observation type"),
-      limit: z.number().min(1).max(100).optional().describe("Max results (default 20)"),
+      type: z
+        .enum(OBSERVATION_TYPES)
+        .optional()
+        .describe("Filter by observation type"),
+      limit: z
+        .number()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Max results (default 20)"),
     },
     async ({ query, project, type, limit }) => {
       const results = client
-        ? await client.memorySearch({ query, project, type, limit: limit ?? 20 })
-        : await service!.search(query, { project, type: type as ObservationType | undefined, limit: limit ?? 20 });
+        ? await client.memorySearch({
+            query,
+            project,
+            type,
+            limit: limit ?? 20,
+          })
+        : await service!.search(query, {
+            project,
+            type: type as ObservationType | undefined,
+            limit: limit ?? 20,
+          });
 
       if (results.length === 0) {
-        return { content: [{ type: "text", text: "No matching observations found." }] };
+        return {
+          content: [{ type: "text", text: "No matching observations found." }],
+        };
       }
 
       const header = "| ID | Date | Type | Title | ~Tokens |";
@@ -100,13 +126,22 @@ function registerSearchTool(server: McpServer, service: MemoryService | null, cl
 
 // --- Layer 2: Timeline (context around anchor) ---
 
-function registerTimelineTool(server: McpServer, service: MemoryService | null, client: SidecarClient | null): void {
+function registerTimelineTool(
+  server: McpServer,
+  service: MemoryService | null,
+  client: SidecarClient | null,
+): void {
   server.tool(
     "memory_timeline",
     "Get chronological context around an observation. Shows observations before and after the anchor point.",
     {
       anchor: z.number().describe("Observation ID to center the timeline on"),
-      depth: z.number().min(1).max(50).optional().describe("How many observations before/after (default 5)"),
+      depth: z
+        .number()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe("How many observations before/after (default 5)"),
       project: z.string().optional().describe("Filter by project path"),
     },
     async ({ anchor, depth, project }) => {
@@ -116,21 +151,32 @@ function registerTimelineTool(server: McpServer, service: MemoryService | null, 
         : service!.timeline(anchor, d, d, project);
 
       if (result.entries.length === 0) {
-        return { content: [{ type: "text", text: `Observation #${anchor} not found.` }] };
+        return {
+          content: [
+            { type: "text", text: `Observation #${anchor} not found.` },
+          ],
+        };
       }
 
       const lines: string[] = [`Timeline around observation #${anchor}:`, ""];
       for (const entry of result.entries) {
         const date = new Date(entry.timestamp).toISOString().split("T")[0];
         const marker = entry.isAnchor ? ">>>" : "   ";
-        lines.push(`${marker} [${entry.id}] ${date} (${entry.type}) ${entry.title}`);
+        lines.push(
+          `${marker} [${entry.id}] ${date} (${entry.type}) ${entry.title}`,
+        );
         if (entry.snippet) {
           lines.push(`       ${entry.snippet.slice(0, 120)}`);
         }
       }
 
-      lines.push("", `${result.totalBefore} before, ${result.totalAfter} after.`);
-      lines.push("Use `memory_get` with specific IDs to retrieve full details.");
+      lines.push(
+        "",
+        `${result.totalBefore} before, ${result.totalAfter} after.`,
+      );
+      lines.push(
+        "Use `memory_get` with specific IDs to retrieve full details.",
+      );
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
     },
@@ -139,12 +185,20 @@ function registerTimelineTool(server: McpServer, service: MemoryService | null, 
 
 // --- Layer 3: Get (full details) ---
 
-function registerGetTool(server: McpServer, service: MemoryService | null, client: SidecarClient | null): void {
+function registerGetTool(
+  server: McpServer,
+  service: MemoryService | null,
+  client: SidecarClient | null,
+): void {
   server.tool(
     "memory_get",
     "Fetch full observation details by IDs. Only call after filtering with memory_search or memory_timeline.",
     {
-      ids: z.array(z.number()).min(1).max(20).describe("Observation IDs to retrieve"),
+      ids: z
+        .array(z.number())
+        .min(1)
+        .max(20)
+        .describe("Observation IDs to retrieve"),
     },
     async ({ ids }) => {
       const observations = client
@@ -152,7 +206,11 @@ function registerGetTool(server: McpServer, service: MemoryService | null, clien
         : service!.getObservations(ids);
 
       if (observations.length === 0) {
-        return { content: [{ type: "text", text: "No observations found for the given IDs." }] };
+        return {
+          content: [
+            { type: "text", text: "No observations found for the given IDs." },
+          ],
+        };
       }
 
       const blocks = observations.map((obs) => {
@@ -185,20 +243,35 @@ function registerGetTool(server: McpServer, service: MemoryService | null, clien
 // --- Save ---
 
 function registerSaveTool(
-  server: McpServer, service: MemoryService | null,
-  store: MemoryStore | null, client: SidecarClient | null,
+  server: McpServer,
+  service: MemoryService | null,
+  store: MemoryStore | null,
+  client: SidecarClient | null,
 ): void {
   server.tool(
     "memory_save",
     "Save an observation to persistent memory. Use for decisions, discoveries, error patterns, fixes, and recurring patterns.",
     {
       title: z.string().min(1).max(500).describe("Short descriptive title"),
-      content: z.string().min(1).describe("Detailed content of the observation"),
-      type: z.enum(OBSERVATION_TYPES).describe("Type: decision, discovery, error, fix, or pattern"),
+      content: z
+        .string()
+        .min(1)
+        .describe("Detailed content of the observation"),
+      type: z
+        .enum(OBSERVATION_TYPES)
+        .describe("Type: decision, discovery, error, fix, or pattern"),
       project: z.string().describe("Project path this observation relates to"),
-      tags: z.array(z.string()).optional().describe("Tags/concepts for categorization"),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe("Tags/concepts for categorization"),
       filePaths: z.array(z.string()).optional().describe("Related file paths"),
-      shared: z.boolean().optional().describe("Also save to shared project memory (.sentinal/project-memory.json)"),
+      shared: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also save to shared project memory (.sentinal/project-memory.json)",
+        ),
     },
     async ({ title, content, type, project, tags, filePaths, shared }) => {
       // Resolve real session ID when exactly one active session exists
@@ -210,11 +283,18 @@ function registerSaveTool(
         if (activeSessions.length === 1) {
           sessionId = activeSessions[0].id;
         }
-      } catch { /* fall back to synthetic ID */ }
+      } catch {
+        /* fall back to synthetic ID */
+      }
 
       const obsPayload = {
-        sessionId, projectPath: project, type: type as ObservationType,
-        title, content, filePaths: filePaths ?? [], tags: tags ?? [],
+        sessionId,
+        projectPath: project,
+        type: type as ObservationType,
+        title,
+        content,
+        filePaths: filePaths ?? [],
+        tags: tags ?? [],
         metadata: { source: "mcp-tool" },
       };
 
@@ -223,23 +303,36 @@ function registerSaveTool(
         const result = await client.addObservation(obsPayload);
         obsId = result.id;
       } else {
-        const result = service!.addObservation({ ...obsPayload, timestamp: Date.now() });
+        const result = service!.addObservation({
+          ...obsPayload,
+          timestamp: Date.now(),
+        });
         obsId = result.id;
       }
 
       // Also save to shared project memory if requested
       const wasShared = await saveToSharedIfRequested({
-        project, type, title, content, tags, filePaths, shared,
+        project,
+        type,
+        title,
+        content,
+        tags,
+        filePaths,
+        shared,
       });
 
       const suffix = wasShared
         ? " + shared to project memory"
-        : shared ? " (shared skipped: only decision/discovery/pattern types can be shared)" : "";
+        : shared
+          ? " (shared skipped: only decision/discovery/pattern types can be shared)"
+          : "";
       return {
-        content: [{
-          type: "text",
-          text: `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
-        }],
+        content: [
+          {
+            type: "text",
+            text: `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
+          },
+        ],
       };
     },
   );
@@ -254,9 +347,21 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
     "memory_maintain",
     "Maintain memory quality: decay scores, prune low-quality observations, or view quality distribution.",
     {
-      action: z.enum(MAINTAIN_ACTIONS).describe("Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)"),
-      prune_threshold: z.number().min(0).max(1).optional().describe("Prune observations below this quality score (default 0.15)"),
-      dry_run: z.boolean().optional().describe("Preview without changes (default false)"),
+      action: z
+        .enum(MAINTAIN_ACTIONS)
+        .describe(
+          "Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)",
+        ),
+      prune_threshold: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe("Prune observations below this quality score (default 0.15)"),
+      dry_run: z
+        .boolean()
+        .optional()
+        .describe("Preview without changes (default false)"),
     },
     async ({ action, prune_threshold, dry_run }) => {
       const dryRun = dry_run ?? false;
@@ -266,10 +371,12 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
         const result = decayQualityScores(store, { dryRun });
         const prefix = dryRun ? "[DRY RUN] " : "";
         return {
-          content: [{
-            type: "text",
-            text: `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
+            },
+          ],
         };
       }
 
@@ -277,27 +384,41 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
         const threshold = prune_threshold ?? 0.15;
 
         if (dryRun) {
-          const row = db.prepare(
-            "SELECT COUNT(*) as count FROM observations WHERE quality_score < ?",
-          ).get(threshold) as { count: number };
+          const row = db
+            .prepare(
+              "SELECT COUNT(*) as count FROM observations WHERE quality_score < ?",
+            )
+            .get(threshold) as { count: number };
           return {
-            content: [{
-              type: "text",
-              text: `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
-            }],
+            content: [
+              {
+                type: "text",
+                text: `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
+              },
+            ],
           };
         }
 
-        const countBefore = (db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number }).count;
+        const countBefore = (
+          db.prepare("SELECT COUNT(*) as count FROM observations").get() as {
+            count: number;
+          }
+        ).count;
         db.run("DELETE FROM observations WHERE quality_score < ?", [threshold]);
-        const countAfter = (db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number }).count;
+        const countAfter = (
+          db.prepare("SELECT COUNT(*) as count FROM observations").get() as {
+            count: number;
+          }
+        ).count;
         const pruned = countBefore - countAfter;
 
         return {
-          content: [{
-            type: "text",
-            text: `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
+            },
+          ],
         };
       }
 
@@ -313,9 +434,11 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
       const lines = ["## Quality Score Distribution", ""];
       let total = 0;
       for (const bucket of buckets) {
-        const row = db.prepare(
-          "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
-        ).get(bucket.min, bucket.max) as { count: number };
+        const row = db
+          .prepare(
+            "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
+          )
+          .get(bucket.min, bucket.max) as { count: number };
         lines.push(`- **${bucket.label}:** ${row.count}`);
         total += row.count;
       }
@@ -328,7 +451,11 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
 
 // --- Stats ---
 
-function registerStatsTool(server: McpServer, service: MemoryService | null, client: SidecarClient | null): void {
+function registerStatsTool(
+  server: McpServer,
+  service: MemoryService | null,
+  client: SidecarClient | null,
+): void {
   server.tool(
     "memory_stats",
     "Get memory database statistics: total observations, sessions, breakdown by type and project.",
@@ -345,12 +472,18 @@ function registerStatsTool(server: McpServer, service: MemoryService | null, cli
       ];
 
       if (stats.oldestTimestamp && stats.newestTimestamp) {
-        const oldest = new Date(stats.oldestTimestamp).toISOString().split("T")[0];
-        const newest = new Date(stats.newestTimestamp).toISOString().split("T")[0];
+        const oldest = new Date(stats.oldestTimestamp)
+          .toISOString()
+          .split("T")[0];
+        const newest = new Date(stats.newestTimestamp)
+          .toISOString()
+          .split("T")[0];
         lines.push(`- **Date Range:** ${oldest} to ${newest}`);
       }
 
-      const typeEntries = Object.entries(stats.byType).filter(([, v]) => (v as number) > 0);
+      const typeEntries = Object.entries(stats.byType).filter(
+        ([, v]) => (v as number) > 0,
+      );
       if (typeEntries.length > 0) {
         lines.push("", "### By Type");
         for (const [t, count] of typeEntries) {

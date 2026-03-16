@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Rules Template Generator
- * 
+ *
  * Generates Claude Code and OpenCode rule files from shared templates.
- * 
+ *
  * Usage:
  *   node scripts/generate-rules.js
  *   node scripts/generate-rules.js --claude
@@ -117,16 +117,20 @@ function processTemplate(templatePath, variant) {
 const args = process.argv.slice(2);
 const target = args[0]?.replace("--", "") || "both";
 
-console.log("═══════════════════════════════════════════════════════════════════");
+console.log(
+  "═══════════════════════════════════════════════════════════════════",
+);
 console.log("  Sentinal Rules Generator");
-console.log("═══════════════════════════════════════════════════════════════════\n");
+console.log(
+  "═══════════════════════════════════════════════════════════════════\n",
+);
 
 if (!existsSync(TEMPLATES_DIR)) {
   console.error("Templates directory not found:", TEMPLATES_DIR);
   process.exit(1);
 }
 
-const templates = readdirSync(TEMPLATES_DIR).filter(f => f.endsWith(".md"));
+const templates = readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith(".md"));
 
 if (target === "both" || target === "claude") {
   console.log("Generating Claude Code rules...");

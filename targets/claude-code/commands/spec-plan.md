@@ -84,6 +84,7 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
    sentinal worktree create --json <plan_slug>
    # Returns: {"path": "...", "branch": "spec/<slug>", "base_branch": "main"}
    ```
+
    If creation fails: continue without worktree, set to `No`.
 
 3. **Generate filename:** `docs/plans/YYYY-MM-DD-<feature-slug>.md` — slug from first 3-4 words.
@@ -125,12 +126,12 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
 
 **Explore systematically, one area at a time.**
 
-| Tool | When |
-|------|------|
-| **Context7** | Library/framework docs |
-| **Vexor** | Semantic code search by intent (via Bash) |
-| **grep-mcp** | Real-world GitHub examples |
-| **Read/Grep/Glob** | Direct file exploration |
+| Tool               | When                                      |
+| ------------------ | ----------------------------------------- |
+| **Context7**       | Library/framework docs                    |
+| **Vexor**          | Semantic code search by intent (via Bash) |
+| **grep-mcp**       | Real-world GitHub examples                |
+| **Read/Grep/Glob** | Direct file exploration                   |
 
 **Areas (in order):** Architecture → Similar Features → Dependencies → Tests
 
@@ -163,19 +164,23 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 **Dependencies:** [None | Task X, Task Y]
 
 **Files:**
+
 - Create: `exact/path/to/file.ts`
 - Modify: `exact/path/to/existing.ts`
 - Test: `exact/path/to/test.spec.ts`
 
 **Key Decisions / Notes:**
+
 - [Technical approach, pattern to follow with file:line ref]
 
 **Definition of Done:**
+
 - [ ] All tests pass
 - [ ] No diagnostics errors
 - [ ] [Verifiable criterion]
 
 **Verify:**
+
 - `bun test path/to/test.spec.ts`
 ```
 
@@ -188,6 +193,7 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 #### Step 1.5.1: Goal Verification Criteria
 
 After creating tasks, derive for the `## Goal Verification` section:
+
 1. State the goal
 2. Derive 3-7 observable truths (falsifiable, user-perspective)
 3. For each truth, identify supporting artifacts
@@ -197,7 +203,7 @@ After creating tasks, derive for the `## Goal Verification` section:
 
 **Assume this plan failed after full execution. Why?** Write 2-3 failure scenarios with observable trigger conditions checked during implementation.
 
-**This is distinct from Risks** (external dependencies) and from **Goal Verification truths** (what success looks like). Pre-Mortem covers *internal approach validity*.
+**This is distinct from Risks** (external dependencies) and from **Goal Verification truths** (what success looks like). Pre-Mortem covers _internal approach validity_.
 
 Example: Risk = "Redis is unavailable" | Pre-Mortem = "We assumed sessions are stateless but they're not — trigger: session data can't round-trip through the new format in first integration test"
 
@@ -218,16 +224,21 @@ Worktree: [Yes|No]
 Type: Feature
 
 ## Summary
+
 **Goal:** [One sentence]
 **Architecture:** [2-3 sentences]
 **Tech Stack:** [Key technologies]
 
 ## Scope
+
 ### In Scope
+
 ### Out of Scope
 
 ## Context for Implementer
+
 > Write for an implementer who has never seen the codebase.
+
 - **Patterns to follow:** [file:line references]
 - **Conventions:** [naming, organization, error handling]
 - **Key files:** [important files with descriptions]
@@ -235,32 +246,43 @@ Type: Feature
 - **Domain context:** [business logic needed to understand task]
 
 ## Runtime Environment (only if project has a running service)
+
 - **Start command / Port / Deploy path / Health check / Restart procedure**
 
 ## Assumptions
+
 - [What you assume] — supported by [finding/file:line] — Tasks N, M depend on this
 
 ## Testing Strategy
+
 - Unit / Integration / Manual verification
 
 ## Risks and Mitigations
+
 | Risk | Likelihood | Impact | Mitigation |
 
 ## Pre-Mortem
-*Assume this plan failed. Most likely internal reasons:*
+
+_Assume this plan failed. Most likely internal reasons:_
+
 1. **[Failure scenario]** (Task N) → Trigger: [observable condition]
 2. **[Failure scenario]** (Task N) → Trigger: [observable condition]
 
 ## Goal Verification
+
 ### Truths
+
 ### Artifacts
+
 ### Key Links
 
 ## Progress Tracking
+
 - [ ] Task 1: [summary]
-**Total Tasks:** N | **Completed:** 0 | **Remaining:** N
+      **Total Tasks:** N | **Completed:** 0 | **Remaining:** N
 
 ## Implementation Tasks
+
 [Tasks from Step 1.5]
 ```
 

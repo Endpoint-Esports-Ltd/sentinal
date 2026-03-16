@@ -38,6 +38,7 @@ vexor "database connection setup"
 **Red Flags → STOP:** "Quick fix for now", multiple changes at once, proposing fixes before tracing data flow, 2+ failed fixes.
 
 **Revert-First:** When something breaks during implementation:
+
 1. **Revert** — undo the change that broke it. Clean state.
 2. **Delete** — can the broken thing be removed entirely?
 3. **One-liner** — minimal targeted fix only.
@@ -54,12 +55,12 @@ When a bug is caused by invalid data flowing through multiple layers:
 1. **Trace backward** from symptom through the call chain to the original trigger. Fix at the source — never fix just where the error appears.
 2. **Then add validation at every layer** the data passes through:
 
-| Layer | Purpose | Example |
-|-------|---------|---------|
-| Entry point | Reject invalid input at API boundary | Validate non-empty, exists, correct type |
-| Business logic | Ensure data makes sense for this operation | Validate required fields for specific context |
-| Environment guards | Prevent dangerous operations in specific contexts | Refuse destructive ops outside temp dirs in tests |
-| Debug instrumentation | Capture context for forensics | Log directory, cwd, stack trace before risky ops |
+| Layer                 | Purpose                                           | Example                                           |
+| --------------------- | ------------------------------------------------- | ------------------------------------------------- |
+| Entry point           | Reject invalid input at API boundary              | Validate non-empty, exists, correct type          |
+| Business logic        | Ensure data makes sense for this operation        | Validate required fields for specific context     |
+| Environment guards    | Prevent dangerous operations in specific contexts | Refuse destructive ops outside temp dirs in tests |
+| Debug instrumentation | Capture context for forensics                     | Log directory, cwd, stack trace before risky ops  |
 
 #### Condition-Based Waiting (Test Flakiness)
 
@@ -67,11 +68,11 @@ When a bug is caused by invalid data flowing through multiple layers:
 
 ```typescript
 // ❌ Guessing at timing (flaky)
-await sleep(500)
-const result = getResult()
+await sleep(500);
+const result = getResult();
 
 // ✅ Wait for the condition (reliable)
-const result = await waitFor(() => getResult() !== null, { timeout: 5000 })
+const result = await waitFor(() => getResult() !== null, { timeout: 5000 });
 ```
 
 **When to use:** Tests with arbitrary delays, flaky tests, waiting for async operations.

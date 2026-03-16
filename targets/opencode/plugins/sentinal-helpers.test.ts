@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { getGrepHint, getFetchHint, transitionTddState } from "./sentinal-helpers.js";
+import {
+  getGrepHint,
+  getFetchHint,
+  transitionTddState,
+} from "./sentinal-helpers.js";
 
 describe("getGrepHint", () => {
   it("should return hint for vague grep patterns", () => {
@@ -28,7 +32,10 @@ describe("transitionTddState", () => {
   it("should call sidecar tddTransition with correct action", async () => {
     let calledWith: { action: string; specId?: string } | null = null;
     const mockSidecar = {
-      tddTransition: async (action: "confirm_red" | "confirm_green", specId?: string) => {
+      tddTransition: async (
+        action: "confirm_red" | "confirm_green",
+        specId?: string,
+      ) => {
         calledWith = { action, specId };
         return { count: 2 };
       },
@@ -43,7 +50,9 @@ describe("transitionTddState", () => {
 
   it("should not throw on sidecar error", async () => {
     const failingSidecar = {
-      tddTransition: async () => { throw new Error("connection failed"); },
+      tddTransition: async () => {
+        throw new Error("connection failed");
+      },
     };
 
     // Should not throw

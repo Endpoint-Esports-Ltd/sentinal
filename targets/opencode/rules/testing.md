@@ -27,11 +27,11 @@
 
 **Unit tests for logic, integration tests for interactions, E2E tests for workflows. Minimum 80% coverage.**
 
-| Type | Use When | Requirements |
-|------|----------|--------------|
-| **Unit** | Pure functions, business logic, validation, utilities | < 1ms each, mock ALL external deps |
-| **Integration** | DB queries, external APIs, file I/O, auth flows | Real test deps, fixtures, cleanup |
-| **E2E** | Complete user workflows, API chains, data pipelines | Test entire flow |
+| Type            | Use When                                              | Requirements                       |
+| --------------- | ----------------------------------------------------- | ---------------------------------- |
+| **Unit**        | Pure functions, business logic, validation, utilities | < 1ms each, mock ALL external deps |
+| **Integration** | DB queries, external APIs, file I/O, auth flows       | Real test deps, fixtures, cleanup  |
+| **E2E**         | Complete user workflows, API chains, data pipelines   | Test entire flow                   |
 
 ```
 External dependencies? NO → Unit test | YES → Integration test
@@ -42,8 +42,8 @@ Complete user workflow? YES → E2E test | NO → Unit or integration
 
 **Use PBT when behavior depends on data shape, ranges, or combinations — not a single known input.**
 
-| Language | Tool | Example |
-|----------|------|---------|
+| Language   | Tool         | Example                                               |
+| ---------- | ------------ | ----------------------------------------------------- |
 | TypeScript | `fast-check` | `fc.assert(fc.property(fc.array(fc.integer()), ...))` |
 
 **When to use:** Parsers, serializers, data structure invariants, encode/decode roundtrips, bugfix preservation properties.
@@ -62,13 +62,13 @@ npx ng test --watch=false            # Angular
 
 ### Mandatory Mocking in Unit Tests
 
-| Call Type | MUST Mock | Example |
-|-----------|-----------|---------|
-| HTTP/Network | `fetch`, `axios` | `vi.mock('axios')` |
-| Subprocess | `subprocess.run` | `jest.mock('child_process')` |
-| File I/O | `fs`, `path` | `jest.mock('fs')` or `tmp_path` |
-| Database | SQLite, PostgreSQL | Use test fixtures |
-| External APIs | Any third-party | Mock the client |
+| Call Type     | MUST Mock          | Example                         |
+| ------------- | ------------------ | ------------------------------- |
+| HTTP/Network  | `fetch`, `axios`   | `vi.mock('axios')`              |
+| Subprocess    | `subprocess.run`   | `jest.mock('child_process')`    |
+| File I/O      | `fs`, `path`       | `jest.mock('fs')` or `tmp_path` |
+| Database      | SQLite, PostgreSQL | Use test fixtures               |
+| External APIs | Any third-party    | Mock the client                 |
 
 Mock at module level (where imported, not where defined). Test > 1s = likely unmocked I/O.
 
@@ -81,6 +81,7 @@ Use `playwright-cli` with session isolation (`-s="${SENTINAL_SESSION_ID:-default
 **When adding a new dependency to an existing function, you MUST update ALL existing tests for that function.** Search for the function name in test files and add mocks for the new dependency to every test.
 
 **Checklist when modifying a function's dependencies:**
+
 1. `Grep` for the function name in test files
 2. For each test: verify all subprocess/I/O calls are mocked
 3. Run tests with `--tb=short` to catch unmocked calls fast

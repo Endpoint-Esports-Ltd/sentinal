@@ -38,7 +38,7 @@ function makeTmpDir(): string {
     tmpdir(),
     `sentinal-lifecycle-test-${Date.now()}-${Math.random()
       .toString(36)
-      .slice(2)}`
+      .slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   return dir;

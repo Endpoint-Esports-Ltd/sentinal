@@ -17,7 +17,10 @@ import {
   setModelRouting,
   resetModelRouting,
 } from "../../config/model-routing.js";
-import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_KEY } from "../../config/types.js";
+import {
+  DEFAULT_MODEL_ROUTING,
+  MODEL_ROUTING_KEY,
+} from "../../config/types.js";
 
 // --- Register ---
 
@@ -40,7 +43,9 @@ export function registerConfigCommand(program: Command): void {
           console.log(JSON.stringify({ model_routing: DEFAULT_MODEL_ROUTING }));
         } else {
           console.log("No custom settings. Defaults:");
-          console.log(`  model_routing = ${JSON.stringify(DEFAULT_MODEL_ROUTING, null, 2).split("\n").join("\n  ")}`);
+          console.log(
+            `  model_routing = ${JSON.stringify(DEFAULT_MODEL_ROUTING, null, 2).split("\n").join("\n  ")}`,
+          );
         }
         store.close();
         return;
@@ -49,7 +54,11 @@ export function registerConfigCommand(program: Command): void {
       if (opts.json) {
         const obj: Record<string, unknown> = {};
         for (const s of settings) {
-          try { obj[s.key] = JSON.parse(s.value); } catch { obj[s.key] = s.value; }
+          try {
+            obj[s.key] = JSON.parse(s.value);
+          } catch {
+            obj[s.key] = s.value;
+          }
         }
         console.log(JSON.stringify(obj, null, 2));
       } else {
@@ -63,7 +72,9 @@ export function registerConfigCommand(program: Command): void {
 
   config
     .command("get <key>")
-    .description("Get a setting value (supports dot-path: model_routing.planning)")
+    .description(
+      "Get a setting value (supports dot-path: model_routing.planning)",
+    )
     .option("--json", "Output as JSON")
     .action((key: string, opts: { json?: boolean }) => {
       const store = new MemoryStore();
@@ -75,7 +86,8 @@ export function registerConfigCommand(program: Command): void {
         // Check if it's a known key with defaults
         if (rootKey === MODEL_ROUTING_KEY) {
           const defaults = DEFAULT_MODEL_ROUTING;
-          const value = subPath.length > 0 ? resolveSubPath(defaults, subPath) : defaults;
+          const value =
+            subPath.length > 0 ? resolveSubPath(defaults, subPath) : defaults;
           outputValue(value, opts.json);
         } else {
           console.log(`Setting "${rootKey}" not found.`);
@@ -86,7 +98,8 @@ export function registerConfigCommand(program: Command): void {
 
       try {
         const parsed = JSON.parse(raw);
-        const value = subPath.length > 0 ? resolveSubPath(parsed, subPath) : parsed;
+        const value =
+          subPath.length > 0 ? resolveSubPath(parsed, subPath) : parsed;
         outputValue(value, opts.json);
       } catch {
         outputValue(raw, opts.json);
@@ -97,7 +110,9 @@ export function registerConfigCommand(program: Command): void {
 
   config
     .command("set <key> <value>")
-    .description("Set a setting (supports dot-path: model_routing.planning opus)")
+    .description(
+      "Set a setting (supports dot-path: model_routing.planning opus)",
+    )
     .action((key: string, value: string) => {
       const store = new MemoryStore();
       const [rootKey, ...subPath] = key.split(".");
@@ -114,7 +129,11 @@ export function registerConfigCommand(program: Command): void {
         const existing = store.getSetting(rootKey);
         let obj: Record<string, unknown> = {};
         if (existing) {
-          try { obj = JSON.parse(existing); } catch { /* start fresh */ }
+          try {
+            obj = JSON.parse(existing);
+          } catch {
+            /* start fresh */
+          }
         }
         obj[subPath[0]] = tryParseJson(value);
         store.setSetting(rootKey, JSON.stringify(obj));

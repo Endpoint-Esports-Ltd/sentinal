@@ -35,6 +35,7 @@ Type: Feature
 **Objective:** Move migration functions and raw DB row types out of `src/memory/store.ts` to bring it well under the 600-line limit.
 
 **Files:**
+
 - Create: `src/memory/migrations.ts`
 - Create: `src/memory/migrations.test.ts`
 - Modify: `src/memory/store.ts`
@@ -45,6 +46,7 @@ Type: Feature
 **Objective:** Add `session_id` + `metadata` columns to specs table, create worktrees table.
 
 **Files:**
+
 - Modify: `src/memory/migrations.ts`
 - Modify: `src/memory/types.ts`
 - Modify: `src/spec/store.ts`
@@ -56,6 +58,7 @@ Type: Feature
 **Objective:** Create git helper functions and TypeScript type definitions.
 
 **Files:**
+
 - Create: `src/git/types.ts`
 - Create: `src/git/utils.ts`
 - Create: `src/git/utils.test.ts`
@@ -65,6 +68,7 @@ Type: Feature
 **Objective:** CRUD for worktrees table.
 
 **Files:**
+
 - Create: `src/git/worktree-store.ts`
 - Create: `src/git/worktree-store.test.ts`
 
@@ -73,6 +77,7 @@ Type: Feature
 **Objective:** Core business logic for worktree create, merge, abandon, cleanup.
 
 **Files:**
+
 - Create: `src/git/worktree-manager.ts`
 - Create: `src/git/worktree-manager.test.ts`
 
@@ -81,6 +86,7 @@ Type: Feature
 **Objective:** `sentinal register-plan` command.
 
 **Files:**
+
 - Create: `src/cli/commands/register-plan.ts`
 - Modify: `src/cli/index.ts`
 
@@ -89,6 +95,7 @@ Type: Feature
 **Objective:** `sentinal worktree` command group with 6 subcommands.
 
 **Files:**
+
 - Create: `src/cli/commands/worktree.ts`
 - Modify: `src/cli/index.ts`
 
@@ -97,6 +104,7 @@ Type: Feature
 **Objective:** Wire everything together, verify tests, update parent plan.
 
 **Files:**
+
 - Modify: `src/index.ts`
 - Modify: `src/cli/index.ts`
 - Modify: `src/memory/config.ts`

@@ -71,7 +71,9 @@ export function detectFileConflict(
   const filePattern = `%${filePath}%`;
 
   // Find observations from other active sessions that mention this file
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT o.session_id, o.timestamp
     FROM observations o
     INNER JOIN sessions s ON o.session_id = s.id
@@ -82,7 +84,12 @@ export function detectFileConflict(
       AND s.end_time IS NULL
     ORDER BY o.timestamp DESC
     LIMIT 1
-  `).get(projectPath, filePattern, currentSessionId, cutoff) as { session_id: string; timestamp: number } | null;
+  `,
+    )
+    .get(projectPath, filePattern, currentSessionId, cutoff) as {
+    session_id: string;
+    timestamp: number;
+  } | null;
 
   if (!row) return null;
 

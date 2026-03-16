@@ -73,10 +73,7 @@ export function mergeAndRank(
   }
 
   // Collect all unique observation IDs
-  const allIds = new Set<number>([
-    ...vectorScores.keys(),
-    ...ftsScores.keys(),
-  ]);
+  const allIds = new Set<number>([...vectorScores.keys(), ...ftsScores.keys()]);
 
   // Compute combined scores
   const merged: ScoredObservation[] = [];
@@ -96,8 +93,7 @@ export function mergeAndRank(
     // Recency boost: linear decay over 90-day window
     const age = now - obs.timestamp;
     if (age < SEARCH_CONSTANTS.RECENCY_WINDOW_MS) {
-      const recencyFactor =
-        1 - age / SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
+      const recencyFactor = 1 - age / SEARCH_CONSTANTS.RECENCY_WINDOW_MS;
       combinedScore += recencyFactor * MAX_RECENCY_BOOST;
     }
 

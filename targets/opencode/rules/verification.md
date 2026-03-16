@@ -34,12 +34,12 @@ Unit tests with mocks prove nothing about real-world behavior. After tests pass:
 
 **If you haven't run the command in this message, you cannot claim it passes.**
 
-| Claim | Required Evidence | Insufficient |
-|-------|-------------------|-------------|
-| "Tests pass" | Fresh run: 0 failures | Previous run, "should pass" |
-| "Build succeeds" | Build exit 0 | "Linter passed" |
-| "Bug fixed" | Reproducing test passes | "Code changed" |
-| "UI works" | playwright-cli snapshot | "API returns 200" |
+| Claim            | Required Evidence       | Insufficient                |
+| ---------------- | ----------------------- | --------------------------- |
+| "Tests pass"     | Fresh run: 0 failures   | Previous run, "should pass" |
+| "Build succeeds" | Build exit 0            | "Linter passed"             |
+| "Bug fixed"      | Reproducing test passes | "Code changed"              |
+| "UI works"       | playwright-cli snapshot | "API returns 200"           |
 
 ### ⛔ Fix ALL Errors — No Exceptions, No Asking
 

@@ -6,7 +6,9 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { MemoryStore } from "./store.js";
 import type { CreateObservation } from "./types.js";
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "session-1",
     projectPath: "/test/project",
@@ -46,18 +48,24 @@ describe("MemoryStore", () => {
 
     it("should auto-increment IDs", () => {
       const obs1 = store.insertObservation(makeObservation());
-      const obs2 = store.insertObservation(makeObservation({ title: "Second" }));
+      const obs2 = store.insertObservation(
+        makeObservation({ title: "Second" }),
+      );
 
       expect(obs2.id).toBe(obs1.id + 1);
     });
 
     it("should set quality_score from metadata confidence", () => {
-      const obs = store.insertObservation(makeObservation({ metadata: { confidence: 0.75 } }));
+      const obs = store.insertObservation(
+        makeObservation({ metadata: { confidence: 0.75 } }),
+      );
       expect(obs.qualityScore).toBeCloseTo(0.75);
     });
 
     it("should default quality_score to 1.0 when no confidence", () => {
-      const obs = store.insertObservation(makeObservation({ metadata: { source: "test" } }));
+      const obs = store.insertObservation(
+        makeObservation({ metadata: { source: "test" } }),
+      );
       expect(obs.qualityScore).toBe(1.0);
     });
 
@@ -91,7 +99,9 @@ describe("MemoryStore", () => {
 
     it("should return multiple observations by IDs", () => {
       const obs1 = store.insertObservation(makeObservation({ title: "First" }));
-      const obs2 = store.insertObservation(makeObservation({ title: "Second" }));
+      const obs2 = store.insertObservation(
+        makeObservation({ title: "Second" }),
+      );
       store.insertObservation(makeObservation({ title: "Third" }));
 
       const results = store.getObservations([obs1.id, obs2.id]);
@@ -115,9 +125,15 @@ describe("MemoryStore", () => {
 
   describe("getRecentForProject", () => {
     it("should return observations for a specific project", () => {
-      store.insertObservation(makeObservation({ projectPath: "/project-a", timestamp: 100 }));
-      store.insertObservation(makeObservation({ projectPath: "/project-b", timestamp: 200 }));
-      store.insertObservation(makeObservation({ projectPath: "/project-a", timestamp: 300 }));
+      store.insertObservation(
+        makeObservation({ projectPath: "/project-a", timestamp: 100 }),
+      );
+      store.insertObservation(
+        makeObservation({ projectPath: "/project-b", timestamp: 200 }),
+      );
+      store.insertObservation(
+        makeObservation({ projectPath: "/project-a", timestamp: 300 }),
+      );
 
       const results = store.getRecentForProject("/project-a");
       expect(results).toHaveLength(2);
@@ -138,18 +154,43 @@ describe("MemoryStore", () => {
 
   describe("searchFTS", () => {
     it("should find observations by keyword", () => {
-      store.insertObservation(makeObservation({ title: "JWT authentication bug", content: "Token expired" }));
-      store.insertObservation(makeObservation({ title: "Database migration", content: "Added users table" }));
+      store.insertObservation(
+        makeObservation({
+          title: "JWT authentication bug",
+          content: "Token expired",
+        }),
+      );
+      store.insertObservation(
+        makeObservation({
+          title: "Database migration",
+          content: "Added users table",
+        }),
+      );
 
-      const results = store.searchFTS('"authentication"', { limit: 20, offset: 0, orderBy: "relevance", exactMatch: false });
+      const results = store.searchFTS('"authentication"', {
+        limit: 20,
+        offset: 0,
+        orderBy: "relevance",
+        exactMatch: false,
+      });
       expect(results).toHaveLength(1);
       expect(results[0].title).toBe("JWT authentication bug");
     });
 
     it("should search across title and content", () => {
-      store.insertObservation(makeObservation({ title: "Bug fix", content: "Fixed the authentication token refresh" }));
+      store.insertObservation(
+        makeObservation({
+          title: "Bug fix",
+          content: "Fixed the authentication token refresh",
+        }),
+      );
 
-      const results = store.searchFTS('"authentication"', { limit: 20, offset: 0, orderBy: "relevance", exactMatch: false });
+      const results = store.searchFTS('"authentication"', {
+        limit: 20,
+        offset: 0,
+        orderBy: "relevance",
+        exactMatch: false,
+      });
       expect(results).toHaveLength(1);
     });
   });
@@ -160,7 +201,13 @@ describe("MemoryStore", () => {
       store.insertObservation(makeObservation({ type: "error" }));
       store.insertObservation(makeObservation({ type: "decision" }));
 
-      const results = store.searchFilters({ type: "decision", limit: 20, offset: 0, orderBy: "date_desc", exactMatch: false });
+      const results = store.searchFilters({
+        type: "decision",
+        limit: 20,
+        offset: 0,
+        orderBy: "date_desc",
+        exactMatch: false,
+      });
       expect(results).toHaveLength(2);
     });
 
@@ -169,27 +216,52 @@ describe("MemoryStore", () => {
       store.insertObservation(makeObservation({ timestamp: 200 }));
       store.insertObservation(makeObservation({ timestamp: 300 }));
 
-      const results = store.searchFilters({ dateStart: 150, dateEnd: 250, limit: 20, offset: 0, orderBy: "date_desc", exactMatch: false });
+      const results = store.searchFilters({
+        dateStart: 150,
+        dateEnd: 250,
+        limit: 20,
+        offset: 0,
+        orderBy: "date_desc",
+        exactMatch: false,
+      });
       expect(results).toHaveLength(1);
       expect(results[0].timestamp).toBe(200);
     });
 
     it("should filter by tags", () => {
-      store.insertObservation(makeObservation({ tags: ["angular", "signals"] }));
+      store.insertObservation(
+        makeObservation({ tags: ["angular", "signals"] }),
+      );
       store.insertObservation(makeObservation({ tags: ["nestjs", "dto"] }));
 
-      const results = store.searchFilters({ tags: ["angular"], limit: 20, offset: 0, orderBy: "date_desc", exactMatch: false });
+      const results = store.searchFilters({
+        tags: ["angular"],
+        limit: 20,
+        offset: 0,
+        orderBy: "date_desc",
+        exactMatch: false,
+      });
       expect(results).toHaveLength(1);
     });
   });
 
   describe("getTimelineAround", () => {
     it("should return before and after context", () => {
-      const obs1 = store.insertObservation(makeObservation({ timestamp: 100, title: "Before" }));
-      const obs2 = store.insertObservation(makeObservation({ timestamp: 200, title: "Anchor" }));
-      const obs3 = store.insertObservation(makeObservation({ timestamp: 300, title: "After" }));
+      const obs1 = store.insertObservation(
+        makeObservation({ timestamp: 100, title: "Before" }),
+      );
+      const obs2 = store.insertObservation(
+        makeObservation({ timestamp: 200, title: "Anchor" }),
+      );
+      const obs3 = store.insertObservation(
+        makeObservation({ timestamp: 300, title: "After" }),
+      );
 
-      const { anchor, before, after } = store.getTimelineAround(obs2.id, 10, 10);
+      const { anchor, before, after } = store.getTimelineAround(
+        obs2.id,
+        10,
+        10,
+      );
 
       expect(anchor).not.toBeNull();
       expect(anchor!.title).toBe("Anchor");
@@ -267,16 +339,31 @@ describe("MemoryStore", () => {
 
     it("should list active sessions only", () => {
       store.insertSession({
-        id: "active-1", startTime: Date.now(), endTime: null,
-        projectPath: "/proj-a", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "active-1",
+        startTime: Date.now(),
+        endTime: null,
+        projectPath: "/proj-a",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
       store.insertSession({
-        id: "ended-1", startTime: Date.now() - 10000, endTime: Date.now(),
-        projectPath: "/proj-a", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "ended-1",
+        startTime: Date.now() - 10000,
+        endTime: Date.now(),
+        projectPath: "/proj-a",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
       store.insertSession({
-        id: "active-2", startTime: Date.now(), endTime: null,
-        projectPath: "/proj-b", assistant: "opencode", summary: null, transcriptPath: null,
+        id: "active-2",
+        startTime: Date.now(),
+        endTime: null,
+        projectPath: "/proj-b",
+        assistant: "opencode",
+        summary: null,
+        transcriptPath: null,
       });
 
       const active = store.getActiveSessions();
@@ -286,16 +373,31 @@ describe("MemoryStore", () => {
 
     it("should list sessions with filters", () => {
       store.insertSession({
-        id: "f-1", startTime: Date.now(), endTime: null,
-        projectPath: "/proj-x", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "f-1",
+        startTime: Date.now(),
+        endTime: null,
+        projectPath: "/proj-x",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
       store.insertSession({
-        id: "f-2", startTime: Date.now(), endTime: null,
-        projectPath: "/proj-x", assistant: "opencode", summary: null, transcriptPath: null,
+        id: "f-2",
+        startTime: Date.now(),
+        endTime: null,
+        projectPath: "/proj-x",
+        assistant: "opencode",
+        summary: null,
+        transcriptPath: null,
       });
       store.insertSession({
-        id: "f-3", startTime: Date.now(), endTime: Date.now(),
-        projectPath: "/proj-y", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "f-3",
+        startTime: Date.now(),
+        endTime: Date.now(),
+        projectPath: "/proj-y",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
 
       const byProject = store.listSessions({ project: "/proj-x" });
@@ -314,13 +416,23 @@ describe("MemoryStore", () => {
       const now = Date.now();
       // Active session started 25 hours ago (stale)
       store.insertSession({
-        id: "stale-1", startTime: now - 25 * 60 * 60 * 1000, endTime: null,
-        projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "stale-1",
+        startTime: now - 25 * 60 * 60 * 1000,
+        endTime: null,
+        projectPath: "/test",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
       // Active session started 1 hour ago (not stale)
       store.insertSession({
-        id: "fresh-1", startTime: now - 1 * 60 * 60 * 1000, endTime: null,
-        projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "fresh-1",
+        startTime: now - 1 * 60 * 60 * 1000,
+        endTime: null,
+        projectPath: "/test",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
 
       const cleaned = store.cleanupStaleSessions();
@@ -336,8 +448,13 @@ describe("MemoryStore", () => {
     it("should use custom stale threshold", () => {
       const now = Date.now();
       store.insertSession({
-        id: "custom-1", startTime: now - 2 * 60 * 60 * 1000, endTime: null,
-        projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+        id: "custom-1",
+        startTime: now - 2 * 60 * 60 * 1000,
+        endTime: null,
+        projectPath: "/test",
+        assistant: "claude-code",
+        summary: null,
+        transcriptPath: null,
       });
 
       // 1-hour threshold should catch the 2-hour-old session
@@ -348,9 +465,15 @@ describe("MemoryStore", () => {
 
   describe("stats", () => {
     it("should return aggregate statistics", () => {
-      store.insertObservation(makeObservation({ type: "decision", timestamp: 100 }));
-      store.insertObservation(makeObservation({ type: "error", timestamp: 200 }));
-      store.insertObservation(makeObservation({ type: "decision", timestamp: 300 }));
+      store.insertObservation(
+        makeObservation({ type: "decision", timestamp: 100 }),
+      );
+      store.insertObservation(
+        makeObservation({ type: "error", timestamp: 200 }),
+      );
+      store.insertObservation(
+        makeObservation({ type: "decision", timestamp: 300 }),
+      );
 
       const stats = store.getStats();
       expect(stats.totalObservations).toBe(3);
@@ -387,7 +510,10 @@ describe("MemoryStore", () => {
     });
 
     it("should set and get a JSON object", () => {
-      const routing = JSON.stringify({ planning: "opus", implementation: "sonnet" });
+      const routing = JSON.stringify({
+        planning: "opus",
+        implementation: "sonnet",
+      });
       store.setSetting("model_routing", routing);
       const result = JSON.parse(store.getSetting("model_routing")!);
       expect(result.planning).toBe("opus");

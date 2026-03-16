@@ -26,10 +26,14 @@ describe("tool-redirect hook", () => {
     expect(processToolRedirect("Read", {})).toBeNull();
   });
   it("should hint about Vexor for vague Grep", () => {
-    const result = processToolRedirect("Grep", { pattern: "how authentication works" });
+    const result = processToolRedirect("Grep", {
+      pattern: "how authentication works",
+    });
     expect(result).not.toBeNull();
   });
   it("should not hint for specific Grep", () => {
-    expect(processToolRedirect("Grep", { pattern: "class UserService" })).toBeNull();
+    expect(
+      processToolRedirect("Grep", { pattern: "class UserService" }),
+    ).toBeNull();
   });
 });

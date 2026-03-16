@@ -17,7 +17,11 @@
 
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
-import { rebuildFtsIndex, backupDatabase, checkIntegrity } from "./maintenance.js";
+import {
+  rebuildFtsIndex,
+  backupDatabase,
+  checkIntegrity,
+} from "./maintenance.js";
 import type { ObservationType } from "./types.js";
 import { OBSERVATION_TYPES } from "./types.js";
 
@@ -57,9 +61,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-export async function runSearch(service: MemoryService, args: ParsedArgs): Promise<string> {
+export async function runSearch(
+  service: MemoryService,
+  args: ParsedArgs,
+): Promise<string> {
   const query = args.positional.join(" ");
-  if (!query) return "Usage: sentinal memory search <query> [--project <path>] [--type <type>] [--limit <n>]";
+  if (!query)
+    return "Usage: sentinal memory search <query> [--project <path>] [--type <type>] [--limit <n>]";
 
   const results = await service.search(query, {
     project: args.flags.project,
@@ -70,7 +78,7 @@ export async function runSearch(service: MemoryService, args: ParsedArgs): Promi
   if (results.length === 0) return "No matching observations found.";
 
   const header = "  ID | Date       | Type       | Title";
-  const sep    = "-----|------------|------------|------";
+  const sep = "-----|------------|------------|------";
   const rows = results.map((r) => {
     const date = new Date(r.timestamp).toISOString().split("T")[0];
     return `${String(r.id).padStart(4)} | ${date} | ${r.type.padEnd(10)} | ${r.title}`;
@@ -79,7 +87,10 @@ export async function runSearch(service: MemoryService, args: ParsedArgs): Promi
   return [header, sep, ...rows].join("\n");
 }
 
-export async function runList(service: MemoryService, args: ParsedArgs): Promise<string> {
+export async function runList(
+  service: MemoryService,
+  args: ParsedArgs,
+): Promise<string> {
   const results = await service.search("", {
     project: args.flags.project,
     type: args.flags.type as ObservationType | undefined,
@@ -90,7 +101,7 @@ export async function runList(service: MemoryService, args: ParsedArgs): Promise
   if (results.length === 0) return "No observations found.";
 
   const header = "  ID | Date       | Type       | Title";
-  const sep    = "-----|------------|------------|------";
+  const sep = "-----|------------|------------|------";
   const rows = results.map((r) => {
     const date = new Date(r.timestamp).toISOString().split("T")[0];
     return `${String(r.id).padStart(4)} | ${date} | ${r.type.padEnd(10)} | ${r.title}`;
@@ -101,7 +112,8 @@ export async function runList(service: MemoryService, args: ParsedArgs): Promise
 
 export function runTimeline(service: MemoryService, args: ParsedArgs): string {
   const anchorId = parseInt(args.flags.anchor ?? args.positional[0] ?? "", 10);
-  if (isNaN(anchorId)) return "Usage: sentinal memory timeline --anchor <id> [--depth <n>] [--project <path>]";
+  if (isNaN(anchorId))
+    return "Usage: sentinal memory timeline --anchor <id> [--depth <n>] [--project <path>]";
 
   const depth = parseInt(args.flags.depth ?? "5", 10);
   const result = service.timeline(anchorId, depth, depth, args.flags.project);
@@ -118,11 +130,14 @@ export function runTimeline(service: MemoryService, args: ParsedArgs): string {
 }
 
 export function runGet(service: MemoryService, args: ParsedArgs): string {
-  const ids = args.positional.map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
+  const ids = args.positional
+    .map((s) => parseInt(s, 10))
+    .filter((n) => !isNaN(n));
   if (ids.length === 0) return "Usage: sentinal memory get <id> [<id> ...]";
 
   const observations = service.getObservations(ids);
-  if (observations.length === 0) return "No observations found for the given IDs.";
+  if (observations.length === 0)
+    return "No observations found for the given IDs.";
 
   const blocks = observations.map((obs) => {
     const date = new Date(obs.timestamp).toISOString().split("T")[0];
@@ -134,7 +149,8 @@ export function runGet(service: MemoryService, args: ParsedArgs): string {
     ];
 
     if (obs.tags.length > 0) lines.push(`Tags:    ${obs.tags.join(", ")}`);
-    if (obs.filePaths.length > 0) lines.push(`Files:   ${obs.filePaths.join(", ")}`);
+    if (obs.filePaths.length > 0)
+      lines.push(`Files:   ${obs.filePaths.join(", ")}`);
 
     lines.push("", `## ${obs.title}`, "", obs.content);
     return lines.join("\n");
@@ -321,11 +337,11 @@ export async function runCli(argv: string[]): Promise<string> {
 }
 
 // Only run main when executed directly (not when imported by the CLI dispatcher)
-const isMainModule = !process.env.__SENTINAL_CLI && (
-  typeof Bun !== "undefined"
+const isMainModule =
+  !process.env.__SENTINAL_CLI &&
+  (typeof Bun !== "undefined"
     ? Bun.main === import.meta.path
-    : import.meta.url === `file://${process.argv[1]}`
-);
+    : import.meta.url === `file://${process.argv[1]}`);
 
 if (isMainModule) {
   const argv = process.argv.slice(2);

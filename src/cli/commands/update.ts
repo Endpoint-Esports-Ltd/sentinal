@@ -9,12 +9,22 @@
  */
 
 import type { Command } from "commander";
-import { existsSync, mkdirSync, chmodSync, renameSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  chmodSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { MemoryStore } from "../../memory/store.js";
 import { isNewerVersion, parseSemver } from "../../utils/semver.js";
-import { detectInstalledTargets, uninstallClaudeCode, uninstallOpenCode } from "./uninstall.js";
+import {
+  detectInstalledTargets,
+  uninstallClaudeCode,
+  uninstallOpenCode,
+} from "./uninstall.js";
 import { installClaudeCode, installOpenCode } from "./install.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -37,7 +47,9 @@ function getGitHubToken(): string | null {
 }
 
 /** Build common headers for GitHub API requests, with auth if available. */
-function getGitHubHeaders(accept = "application/vnd.github.v3+json"): Record<string, string> {
+function getGitHubHeaders(
+  accept = "application/vnd.github.v3+json",
+): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: accept,
     "User-Agent": "sentinal-updater",
@@ -91,18 +103,18 @@ export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
         if (!getGitHubToken()) {
           console.error(
             `GitHub API returned ${status}. ` +
-            "For private repos, set GITHUB_TOKEN or GH_TOKEN with 'repo' scope.\n" +
-            "  Create a token at: https://github.com/settings/tokens",
+              "For private repos, set GITHUB_TOKEN or GH_TOKEN with 'repo' scope.\n" +
+              "  Create a token at: https://github.com/settings/tokens",
           );
         } else if (status === 404) {
           console.error(
             "GitHub API returned 404. This usually means no releases have been published yet,\n" +
-            "  or the token lacks 'repo' scope for this private repository.",
+              "  or the token lacks 'repo' scope for this private repository.",
           );
         } else {
           console.error(
             `GitHub API returned ${status}. The token may lack 'repo' scope.\n` +
-            "  Verify your GITHUB_TOKEN has access to this private repository.",
+              "  Verify your GITHUB_TOKEN has access to this private repository.",
           );
         }
       }
@@ -129,7 +141,9 @@ export interface UpdateCheckResult {
  * Check for updates with 24h caching.
  * Returns the check result without installing anything.
  */
-export async function checkForUpdate(currentVersion: string): Promise<UpdateCheckResult> {
+export async function checkForUpdate(
+  currentVersion: string,
+): Promise<UpdateCheckResult> {
   const store = new MemoryStore();
   try {
     return await checkForUpdateWithStore(store, currentVersion);
@@ -196,7 +210,9 @@ export async function checkForUpdateWithStore(
  * Download and install the latest binary for the current platform.
  * Returns true on success.
  */
-export async function downloadAndInstall(currentVersion: string): Promise<boolean> {
+export async function downloadAndInstall(
+  currentVersion: string,
+): Promise<boolean> {
   const assetName = getAssetName();
   if (!assetName) {
     console.error(
@@ -233,12 +249,16 @@ export async function downloadAndInstall(currentVersion: string): Promise<boolea
     return false;
   }
 
-  console.log(`Downloading v${remoteVersion} (${assetName}, ${formatBytes(asset.size)})...`);
+  console.log(
+    `Downloading v${remoteVersion} (${assetName}, ${formatBytes(asset.size)})...`,
+  );
 
   try {
     // For private repos, browser_download_url returns 404. Use the API URL
     // with Accept: application/octet-stream which redirects to a signed URL.
-    const downloadUrl = getGitHubToken() ? asset.url : asset.browser_download_url;
+    const downloadUrl = getGitHubToken()
+      ? asset.url
+      : asset.browser_download_url;
     const response = await fetch(downloadUrl, {
       headers: getGitHubHeaders("application/octet-stream"),
     });
@@ -307,7 +327,9 @@ export async function reinstallPlugins(): Promise<void> {
   const targets = detectInstalledTargets();
 
   if (!targets.claude && !targets.opencode) {
-    console.log("\nNo assistant installations detected — skipping plugin reinstall.");
+    console.log(
+      "\nNo assistant installations detected — skipping plugin reinstall.",
+    );
     return;
   }
 
@@ -324,7 +346,9 @@ export async function reinstallPlugins(): Promise<void> {
       console.log("");
       await installClaudeCode();
     } catch (e) {
-      console.error(`Warning: Claude Code reinstall failed: ${(e as Error).message}`);
+      console.error(
+        `Warning: Claude Code reinstall failed: ${(e as Error).message}`,
+      );
       console.error("  Run 'sentinal install claude' manually to fix.");
     }
     console.log("");
@@ -337,7 +361,9 @@ export async function reinstallPlugins(): Promise<void> {
       console.log("");
       await installOpenCode(false, true);
     } catch (e) {
-      console.error(`Warning: OpenCode reinstall failed: ${(e as Error).message}`);
+      console.error(
+        `Warning: OpenCode reinstall failed: ${(e as Error).message}`,
+      );
       console.error("  Run 'sentinal install opencode' manually to fix.");
     }
   }
@@ -383,8 +409,12 @@ export function registerUpdateCommand(program: Command): void {
       try {
         await reinstallPlugins();
       } catch (e) {
-        console.error(`\nWarning: Plugin reinstall failed: ${(e as Error).message}`);
-        console.error("  The binary was updated successfully. Run 'sentinal install' manually to reinstall plugins.");
+        console.error(
+          `\nWarning: Plugin reinstall failed: ${(e as Error).message}`,
+        );
+        console.error(
+          "  The binary was updated successfully. Run 'sentinal install' manually to reinstall plugins.",
+        );
       }
     });
 }
@@ -401,7 +431,13 @@ function getVersionForUpdate(): string {
     const { join: joinPath, dirname: dirnamePath } = require("node:path");
     const { fileURLToPath } = require("node:url");
     const __filename = fileURLToPath(import.meta.url);
-    const pkgPath = joinPath(dirnamePath(__filename), "..", "..", "..", "package.json");
+    const pkgPath = joinPath(
+      dirnamePath(__filename),
+      "..",
+      "..",
+      "..",
+      "package.json",
+    );
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version ?? "0.0.0";
   } catch {

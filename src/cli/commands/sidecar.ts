@@ -47,7 +47,7 @@ export function registerSidecarCommand(program: Command): void {
         if (isSidecarRunning()) {
           const status = getSidecarStatus();
           console.log(
-            `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`
+            `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`,
           );
           process.exit(0);
         }
@@ -75,10 +75,12 @@ export function registerSidecarCommand(program: Command): void {
             ? `unix socket + http://127.0.0.1:${httpPort}`
             : `http://127.0.0.1:${httpPort}`;
         console.log(
-          `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`
+          `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`,
         );
         console.log(`Listening on ${addr}`);
-        console.log("Press Ctrl+C to stop (auto-shutdown when no sessions active)");
+        console.log(
+          "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
+        );
 
         // Enable session-aware shutdown — sidecar stays alive while sessions exist
         enableSessionAwareShutdown(result);
@@ -91,7 +93,7 @@ export function registerSidecarCommand(program: Command): void {
 
         process.on("SIGTERM", shutdown);
         process.on("SIGINT", shutdown);
-      }
+      },
     );
 
   // ─── stop ───────────────────────────────────────────────────────────────
@@ -157,10 +159,12 @@ export function registerSidecarCommand(program: Command): void {
           ? `unix socket + http://127.0.0.1:${httpPort}`
           : `http://127.0.0.1:${httpPort}`;
       console.log(
-        `Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`
+        `Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`,
       );
       console.log(`Listening on ${addr}`);
-      console.log("Press Ctrl+C to stop (auto-shutdown when no sessions active)");
+      console.log(
+        "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
+      );
 
       // Enable session-aware shutdown
       enableSessionAwareShutdown(result);
@@ -192,7 +196,7 @@ function buildSpawnCmd(subArgs: string[]): string[] {
 
 async function startBackground(
   httpOnly?: boolean,
-  port?: string
+  port?: string,
 ): Promise<void> {
   const args = ["sidecar", "start"];
   if (httpOnly) args.push("--http-only");

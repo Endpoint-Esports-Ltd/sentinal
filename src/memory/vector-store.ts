@@ -117,8 +117,7 @@ export class VectorStore {
       this.available = true;
     } catch (error) {
       this.available = false;
-      this.initError =
-        error instanceof Error ? error.message : String(error);
+      this.initError = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -206,9 +205,7 @@ export class VectorStore {
     // Delete all vectors in the reserved rowid range
     const baseRowid = observationId * 1000;
     this.db
-      .prepare(
-        "DELETE FROM observation_vectors WHERE rowid >= ? AND rowid < ?",
-      )
+      .prepare("DELETE FROM observation_vectors WHERE rowid >= ? AND rowid < ?")
       .run(baseRowid, baseRowid + 1000);
   }
 
@@ -268,9 +265,7 @@ export class VectorStore {
   getVectorCount(): number {
     if (!this.available) return 0;
     const row = this.db
-      .prepare(
-        "SELECT COUNT(*) as count FROM observation_vectors",
-      )
+      .prepare("SELECT COUNT(*) as count FROM observation_vectors")
       .get() as { count: number } | null;
     return row?.count ?? 0;
   }

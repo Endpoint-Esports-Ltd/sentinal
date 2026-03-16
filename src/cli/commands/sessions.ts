@@ -28,29 +28,40 @@ export function registerSessionsCommand(program: Command): void {
     .option("-p, --project <path>", "Filter by project path")
     .option("--json", "Output as JSON")
     .option("-n, --limit <count>", "Max sessions to show", "20")
-    .action((opts: { active?: boolean; project?: string; json?: boolean; limit: string }) => {
-      const store = new MemoryStore();
-      const results = store.listSessions({
-        active: opts.active || undefined,
-        project: opts.project,
-        limit: parseInt(opts.limit, 10),
-      });
+    .action(
+      (opts: {
+        active?: boolean;
+        project?: string;
+        json?: boolean;
+        limit: string;
+      }) => {
+        const store = new MemoryStore();
+        const results = store.listSessions({
+          active: opts.active || undefined,
+          project: opts.project,
+          limit: parseInt(opts.limit, 10),
+        });
 
-      if (opts.json) {
-        console.log(JSON.stringify(results, null, 2));
-      } else if (results.length === 0) {
-        console.log("No sessions found.");
-      } else {
-        printSessionTable(results);
-      }
+        if (opts.json) {
+          console.log(JSON.stringify(results, null, 2));
+        } else if (results.length === 0) {
+          console.log("No sessions found.");
+        } else {
+          printSessionTable(results);
+        }
 
-      store.close();
-    });
+        store.close();
+      },
+    );
 
   sessions
     .command("cleanup")
     .description("End stale sessions that have been active too long")
-    .option("--threshold <hours>", "Hours before a session is considered stale", "24")
+    .option(
+      "--threshold <hours>",
+      "Hours before a session is considered stale",
+      "24",
+    )
     .option("--json", "Output as JSON")
     .action((opts: { threshold: string; json?: boolean }) => {
       const store = new MemoryStore();
@@ -73,7 +84,8 @@ export function registerSessionsCommand(program: Command): void {
 // --- Helpers ---
 
 function printSessionTable(sessions: Session[]): void {
-  const header = "ID                                   | Project          | Assistant   | Started              | Duration     | Status";
+  const header =
+    "ID                                   | Project          | Assistant   | Started              | Duration     | Status";
   const separator = "-".repeat(header.length);
 
   console.log(header);
@@ -81,13 +93,23 @@ function printSessionTable(sessions: Session[]): void {
 
   for (const s of sessions) {
     const id = s.id.length > 36 ? s.id.slice(0, 36) : s.id.padEnd(36);
-    const project = truncate(s.projectPath.split("/").pop() || s.projectPath, 16);
+    const project = truncate(
+      s.projectPath.split("/").pop() || s.projectPath,
+      16,
+    );
     const assistant = s.assistant.padEnd(11);
-    const started = new Date(s.startTime).toISOString().replace("T", " ").slice(0, 19);
-    const duration = s.endTime ? formatDuration(s.endTime - s.startTime) : "active";
+    const started = new Date(s.startTime)
+      .toISOString()
+      .replace("T", " ")
+      .slice(0, 19);
+    const duration = s.endTime
+      ? formatDuration(s.endTime - s.startTime)
+      : "active";
     const status = s.endTime ? "ended" : "active";
 
-    console.log(`${id} | ${project} | ${assistant} | ${started} | ${duration.padEnd(12)} | ${status}`);
+    console.log(
+      `${id} | ${project} | ${assistant} | ${started} | ${duration.padEnd(12)} | ${status}`,
+    );
   }
 
   console.log(`\n${sessions.length} session(s)`);

@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Session-level conflict warning at session start (same project, different session)
 - File-level conflict warning in pre-edit hook (file recently edited in another active session)
 - OpenCode TDD RED_CONFIRMED bulk transition (currently a stub/TODO)
@@ -28,6 +29,7 @@ Type: Feature
 - Replace tsc subprocess in `check_diagnostics` with LSP query
 
 ### Out of Scope
+
 - Automatic file-level conflict resolution (we warn, user decides)
 - Cross-machine session awareness (sessions are per-sidecar/per-machine)
 - LSP for eslint/prettier (only TypeScript diagnostics)
@@ -92,17 +94,17 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| LSP server crashes or becomes unresponsive | Medium | Medium | Fallback to tsc subprocess. Restart LSP on crash. Timeout on requests. |
-| typescript-language-server not installed | Medium | Low | Detect at sidecar startup, warn user, fallback to tsc subprocess. |
-| Cross-session conflict false positives | Low | Low | Only warn, never block. Sessions from same project only. |
-| OpenCode TDD stub replacement breaks existing behavior | Low | Medium | Test parity with Claude Code TDD tracker. MCP tools remain as escape hatch. |
-| LSP memory overhead on large projects | Medium | Medium | Lazy initialization — only spawn LSP server on first diagnostics request. Kill after idle timeout. |
+| Risk                                                   | Likelihood | Impact | Mitigation                                                                                         |
+| ------------------------------------------------------ | ---------- | ------ | -------------------------------------------------------------------------------------------------- |
+| LSP server crashes or becomes unresponsive             | Medium     | Medium | Fallback to tsc subprocess. Restart LSP on crash. Timeout on requests.                             |
+| typescript-language-server not installed               | Medium     | Low    | Detect at sidecar startup, warn user, fallback to tsc subprocess.                                  |
+| Cross-session conflict false positives                 | Low        | Low    | Only warn, never block. Sessions from same project only.                                           |
+| OpenCode TDD stub replacement breaks existing behavior | Low        | Medium | Test parity with Claude Code TDD tracker. MCP tools remain as escape hatch.                        |
+| LSP memory overhead on large projects                  | Medium     | Medium | Lazy initialization — only spawn LSP server on first diagnostics request. Kill after idle timeout. |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **LSP server initialization too slow or flaky** (Task 5) — Trigger: the first `check_diagnostics` call takes 10+ seconds because the LSP server needs to index the project. Mitigation: lazy spawn + warm-up on sidecar start. Cache the server across diagnostic calls. Fall back to tsc subprocess if LSP not ready within 5s.
 
@@ -113,6 +115,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. Starting a session on a project with an existing active session shows a conflict warning
 2. Editing a file that another active session recently edited shows a per-file warning
 3. OpenCode TDD correctly transitions to RED_CONFIRMED when tests fail
@@ -122,6 +125,7 @@ Type: Feature
 7. All existing tests continue to pass
 
 ### Artifacts
+
 - `src/session/conflict.ts` (new) — conflict detection logic
 - `src/session/conflict.test.ts` (new) — tests
 - `src/sidecar/tdd-routes.ts` (new) — bulk TDD transition endpoint
@@ -132,6 +136,7 @@ Type: Feature
 - `src/analysis/mcp-tools.ts` (modified) — check_diagnostics uses LSP
 
 ### Key Links
+
 - Session start hook ← calls conflict detection ← queries active sessions for project
 - Pre-edit hook ← calls file conflict check ← queries observations for file in other sessions
 - OpenCode TDD tracker ← calls sidecar `/tdd-state/transition` ← bulk state transitions
@@ -157,12 +162,14 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/session/conflict.ts`
 - Create: `src/session/conflict.test.ts`
 - Modify: `src/hooks/session-start.ts` (inject conflict warning)
 - Modify: `targets/opencode/plugins/sentinal.ts` (check after session creation)
 
 **Key Decisions / Notes:**
+
 - **Core function:** `detectSessionConflict(store: MemoryStore, projectPath: string, currentSessionId: string): SessionConflict | null`
   - Queries `store.listSessions({ project: projectPath, active: true })`
   - Filters out the current session by ID
@@ -173,6 +180,7 @@ Type: Feature
 - **OpenCode plugin impact:** ~5 lines addition (after session creation, before memory restore). Well within 600-line limit.
 
 **Definition of Done:**
+
 - [ ] `detectSessionConflict()` returns conflict info when another session exists
 - [ ] Returns null when no conflicting sessions exist
 - [ ] Claude Code session-start hook shows warning hint
@@ -180,6 +188,7 @@ Type: Feature
 - [ ] Tests verify conflict detection and no-conflict paths
 
 **Verify:**
+
 - `bun test src/session/conflict.test.ts`
 
 ---
@@ -191,11 +200,13 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/session/conflict.ts` (add file-level check)
 - Modify: `src/session/conflict.test.ts`
 - Modify: `src/hooks/pre-edit-guide.ts` (integrate file conflict check)
 
 **Key Decisions / Notes:**
+
 - **Core function:** `detectFileConflict(service: MemoryService, filePath: string, projectPath: string, currentSessionId: string): FileConflict | null`
   - Queries recent observations for the project that mention `filePath` in their `filePaths` array
   - Filters to observations from OTHER active sessions (not current)
@@ -206,6 +217,7 @@ Type: Feature
 - **Sidecar path:** Add the conflict check to the sidecar as part of a new `GET /session/file-conflict?project=<path>&file=<path>&session=<id>` endpoint in `src/sidecar/tdd-routes.ts` (reusing that file for session/conflict routes to keep routes.ts under limit).
 
 **Definition of Done:**
+
 - [ ] `detectFileConflict()` detects when another session recently edited the same file
 - [ ] Returns null when no file conflicts exist
 - [ ] Warning appears in pre-edit hint alongside observation context
@@ -213,6 +225,7 @@ Type: Feature
 - [ ] Tests verify file conflict detection
 
 **Verify:**
+
 - `bun test src/session/conflict.test.ts`
 - `bun test src/hooks/pre-edit-guide.test.ts`
 
@@ -225,11 +238,13 @@ Type: Feature
 **Dependencies:** Task 4 (needs the sidecar endpoint)
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts` (replace stubs at lines 180-188)
 - Modify: `targets/opencode/plugins/sentinal-helpers.ts` (add TDD transition helper)
 - Create: `targets/opencode/plugins/sentinal-helpers.test.ts` (test TDD transition helper)
 
 **Key Decisions / Notes:**
+
 - **RED_CONFIRMED stub (line 180-183):** Replace with call to sidecar `POST /tdd-state/transition` with `{ action: "confirm_red", specId }`. This transitions all TEST_WRITTEN states to RED_CONFIRMED for the current spec.
 - **GREEN_CONFIRMED stub (line 186-188):** Replace with call to sidecar `POST /tdd-state/transition` with `{ action: "confirm_green", specId }`. This clears all RED_CONFIRMED states for the current spec.
 - **specId resolution:** The OpenCode plugin needs to know the current spec ID. Use the sidecar `GET /spec/current?project=<path>` endpoint (already exists).
@@ -237,6 +252,7 @@ Type: Feature
 - **Line count:** Replace ~8 lines of stubs with ~8 lines of actual calls. Net zero change.
 
 **Definition of Done:**
+
 - [ ] OpenCode TDD transitions from TEST_WRITTEN to RED_CONFIRMED when tests fail
 - [ ] OpenCode TDD clears state when tests pass (GREEN_CONFIRMED)
 - [ ] TDD guard unblocks implementation edits after RED_CONFIRMED transition
@@ -244,6 +260,7 @@ Type: Feature
 - [ ] Tests verify transitionTddState() makes correct sidecar calls
 
 **Verify:**
+
 - `bun test targets/opencode/plugins/sentinal-helpers.test.ts`
 - `bun run embed-assets && bun run build:cli`
 
@@ -256,11 +273,13 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/sidecar/tdd-routes.ts`
 - Modify: `src/sidecar/server.ts` (wire handler)
 - Modify: `src/sidecar/client.ts` (add `tddTransition()` method)
 
 **Key Decisions / Notes:**
+
 - **Route:** `POST /tdd-state/transition`
 - **Body:** `{ action: "confirm_red" | "confirm_green", specId?: string }`
 - **`confirm_red`:** Queries all TDD states with `state = "TEST_WRITTEN"`. For each, sets `state = "RED_CONFIRMED"`. Returns count of transitioned states.
@@ -270,6 +289,7 @@ Type: Feature
 - **Store access:** Uses `store.getRawDb()` for direct queries since the existing `setTddState()` and `clearTddState()` methods are per-file, not bulk.
 
 **Definition of Done:**
+
 - [ ] `POST /tdd-state/transition` with `confirm_red` transitions TEST_WRITTEN → RED_CONFIRMED
 - [ ] `POST /tdd-state/transition` with `confirm_green` clears RED_CONFIRMED states
 - [ ] Client has `tddTransition()` method
@@ -277,6 +297,7 @@ Type: Feature
 - [ ] Tests verify both transitions
 
 **Verify:**
+
 - `bun test src/sidecar/`
 
 ---
@@ -288,10 +309,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/sidecar/lsp-client.ts`
 - Create: `src/sidecar/lsp-client.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Architecture:** The LSP client is a singleton per project. Spawns `typescript-language-server --stdio` as a child process. Communicates via JSON-RPC over stdin/stdout.
 - **Lifecycle:**
   - **Lazy init:** Don't spawn until first diagnostics request
@@ -311,6 +334,7 @@ Type: Feature
 - **Line count target:** ~200 lines for the LSP client module.
 
 **Definition of Done:**
+
 - [ ] LSP client spawns typescript-language-server on first request
 - [ ] `getDiagnostics()` returns structured diagnostics for a project
 - [ ] Server is killed after idle timeout
@@ -319,6 +343,7 @@ Type: Feature
 - [ ] Tests verify initialization, diagnostics, and fallback
 
 **Verify:**
+
 - `bun test src/sidecar/lsp-client.test.ts`
 
 ---
@@ -330,11 +355,13 @@ Type: Feature
 **Dependencies:** Task 5
 
 **Files:**
+
 - Modify: `src/sidecar/quality-routes.ts` (replace `runTsc()` with LSP)
 - Modify: `src/analysis/mcp-tools.ts` (update `check_diagnostics` to use LSP)
 - Modify: `src/sidecar/server.ts` (add LSP client to SidecarContext)
 
 **Key Decisions / Notes:**
+
 - **quality-routes.ts `runTsc()` replacement:**
   - Add `runTscLsp(ctx: SidecarContext, projectPath: string): Promise<ToolResult>` that calls `ctx.lspClient.getDiagnostics(projectPath)`
   - Convert LSP `Diagnostic[]` to the existing `ToolResult` format (`{ ok, errors }`)
@@ -349,6 +376,7 @@ Type: Feature
 - **Line count:** `quality-routes.ts` is at 390 lines. Replacing `runTsc()` (~55 lines) with `runTscLsp()` (~20 lines) should net decrease. `mcp-tools.ts` at 590 lines — adding LSP path (~10 lines) with fallback is tight but feasible.
 
 **Definition of Done:**
+
 - [ ] `check_diagnostics` MCP tool uses LSP for diagnostics when available
 - [ ] Quality check route uses LSP for tsc diagnostics when available
 - [ ] Falls back to tsc subprocess when LSP is unavailable
@@ -357,5 +385,6 @@ Type: Feature
 - [ ] Diagnostics results are equivalent (same errors reported)
 
 **Verify:**
+
 - `bun test src/analysis/ src/sidecar/`
 - `bun run build:cli`

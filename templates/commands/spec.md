@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <task> or <path/to/plan.md>
 ---
 
@@ -16,14 +16,14 @@ ARGUMENTS: $ARGUMENTS
 1. Read the plan file to get `Status:` and `Type:` headers
 2. Route based on status:
 
-| Status | Approved | Type | Next Command |
-|--------|----------|------|--------------|
-| PENDING | No | Feature (or absent) | Run `Skill(skill='spec-plan', args='$ARGUMENTS')` |
-| PENDING | No | Bugfix | Run `Skill(skill='spec-bugfix-plan', args='$ARGUMENTS')` |
-| PENDING | Yes | * | Run `Skill(skill='spec-implement', args='$ARGUMENTS')` |
-| COMPLETE | * | Feature (or absent) | Run `Skill(skill='spec-verify', args='$ARGUMENTS')` |
-| COMPLETE | * | Bugfix | Run `Skill(skill='spec-bugfix-verify', args='$ARGUMENTS')` |
-| VERIFIED | * | * | Report completion |
+| Status   | Approved | Type                | Next Command                                               |
+| -------- | -------- | ------------------- | ---------------------------------------------------------- |
+| PENDING  | No       | Feature (or absent) | Run `Skill(skill='spec-plan', args='$ARGUMENTS')`          |
+| PENDING  | No       | Bugfix              | Run `Skill(skill='spec-bugfix-plan', args='$ARGUMENTS')`   |
+| PENDING  | Yes      | \*                  | Run `Skill(skill='spec-implement', args='$ARGUMENTS')`     |
+| COMPLETE | \*       | Feature (or absent) | Run `Skill(skill='spec-verify', args='$ARGUMENTS')`        |
+| COMPLETE | \*       | Bugfix              | Run `Skill(skill='spec-bugfix-verify', args='$ARGUMENTS')` |
+| VERIFIED | \*       | \*                  | Report completion                                          |
 
 ### If ARGUMENTS is a task description (no .md path):
 

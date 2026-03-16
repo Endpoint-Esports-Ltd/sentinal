@@ -22,35 +22,66 @@ interface SanitizeResult {
  */
 const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   // AWS keys
-  { pattern: /(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}/g, label: "[REDACTED:AWS_KEY]" },
-  { pattern: /(?:aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*)[^\s"']+/gi, label: "aws_secret_access_key=[REDACTED]" },
+  {
+    pattern: /(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}/g,
+    label: "[REDACTED:AWS_KEY]",
+  },
+  {
+    pattern: /(?:aws[_-]?secret[_-]?access[_-]?key\s*[=:]\s*)[^\s"']+/gi,
+    label: "aws_secret_access_key=[REDACTED]",
+  },
 
   // Generic API keys / tokens (key=value or key: value patterns)
-  { pattern: /(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token|bearer|secret[_-]?key|private[_-]?key|client[_-]?secret)\s*[=:]\s*["']?[A-Za-z0-9_\-./+=]{8,}["']?/gi, label: "[REDACTED:CREDENTIAL]" },
+  {
+    pattern:
+      /(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token|bearer|secret[_-]?key|private[_-]?key|client[_-]?secret)\s*[=:]\s*["']?[A-Za-z0-9_\-./+=]{8,}["']?/gi,
+    label: "[REDACTED:CREDENTIAL]",
+  },
 
   // Bearer tokens in headers
   { pattern: /Bearer\s+[A-Za-z0-9_\-./+=]{20,}/g, label: "Bearer [REDACTED]" },
 
   // JWT tokens (three base64 segments separated by dots)
-  { pattern: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_\-+=]{10,}/g, label: "[REDACTED:JWT]" },
+  {
+    pattern:
+      /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_\-+=]{10,}/g,
+    label: "[REDACTED:JWT]",
+  },
 
   // Private keys (PEM format)
-  { pattern: /-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----[\s\S]*?-----END\s+(RSA\s+)?PRIVATE\s+KEY-----/g, label: "[REDACTED:PRIVATE_KEY]" },
+  {
+    pattern:
+      /-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----[\s\S]*?-----END\s+(RSA\s+)?PRIVATE\s+KEY-----/g,
+    label: "[REDACTED:PRIVATE_KEY]",
+  },
 
   // Connection strings with credentials
-  { pattern: /(?:mongodb|postgres|postgresql|mysql|redis|amqp):\/\/[^:]+:[^@\s]+@[^\s"']+/gi, label: "[REDACTED:CONNECTION_STRING]" },
+  {
+    pattern:
+      /(?:mongodb|postgres|postgresql|mysql|redis|amqp):\/\/[^:]+:[^@\s]+@[^\s"']+/gi,
+    label: "[REDACTED:CONNECTION_STRING]",
+  },
 
   // Generic password patterns
-  { pattern: /(?:password|passwd|pwd)\s*[=:]\s*["']?[^\s"']{4,}["']?/gi, label: "password=[REDACTED]" },
+  {
+    pattern: /(?:password|passwd|pwd)\s*[=:]\s*["']?[^\s"']{4,}["']?/gi,
+    label: "password=[REDACTED]",
+  },
 
   // Hex tokens (32+ chars, often secrets/hashes)
-  { pattern: /(?:token|secret|key)\s*[=:]\s*["']?[0-9a-f]{32,}["']?/gi, label: "[REDACTED:TOKEN]" },
+  {
+    pattern: /(?:token|secret|key)\s*[=:]\s*["']?[0-9a-f]{32,}["']?/gi,
+    label: "[REDACTED:TOKEN]",
+  },
 
   // GitHub tokens
   { pattern: /gh[pousr]_[A-Za-z0-9_]{36,}/g, label: "[REDACTED:GITHUB_TOKEN]" },
 
   // Slack tokens
-  { pattern: /xox[bpoas]-[A-Za-z0-9\-]{10,}/g, label: "[REDACTED:SLACK_TOKEN]" },
+  {
+    pattern: /xox[bpoas]-[A-Za-z0-9\-]{10,}/g,
+    label: "[REDACTED:SLACK_TOKEN]",
+  },
 
   // npm tokens
   { pattern: /npm_[A-Za-z0-9]{36,}/g, label: "[REDACTED:NPM_TOKEN]" },

@@ -39,21 +39,29 @@ export interface ProjectContext {
 // ─── Analysis ─────────────────────────────────────────────────────────────────
 
 const IGNORED_DIRS = new Set([
-  "node_modules", ".git", ".next", ".angular", "dist", "build",
-  "coverage", ".cache", ".turbo", ".output", ".nuxt", "__pycache__",
+  "node_modules",
+  ".git",
+  ".next",
+  ".angular",
+  "dist",
+  "build",
+  "coverage",
+  ".cache",
+  ".turbo",
+  ".output",
+  ".nuxt",
+  "__pycache__",
 ]);
 
-const RULES_GLOBS = [
-  ".claude/rules",
-  ".opencode/rules",
-];
+const RULES_GLOBS = [".claude/rules", ".opencode/rules"];
 
 export function analyzeProject(projectPath: string): ProjectContext {
   const resolved = resolve(projectPath);
 
   // Package.json
   const pkg = readPackageJson(resolved);
-  const name = (typeof pkg?.name === "string" ? pkg.name : null) ?? basename(resolved);
+  const name =
+    (typeof pkg?.name === "string" ? pkg.name : null) ?? basename(resolved);
   const commands = extractCommands(pkg);
 
   // Tech stack
@@ -155,7 +163,9 @@ function readPackageJson(projectPath: string): Record<string, unknown> | null {
   }
 }
 
-function extractCommands(pkg: Record<string, unknown> | null): Record<string, string> {
+function extractCommands(
+  pkg: Record<string, unknown> | null,
+): Record<string, string> {
   if (!pkg?.scripts || typeof pkg.scripts !== "object") return {};
   const scripts = pkg.scripts as Record<string, string>;
   const commands: Record<string, string> = {};
@@ -171,7 +181,11 @@ function detectLanguage(projectPath: string): string {
   if (existsSync(join(projectPath, "jsconfig.json"))) return "JavaScript";
   if (existsSync(join(projectPath, "go.mod"))) return "Go";
   if (existsSync(join(projectPath, "Cargo.toml"))) return "Rust";
-  if (existsSync(join(projectPath, "pyproject.toml")) || existsSync(join(projectPath, "setup.py"))) return "Python";
+  if (
+    existsSync(join(projectPath, "pyproject.toml")) ||
+    existsSync(join(projectPath, "setup.py"))
+  )
+    return "Python";
   return "JavaScript";
 }
 
@@ -190,16 +204,22 @@ function buildStructure(projectPath: string): string[] {
       // One level deeper for src/
       if (entry.name === "src") {
         try {
-          const srcEntries = readdirSync(join(projectPath, "src"), { withFileTypes: true });
+          const srcEntries = readdirSync(join(projectPath, "src"), {
+            withFileTypes: true,
+          });
           for (const sub of srcEntries) {
             if (sub.isDirectory() && !IGNORED_DIRS.has(sub.name)) {
               structure.push(`src/${sub.name}/`);
             }
           }
-        } catch { /* src/ not readable */ }
+        } catch {
+          /* src/ not readable */
+        }
       }
     }
-  } catch { /* not readable */ }
+  } catch {
+    /* not readable */
+  }
 
   return structure.sort();
 }
@@ -218,15 +238,26 @@ function detectConventions(projectPath: string): string[] {
       if (tsconfig?.compilerOptions?.paths) {
         conventions.push("Path aliases configured in tsconfig");
       }
-    } catch { /* parse error */ }
+    } catch {
+      /* parse error */
+    }
   }
 
   // Linting/formatting
-  const lintConfigs = [".eslintrc.js", ".eslintrc.json", ".eslintrc.yml", "eslint.config.js", "eslint.config.mjs"];
+  const lintConfigs = [
+    ".eslintrc.js",
+    ".eslintrc.json",
+    ".eslintrc.yml",
+    "eslint.config.js",
+    "eslint.config.mjs",
+  ];
   if (lintConfigs.some((f) => existsSync(join(projectPath, f)))) {
     conventions.push("Uses ESLint");
   }
-  if (existsSync(join(projectPath, ".prettierrc")) || existsSync(join(projectPath, ".prettierrc.json"))) {
+  if (
+    existsSync(join(projectPath, ".prettierrc")) ||
+    existsSync(join(projectPath, ".prettierrc.json"))
+  ) {
     conventions.push("Uses Prettier");
   }
 
@@ -244,11 +275,15 @@ function findRulesContent(projectPath: string): string | null {
     const fullDir = join(projectPath, rulesDir);
     if (!existsSync(fullDir)) continue;
     try {
-      const files = readdirSync(fullDir).filter((f) => f.endsWith("-project.md") || f === "project.md");
+      const files = readdirSync(fullDir).filter(
+        (f) => f.endsWith("-project.md") || f === "project.md",
+      );
       if (files.length > 0) {
         return readFileSync(join(fullDir, files[0]), "utf-8");
       }
-    } catch { /* not readable */ }
+    } catch {
+      /* not readable */
+    }
   }
   return null;
 }

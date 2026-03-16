@@ -18,6 +18,7 @@ Type: Bugfix
 2. **Auto-capture heuristics never fire** — All 48 existing observations came from explicit `memory_save` MCP tool calls, not auto-capture. The plugin's `tool.execute.after` hook only receives quality-check event data (file issues), not full tool outputs. The `analyzeEvent()` heuristics require richer data (bash outputs, error indicators) that the event stream doesn't provide in OpenCode's plugin model. This is a design limitation, not a code regression.
 
 **Evidence:**
+
 - `sidecar.port` contains `51871`, but sidecar PID 74023 listens on port `65186`
 - Unix socket (`sidecar.sock`) works fine — MCP server (Bun) connects successfully
 - Plugin debug log shows `"insertSession failed: Was there a typo in the url or port?"` starting 2026-03-12 19:32

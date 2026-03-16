@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <task> or <path/to/plan.md>
 ---
 
@@ -38,13 +38,16 @@ Create plan file at `docs/plans/YYYY-MM-DD-<slug>.md`:
 **Date:** YYYY-MM-DD
 
 ## Goal
+
 [One clear sentence]
 
 ## Scope
+
 - **In scope:** [bulleted list]
 - **Out of scope:** [bulleted list]
 
 ## Architecture
+
 [2-3 paragraphs explaining the approach, which modules/components to create/modify]
 
 ## Tasks
@@ -52,6 +55,7 @@ Create plan file at `docs/plans/YYYY-MM-DD-<slug>.md`:
 Done: 0 | Left: N
 
 ### Task 1: [Name]
+
 - [ ] Description of what to build/change
 - **Files:** create/modify/test file paths
 - **DoD:** Definition of Done for this task
@@ -59,9 +63,11 @@ Done: 0 | Left: N
 ### Task 2: ...
 
 ## Risks
+
 [Known risks and mitigations]
 
 ## Goal Verification
+
 [How to verify the feature works end-to-end after all tasks complete]
 ```
 

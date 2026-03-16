@@ -23,7 +23,10 @@ import type { SidecarClient } from "../sidecar/client.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-spec-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-spec-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -32,7 +35,9 @@ function makePlanFile(dir: string, slug: string, status = "PENDING"): string {
   const plansDir = join(dir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const planFile = join(plansDir, `${slug}.md`);
-  writeFileSync(planFile, `# Test Plan
+  writeFileSync(
+    planFile,
+    `# Test Plan
 
 Status: ${status}
 Type: Feature
@@ -54,7 +59,8 @@ Approved: Yes
 ### Task 2: Second task
 
 **Objective:** Do the second thing.
-`);
+`,
+  );
   return planFile;
 }
 
@@ -62,8 +68,20 @@ Approved: Yes
  * Extract tool handler from McpServer by capturing the registration.
  * McpServer.tool() stores handlers internally — we intercept them.
  */
-function captureTools(store: MemoryStore): Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>> {
-  const tools = new Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>();
+function captureTools(
+  store: MemoryStore,
+): Map<
+  string,
+  (
+    args: Record<string, unknown>,
+  ) => Promise<{ content: { type: string; text: string }[] }>
+> {
+  const tools = new Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >();
 
   const server = new McpServer({ name: "test", version: "0.0.1" });
 
@@ -73,7 +91,9 @@ function captureTools(store: MemoryStore): Map<string, (args: Record<string, unk
     // server.tool(name, description, schema, handler) — 4-arg form
     if (args.length >= 4 && typeof args[0] === "string") {
       const name = args[0] as string;
-      const handler = args[3] as (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+      const handler = args[3] as (
+        args: Record<string, unknown>,
+      ) => Promise<{ content: { type: string; text: string }[] }>;
       tools.set(name, handler);
     }
     return origTool(...(args as Parameters<typeof origTool>));
@@ -88,7 +108,12 @@ function captureTools(store: MemoryStore): Map<string, (args: Record<string, unk
 describe("spec_register MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
@@ -123,7 +148,11 @@ describe("spec_register MCP tool", () => {
     const planFile = makePlanFile(tmpDir, "2026-01-01-status-test", "PENDING");
     const handler = tools.get("spec_register")!;
 
-    await handler({ plan_path: planFile, project: tmpDir, status: "IN_PROGRESS" });
+    await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "IN_PROGRESS",
+    });
 
     // Verify the plan file was updated on disk
     const content = readFileSync(planFile, "utf-8");
@@ -153,7 +182,12 @@ describe("spec_register MCP tool", () => {
 describe("spec_wait_file MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
@@ -212,7 +246,12 @@ describe("spec_wait_file MCP tool", () => {
 describe("spec_config MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   const ENV_KEYS = [
     "SENTINAL_PLAN_QUESTIONS_ENABLED",
@@ -273,7 +312,12 @@ describe("spec_config MCP tool", () => {
 describe("spec_plan_parse MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
@@ -291,7 +335,11 @@ describe("spec_plan_parse MCP tool", () => {
   });
 
   it("should return parsed plan metadata", async () => {
-    const planFile = makePlanFile(tmpDir, "2026-03-01-my-feature", "IN_PROGRESS");
+    const planFile = makePlanFile(
+      tmpDir,
+      "2026-03-01-my-feature",
+      "IN_PROGRESS",
+    );
     const handler = tools.get("spec_plan_parse")!;
 
     const result = await handler({ plan_path: planFile });
@@ -311,7 +359,12 @@ describe("spec_plan_parse MCP tool", () => {
 describe("spec_notify MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
@@ -353,7 +406,12 @@ describe("spec_notify MCP tool", () => {
 describe("spec_events MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<string, (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>>;
+  let tools: Map<
+    string,
+    (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: { type: string; text: string }[] }>
+  >;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
@@ -406,9 +464,13 @@ describe("spec_events MCP tool", () => {
 
 // --- Sidecar mode tests ---
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+) => Promise<{ content: { type: string; text: string }[] }>;
 
-function captureSidecarTools(mockClient: Partial<SidecarClient>): Map<string, ToolHandler> {
+function captureSidecarTools(
+  mockClient: Partial<SidecarClient>,
+): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>();
   const server = new McpServer({ name: "test", version: "0.0.1" });
 
@@ -500,7 +562,11 @@ describe("spec MCP tools (sidecar mode)", () => {
 
     const tools = captureSidecarTools(mockClient);
     const handler = tools.get("spec_notify")!;
-    await handler({ type: "info", title: "Test notification", message: "Details" });
+    await handler({
+      type: "info",
+      title: "Test notification",
+      message: "Details",
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0].title).toBe("Test notification");
@@ -510,7 +576,14 @@ describe("spec MCP tools (sidecar mode)", () => {
   it("spec_events should delegate to client.getSpecEvents", async () => {
     const mockClient = {
       getSpecEvents: async (_specId: string, _limit?: number) => [
-        { id: 1, specId: "test-spec", sessionId: null, eventType: "phase_change" as const, timestamp: Date.now(), details: { from: "plan", to: "implement" } },
+        {
+          id: 1,
+          specId: "test-spec",
+          sessionId: null,
+          eventType: "phase_change" as const,
+          timestamp: Date.now(),
+          details: { from: "plan", to: "implement" },
+        },
       ],
     };
 

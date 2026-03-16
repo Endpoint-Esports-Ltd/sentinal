@@ -1,5 +1,17 @@
-import { describe, expect, test, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { getAssetName, checkForUpdateWithStore, reinstallPlugins } from "./update.js";
+import {
+  describe,
+  expect,
+  test,
+  beforeEach,
+  afterEach,
+  mock,
+  spyOn,
+} from "bun:test";
+import {
+  getAssetName,
+  checkForUpdateWithStore,
+  reinstallPlugins,
+} from "./update.js";
 import * as uninstallModule from "./uninstall.js";
 import * as installModule from "./install.js";
 import { MemoryStore } from "../../memory/store.js";
@@ -124,10 +136,12 @@ describe("reinstallPlugins", () => {
     let installCalled = false;
     let uninstallOpts: unknown = null;
 
-    spyOn(uninstallModule, "uninstallOpenCode").mockImplementation(async (opts) => {
-      uninstallCalled = true;
-      uninstallOpts = opts;
-    });
+    spyOn(uninstallModule, "uninstallOpenCode").mockImplementation(
+      async (opts) => {
+        uninstallCalled = true;
+        uninstallOpts = opts;
+      },
+    );
     spyOn(installModule, "installOpenCode").mockImplementation(async () => {
       installCalled = true;
     });
@@ -149,9 +163,11 @@ describe("reinstallPlugins", () => {
     let uninstallCalled = false;
     let installCalled = false;
 
-    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
-      uninstallCalled = true;
-    });
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(
+      async () => {
+        uninstallCalled = true;
+      },
+    );
     spyOn(installModule, "installClaudeCode").mockImplementation(async () => {
       installCalled = true;
     });
@@ -168,9 +184,11 @@ describe("reinstallPlugins", () => {
       opencode: false,
     });
 
-    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
-      throw new Error("Claude CLI not found");
-    });
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(
+      async () => {
+        throw new Error("Claude CLI not found");
+      },
+    );
 
     // Should not throw — failure is non-fatal
     await reinstallPlugins();
@@ -184,9 +202,11 @@ describe("reinstallPlugins", () => {
 
     const calls: string[] = [];
 
-    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(async () => {
-      calls.push("uninstall-claude");
-    });
+    spyOn(uninstallModule, "uninstallClaudeCode").mockImplementation(
+      async () => {
+        calls.push("uninstall-claude");
+      },
+    );
     spyOn(installModule, "installClaudeCode").mockImplementation(async () => {
       calls.push("install-claude");
     });

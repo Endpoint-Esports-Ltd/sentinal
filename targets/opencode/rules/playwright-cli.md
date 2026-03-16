@@ -45,13 +45,13 @@ playwright-cli -s="$PW_SESSION" close             # 5. Clean up
 
 **Interactions (use refs from snapshot):**
 
-| Command | Example |
-|---------|---------|
-| Click | `click e1`, `dblclick e1` |
+| Command    | Example                                               |
+| ---------- | ----------------------------------------------------- |
+| Click      | `click e1`, `dblclick e1`                             |
 | Text input | `fill e2 "text"` (clear+type), `type "text"` (append) |
-| Keys | `press Enter`, `press Control+a` |
-| Forms | `check e1`, `uncheck e1`, `select e1 "value"` |
-| Other | `hover e1`, `drag e1 e2`, `upload ./file.pdf` |
+| Keys       | `press Enter`, `press Control+a`                      |
+| Forms      | `check e1`, `uncheck e1`, `select e1 "value"`         |
+| Other      | `hover e1`, `drag e1 e2`, `upload ./file.pdf`         |
 
 **JavaScript:** `eval "document.title"`, `eval "el => el.textContent" e5`
 

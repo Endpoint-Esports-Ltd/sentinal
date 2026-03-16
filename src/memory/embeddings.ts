@@ -60,15 +60,14 @@ export class EmbeddingService {
       env.useBrowserCache = false;
       env.cacheDir = join(homedir(), DB_CONSTANTS.DB_DIR, "models");
 
-      this.pipeline = await pipeline(
+      this.pipeline = (await pipeline(
         "feature-extraction",
         EMBEDDING_CONSTANTS.MODEL_NAME,
-      ) as unknown as Pipeline;
+      )) as unknown as Pipeline;
       this.available = true;
     } catch (error) {
       this.available = false;
-      this.initError =
-        error instanceof Error ? error.message : String(error);
+      this.initError = error instanceof Error ? error.message : String(error);
       this.pipeline = null;
     }
   }

@@ -36,7 +36,9 @@ export function rebuildFtsIndex(store: MemoryStore): number {
     db.run("INSERT INTO observations_fts(observations_fts) VALUES('rebuild')");
   }
 
-  const row = db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number };
+  const row = db
+    .prepare("SELECT COUNT(*) as count FROM observations")
+    .get() as { count: number };
   return row.count;
 }
 
@@ -52,7 +54,9 @@ export async function rebuildVectorIndex(
   vectorStore: VectorStore,
 ): Promise<number> {
   if (!vectorStore.isAvailable()) {
-    throw new Error("Vector store is not available. Cannot rebuild vector index.");
+    throw new Error(
+      "Vector store is not available. Cannot rebuild vector index.",
+    );
   }
 
   const db = store.getRawDb();
@@ -65,9 +69,11 @@ export async function rebuildVectorIndex(
   }
 
   // Re-index all observations
-  const rows = db.prepare(
-    "SELECT id, title, content, tags, project_path, timestamp FROM observations ORDER BY id",
-  ).all() as Array<{
+  const rows = db
+    .prepare(
+      "SELECT id, title, content, tags, project_path, timestamp FROM observations ORDER BY id",
+    )
+    .all() as Array<{
     id: number;
     title: string;
     content: string;
@@ -126,7 +132,9 @@ export function backupDatabase(dbPath: string): string | null {
  */
 export function checkIntegrity(store: MemoryStore): string[] | null {
   const db = store.getRawDb();
-  const rows = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
+  const rows = db.prepare("PRAGMA integrity_check").all() as Array<{
+    integrity_check: string;
+  }>;
 
   if (rows.length === 1 && rows[0].integrity_check === "ok") {
     return null;
@@ -140,9 +148,9 @@ export function checkIntegrity(store: MemoryStore): string[] | null {
 /** Decay rates per 30-day period by observation type */
 const DECAY_RATES: Record<string, number> = {
   decision: 0.95,
-  discovery: 0.90,
+  discovery: 0.9,
   pattern: 0.85,
-  fix: 0.80,
+  fix: 0.8,
   error: 0.75,
 };
 
@@ -178,22 +186,34 @@ export function decayQualityScores(
   for (const [type, rate] of Object.entries(DECAY_RATES)) {
     // Calculate new scores: score * rate^(age_ms / period_ms)
     // SQLite doesn't have pow(), so we compute in JS
-    const rows = db.prepare(
-      "SELECT id, quality_score, timestamp FROM observations WHERE type = ?",
-    ).all(type) as Array<{ id: number; quality_score: number; timestamp: number }>;
+    const rows = db
+      .prepare(
+        "SELECT id, quality_score, timestamp FROM observations WHERE type = ?",
+      )
+      .all(type) as Array<{
+      id: number;
+      quality_score: number;
+      timestamp: number;
+    }>;
 
     for (const row of rows) {
       const ageMs = now - row.timestamp;
       const periods = ageMs / DECAY_PERIOD_MS;
       // Decay from initial quality, but never boost above current score
-      const decayedScore = Math.max(MINIMUM_QUALITY_SCORE, Math.pow(rate, periods));
+      const decayedScore = Math.max(
+        MINIMUM_QUALITY_SCORE,
+        Math.pow(rate, periods),
+      );
       const newScore = Math.min(row.quality_score, decayedScore);
 
       // Only count as decayed if score actually changes meaningfully
       if (Math.abs(newScore - row.quality_score) > 0.001) {
         totalDecayed++;
         if (!options?.dryRun) {
-          db.run("UPDATE observations SET quality_score = ? WHERE id = ?", [newScore, row.id]);
+          db.run("UPDATE observations SET quality_score = ? WHERE id = ?", [
+            newScore,
+            row.id,
+          ]);
           totalUpdated++;
         }
       }

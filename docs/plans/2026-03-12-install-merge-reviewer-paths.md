@@ -8,6 +8,7 @@ Worktree: No
 Type: Feature
 
 ## Summary
+
 **Goal:** Fix the install config merge to deep-merge permission/agent blocks instead of skip-if-exists, make uninstall cleanly remove only sentinal-managed keys (or the entire block if it matches exactly), move reviewer output files from ephemeral `~/.sentinal/` paths to plan-adjacent `docs/plans/<plan>.{plan,spec}-review.json`, and grant reviewer agents write access to these files plus add `spec-reviewer` to the build agent's allowed subagents.
 
 **Architecture:** Install and uninstall both use a shared list of sentinal-managed permission/agent keys to merge and clean up precisely. The skill/command files that launch reviewers derive the output path from the plan path by replacing `.md` with `.plan-review.json` or `.spec-review.json`. Reviewer agent frontmatter gains `write` permission scoped to `docs/plans/*.json`.
@@ -15,7 +16,9 @@ Type: Feature
 **Tech Stack:** TypeScript, Bun, Markdown (skills/commands/agents)
 
 ## Scope
+
 ### In Scope
+
 - Deep-merge logic for `permission` and `agent` blocks in `install.ts`
 - Smart cleanup of sentinal-managed keys in `uninstall.ts` (remove only sentinal's keys; delete entire block if it matches exactly)
 - Update uninstall to remove `explore`, `general`, and agent `edit` sub-permissions (currently missed)
@@ -25,12 +28,14 @@ Type: Feature
 - Add `spec-reviewer` to build agent in the uninstall cleanup key list
 
 ### Out of Scope
+
 - Claude Code agent permissions (already has `Task(*)` pre-approved)
 - Changes to reviewer output JSON schema
 - Changes to how reviewers are launched (Task/subagent mechanism)
 - Deep-merge for MCP servers (already handled correctly)
 
 ## Context for Implementer
+
 > Write for an implementer who has never seen the codebase.
 
 - **Patterns to follow:**
@@ -70,31 +75,38 @@ Type: Feature
   - Review output files are currently written to `~/.sentinal/sessions/<id>/findings-*.json` which is ephemeral and per-session. Moving to `docs/plans/<plan>.*-review.json` makes them persist alongside the plan, reviewable by users, and versionable.
 
 ## Assumptions
+
 - OpenCode resolves write permissions from agent frontmatter `permission.write` or `permission.edit` scoped paths — supported by: existing `permission.edit` and `permission.bash` patterns in agent frontmatter (`spec-reviewer.md:6-11`) — Tasks 5 depend on this
 - Skill files can construct the review output path by replacing `.md` suffix on the plan path — supported by: plan paths follow `docs/plans/YYYY-MM-DD-<slug>.md` convention consistently — Task 4 depends on this
 - The embedded config in `EMBEDDED_OC_CONFIG_JSON` is always the full intended config — supported by: `embed-assets.mjs` copies `targets/opencode/opencode.json` verbatim — Tasks 1, 2 depend on this
 
 ## Testing Strategy
+
 - Unit tests for the deep-merge helper function (various merge scenarios)
 - Unit tests for uninstall cleanup (verify sentinal keys removed, user keys preserved)
 - Manual verification: install with existing config, check merge result; uninstall, check cleanup result
 
 ## Risks and Mitigations
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Deep merge overwrites user's custom permission values | Low | Medium | Merge is additive only: add missing keys, never overwrite existing ones |
-| Uninstall removes user-added agent keys | Low | Medium | Use explicit sentinal-managed key list, not wildcards |
-| Reviewer can't write to project docs/plans/ | Medium | Low | Add write permission in agent frontmatter; if OpenCode doesn't support it, the orchestrator (skill) already has Write access as fallback |
-| Skill path derivation fails for non-standard plan paths | Low | Low | Only triggered when plan path doesn't end with `.md`; add guard |
+
+| Risk                                                    | Likelihood | Impact | Mitigation                                                                                                                               |
+| ------------------------------------------------------- | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Deep merge overwrites user's custom permission values   | Low        | Medium | Merge is additive only: add missing keys, never overwrite existing ones                                                                  |
+| Uninstall removes user-added agent keys                 | Low        | Medium | Use explicit sentinal-managed key list, not wildcards                                                                                    |
+| Reviewer can't write to project docs/plans/             | Medium     | Low    | Add write permission in agent frontmatter; if OpenCode doesn't support it, the orchestrator (skill) already has Write access as fallback |
+| Skill path derivation fails for non-standard plan paths | Low        | Low    | Only triggered when plan path doesn't end with `.md`; add guard                                                                          |
 
 ## Pre-Mortem
-*Assume this plan failed. Most likely internal reasons:*
+
+_Assume this plan failed. Most likely internal reasons:_
+
 1. **Deep merge adds keys but doesn't handle nested objects correctly** (Task 1) → Trigger: `agent.build.permission.edit` is `{"*": "allow"}` in embedded config but user has `{"*": "ask", "src/**": "allow"}` — merge replaces instead of merging. Fix: merge must be recursive for nested objects, not just top-level keys.
 2. **Reviewer agent can't write to `docs/plans/*.json` because OpenCode permission model doesn't support `write` in agent frontmatter** (Task 5) → Trigger: plan-reviewer agent errors when trying to write output. Fix: verify OpenCode's agent permission model; if `write` isn't supported, keep the output path but have the orchestrating skill write the file instead.
 3. **Uninstall leaves empty `agent` block with `"build": {"permission": {"task": {"*": "ask"}}}` after removing sentinal keys** (Task 2) → Trigger: config file has cruft after uninstall. Fix: Clean up empty agent objects after key deletion; update `isConfigEffectivelyEmpty()`.
 
 ## Goal Verification
+
 ### Truths
+
 1. Running `sentinal install opencode` on an existing config with old permission/agent blocks correctly merges the new keys (explore, general, etc.) without overwriting user-added keys
 2. Running `sentinal uninstall opencode` removes all sentinal-managed permission/agent keys but preserves user-added ones
 3. If the permission/agent blocks contain ONLY sentinal-managed keys, uninstall removes the entire block
@@ -104,25 +116,28 @@ Type: Feature
 7. Build agent can invoke `spec-reviewer` subagent without prompting
 
 ### Artifacts
+
 - Modified: `src/cli/commands/install.ts`, `src/cli/commands/uninstall.ts`
 - Modified: `targets/opencode/opencode.json`, `targets/opencode/agents/plan-reviewer.md`, `targets/opencode/agents/spec-reviewer.md`
 - Modified skills: `targets/opencode/skills/spec-plan/SKILL.md`, `targets/opencode/skills/spec-verify/SKILL.md`
 - Modified commands: `targets/claude-code/commands/spec-plan.md`, `targets/claude-code/commands/spec-verify.md`
 
 ### Key Links
+
 1. `opencode.json` (source) → `embed-assets.mjs` → `embedded-assets.ts` → `install.ts` merge logic
 2. `install.ts` deep-merge → `opencode.jsonc` (deployed) ← `uninstall.ts` cleanup
 3. Skill `spec-plan/SKILL.md` → OUTPUT_PATH → plan-reviewer agent → `docs/plans/<plan>.plan-review.json`
 4. Skill `spec-verify/SKILL.md` → OUTPUT_PATH → spec-reviewer agent → `docs/plans/<plan>.spec-review.json`
 
 ## Progress Tracking
+
 - [x] Task 1: Deep-merge permission and agent blocks in install
 - [x] Task 2: Smart uninstall permission/agent cleanup
 - [x] Task 3: Add spec-reviewer to build agent + opencode.json
 - [x] Task 4: Update reviewer output paths in skill/command files
 - [x] Task 5: Add write permission to reviewer agents
 - [x] Task 6: Add tests
-**Total Tasks:** 6 | **Completed:** 6 | **Remaining:** 0
+      **Total Tasks:** 6 | **Completed:** 6 | **Remaining:** 0
 
 ## Implementation Tasks
 
@@ -133,9 +148,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/cli/commands/install.ts`
 
 **Key Decisions / Notes:**
+
 - Add a helper function `deepMergeAdditive(target, source)` that recursively merges `source` into `target`:
   - For each key in `source`: if key doesn't exist in `target`, add it. If both values are plain objects, recurse. If key exists and is not an object, **do not overwrite** (user's value wins).
   - This is NOT the same as lodash `merge` — we never overwrite scalars.
@@ -144,14 +161,14 @@ Type: Feature
   if (permissionConfig) {
     config.permission = deepMergeAdditive(
       (config.permission as Record<string, unknown>) ?? {},
-      permissionConfig
+      permissionConfig,
     );
     ok("    Permissions merged");
   }
   if (agentConfig) {
     config.agent = deepMergeAdditive(
       (config.agent as Record<string, unknown>) ?? {},
-      agentConfig
+      agentConfig,
     );
     ok("    Agent permissions merged");
   }
@@ -159,12 +176,14 @@ Type: Feature
 - Export the helper (`export function deepMergeAdditive(...)`) so it can be unit-tested from `install.test.ts`.
 
 **Definition of Done:**
+
 - [ ] Installing over an existing config with old permission/agent blocks adds new keys
 - [ ] Installing over an existing config does NOT overwrite user-customized values
 - [ ] Installing from scratch (no existing config) still works
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `npx tsc --noEmit`
 
 ### Task 2: Smart uninstall permission/agent cleanup
@@ -174,14 +193,16 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/cli/commands/uninstall.ts`
 
 **Key Decisions / Notes:**
+
 - Define `SENTINAL_TASK_KEYS` constant: `["plan-reviewer", "spec-reviewer", "explore", "general"]`
 - Define `SENTINAL_EDIT_PLAN_KEYS` constant: `["docs/plans/*.md", "docs/plans/**/*.md", "docs/plans/*.json"]`
 - Update the permission cleanup (lines 463-475):
   - Remove `skill` (already done)
-  - Remove plan-file edit keys (already done) 
+  - Remove plan-file edit keys (already done)
   - No change needed here — current logic is correct
 - Update the agent cleanup (lines 477-488):
   - Delete all `SENTINAL_TASK_KEYS` from `agent.*.permission.task`
@@ -194,16 +215,18 @@ Type: Feature
 - Update `isConfigEffectivelyEmpty()` to also check that `permission` and `agent` are absent or empty
 
 **Definition of Done:**
+
 - [ ] Uninstall removes `explore`, `general` from agent task permissions (currently missed)
 - [ ] Uninstall removes `agent.build.permission.edit` (currently missed)
 - [ ] Uninstall removes empty agent entries after key deletion
 - [ ] Uninstall preserves user-added task permission keys
 - [ ] Uninstall preserves user-added edit permission keys
-- [ ] Uninstall cleans up `docs/plans/*.json` entries from permission.edit and agent.*.permission.edit
+- [ ] Uninstall cleans up `docs/plans/*.json` entries from permission.edit and agent.\*.permission.edit
 - [ ] `isConfigEffectivelyEmpty()` considers permission and agent blocks
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `npx tsc --noEmit`
 
 ### Task 3: Add spec-reviewer to build agent + update opencode.json
@@ -213,20 +236,24 @@ Type: Feature
 **Dependencies:** Task 2 (uses same key lists)
 
 **Files:**
+
 - Modify: `targets/opencode/opencode.json` (verify, may already be correct)
 - Modify: `src/cli/commands/uninstall.ts` (ensure `spec-reviewer` is in the cleanup key list — it already is at line 483, but verify)
 
 **Key Decisions / Notes:**
+
 - `opencode.json` already has `spec-reviewer: allow` in `build.permission.task` from the previous plan. Verify this is correct.
 - The uninstall already removes `spec-reviewer` at line 483. Verify this is in the `SENTINAL_TASK_KEYS` list from Task 2.
 - This task is primarily a verification/consistency check.
 
 **Definition of Done:**
+
 - [ ] `opencode.json` has `spec-reviewer: allow` in build agent task permissions
 - [ ] Uninstall cleanup key list includes `spec-reviewer`
 - [ ] JSON is valid
 
 **Verify:**
+
 - `bun -e "JSON.parse(require('fs').readFileSync('targets/opencode/opencode.json', 'utf-8')); console.log('Valid JSON')"`
 
 ### Task 4: Update reviewer output paths in skill/command files
@@ -236,33 +263,38 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/opencode/skills/spec-plan/SKILL.md`
 - Modify: `targets/opencode/skills/spec-verify/SKILL.md`
 - Modify: `targets/claude-code/commands/spec-plan.md`
 - Modify: `targets/claude-code/commands/spec-verify.md`
 
 **Key Decisions / Notes:**
+
 - **Plan reviewer** (in spec-plan skill/command): Replace the OUTPUT_PATH block:
+
   ```bash
   # Old:
   SESS_ID=$(echo $SENTINAL_SESSION_ID)
   OUTPUT_PATH="$HOME/.sentinal/sessions/$SESS_ID/findings-plan-reviewer.json"
   rm -f "$OUTPUT_PATH"
-  
+
   # New:
   PLAN_PATH="<plan-path>"
   OUTPUT_PATH="${PLAN_PATH%.md}.plan-review.json"
   rm -f "$OUTPUT_PATH"
   ```
+
   The `<plan-path>` is already known at this point in the skill — it's the plan file being reviewed.
 
 - **Spec reviewer** (in spec-verify skill/command): Same pattern:
+
   ```bash
   # Old:
   SESS_ID=$(echo $SENTINAL_SESSION_ID)
   OUTPUT_PATH="$HOME/.sentinal/sessions/$SESS_ID/findings-spec-reviewer.json"
   rm -f "$OUTPUT_PATH"
-  
+
   # New:
   PLAN_PATH="<plan-path>"
   OUTPUT_PATH="${PLAN_PATH%.md}.spec-review.json"
@@ -276,11 +308,13 @@ Type: Feature
 - **Important:** The spec-plan skill at Step 1.7 already has the plan path available (it was created in Step 1.1). The spec-verify skill reads the plan path as its input argument.
 
 **Definition of Done:**
+
 - [ ] All 4 files use `${PLAN_PATH%.md}.*-review.json` pattern
 - [ ] Old `~/.sentinal/sessions/` paths are no longer referenced
 - [ ] Polling/wait blocks still work (they reference `$OUTPUT_PATH` variable)
 
 **Verify:**
+
 - Visual inspection of all 4 files
 
 ### Task 5: Add write permission to reviewer agents
@@ -290,11 +324,14 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/opencode/agents/plan-reviewer.md`
 - Modify: `targets/opencode/agents/spec-reviewer.md`
 
 **Key Decisions / Notes:**
+
 - **plan-reviewer.md** — Currently has `tools: edit: false, bash: false` AND `permission: edit: deny, bash: deny`. Must update BOTH the `tools` section (to enable the edit tool) AND the `permission` section (to scope it to only review JSON files):
+
   ```yaml
   tools:
     bash: false
@@ -304,9 +341,11 @@ Type: Feature
       "docs/plans/*.json": allow
     bash: deny
   ```
+
   Remove `tools: edit: false` (or set to true) so the edit tool is available. The `permission.edit` block restricts WHERE it can write.
 
 - **spec-reviewer.md** — Currently has `tools: edit: false`. Same approach:
+
   ```yaml
   tools: {}
   permission:
@@ -322,6 +361,7 @@ Type: Feature
 - **Claude Code agents** — Already have `Write` in their tools list (`tools: Read, Grep, Glob, Write`). No changes needed for Claude Code agents since they use `permissionMode: plan` which auto-allows file writes.
 
 **Definition of Done:**
+
 - [ ] plan-reviewer.md `tools.edit` is not `false` (edit tool available)
 - [ ] plan-reviewer.md `permission.edit` allows only `docs/plans/*.json`
 - [ ] spec-reviewer.md `tools.edit` is not `false` (edit tool available)
@@ -330,6 +370,7 @@ Type: Feature
 - [ ] YAML frontmatter is valid
 
 **Verify:**
+
 - Visual inspection of frontmatter
 
 ### Task 6: Add tests
@@ -339,10 +380,12 @@ Type: Feature
 **Dependencies:** Task 1, Task 2
 
 **Files:**
+
 - Modify: `src/cli/commands/install.test.ts` (create if doesn't exist)
 - Modify: `src/cli/commands/uninstall.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Deep merge tests:**
   - Merge into empty target → all source keys added
   - Merge into target with existing keys → existing values preserved, new keys added
@@ -361,12 +404,14 @@ Type: Feature
   - Run uninstall cleanup → verify only user keys remain
 
 **Definition of Done:**
+
 - [ ] Deep merge tests pass
 - [ ] Uninstall cleanup tests pass
 - [ ] All existing tests pass
 - [ ] No TypeScript errors
 
 **Verify:**
+
 - `bun test src/cli/commands/install.test.ts src/cli/commands/uninstall.test.ts`
 - `bun test`
 - `npx tsc --noEmit`

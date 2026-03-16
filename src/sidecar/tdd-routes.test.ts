@@ -29,8 +29,18 @@ describe("bulkTddTransition", () => {
   });
 
   it("should transition TEST_WRITTEN to RED_CONFIRMED on confirm_red", () => {
-    store.setTddState({ filePath: "src/a.ts", state: "TEST_WRITTEN", specId: "spec-1", testFilePath: "src/a.test.ts" });
-    store.setTddState({ filePath: "src/b.ts", state: "TEST_WRITTEN", specId: "spec-1", testFilePath: "src/b.test.ts" });
+    store.setTddState({
+      filePath: "src/a.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+      testFilePath: "src/a.test.ts",
+    });
+    store.setTddState({
+      filePath: "src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+      testFilePath: "src/b.test.ts",
+    });
 
     const result = bulkTddTransition(store, "confirm_red");
     expect(result.count).toBe(2);
@@ -42,8 +52,16 @@ describe("bulkTddTransition", () => {
   });
 
   it("should not transition RED_CONFIRMED states on confirm_red", () => {
-    store.setTddState({ filePath: "src/a.ts", state: "RED_CONFIRMED", specId: "spec-1" });
-    store.setTddState({ filePath: "src/b.ts", state: "TEST_WRITTEN", specId: "spec-1" });
+    store.setTddState({
+      filePath: "src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+    });
 
     const result = bulkTddTransition(store, "confirm_red");
     expect(result.count).toBe(1); // only b.ts
@@ -53,9 +71,21 @@ describe("bulkTddTransition", () => {
   });
 
   it("should clear RED_CONFIRMED states on confirm_green", () => {
-    store.setTddState({ filePath: "src/a.ts", state: "RED_CONFIRMED", specId: "spec-1" });
-    store.setTddState({ filePath: "src/b.ts", state: "RED_CONFIRMED", specId: "spec-1" });
-    store.setTddState({ filePath: "src/c.ts", state: "TEST_WRITTEN", specId: "spec-1" }); // should NOT be cleared
+    store.setTddState({
+      filePath: "src/a.ts",
+      state: "RED_CONFIRMED",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "src/b.ts",
+      state: "RED_CONFIRMED",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "src/c.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+    }); // should NOT be cleared
 
     const result = bulkTddTransition(store, "confirm_green");
     expect(result.count).toBe(2);
@@ -74,8 +104,16 @@ describe("bulkTddTransition", () => {
   });
 
   it("should scope to specId when provided", () => {
-    store.setTddState({ filePath: "src/a.ts", state: "TEST_WRITTEN", specId: "spec-1" });
-    store.setTddState({ filePath: "src/b.ts", state: "TEST_WRITTEN", specId: "spec-2" });
+    store.setTddState({
+      filePath: "src/a.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-1",
+    });
+    store.setTddState({
+      filePath: "src/b.ts",
+      state: "TEST_WRITTEN",
+      specId: "spec-2",
+    });
 
     const result = bulkTddTransition(store, "confirm_red", "spec-1");
     expect(result.count).toBe(1);

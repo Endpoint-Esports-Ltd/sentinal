@@ -6,10 +6,17 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeProject, formatProjectContext, type ProjectContext } from "./context.js";
+import {
+  analyzeProject,
+  formatProjectContext,
+  type ProjectContext,
+} from "./context.js";
 
 function makeTmpProject(): string {
-  const dir = join(tmpdir(), `sentinal-ctx-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-ctx-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -26,10 +33,13 @@ describe("analyzeProject", () => {
   });
 
   it("should extract name from package.json", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({
-      name: "@acme/my-app",
-      scripts: { build: "tsc", test: "jest" },
-    }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "@acme/my-app",
+        scripts: { build: "tsc", test: "jest" },
+      }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.name).toBe("@acme/my-app");
@@ -43,10 +53,18 @@ describe("analyzeProject", () => {
   });
 
   it("should extract scripts from package.json", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({
-      name: "test-app",
-      scripts: { build: "tsc", test: "bun test", lint: "eslint .", dev: "bun run dev" },
-    }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({
+        name: "test-app",
+        scripts: {
+          build: "tsc",
+          test: "bun test",
+          lint: "eslint .",
+          dev: "bun run dev",
+        },
+      }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.commands.build).toBe("tsc");
@@ -56,7 +74,10 @@ describe("analyzeProject", () => {
   });
 
   it("should detect package manager from lockfile", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
     writeFileSync(join(projectDir, "bun.lockb"), "");
 
     const ctx = analyzeProject(projectDir);
@@ -64,7 +85,10 @@ describe("analyzeProject", () => {
   });
 
   it("should detect frameworks", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
     writeFileSync(join(projectDir, "angular.json"), "{}");
 
     const ctx = analyzeProject(projectDir);
@@ -75,7 +99,10 @@ describe("analyzeProject", () => {
     mkdirSync(join(projectDir, "src"), { recursive: true });
     mkdirSync(join(projectDir, "tests"), { recursive: true });
     mkdirSync(join(projectDir, "node_modules"), { recursive: true });
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.structure).toContain("src/");
@@ -87,7 +114,10 @@ describe("analyzeProject", () => {
   it("should capture src/ subdirectories", () => {
     mkdirSync(join(projectDir, "src", "components"), { recursive: true });
     mkdirSync(join(projectDir, "src", "services"), { recursive: true });
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.structure).toContain("src/components/");
@@ -100,24 +130,36 @@ describe("analyzeProject", () => {
       join(projectDir, ".claude", "rules", "test-project.md"),
       "# My Project Rules\n\nUse strict TypeScript.",
     );
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.rulesContent).toContain("My Project Rules");
   });
 
   it("should return null rulesContent when no rules files exist", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.rulesContent).toBeNull();
   });
 
   it("should detect tsconfig strict mode", () => {
-    writeFileSync(join(projectDir, "package.json"), JSON.stringify({ name: "test" }));
-    writeFileSync(join(projectDir, "tsconfig.json"), JSON.stringify({
-      compilerOptions: { strict: true, target: "ES2022" },
-    }));
+    writeFileSync(
+      join(projectDir, "package.json"),
+      JSON.stringify({ name: "test" }),
+    );
+    writeFileSync(
+      join(projectDir, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { strict: true, target: "ES2022" },
+      }),
+    );
 
     const ctx = analyzeProject(projectDir);
     expect(ctx.conventions).toContain("TypeScript strict mode enabled");
@@ -164,7 +206,12 @@ describe("formatProjectContext", () => {
   it("should omit rules section when rulesContent is null", () => {
     const ctx: ProjectContext = {
       name: "test",
-      techStack: { packageManager: "npm", frameworks: [], testRunner: "jest", language: "TypeScript" },
+      techStack: {
+        packageManager: "npm",
+        frameworks: [],
+        testRunner: "jest",
+        language: "TypeScript",
+      },
       structure: ["src/"],
       conventions: [],
       commands: {},

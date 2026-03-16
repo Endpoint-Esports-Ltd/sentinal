@@ -54,7 +54,10 @@ export function getCurrentBranch(cwd: string): string {
 
 /** Check if a branch exists locally. */
 export function branchExists(cwd: string, branch: string): boolean {
-  const result = gitExec(["rev-parse", "--verify", `refs/heads/${branch}`], cwd);
+  const result = gitExec(
+    ["rev-parse", "--verify", `refs/heads/${branch}`],
+    cwd,
+  );
   return result.exitCode === 0;
 }
 
@@ -111,7 +114,10 @@ export function getGitVersion(): [number, number, number] {
   // "git version 2.39.3 (Apple Git-146)" → "2.39.3"
   const match = output.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) {
-    throw new WorktreeError(`Could not parse git version: ${output}`, "GIT_ERROR");
+    throw new WorktreeError(
+      `Could not parse git version: ${output}`,
+      "GIT_ERROR",
+    );
   }
   return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
 }
@@ -121,7 +127,11 @@ export function getGitVersion(): [number, number, number] {
  * - >= 2.17 required for `git worktree remove`
  * - >= 2.5 minimum for `git worktree` at all
  */
-export function checkGitVersion(): { ok: boolean; version: string; warning?: string } {
+export function checkGitVersion(): {
+  ok: boolean;
+  version: string;
+  warning?: string;
+} {
   const [major, minor, patch] = getGitVersion();
   const version = `${major}.${minor}.${patch}`;
 
@@ -152,10 +162,10 @@ export function checkGitVersion(): { ok: boolean; version: string; warning?: str
 export function slugify(input: string, maxLength: number = 50): string {
   return input
     .toLowerCase()
-    .replace(/[^a-z0-9\s_-]/g, "")  // Remove special chars
-    .replace(/[\s_]+/g, "-")         // Spaces/underscores → hyphens
-    .replace(/-+/g, "-")             // Collapse multiple hyphens
-    .replace(/^-|-$/g, "")           // Trim leading/trailing hyphens
+    .replace(/[^a-z0-9\s_-]/g, "") // Remove special chars
+    .replace(/[\s_]+/g, "-") // Spaces/underscores → hyphens
+    .replace(/-+/g, "-") // Collapse multiple hyphens
+    .replace(/^-|-$/g, "") // Trim leading/trailing hyphens
     .slice(0, maxLength);
 }
 

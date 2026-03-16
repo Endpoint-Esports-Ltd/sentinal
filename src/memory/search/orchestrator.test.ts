@@ -111,9 +111,9 @@ describe("SearchOrchestrator", () => {
     });
 
     it("should use fts strategy for exact match requests", () => {
-      expect(
-        orchestrator.getStrategyName("test", { exactMatch: true }),
-      ).toBe("fts");
+      expect(orchestrator.getStrategyName("test", { exactMatch: true })).toBe(
+        "fts",
+      );
     });
 
     it("should use hybrid when vector is available and query provided", () => {
@@ -132,9 +132,7 @@ describe("SearchOrchestrator", () => {
 
       expect(results.length).toBe(3);
       // Most recent first
-      expect(results[0].timestamp).toBeGreaterThanOrEqual(
-        results[1].timestamp,
-      );
+      expect(results[0].timestamp).toBeGreaterThanOrEqual(results[1].timestamp);
     });
 
     it("should filter by type", async () => {

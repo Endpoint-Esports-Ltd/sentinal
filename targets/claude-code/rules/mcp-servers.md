@@ -18,18 +18,18 @@ All Sentinal MCP servers use the `mcp__plugin_sentinal_` prefix. Tools are avail
 
 **3-step workflow (token-efficient — never skip to step 3):**
 
-| Step | Tool | Purpose |
-|------|------|---------|
-| 1 | `search` | Find observations → returns index with IDs |
-| 2 | `timeline` | Get chronological context around an anchor ID |
-| 3 | `get_observations` | Fetch full details for specific IDs only |
+| Step | Tool               | Purpose                                       |
+| ---- | ------------------ | --------------------------------------------- |
+| 1    | `search`           | Find observations → returns index with IDs    |
+| 2    | `timeline`         | Get chronological context around an anchor ID |
+| 3    | `get_observations` | Fetch full details for specific IDs only      |
 
-| Tool | Key Params |
-|------|------------|
-| `search` | `query`, `limit`, `type`, `project`, `dateStart`, `dateEnd` |
-| `timeline` | `anchor` (ID) or `query`, `depth_before`, `depth_after` |
-| `get_observations` | `ids` (array, required) |
-| `save_memory` | `text` (required), `title`, `project` |
+| Tool               | Key Params                                                  |
+| ------------------ | ----------------------------------------------------------- |
+| `search`           | `query`, `limit`, `type`, `project`, `dateStart`, `dateEnd` |
+| `timeline`         | `anchor` (ID) or `query`, `depth_before`, `depth_after`     |
+| `get_observations` | `ids` (array, required)                                     |
+| `save_memory`      | `text` (required), `title`, `project`                       |
 
 **Types:** `bugfix`, `feature`, `refactor`, `discovery`, `decision`, `change`
 
@@ -50,10 +50,10 @@ mcp__plugin_sentinal_mem-search__save_memory(text="Important finding", title="Sh
 
 **2-step workflow:**
 
-| Step | Tool | Purpose |
-|------|------|---------|
-| 1 | `resolve-library-id` | Find library ID from name |
-| 2 | `query-docs` | Query docs using the resolved ID |
+| Step | Tool                 | Purpose                          |
+| ---- | -------------------- | -------------------------------- |
+| 1    | `resolve-library-id` | Find library ID from name        |
+| 2    | `query-docs`         | Query docs using the resolved ID |
 
 ```
 ToolSearch(query="+context7 resolve")
@@ -71,10 +71,10 @@ Use descriptive queries. Max 3 calls per question per tool.
 
 **Purpose:** Search the web via DuckDuckGo, Bing, or Exa (no API keys needed).
 
-| Tool | Purpose | Key Params |
-|------|---------|------------|
-| `search` | Web search | `query` (required), `limit` (1-50), `engines` (duckduckgo/bing/exa) |
-| `fetchGithubReadme` | Fetch GitHub repo README | `url` |
+| Tool                | Purpose                  | Key Params                                                          |
+| ------------------- | ------------------------ | ------------------------------------------------------------------- |
+| `search`            | Web search               | `query` (required), `limit` (1-50), `engines` (duckduckgo/bing/exa) |
+| `fetchGithubReadme` | Fetch GitHub repo README | `url`                                                               |
 
 ```
 ToolSearch(query="+web-search search")
@@ -91,13 +91,13 @@ mcp__plugin_sentinal_web-search__fetchGithubReadme(url="https://github.com/nestj
 
 **Single tool:** `searchGitHub`
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `query` | string (required) | Literal code pattern |
-| `language` | string[] | Filter by language: `["TypeScript"]` |
-| `repo` | string | Filter by repo |
-| `path` | string | Filter by file path |
-| `useRegexp` | boolean | Regex mode |
+| Param       | Type              | Description                          |
+| ----------- | ----------------- | ------------------------------------ |
+| `query`     | string (required) | Literal code pattern                 |
+| `language`  | string[]          | Filter by language: `["TypeScript"]` |
+| `repo`      | string            | Filter by repo                       |
+| `path`      | string            | Filter by file path                  |
+| `useRegexp` | boolean           | Regex mode                           |
 
 ```
 ToolSearch(query="+grep-mcp searchGitHub")
@@ -122,12 +122,12 @@ mcp__plugin_sentinal_web-fetch__fetch_url(url="https://docs.nestjs.com/guards")
 
 ### Tool Selection Quick Reference
 
-| Need | Server/Tool | Reference |
-|------|-------------|-----------|
-| **Codebase search** | **Vexor** (`vexor "query"`) | `cli-tools.md` |
-| Past work / decisions | mem-search | `search` → `timeline` → `get_observations` |
-| Library/framework docs | context7 | `resolve-library-id` → `query-docs` |
-| Web search | web-search | `search` |
-| GitHub README | web-search | `fetchGithubReadme` |
-| Production code examples | grep-mcp | `searchGitHub` |
-| Full web page content | web-fetch | `fetch_url` / `fetch_urls` |
+| Need                     | Server/Tool                 | Reference                                  |
+| ------------------------ | --------------------------- | ------------------------------------------ |
+| **Codebase search**      | **Vexor** (`vexor "query"`) | `cli-tools.md`                             |
+| Past work / decisions    | mem-search                  | `search` → `timeline` → `get_observations` |
+| Library/framework docs   | context7                    | `resolve-library-id` → `query-docs`        |
+| Web search               | web-search                  | `search`                                   |
+| GitHub README            | web-search                  | `fetchGithubReadme`                        |
+| Production code examples | grep-mcp                    | `searchGitHub`                             |
+| Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                 |

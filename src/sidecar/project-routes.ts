@@ -26,7 +26,10 @@ export async function handleProjectContextRequest(
 
   const projectPath = url.searchParams.get("project");
   if (!projectPath) {
-    return Response.json({ ok: false, error: "Missing 'project' parameter" }, { status: 400 });
+    return Response.json(
+      { ok: false, error: "Missing 'project' parameter" },
+      { status: 400 },
+    );
   }
 
   const refresh = url.searchParams.get("refresh") === "true";
@@ -42,7 +45,10 @@ export async function handleProjectContextRequest(
     return Response.json({ ok: true, data: ctx });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return Response.json({ ok: false, error: `Analysis failed: ${msg}` }, { status: 500 });
+    return Response.json(
+      { ok: false, error: `Analysis failed: ${msg}` },
+      { status: 500 },
+    );
   }
 }
 

@@ -4,15 +4,15 @@ Both Claude Code and OpenCode manage language servers automatically. Use the `LS
 
 ## When to Use LSP
 
-| Situation | Operation |
-|-----------|-----------|
-| Before editing a function | `hover` — confirm type signature and docs |
-| Before renaming a symbol | `findReferences` — find all call sites first |
-| Understanding call hierarchy | `incomingCalls` / `outgoingCalls` |
-| Jumping to a type definition | `goToDefinition` |
-| Finding all implementations | `goToImplementation` |
-| Viewing file's exported symbols | `documentSymbol` |
-| Searching across the project | `workspaceSymbol` |
+| Situation                       | Operation                                    |
+| ------------------------------- | -------------------------------------------- |
+| Before editing a function       | `hover` — confirm type signature and docs    |
+| Before renaming a symbol        | `findReferences` — find all call sites first |
+| Understanding call hierarchy    | `incomingCalls` / `outgoingCalls`            |
+| Jumping to a type definition    | `goToDefinition`                             |
+| Finding all implementations     | `goToImplementation`                         |
+| Viewing file's exported symbols | `documentSymbol`                             |
+| Searching across the project    | `workspaceSymbol`                            |
 
 ## Operation Reference
 
@@ -31,25 +31,32 @@ LSP({ operation: "outgoingCalls",      file: "...", line: N, character: N })
 ## Key Patterns
 
 **Before editing an implementation file:**
+
 ```
 LSP({ operation: "hover", file: "src/auth/auth.service.ts", line: 42, character: 10 })
 ```
+
 Confirms the current type signature before you accidentally break callers.
 
 **Before renaming a symbol:**
+
 ```
 LSP({ operation: "findReferences", file: "src/auth/auth.service.ts", line: 42, character: 10 })
 ```
+
 Find all usages first — rename all occurrences, not just the declaration.
 
 **Call chain analysis (more accurate than grep):**
+
 ```
 LSP({ operation: "incomingCalls", file: "src/auth/auth.service.ts", line: 42, character: 10 })
 LSP({ operation: "outgoingCalls", file: "src/auth/auth.service.ts", line: 42, character: 10 })
 ```
+
 Handles aliases, re-exports, and dynamic calls — grep misses these.
 
 **Verify a new symbol is correctly exported:**
+
 ```
 LSP({ operation: "documentSymbol", file: "src/auth/auth.service.ts" })
 ```

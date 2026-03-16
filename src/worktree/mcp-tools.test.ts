@@ -24,12 +24,19 @@ import type { DiffSummary } from "./types.js";
 // --- Helpers ---
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-wt-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-wt-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function createSpec(tmpDir: string, memoryStore: MemoryStore, specId: string): void {
+function createSpec(
+  tmpDir: string,
+  memoryStore: MemoryStore,
+  specId: string,
+): void {
   const plansDir = join(tmpDir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const planFile = join(plansDir, `${specId}.md`);
@@ -38,7 +45,9 @@ function createSpec(tmpDir: string, memoryStore: MemoryStore, specId: string): v
   specStore.syncFromPlanFile(planFile, "/test/project");
 }
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{ content: { type: string; text: string }[] }>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+) => Promise<{ content: { type: string; text: string }[] }>;
 
 function captureTools(store: MemoryStore): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>();
@@ -145,7 +154,10 @@ describe("worktree_create MCP tool", () => {
 
   it("should return worktree info on successful creation", async () => {
     const origCreate = WorktreeManager.prototype.create;
-    WorktreeManager.prototype.create = function (_specId: string | undefined, _projectPath: string) {
+    WorktreeManager.prototype.create = function (
+      _specId: string | undefined,
+      _projectPath: string,
+    ) {
       return {
         id: "wt-mock-1",
         specId: "test-feature",
@@ -163,7 +175,10 @@ describe("worktree_create MCP tool", () => {
       // Re-capture tools with mocked manager
       const mockedTools = captureTools(store);
       const handler = mockedTools.get("worktree_create")!;
-      const result = await handler({ plan_slug: "test-feature", project: tmpDir });
+      const result = await handler({
+        plan_slug: "test-feature",
+        project: tmpDir,
+      });
 
       expect(result.content[0].text).toContain("Created Worktree");
       expect(result.content[0].text).toContain("spec/test-feature");
@@ -224,7 +239,12 @@ describe("worktree_diff MCP tool", () => {
       insertions: 42,
       deletions: 10,
       files: [
-        { path: "src/foo.ts", status: "modified", insertions: 30, deletions: 5 },
+        {
+          path: "src/foo.ts",
+          status: "modified",
+          insertions: 30,
+          deletions: 5,
+        },
         { path: "src/bar.ts", status: "added", insertions: 12, deletions: 0 },
         { path: "src/old.ts", status: "deleted", insertions: 0, deletions: 5 },
       ],
@@ -238,7 +258,10 @@ describe("worktree_diff MCP tool", () => {
     try {
       const mockedTools = captureTools(store);
       const handler = mockedTools.get("worktree_diff")!;
-      const result = await handler({ plan_slug: "diff-feature", project: tmpDir });
+      const result = await handler({
+        plan_slug: "diff-feature",
+        project: tmpDir,
+      });
 
       const text = result.content[0].text;
       expect(text).toContain("Files Changed:** 3");
@@ -305,7 +328,10 @@ describe("worktree_sync MCP tool", () => {
     try {
       const mockedTools = captureTools(store);
       const handler = mockedTools.get("worktree_sync")!;
-      const result = await handler({ plan_slug: "conflict-feature", project: tmpDir });
+      const result = await handler({
+        plan_slug: "conflict-feature",
+        project: tmpDir,
+      });
 
       expect(result.content[0].text).toContain("merge conflicts");
     } finally {
@@ -340,7 +366,10 @@ describe("worktree_sync MCP tool", () => {
     try {
       const mockedTools = captureTools(store);
       const handler = mockedTools.get("worktree_sync")!;
-      const result = await handler({ plan_slug: "merge-feature", project: tmpDir });
+      const result = await handler({
+        plan_slug: "merge-feature",
+        project: tmpDir,
+      });
 
       const text = result.content[0].text;
       expect(text).toContain("Merged:");

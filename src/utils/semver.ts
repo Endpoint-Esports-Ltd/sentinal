@@ -19,7 +19,10 @@ export interface SemVer {
 export function parseSemver(version: string): SemVer | null {
   const trimmed = version.trim();
   // Strip leading 'v' or 'V'
-  const raw = trimmed.startsWith("v") || trimmed.startsWith("V") ? trimmed.slice(1) : trimmed;
+  const raw =
+    trimmed.startsWith("v") || trimmed.startsWith("V")
+      ? trimmed.slice(1)
+      : trimmed;
 
   // Reject pre-release tags (e.g., "1.0.0-beta.1", "1.0.0-rc.1")
   if (raw.includes("-")) return null;

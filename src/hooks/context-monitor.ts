@@ -3,7 +3,11 @@ import { estimateContextUsage } from "../sessions/context.js";
 import { getContextWarning } from "../sessions/context-display.js";
 
 // Re-export shared functions for backwards compatibility with tests
-export { formatTokens, formatContextBar, getContextWarning } from "../sessions/context-display.js";
+export {
+  formatTokens,
+  formatContextBar,
+  getContextWarning,
+} from "../sessions/context-display.js";
 
 async function main(): Promise<void> {
   try {

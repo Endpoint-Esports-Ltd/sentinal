@@ -12,8 +12,6 @@ paths:
   - "**/*.middleware.ts"
 ---
 
-
-
 ## NestJS Development Standards
 
 ### Architecture
@@ -43,6 +41,7 @@ paths:
 ### DTOs & Validation
 
 - **class-validator decorators** on every DTO property:
+
   ```typescript
   export class CreateUserDto {
     @IsString()
@@ -58,6 +57,7 @@ paths:
     avatar?: string;
   }
   ```
+
 - **Separate Create/Update/Response DTOs** — don't reuse
 - **`class-transformer`** for entity-to-DTO mapping
 - **Global validation pipe** in `main.ts`:

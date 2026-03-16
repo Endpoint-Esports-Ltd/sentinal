@@ -5,16 +5,32 @@
  * when the sidecar is unavailable and drains them on reconnection.
  */
 
-import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  spyOn,
+  mock,
+} from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from "node:fs";
 import * as queueModule from "./observation-queue.js";
 import { ObservationQueue } from "./observation-queue.js";
 
 type ObservationPayload = Parameters<typeof ObservationQueue.enqueue>[0];
 
-function makePayload(overrides: Partial<ObservationPayload> = {}): ObservationPayload {
+function makePayload(
+  overrides: Partial<ObservationPayload> = {},
+): ObservationPayload {
   return {
     sessionId: "test-session",
     projectPath: "/test/project",
@@ -34,7 +50,9 @@ describe("ObservationQueue", () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `obs-q-${Date.now().toString(36)}`);
     mkdirSync(tmpDir, { recursive: true });
-    spyOn(queueModule, "getQueuePath").mockReturnValue(join(tmpDir, "observation-queue.json"));
+    spyOn(queueModule, "getQueuePath").mockReturnValue(
+      join(tmpDir, "observation-queue.json"),
+    );
   });
 
   afterEach(() => {
@@ -87,7 +105,7 @@ describe("ObservationQueue", () => {
     }
     // One more triggers cap
     ObservationQueue.enqueue(makePayload({ title: "Overflow" }), logFn);
-    expect(logs.some(l => l.includes("dropped"))).toBe(true);
+    expect(logs.some((l) => l.includes("dropped"))).toBe(true);
   });
 
   it("should handle corrupted queue file gracefully", () => {
@@ -111,14 +129,24 @@ describe("ObservationQueue", () => {
   // ─── Multi-project ────────────────────────────────────────────────────
 
   it("should store entries from different projects in same queue", () => {
-    ObservationQueue.enqueue(makePayload({ projectPath: "/project-a", title: "From A" }));
-    ObservationQueue.enqueue(makePayload({ projectPath: "/project-b", title: "From B" }));
-    ObservationQueue.enqueue(makePayload({ projectPath: "/project-a", title: "From A again" }));
+    ObservationQueue.enqueue(
+      makePayload({ projectPath: "/project-a", title: "From A" }),
+    );
+    ObservationQueue.enqueue(
+      makePayload({ projectPath: "/project-b", title: "From B" }),
+    );
+    ObservationQueue.enqueue(
+      makePayload({ projectPath: "/project-a", title: "From A again" }),
+    );
 
     const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
     expect(data).toHaveLength(3);
-    expect(data.filter((e: any) => e.projectPath === "/project-a")).toHaveLength(2);
-    expect(data.filter((e: any) => e.projectPath === "/project-b")).toHaveLength(1);
+    expect(
+      data.filter((e: any) => e.projectPath === "/project-a"),
+    ).toHaveLength(2);
+    expect(
+      data.filter((e: any) => e.projectPath === "/project-b"),
+    ).toHaveLength(1);
   });
 
   // ─── Pending ──────────────────────────────────────────────────────────
@@ -151,9 +179,9 @@ describe("ObservationQueue", () => {
     ObservationQueue.enqueue(makePayload({ title: "Two" }));
 
     const sent: string[] = [];
-    const result = await ObservationQueue.drain(
-      async (obs) => { sent.push(obs.title); }
-    );
+    const result = await ObservationQueue.drain(async (obs) => {
+      sent.push(obs.title);
+    });
 
     expect(result.sent).toBe(2);
     expect(result.failed).toBe(0);
@@ -178,7 +206,9 @@ describe("ObservationQueue", () => {
     expect(result.remaining).toBe(1);
 
     // Failed entry should remain in queue
-    const remaining = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
+    const remaining = JSON.parse(
+      readFileSync(queueModule.getQueuePath(), "utf-8"),
+    );
     expect(remaining).toHaveLength(1);
     expect(remaining[0].title).toBe("Fail");
   });
@@ -188,9 +218,9 @@ describe("ObservationQueue", () => {
     ObservationQueue.enqueue(makePayload({ projectPath: "/b", title: "B1" }));
 
     const sent: string[] = [];
-    const result = await ObservationQueue.drain(
-      async (obs) => { sent.push(`${obs.projectPath}:${obs.title}`); }
-    );
+    const result = await ObservationQueue.drain(async (obs) => {
+      sent.push(`${obs.projectPath}:${obs.title}`);
+    });
 
     expect(result.sent).toBe(2);
     expect(sent).toEqual(["/a:A1", "/b:B1"]);

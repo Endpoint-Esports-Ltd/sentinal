@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { MemoryStore } from "../memory/store.js";
-import { getModelRouting, setModelRouting, resetModelRouting } from "./model-routing.js";
+import {
+  getModelRouting,
+  setModelRouting,
+  resetModelRouting,
+} from "./model-routing.js";
 import { DEFAULT_MODEL_ROUTING, MODEL_ROUTING_KEY } from "./types.js";
 
 describe("model-routing", () => {
@@ -21,13 +25,16 @@ describe("model-routing", () => {
     });
 
     it("should return stored config when set", () => {
-      store.setSetting(MODEL_ROUTING_KEY, JSON.stringify({
-        planning: "haiku",
-        implementation: "opus",
-        verification: "opus",
-        plan_reviewer: "opus",
-        spec_reviewer: "opus",
-      }));
+      store.setSetting(
+        MODEL_ROUTING_KEY,
+        JSON.stringify({
+          planning: "haiku",
+          implementation: "opus",
+          verification: "opus",
+          plan_reviewer: "opus",
+          spec_reviewer: "opus",
+        }),
+      );
 
       const routing = getModelRouting(store);
       expect(routing.planning).toBe("haiku");
@@ -41,9 +48,12 @@ describe("model-routing", () => {
     });
 
     it("should fill missing fields with defaults", () => {
-      store.setSetting(MODEL_ROUTING_KEY, JSON.stringify({
-        planning: "haiku",
-      }));
+      store.setSetting(
+        MODEL_ROUTING_KEY,
+        JSON.stringify({
+          planning: "haiku",
+        }),
+      );
 
       const routing = getModelRouting(store);
       expect(routing.planning).toBe("haiku");

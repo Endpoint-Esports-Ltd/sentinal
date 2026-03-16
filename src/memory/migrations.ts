@@ -154,9 +154,9 @@ function migrateV3(db: Database): void {
 // ─── V4: transcript_path on sessions ────────────────────────────────────────
 
 function migrateV4(db: Database): void {
-  const cols = db
-    .prepare("PRAGMA table_info(sessions)")
-    .all() as Array<{ name: string }>;
+  const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+    name: string;
+  }>;
   if (!cols.some((c) => c.name === "transcript_path")) {
     db.run("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
   }
@@ -222,9 +222,9 @@ function migrateV7(db: Database): void {
   `);
 
   // 3. Extend spec_tasks with rich metadata columns (idempotent)
-  const taskCols = db
-    .prepare("PRAGMA table_info(spec_tasks)")
-    .all() as Array<{ name: string }>;
+  const taskCols = db.prepare("PRAGMA table_info(spec_tasks)").all() as Array<{
+    name: string;
+  }>;
   const taskColNames = new Set(taskCols.map((c) => c.name));
 
   if (!taskColNames.has("description")) {
@@ -244,9 +244,7 @@ function migrateV7(db: Database): void {
   }
 
   // 4. Add session index on specs
-  db.run(
-    "CREATE INDEX IF NOT EXISTS idx_specs_session ON specs(session_id)",
-  );
+  db.run("CREATE INDEX IF NOT EXISTS idx_specs_session ON specs(session_id)");
 
   db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (7)");
 }
@@ -255,9 +253,9 @@ function migrateV7(db: Database): void {
 
 function migrateV5(db: Database): void {
   // Add session_id and metadata columns to specs table (idempotent)
-  const specCols = db
-    .prepare("PRAGMA table_info(specs)")
-    .all() as Array<{ name: string }>;
+  const specCols = db.prepare("PRAGMA table_info(specs)").all() as Array<{
+    name: string;
+  }>;
 
   if (!specCols.some((c) => c.name === "session_id")) {
     db.run("ALTER TABLE specs ADD COLUMN session_id TEXT");
@@ -294,11 +292,13 @@ function migrateV5(db: Database): void {
 
 function migrateV8(db: Database): void {
   // Add quality_score column with default 1.0
-  const cols = db
-    .prepare("PRAGMA table_info(observations)")
-    .all() as Array<{ name: string }>;
+  const cols = db.prepare("PRAGMA table_info(observations)").all() as Array<{
+    name: string;
+  }>;
   if (!cols.some((c) => c.name === "quality_score")) {
-    db.run("ALTER TABLE observations ADD COLUMN quality_score REAL DEFAULT 1.0");
+    db.run(
+      "ALTER TABLE observations ADD COLUMN quality_score REAL DEFAULT 1.0",
+    );
   }
 
   // Backfill from metadata.confidence where available
@@ -311,7 +311,9 @@ function migrateV8(db: Database): void {
   `);
 
   // Create index for efficient filtering/sorting by quality
-  db.run("CREATE INDEX IF NOT EXISTS idx_obs_quality ON observations(quality_score)");
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_obs_quality ON observations(quality_score)",
+  );
 
   db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (8)");
 }

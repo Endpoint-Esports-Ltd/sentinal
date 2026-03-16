@@ -24,21 +24,43 @@
  */
 
 // ─── Safe imports (no bun:sqlite dependency) ─────────────────────────────────
-import { isTestFile, getExpectedTestPaths, shouldSkipTddGuard, isGuardedFile, getImplPathForTest } from "../../../src/utils/tdd.js";
+import {
+  isTestFile,
+  getExpectedTestPaths,
+  shouldSkipTddGuard,
+  isGuardedFile,
+  getImplPathForTest,
+} from "../../../src/utils/tdd.js";
 import { checkNestPatterns, isNestFile } from "../../../src/checkers/nestjs.js";
 import { isAngularFile } from "../../../src/checkers/angular.js";
 import { detectFramework } from "../../../src/checkers/detect.js";
 import { checkFileLength } from "../../../src/utils/file-length.js";
-import { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE, TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS } from "../../../src/memory/capture.js";
+import {
+  analyzeEvent,
+  EventBuffer,
+  MIN_CAPTURE_CONFIDENCE,
+  TEST_FAIL_INDICATORS,
+  TEST_PASS_INDICATORS,
+} from "../../../src/memory/capture.js";
 import type { ToolEvent } from "../../../src/memory/capture.js";
 import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
 import { buildSemanticQuery } from "../../../src/memory/restore.js";
-import { aggregateTokenUsage, CONTEXT_CHECK_INTERVAL } from "../../../src/sessions/token-usage.js";
+import {
+  aggregateTokenUsage,
+  CONTEXT_CHECK_INTERVAL,
+} from "../../../src/sessions/token-usage.js";
 import { getContextWarning } from "../../../src/sessions/context-display.js";
 import type { SessionMessage } from "../../../src/sessions/token-usage.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
 import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  mkdirSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
@@ -50,7 +72,9 @@ interface PluginContext {
   worktree: string;
   client: {
     app: {
-      log(options: { body: { service: string; level: string; message: string } }): Promise<void>;
+      log(options: {
+        body: { service: string; level: string; message: string };
+      }): Promise<void>;
     };
     session: {
       messages(options: { path: { id: string } }): Promise<unknown>;
@@ -64,20 +88,44 @@ type Plugin = (context: PluginContext) => Promise<PluginHooks>;
 interface ToolDefinition {
   description: string;
   args: Record<string, unknown>;
-  execute(args: Record<string, unknown>, context: { directory: string; worktree: string }): Promise<string>;
+  execute(
+    args: Record<string, unknown>,
+    context: { directory: string; worktree: string },
+  ): Promise<string>;
 }
 
 interface PluginHooks {
-  "tool.execute.before"?: (input: { tool: string }, output: { args: Record<string, unknown> }) => Promise<void>;
-  "tool.execute.after"?: (input: { tool: string }, output: { args: Record<string, unknown> }) => Promise<void>;
-  "experimental.session.compacting"?: (input: { sessionID: string }, output: { context: string[]; prompt?: string }) => Promise<void>;
-  event?: (input: { event: { type: string; properties?: { info?: { id?: string } }; sessionID?: string } }) => Promise<void>;
+  "tool.execute.before"?: (
+    input: { tool: string },
+    output: { args: Record<string, unknown> },
+  ) => Promise<void>;
+  "tool.execute.after"?: (
+    input: { tool: string },
+    output: { args: Record<string, unknown> },
+  ) => Promise<void>;
+  "experimental.session.compacting"?: (
+    input: { sessionID: string },
+    output: { context: string[]; prompt?: string },
+  ) => Promise<void>;
+  event?: (input: {
+    event: {
+      type: string;
+      properties?: { info?: { id?: string } };
+      sessionID?: string;
+    };
+  }) => Promise<void>;
   tool?: Record<string, ToolDefinition>;
 }
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 
-import { getGrepHint, getFetchHint, getPreEditGuide, checkSessionConflict, transitionTddState } from "./sentinal-helpers.js";
+import {
+  getGrepHint,
+  getFetchHint,
+  getPreEditGuide,
+  checkSessionConflict,
+  transitionTddState,
+} from "./sentinal-helpers.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -97,7 +145,9 @@ function log(message: string): void {
     if (!existsSync(SENTINAL_DIR)) mkdirSync(SENTINAL_DIR, { recursive: true });
     const ts = new Date().toISOString();
     appendFileSync(DEBUG_LOG_PATH, `${ts} ${message}\n`);
-  } catch { /* non-fatal — never crash the plugin for logging */ }
+  } catch {
+    /* non-fatal — never crash the plugin for logging */
+  }
 }
 
 /** Spawn a sentinal sub-command if the PID file is stale or missing. */
@@ -106,12 +156,22 @@ function autoStartProcess(pidFile: string, ...args: string[]): void {
   if (existsSync(pidPath)) {
     try {
       const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
-      if (!Number.isNaN(pid)) { process.kill(pid, 0); return; }
-    } catch { /* stale PID */ }
+      if (!Number.isNaN(pid)) {
+        process.kill(pid, 0);
+        return;
+      }
+    } catch {
+      /* stale PID */
+    }
   }
   const binPath = join(SENTINAL_DIR, "bin", "sentinal");
   if (!existsSync(binPath)) return;
-  try { const c = spawn(binPath, args, { stdio: "ignore", detached: true }); c.unref(); } catch { /* non-fatal */ }
+  try {
+    const c = spawn(binPath, args, { stdio: "ignore", detached: true });
+    c.unref();
+  } catch {
+    /* non-fatal */
+  }
 }
 
 function stopProcess(pidFile: string): void {
@@ -121,11 +181,17 @@ function stopProcess(pidFile: string): void {
     const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
     if (!Number.isNaN(pid)) process.kill(pid, "SIGTERM");
     unlinkSync(pidPath);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
-function stopDashboard(): void { stopProcess("server.pid"); }
-function stopSidecar(): void { stopProcess("sidecar.pid"); }
+function stopDashboard(): void {
+  stopProcess("server.pid");
+}
+function stopSidecar(): void {
+  stopProcess("sidecar.pid");
+}
 
 // ─── TDD via sidecar ─────────────────────────────────────────────────────────
 
@@ -136,7 +202,8 @@ async function sidecarTddGuard(
   filePath: string,
   cwd: string,
 ): Promise<string | null> {
-  if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase())) return null;
+  if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase()))
+    return null;
   if (!isGuardedFile(filePath)) return null;
 
   try {
@@ -164,31 +231,53 @@ async function sidecarTddTrack(
   bashOutput: string | undefined,
 ): Promise<void> {
   try {
-    const isEdit = ["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase());
+    const isEdit = ["write", "edit", "multiedit", "patch"].includes(
+      toolName.toLowerCase(),
+    );
 
     // Case 1: Test file written → TEST_WRITTEN
     if (isEdit && filePath && isTestFile(filePath)) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
-      await sidecar.setTddState({ filePath: implPath, state: "TEST_WRITTEN", testFilePath: filePath });
+      await sidecar.setTddState({
+        filePath: implPath,
+        state: "TEST_WRITTEN",
+        testFilePath: filePath,
+      });
       return;
     }
 
     // Case 2: Bash shows test failure → bulk transition TEST_WRITTEN → RED_CONFIRMED
-    if (toolName.toLowerCase() === "bash" && bashOutput && TEST_FAIL_INDICATORS.some(r => r.test(bashOutput))) {
+    if (
+      toolName.toLowerCase() === "bash" &&
+      bashOutput &&
+      TEST_FAIL_INDICATORS.some((r) => r.test(bashOutput))
+    ) {
       await transitionTddState(sidecar, "confirm_red");
       return;
     }
 
     // Case 3: Bash shows test pass → bulk clear RED_CONFIRMED states
-    if (toolName.toLowerCase() === "bash" && bashOutput && TEST_PASS_INDICATORS.some(r => r.test(bashOutput))) {
+    if (
+      toolName.toLowerCase() === "bash" &&
+      bashOutput &&
+      TEST_PASS_INDICATORS.some((r) => r.test(bashOutput))
+    ) {
       await transitionTddState(sidecar, "confirm_green");
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
-export const SentinalPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
+export const SentinalPlugin: Plugin = async ({
+  project,
+  client,
+  $,
+  directory,
+  worktree,
+}) => {
   const projectRoot = worktree || directory;
 
   const eventBuffer = new EventBuffer(20);
@@ -198,8 +287,16 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   let draining = false;
 
   // Auto-start sidecar + dashboard (Node.js-compatible spawn)
-  try { autoStartProcess("sidecar.pid", "sidecar", "start"); } catch { /* non-fatal */ }
-  try { autoStartProcess("server.pid", "serve"); } catch { /* non-fatal */ }
+  try {
+    autoStartProcess("sidecar.pid", "sidecar", "start");
+  } catch {
+    /* non-fatal */
+  }
+  try {
+    autoStartProcess("server.pid", "serve");
+  } catch {
+    /* non-fatal */
+  }
 
   // Inline: avoid importing config.ts which pulls in types.ts → zod
   const memoryEnabled = (() => {
@@ -209,21 +306,33 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
         const raw = JSON.parse(readFileSync(cfgPath, "utf-8"));
         return raw?.memory?.enabled !== false;
       }
-    } catch { /* invalid JSON */ }
+    } catch {
+      /* invalid JSON */
+    }
     return true;
   })();
 
   if (memoryEnabled) {
-    try { sidecar = await SidecarClient.connectWithRetry(10, 200); } catch { /* unavailable */ }
+    try {
+      sidecar = await SidecarClient.connectWithRetry(10, 200);
+    } catch {
+      /* unavailable */
+    }
     if (sidecar) {
       log("Connected to sidecar");
       // Drain any queued observations from previous sessions
       if (!draining && ObservationQueue.pending() > 0) {
         draining = true;
         try {
-          const r = await ObservationQueue.drain(async (obs) => { await sidecar!.addObservation(obs); }, log);
+          const r = await ObservationQueue.drain(async (obs) => {
+            await sidecar!.addObservation(obs);
+          }, log);
           if (r.sent > 0) log(`drained ${r.sent} queued observations on init`);
-        } catch (e) { log(`queue drain failed on init: ${e instanceof Error ? e.message : e}`); }
+        } catch (e) {
+          log(
+            `queue drain failed on init: ${e instanceof Error ? e.message : e}`,
+          );
+        }
         draining = false;
       }
     } else {
@@ -237,7 +346,11 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   sessionId = `opencode-${Date.now()}`;
   try {
     if (sidecar) {
-      await sidecar.createSession({ id: sessionId, projectPath: projectRoot, assistant: "opencode" });
+      await sidecar.createSession({
+        id: sessionId,
+        projectPath: projectRoot,
+        assistant: "opencode",
+      });
       log(`Eager session created: ${sessionId} (sidecar)`);
     }
   } catch (e) {
@@ -245,7 +358,11 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
   }
 
   await client.app.log({
-    body: { service: "sentinal", level: "info", message: `Sentinal initialized for: ${projectRoot}` },
+    body: {
+      service: "sentinal",
+      level: "info",
+      message: `Sentinal initialized for: ${projectRoot}`,
+    },
   });
 
   return {
@@ -256,29 +373,50 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
       // TDD Guard via sidecar
       const filePath = args.file_path ?? args.filePath ?? args.path;
       if (sidecar && typeof filePath === "string") {
-        const guardMsg = await sidecarTddGuard(sidecar, tool, filePath, projectRoot);
+        const guardMsg = await sidecarTddGuard(
+          sidecar,
+          tool,
+          filePath,
+          projectRoot,
+        );
         if (guardMsg) throw new Error(guardMsg);
       }
 
       // Tool redirect hints
       if (tool === "grep" && typeof args.pattern === "string") {
         const grepHint = getGrepHint(args.pattern as string);
-        if (grepHint) await client.app.log({ body: { service: "sentinal", level: "info", message: grepHint } });
+        if (grepHint)
+          await client.app.log({
+            body: { service: "sentinal", level: "info", message: grepHint },
+          });
       }
       if (tool === "fetch") {
-        await client.app.log({ body: { service: "sentinal", level: "info", message: getFetchHint() } });
+        await client.app.log({
+          body: { service: "sentinal", level: "info", message: getFetchHint() },
+        });
       }
 
       // Pre-edit guidance: inject file-specific observations
       if (sidecar && typeof filePath === "string") {
         const guide = await getPreEditGuide(sidecar, filePath, projectRoot);
-        if (guide) await client.app.log({ body: { service: "sentinal", level: "info", message: guide } });
+        if (guide)
+          await client.app.log({
+            body: { service: "sentinal", level: "info", message: guide },
+          });
       }
     },
 
     "tool.execute.after": async (input, output) => {
       const QUALITY_TOOLS = ["write", "edit", "patch"];
-      const MEMORY_TOOLS = ["write", "edit", "patch", "bash", "shell", "terminal", "multiedit"];
+      const MEMORY_TOOLS = [
+        "write",
+        "edit",
+        "patch",
+        "bash",
+        "shell",
+        "terminal",
+        "multiedit",
+      ];
 
       // Context monitoring — only query OpenCode's session API with a real session ID
       // (our eager "opencode-<ts>" IDs cause Hono validator errors in the TUI)
@@ -286,28 +424,43 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
       const hasRealSessionId = sessionId && !sessionId.startsWith("opencode-");
       if (hasRealSessionId && toolCallCount % CONTEXT_CHECK_INTERVAL === 0) {
         try {
-          const response = await client.session.messages({ path: { id: sessionId! } });
-          const messages = ((response as unknown as { data?: unknown })?.data ?? response ?? []) as SessionMessage[];
+          const response = await client.session.messages({
+            path: { id: sessionId! },
+          });
+          const messages = ((response as unknown as { data?: unknown })?.data ??
+            response ??
+            []) as SessionMessage[];
           if (Array.isArray(messages)) {
             const usage = aggregateTokenUsage(messages);
             const warning = getContextWarning(usage);
             if (warning) {
               await client.app.log({
-                body: { service: "sentinal", level: usage.percent >= 95 ? "error" : "warn", message: `[Sentinal] ${warning}` },
+                body: {
+                  service: "sentinal",
+                  level: usage.percent >= 95 ? "error" : "warn",
+                  message: `[Sentinal] ${warning}`,
+                },
               });
             }
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
 
       if (!MEMORY_TOOLS.includes(input.tool)) return;
 
-      const filePath = output.args?.filePath || output.args?.file_path || output.args?.path;
+      const filePath =
+        output.args?.filePath || output.args?.file_path || output.args?.path;
       const issues: string[] = [];
       let shouldBlock = false;
 
       // Quality checks
-      if (QUALITY_TOOLS.includes(input.tool) && filePath && typeof filePath === "string") {
+      if (
+        QUALITY_TOOLS.includes(input.tool) &&
+        filePath &&
+        typeof filePath === "string"
+      ) {
         const ext = filePath.slice(filePath.lastIndexOf("."));
         if (TS_EXTENSIONS.includes(ext)) {
           try {
@@ -328,19 +481,33 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
 
             const frameworks = detectFramework(projectRoot);
             if (frameworks.includes("angular") && isAngularFile(filePath)) {
-              if (content.includes("@Component") && !content.includes("standalone: true")) {
-                issues.push(`[Angular] Standalone components are required in Angular 17+. Add 'standalone: true' to @Component decorator.`);
+              if (
+                content.includes("@Component") &&
+                !content.includes("standalone: true")
+              ) {
+                issues.push(
+                  `[Angular] Standalone components are required in Angular 17+. Add 'standalone: true' to @Component decorator.`,
+                );
               }
               if (content.includes("*ngIf") || content.includes("*ngFor")) {
-                issues.push(`[Angular] Use Angular 17+ control flow (@if, @for) instead of *ngIf/*ngFor.`);
+                issues.push(
+                  `[Angular] Use Angular 17+ control flow (@if, @for) instead of *ngIf/*ngFor.`,
+                );
               }
             }
-          } catch { /* file might not exist yet */ }
+          } catch {
+            /* file might not exist yet */
+          }
 
           if (!isTestFile(filePath)) {
             const testPaths = getExpectedTestPaths(filePath);
-            if (testPaths.length > 0 && !testPaths.some((tp) => existsSync(tp))) {
-              issues.push(`No companion test file found. Expected: ${testPaths[0]}`);
+            if (
+              testPaths.length > 0 &&
+              !testPaths.some((tp) => existsSync(tp))
+            ) {
+              issues.push(
+                `No companion test file found. Expected: ${testPaths[0]}`,
+              );
             }
           }
 
@@ -348,36 +515,65 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           try {
             if (sidecar) {
               const fp = typeof filePath === "string" ? filePath : undefined;
-              const qr = await sidecar.qualityCheck({ projectPath: projectRoot, filePath: fp, checks: ["tsc", "eslint", "prettier"] });
-              if (qr.tsc && !qr.tsc.ok) issues.push(`TypeScript errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`);
-              if (qr.eslint && !qr.eslint.ok) issues.push(`ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`);
-              if (qr.prettier?.autoFixed) issues.push("Prettier: auto-formatted file");
+              const qr = await sidecar.qualityCheck({
+                projectPath: projectRoot,
+                filePath: fp,
+                checks: ["tsc", "eslint", "prettier"],
+              });
+              if (qr.tsc && !qr.tsc.ok)
+                issues.push(
+                  `TypeScript errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`,
+                );
+              if (qr.eslint && !qr.eslint.ok)
+                issues.push(
+                  `ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`,
+                );
+              if (qr.prettier?.autoFixed)
+                issues.push("Prettier: auto-formatted file");
             } else {
-              const cmd = $`npx tsc --noEmit 2>&1` as { quiet(): { nothrow(): Promise<{ exitCode: number; text(): Promise<string> }> } };
+              const cmd = $`npx tsc --noEmit 2>&1` as {
+                quiet(): {
+                  nothrow(): Promise<{
+                    exitCode: number;
+                    text(): Promise<string>;
+                  }>;
+                };
+              };
               const r = await cmd.quiet().nothrow();
               if (r.exitCode !== 0) {
-                const errs = (await r.text()).split("\n").filter((l: string) => l.includes("error TS")).slice(0, 5);
-                if (errs.length > 0) issues.push(`TypeScript errors:\n${errs.join("\n")}`);
+                const errs = (await r.text())
+                  .split("\n")
+                  .filter((l: string) => l.includes("error TS"))
+                  .slice(0, 5);
+                if (errs.length > 0)
+                  issues.push(`TypeScript errors:\n${errs.join("\n")}`);
               }
             }
-          } catch { /* quality check failed */ }
+          } catch {
+            /* quality check failed */
+          }
 
           if (issues.length > 0) {
             const level = shouldBlock ? "error" : "warn";
             await client.app.log({
               body: {
-                service: "sentinal", level,
+                service: "sentinal",
+                level,
                 message: `Quality issues in ${filePath}:\n\n${issues.map((i) => `- ${i}`).join("\n")}`,
               },
             });
-            if (shouldBlock) throw new Error(`[Sentinal] Blocking due to critical issues:\n${issues.join("\n")}`);
+            if (shouldBlock)
+              throw new Error(
+                `[Sentinal] Blocking due to critical issues:\n${issues.join("\n")}`,
+              );
           }
         }
       }
 
       // TDD Tracker via sidecar
       if (sidecar) {
-        const trackerFilePath = typeof filePath === "string" ? filePath : undefined;
+        const trackerFilePath =
+          typeof filePath === "string" ? filePath : undefined;
         const bashOutput = ["bash", "shell", "terminal"].includes(input.tool)
           ? (output.args?.output as string | undefined)
           : undefined;
@@ -391,7 +587,8 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           // TDD cycle, and build-fix heuristics), fall back to quality-check issues
           let eventOutput: string | undefined;
           if (["bash", "shell", "terminal"].includes(input.tool)) {
-            const raw = output.args?.output ?? output.args?.stdout ?? output.args?.stderr;
+            const raw =
+              output.args?.output ?? output.args?.stdout ?? output.args?.stderr;
             if (typeof raw === "string" && raw.length > 0) {
               eventOutput = raw.slice(0, 2000);
             }
@@ -416,21 +613,37 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           };
           eventBuffer.push(event);
           const decision = analyzeEvent(event, eventBuffer);
-          if (decision.shouldCapture && decision.confidence >= MIN_CAPTURE_CONFIDENCE) {
+          if (
+            decision.shouldCapture &&
+            decision.confidence >= MIN_CAPTURE_CONFIDENCE
+          ) {
             const obsPayload = {
-              sessionId, projectPath: projectRoot, type: decision.type,
-              title: decision.title, content: decision.content,
-              filePaths: decision.filePaths, tags: decision.tags,
-              metadata: { source: "auto-capture", confidence: decision.confidence, toolName: input.tool },
+              sessionId,
+              projectPath: projectRoot,
+              type: decision.type,
+              title: decision.title,
+              content: decision.content,
+              filePaths: decision.filePaths,
+              tags: decision.tags,
+              metadata: {
+                source: "auto-capture",
+                confidence: decision.confidence,
+                toolName: input.tool,
+              },
             };
             if (sidecar) {
-              try { await sidecar.addObservation(obsPayload); }
-              catch { ObservationQueue.enqueue(obsPayload, log); }
+              try {
+                await sidecar.addObservation(obsPayload);
+              } catch {
+                ObservationQueue.enqueue(obsPayload, log);
+              }
             } else {
               ObservationQueue.enqueue(obsPayload, log);
             }
           }
-        } catch (e) { log(`auto-capture failed: ${e instanceof Error ? e.message : e}`); }
+        } catch (e) {
+          log(`auto-capture failed: ${e instanceof Error ? e.message : e}`);
+        }
       }
     },
 
@@ -447,16 +660,22 @@ export const SentinalPlugin: Plugin = async ({ project, client, $, directory, wo
           const restored = await sidecar.restoreContext(projectRoot, sq);
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
-      } catch (e) { log(`compaction sidecar failed: ${e instanceof Error ? e.message : e}`); }
+      } catch (e) {
+        log(`compaction sidecar failed: ${e instanceof Error ? e.message : e}`);
+      }
 
       const stateDir = join(projectRoot, ".sentinal");
       mkdirSync(stateDir, { recursive: true });
       const state: CompactState = {
-        activePlan, memoryContext,
+        activePlan,
+        memoryContext,
         timestamp: new Date().toISOString(),
         cwd: projectRoot,
       };
-      writeFileSync(join(stateDir, "compact-state.json"), JSON.stringify(state, null, 2));
+      writeFileSync(
+        join(stateDir, "compact-state.json"),
+        JSON.stringify(state, null, 2),
+      );
 
       if (activePlan) {
         output.context.push(`## Sentinal /spec Workflow State
@@ -477,17 +696,28 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
     event: async ({ event }) => {
       if (event.type === "session.created") {
         // Real session ID lives at event.properties.info.id (OpenCode SDK structure)
-        const newSessionId = event.properties?.info?.id ?? event.sessionID ?? `opencode-${Date.now()}`;
+        const newSessionId =
+          event.properties?.info?.id ??
+          event.sessionID ??
+          `opencode-${Date.now()}`;
         const previousSessionId = sessionId;
         sessionId = newSessionId;
-        log(`session.created: ${sessionId}${previousSessionId ? ` (replacing ${previousSessionId})` : ""}`);
+        log(
+          `session.created: ${sessionId}${previousSessionId ? ` (replacing ${previousSessionId})` : ""}`,
+        );
 
         try {
           if (sidecar) {
             if (previousSessionId && previousSessionId !== newSessionId) {
-              await sidecar.endSession(previousSessionId, { notification: false });
+              await sidecar.endSession(previousSessionId, {
+                notification: false,
+              });
             }
-            await sidecar.createSession({ id: sessionId, projectPath: projectRoot, assistant: "opencode" });
+            await sidecar.createSession({
+              id: sessionId,
+              projectPath: projectRoot,
+              assistant: "opencode",
+            });
           }
           log(`Session inserted: ${sessionId}`);
         } catch (e) {
@@ -498,9 +728,14 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
         if (sidecar && !draining && ObservationQueue.pending() > 0) {
           draining = true;
           try {
-            const r = await ObservationQueue.drain(async (obs) => { await sidecar!.addObservation(obs); }, log);
-            if (r.sent > 0) log(`drained ${r.sent} queued observations on session.created`);
-          } catch (e) { log(`queue drain failed: ${e instanceof Error ? e.message : e}`); }
+            const r = await ObservationQueue.drain(async (obs) => {
+              await sidecar!.addObservation(obs);
+            }, log);
+            if (r.sent > 0)
+              log(`drained ${r.sent} queued observations on session.created`);
+          } catch (e) {
+            log(`queue drain failed: ${e instanceof Error ? e.message : e}`);
+          }
           draining = false;
         }
 
@@ -512,26 +747,55 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           if (sidecar) {
             const restored = await sidecar.restoreContext(projectRoot);
             if (restored.hasMemory && restored.markdown) {
-              await client.app.log({ body: { service: "sentinal", level: "info", message: restored.markdown } });
+              await client.app.log({
+                body: {
+                  service: "sentinal",
+                  level: "info",
+                  message: restored.markdown,
+                },
+              });
             }
           }
-        } catch (e) { log(`restoreContext failed: ${e instanceof Error ? e.message : e}`); }
+        } catch (e) {
+          log(`restoreContext failed: ${e instanceof Error ? e.message : e}`);
+        }
 
         // Check for conflicting sessions on the same project
         if (sidecar) {
-          const conflictMsg = await checkSessionConflict(sidecar, sessionId, projectRoot);
-          if (conflictMsg) await client.app.log({ body: { service: "sentinal", level: "warn", message: conflictMsg } });
+          const conflictMsg = await checkSessionConflict(
+            sidecar,
+            sessionId,
+            projectRoot,
+          );
+          if (conflictMsg)
+            await client.app.log({
+              body: {
+                service: "sentinal",
+                level: "warn",
+                message: conflictMsg,
+              },
+            });
         }
 
         // Restore spec plan state from previous compaction
         const stateFile = join(projectRoot, ".sentinal", "compact-state.json");
         if (existsSync(stateFile)) {
           try {
-            const state: CompactState = JSON.parse(readFileSync(stateFile, "utf-8"));
+            const state: CompactState = JSON.parse(
+              readFileSync(stateFile, "utf-8"),
+            );
             if (state.activePlan && existsSync(state.activePlan)) {
-              await client.app.log({ body: { service: "sentinal", level: "info", message: `[Sentinal] Session restored. Active plan: ${state.activePlan}\nResume with: /spec ${state.activePlan}` } });
+              await client.app.log({
+                body: {
+                  service: "sentinal",
+                  level: "info",
+                  message: `[Sentinal] Session restored. Active plan: ${state.activePlan}\nResume with: /spec ${state.activePlan}`,
+                },
+              });
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }
 
@@ -542,14 +806,32 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
         if (realId && sessionId?.startsWith("opencode-")) {
           const previousSessionId = sessionId;
           sessionId = realId;
-          log(`session.updated: adopted real session ID ${sessionId} (replacing eager ${previousSessionId})`);
+          log(
+            `session.updated: adopted real session ID ${sessionId} (replacing eager ${previousSessionId})`,
+          );
           if (sidecar) {
             // End the eager placeholder session
-            try { await sidecar.endSession(previousSessionId, { notification: false }); }
-            catch (e) { log(`end eager session failed: ${e instanceof Error ? e.message : e}`); }
+            try {
+              await sidecar.endSession(previousSessionId, {
+                notification: false,
+              });
+            } catch (e) {
+              log(
+                `end eager session failed: ${e instanceof Error ? e.message : e}`,
+              );
+            }
             // Create (or re-adopt) the real session — may already exist from a prior instance
-            try { await sidecar.createSession({ id: sessionId, projectPath: projectRoot, assistant: "opencode" }); }
-            catch (e) { log(`create real session failed (may already exist): ${e instanceof Error ? e.message : e}`); }
+            try {
+              await sidecar.createSession({
+                id: sessionId,
+                projectPath: projectRoot,
+                assistant: "opencode",
+              });
+            } catch (e) {
+              log(
+                `create real session failed (may already exist): ${e instanceof Error ? e.message : e}`,
+              );
+            }
           }
         }
       }
@@ -571,7 +853,11 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           }
         }
         const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
-        try { if (existsSync(bufferPath)) unlinkSync(bufferPath); } catch { /* non-fatal */ }
+        try {
+          if (existsSync(bufferPath)) unlinkSync(bufferPath);
+        } catch {
+          /* non-fatal */
+        }
       }
 
       if (event.type === "session.idle") {
@@ -579,7 +865,11 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
         const reason = shouldBlockStop(active?.spec.status ?? null);
         if (reason) {
           await client.app.log({
-            body: { service: "sentinal", level: "warn", message: `[Sentinal] ${reason}` },
+            body: {
+              service: "sentinal",
+              level: "warn",
+              message: `[Sentinal] ${reason}`,
+            },
           });
         }
       }

@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Semantic query construction from spec task + recent files + project name
 - Hybrid search integration in `restoreContext()` with graceful fallback to recency
 - Accept `semanticQuery` in the sidecar `/context` endpoint
@@ -28,6 +29,7 @@ Type: Feature
 - Restore prioritizes high-quality observations via score weighting
 
 ### Out of Scope
+
 - Changing the embedding model (keep MiniLM-L6-v2)
 - Automatic background decay (use manual `memory_maintain` tool)
 - Real-time quality boost on observation access (future enhancement)
@@ -92,17 +94,17 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Vector store not available (sqlite-vec missing) | Medium | Medium | Graceful fallback to chronological restore (existing behavior) |
-| Embedding latency slows restore | Low | Medium | Timeout on embedding (500ms), fall back to FTS-only if slow |
-| Quality decay removes useful observations | Low | Medium | Soft decay (never auto-delete), manual prune only via MCP tool |
-| Failed approach heuristic produces false positives | Medium | Low | Conservative confidence (0.60), tag with "failed-approach" for easy identification |
-| V8 migration breaks existing databases | Very Low | High | Backup before migration (existing pattern in maintenance.ts) |
+| Risk                                               | Likelihood | Impact | Mitigation                                                                         |
+| -------------------------------------------------- | ---------- | ------ | ---------------------------------------------------------------------------------- |
+| Vector store not available (sqlite-vec missing)    | Medium     | Medium | Graceful fallback to chronological restore (existing behavior)                     |
+| Embedding latency slows restore                    | Low        | Medium | Timeout on embedding (500ms), fall back to FTS-only if slow                        |
+| Quality decay removes useful observations          | Low        | Medium | Soft decay (never auto-delete), manual prune only via MCP tool                     |
+| Failed approach heuristic produces false positives | Medium     | Low    | Conservative confidence (0.60), tag with "failed-approach" for easy identification |
+| V8 migration breaks existing databases             | Very Low   | High   | Backup before migration (existing pattern in maintenance.ts)                       |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Semantic restore returns worse results than chronological** (Task 1) — Trigger: restored observations are less relevant than before because the embedding model doesn't understand code context well. The MiniLM-L6-v2 model is trained on general text, not code. Mitigation: hybrid scoring with recency boost should prevent pure semantic results from dominating; quality score adds another signal.
 
@@ -113,6 +115,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `restoreContext()` uses semantic search (hybrid vector+FTS) when vector store is available
 2. Semantic query is constructed from active spec task description (primary) + recent files (fallback)
 3. Restore falls back to chronological fetch when vector store is unavailable
@@ -122,6 +125,7 @@ Type: Feature
 7. Restore prioritizes high-quality observations via score weighting
 
 ### Artifacts
+
 - `src/memory/restore.ts` (modified) — semantic restore with hybrid search
 - `src/memory/capture.ts` (modified) — failed approach heuristic
 - `src/memory/maintenance.ts` (modified) — quality decay function
@@ -130,6 +134,7 @@ Type: Feature
 - `src/sidecar/routes.ts` or separate route file (modified) — accept semanticQuery in /context
 
 ### Key Links
+
 - `restoreContext()` ← uses `service.search()` → orchestrator → hybrid strategy → vector store
 - `detectFailedApproach()` ← called from `analyzeEvent()` in the heuristic chain
 - `quality_score` column ← set on insert, decayed by maintenance, weighted in restore/search
@@ -156,14 +161,19 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/memory/restore.ts`
 - Modify: `src/memory/restore.test.ts`
 
 **Key Decisions / Notes:**
+
 - Add a `semanticQuery?: string` field to `RestoreOptions` (line 27)
 - When `semanticQuery` is provided and `service.search()` is available, use it instead of `service.getRecentForProject()`:
   ```ts
-  const searchResults = await service.search(semanticQuery, { project: projectPath, limit: recentLimit });
+  const searchResults = await service.search(semanticQuery, {
+    project: projectPath,
+    limit: recentLimit,
+  });
   ```
 - The orchestrator (`search/orchestrator.ts:81-102`) already selects hybrid strategy when vector is available — no changes needed there
 - If semantic search returns < 3 results, supplement with chronological results (deduped)
@@ -171,6 +181,7 @@ Type: Feature
 - Timeout: wrap the search in a `Promise.race` with 2s timeout to prevent slow embeddings from blocking restore
 
 **Definition of Done:**
+
 - [ ] `restoreContext()` accepts `semanticQuery` option
 - [ ] When provided, uses `service.search()` for observation retrieval
 - [ ] Falls back to chronological when query is absent or search fails
@@ -178,6 +189,7 @@ Type: Feature
 - [ ] Tests verify semantic path, fallback path, and hybrid results
 
 **Verify:**
+
 - `bun test src/memory/restore.test.ts`
 
 ---
@@ -189,12 +201,14 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `src/sidecar/routes.ts` (add `semanticQuery` param to `/context` endpoint)
 - Modify: `src/sidecar/client.ts` (add `semanticQuery` param to `restoreContext()`)
 - Modify: `src/cli/commands/hook.ts` (construct semantic query in `runMemoryRestore()` and `runPreCompact()`)
 - Modify: `targets/opencode/plugins/sentinal.ts` (construct semantic query in compaction handler)
 
 **Key Decisions / Notes:**
+
 - **Helper location:** Create `buildSemanticQuery()` in `src/memory/restore.ts` (at 238 lines, well under limit). This keeps it co-located with `restoreContext()` and accessible to all callers.
 - **Query construction logic:** `buildSemanticQuery(projectPath: string, service?: MemoryService): string` that:
   1. Checks for active spec via `findActivePlan(projectPath)` — if found, reads the current uncompleted task's title + objective
@@ -209,6 +223,7 @@ Type: Feature
 - **Line count concern:** `routes.ts` is at 398 lines. Adding a query param to `/context` is ~2 lines — acceptable.
 
 **Definition of Done:**
+
 - [ ] `/context` sidecar endpoint accepts `semanticQuery` param
 - [ ] `SidecarClient.restoreContext()` passes `semanticQuery`
 - [ ] Claude Code hooks construct and pass semantic query
@@ -216,6 +231,7 @@ Type: Feature
 - [ ] Semantic query uses active spec task when available, falls back to file list
 
 **Verify:**
+
 - `bun test src/sidecar/ src/hooks/ src/memory/restore.test.ts`
 
 ---
@@ -227,10 +243,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/memory/capture.ts`
 - Modify: `src/memory/capture.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Signal 1 — Repeated errors:** 3+ events with `success: false` or `hasErrorIndicator(output)` on the same `filePath` within the buffer window (last 10 events). No successful edit between errors.
 - **Signal 2 — Git restore:** Bash event with `git checkout --` or `git restore` in the output, targeting a file that was recently edited.
 - **Confidence:** 0.60 (conservative — just above threshold to capture but low enough to be deprioritized in restore)
@@ -240,6 +258,7 @@ Type: Feature
 - Insert into the heuristic chain at `analyzeEvent()` after `detectBuildFixSequence` (last position — lowest priority for a speculative heuristic)
 
 **Definition of Done:**
+
 - [ ] `detectFailedApproach()` detects repeated errors on same file
 - [ ] `detectFailedApproach()` detects git restore/checkout patterns
 - [ ] Captured with type "pattern" and tag "failed-approach"
@@ -247,6 +266,7 @@ Type: Feature
 - [ ] Tests cover: repeated errors triggering, git restore triggering, normal iteration NOT triggering
 
 **Verify:**
+
 - `bun test src/memory/capture.test.ts`
 
 ---
@@ -258,10 +278,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/memory/migrations.ts` (add V8 migration)
 - Modify: `src/memory/types.ts` (update `CURRENT_VERSION` to 8, add `qualityScore` to `Observation` type)
 
 **Key Decisions / Notes:**
+
 - V8 migration: `ALTER TABLE observations ADD COLUMN quality_score REAL DEFAULT 1.0`
 - Backfill: set `quality_score = json_extract(metadata, '$.confidence')` where metadata has confidence, else 1.0
 - Add index: `CREATE INDEX idx_obs_quality ON observations(quality_score)` for efficient filtering
@@ -271,6 +293,7 @@ Type: Feature
 - **Set quality_score on new inserts:** Update `service.addObservation()` (service.ts:64-78) to set `quality_score` from `metadata.confidence` when available, otherwise 1.0. Since `store.ts` is at 663 lines (over limit), modify the service layer instead.
 
 **Definition of Done:**
+
 - [ ] V8 migration adds `quality_score` column with default 1.0
 - [ ] Existing observations backfilled from metadata confidence
 - [ ] Index created on `quality_score`
@@ -279,6 +302,7 @@ Type: Feature
 - [ ] Migration runs successfully on existing databases
 
 **Verify:**
+
 - `bun test src/memory/`
 
 ---
@@ -290,10 +314,12 @@ Type: Feature
 **Dependencies:** Task 4
 
 **Files:**
+
 - Modify: `src/memory/maintenance.ts`
 - Modify: `src/memory/maintenance.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Time-proportional decay formula:** `new_score = quality_score * (decay_rate ^ (days_since_creation / 30))`. This is calculated per-observation based on its `timestamp` vs current time, so running decay after 60 days applies 2 periods of decay automatically. No need for a `last_decayed_at` column — the formula is idempotent when calculated from creation time.
 - **Type-based rates (per 30 days):**
   - `decision`: 0.95 (slow decay — decisions stay relevant longer)
@@ -306,6 +332,7 @@ Type: Feature
 - **Implementation:** Single SQL UPDATE per type bucket rather than per-observation iteration
 
 **Definition of Done:**
+
 - [ ] `decayQualityScores()` reduces scores based on type and age
 - [ ] Decisions decay slowest, errors decay fastest
 - [ ] Minimum score of 0.1 enforced
@@ -313,6 +340,7 @@ Type: Feature
 - [ ] Tests verify decay rates per type
 
 **Verify:**
+
 - `bun test src/memory/maintenance.test.ts`
 
 ---
@@ -324,10 +352,12 @@ Type: Feature
 **Dependencies:** Task 5
 
 **Files:**
+
 - Modify: `src/memory/mcp-tools.ts`
 - Modify: `src/memory/mcp-tools.test.ts`
 
 **Key Decisions / Notes:**
+
 - **Parameters:**
   - `action` (required): `"decay"` | `"prune"` | `"stats"`
   - `prune_threshold` (optional, default 0.15): prune observations with quality_score below this
@@ -340,6 +370,7 @@ Type: Feature
 - Return structured markdown with action results
 
 **Definition of Done:**
+
 - [ ] `memory_maintain` tool registered with Zod schema
 - [ ] Supports decay, prune, and stats actions
 - [ ] Prune respects threshold parameter
@@ -347,6 +378,7 @@ Type: Feature
 - [ ] Tests cover all three actions
 
 **Verify:**
+
 - `bun test src/memory/mcp-tools.test.ts`
 
 ---
@@ -358,19 +390,23 @@ Type: Feature
 **Dependencies:** Task 4, Task 1
 
 **Files:**
+
 - Modify: `src/memory/search/strategies/hybrid.ts` (multiply combined score by quality_score)
 
 **Key Decisions / Notes:**
+
 - **In hybrid strategy only:** After computing combined score (vector*0.7 + fts*0.3 + recency), multiply by `qualityScore`. This requires fetching `quality_score` when loading observations in the strategy.
 - **Chronological restore unchanged:** Keep pure timestamp ordering for the fallback path. Quality weighting only applies to semantic search results. This preserves existing behavior and avoids surprises.
 - **Weight formula:** `finalScore = combinedScore * Math.max(qualityScore, 0.1)` — ensures minimum visibility
 - **Observation fetching:** The search strategies already fetch full observations to apply filters. Add `qualityScore` to the returned data.
 
 **Definition of Done:**
+
 - [ ] Hybrid search multiplies combined score by quality_score
 - [ ] Chronological restore is unchanged (pure timestamp)
 - [ ] High-quality observations rank above low-quality ones in semantic search
 - [ ] Tests verify score ordering
 
 **Verify:**
+
 - `bun test src/memory/`

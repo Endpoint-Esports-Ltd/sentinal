@@ -14,7 +14,10 @@ import { shouldSkipTddGuard } from "../utils/tdd.js";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-tdd-guard-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-tdd-guard-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -72,9 +75,27 @@ describe("shouldSkipTddGuard", () => {
 
 describe("processTddGuard — pass-through cases (no blocking)", () => {
   it("returns null for non-edit tools", () => {
-    expect(processTddGuard({ toolName: "Read", filePath: "src/foo.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Bash", filePath: "src/foo.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Glob", filePath: "src/foo.ts", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Read",
+        filePath: "src/foo.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Bash",
+        filePath: "src/foo.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Glob",
+        filePath: "src/foo.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 
   it("returns null when filePath is undefined", () => {
@@ -83,45 +104,203 @@ describe("processTddGuard — pass-through cases (no blocking)", () => {
   });
 
   it("returns null for test files (always allowed)", () => {
-    expect(processTddGuard({ toolName: "Write", filePath: "src/foo.test.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Edit", filePath: "src/bar.spec.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "MultiEdit", filePath: "src/baz.test.tsx", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/foo.test.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: "src/bar.spec.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "MultiEdit",
+        filePath: "src/baz.test.tsx",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 
   it("returns null for NestJS convention files (skip TDD guard)", () => {
-    expect(processTddGuard({ toolName: "Write", filePath: "src/auth.module.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Edit", filePath: "src/status.enum.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/api.constant.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Edit", filePath: "src/user.dto.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/user.entity.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/role.interface.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/db.config.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/user.model.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/index.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/main.ts", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/environment.ts", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/auth.module.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: "src/status.enum.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/api.constant.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: "src/user.dto.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/user.entity.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/role.interface.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/db.config.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/user.model.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/index.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/main.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/environment.ts",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 
   it("returns null for non-code files", () => {
-    expect(processTddGuard({ toolName: "Edit", filePath: "README.md", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/styles.css", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/component.html", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: "README.md",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/styles.css",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/component.html",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 
   it("returns null for multi-language test files", () => {
-    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.go", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/test_auth.py", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.py", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.rs", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/test_auth.c", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/auth_test.cpp", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/auth_test.go",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/test_auth.py",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/auth_test.py",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/auth_test.rs",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/test_auth.c",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/auth_test.cpp",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 
   it("returns null for multi-language skip files", () => {
-    expect(processTddGuard({ toolName: "Write", filePath: "src/__init__.py", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "src/mod.rs", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "go.mod", cwd: "/proj" })).toBeNull();
-    expect(processTddGuard({ toolName: "Write", filePath: "Makefile", cwd: "/proj" })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/__init__.py",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/mod.rs",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({ toolName: "Write", filePath: "go.mod", cwd: "/proj" }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "Makefile",
+        cwd: "/proj",
+      }),
+    ).toBeNull();
   });
 });
 
@@ -246,13 +425,30 @@ describe("processTddGuard — with active spec", () => {
     store.setTddState({ filePath: "src/foo.ts", state: "RED_CONFIRMED" });
     store.close();
 
-    expect(processTddGuard({ toolName: "Write", filePath: "src/foo.ts", cwd: tmpDir, dbPath })).toBeNull();
-    expect(processTddGuard({ toolName: "MultiEdit", filePath: "src/foo.ts", cwd: tmpDir, dbPath })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Write",
+        filePath: "src/foo.ts",
+        cwd: tmpDir,
+        dbPath,
+      }),
+    ).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "MultiEdit",
+        filePath: "src/foo.ts",
+        cwd: tmpDir,
+        dbPath,
+      }),
+    ).toBeNull();
   });
 
   it("allows .tsx files when RED_CONFIRMED", () => {
     const store = new MemoryStore(dbPath);
-    store.setTddState({ filePath: "src/component.tsx", state: "RED_CONFIRMED" });
+    store.setTddState({
+      filePath: "src/component.tsx",
+      state: "RED_CONFIRMED",
+    });
     store.close();
 
     const result = processTddGuard({
@@ -291,7 +487,14 @@ describe("processTddGuard — with active spec", () => {
     store.setTddState({ filePath: "src/auth.go", state: "RED_CONFIRMED" });
     store.close();
 
-    expect(processTddGuard({ toolName: "Edit", filePath: "src/auth.go", cwd: tmpDir, dbPath })).toBeNull();
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: "src/auth.go",
+        cwd: tmpDir,
+        dbPath,
+      }),
+    ).toBeNull();
   });
 
   it("blocks Python impl files when IDLE", () => {

@@ -52,21 +52,25 @@ From the diff and plan: (1) all features implemented? (2) risk mitigations prese
 Focus on issues automated checks CANNOT catch. Review the diff for:
 
 **Security (must_fix):**
+
 - Injection vulnerabilities (SQL injection, XSS, command injection)
 - Auth bypass or missing authorization guards
 - Hardcoded secrets, tokens, or credentials
 
 **Bugs:**
+
 - Null/undefined dereference
 - Off-by-one errors in loops/pagination
 - Race conditions or missing async/await
 
 **TypeScript quality:**
+
 - Use of `any` type without justification → **should_fix**
 - Missing interface definitions for complex objects
 - Non-null assertions (`!`) in places where null should be handled
 
 **Angular-specific:**
+
 - Unsubscribed observables (missing `takeUntilDestroyed`, `async` pipe, or manual `unsubscribe`) → **should_fix**
 - Missing `ChangeDetectionStrategy.OnPush` where applicable → suggestion
 - Direct DOM manipulation instead of Angular renderer → **must_fix**
@@ -74,6 +78,7 @@ Focus on issues automated checks CANNOT catch. Review the diff for:
 - NgRx/Signals state mutations outside store → **should_fix**
 
 **NestJS-specific:**
+
 - Missing `class-validator` decorators on DTOs → **should_fix**
 - Controller methods without proper HTTP status codes
 - Services with direct entity access (should go through repositories) → suggestion
@@ -81,11 +86,13 @@ Focus on issues automated checks CANNOT catch. Review the diff for:
 - Swagger decorators absent from public API endpoints → suggestion
 
 **Test quality:**
+
 - New functions/components without tests → **must_fix**
 - Tests without mocking of external deps (HTTP, DB, file I/O) → **must_fix**
 - Tests asserting implementation details instead of behavior → **should_fix**
 
 **Error handling:**
+
 - Bare try/catch with swallowed errors → **should_fix**
 - Missing error states in Angular components
 - NestJS services throwing raw errors instead of HttpException → suggestion

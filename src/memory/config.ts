@@ -91,13 +91,17 @@ function mergeWithDefaults(raw: unknown): MemoryConfig {
   if (typeof raw !== "object" || raw === null) return { ...DEFAULT_CONFIG };
 
   const obj = raw as Record<string, unknown>;
-  const memory = typeof obj.memory === "object" && obj.memory !== null
-    ? obj.memory as Record<string, unknown>
-    : {};
+  const memory =
+    typeof obj.memory === "object" && obj.memory !== null
+      ? (obj.memory as Record<string, unknown>)
+      : {};
 
   return {
     memory: {
-      enabled: typeof memory.enabled === "boolean" ? memory.enabled : DEFAULT_CONFIG.memory.enabled,
+      enabled:
+        typeof memory.enabled === "boolean"
+          ? memory.enabled
+          : DEFAULT_CONFIG.memory.enabled,
     },
   };
 }

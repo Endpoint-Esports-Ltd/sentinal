@@ -28,7 +28,10 @@ export interface SpecToolsDeps {
   store?: MemoryStore | null;
 }
 
-export function registerSpecTools(server: McpServer, deps: SpecToolsDeps | MemoryStore | null): void {
+export function registerSpecTools(
+  server: McpServer,
+  deps: SpecToolsDeps | MemoryStore | null,
+): void {
   // Backwards-compat: bare MemoryStore or null
   let client: SidecarClient | null = null;
   let effectiveStore: MemoryStore | null = null;
@@ -55,14 +58,24 @@ export function registerSpecTools(server: McpServer, deps: SpecToolsDeps | Memor
 
 // --- spec_register ---
 
-function registerSpecRegisterTool(server: McpServer, client: SidecarClient | null, specStore: SpecStore | null, effectiveStore: MemoryStore | null): void {
+function registerSpecRegisterTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  specStore: SpecStore | null,
+  effectiveStore: MemoryStore | null,
+): void {
   server.tool(
     "spec_register",
     "Register or update a plan in the SQLite index. Optionally override the plan status before syncing.",
     {
       plan_path: z.string().describe("Absolute path to the plan .md file"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
-      status: z.string().optional().describe("Override the plan status (e.g. IN_PROGRESS, COMPLETE) — updates the file before syncing"),
+      status: z
+        .string()
+        .optional()
+        .describe(
+          "Override the plan status (e.g. IN_PROGRESS, COMPLETE) — updates the file before syncing",
+        ),
     },
     async ({ plan_path, project, status }) => {
       try {
@@ -79,7 +92,9 @@ function registerSpecRegisterTool(server: McpServer, client: SidecarClient | nul
           await client.syncSpec(plan_path, projectPath);
           // syncSpec returns void; parse the file for the response
           const parsed = parsePlanFile(plan_path);
-          const done = parsed.tasks.filter((t) => t.status === "complete").length;
+          const done = parsed.tasks.filter(
+            (t) => t.status === "complete",
+          ).length;
           const text = `Registered: ${parsed.id} (${parsed.status}, ${done}/${parsed.tasks.length} tasks)`;
           return { content: [{ type: "text" as const, text }] };
         }
@@ -90,7 +105,11 @@ function registerSpecRegisterTool(server: McpServer, client: SidecarClient | nul
         return { content: [{ type: "text" as const, text }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error registering plan: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error registering plan: ${msg}` },
+          ],
+        };
       }
     },
   );
@@ -104,67 +123,91 @@ function registerSpecWaitFileTool(server: McpServer): void {
     "Wait for a file to appear on disk. Returns immediately if the file exists, otherwise watches with a poll fallback. Useful for waiting on reviewer output files.",
     {
       file_path: z.string().describe("Absolute path to the file to wait for"),
-      timeout_seconds: z.number().optional().describe("Timeout in seconds (default 300)"),
+      timeout_seconds: z
+        .number()
+        .optional()
+        .describe("Timeout in seconds (default 300)"),
     },
     async ({ file_path, timeout_seconds }) => {
       const timeoutMs = (timeout_seconds ?? 300) * 1000;
 
       // Fast path: file already exists
       if (existsSync(file_path)) {
-        return { content: [{ type: "text" as const, text: `READY: ${file_path}` }] };
+        return {
+          content: [{ type: "text" as const, text: `READY: ${file_path}` }],
+        };
       }
 
       const targetDir = dirname(file_path);
       const targetName = basename(file_path);
 
-      return new Promise<{ content: { type: "text"; text: string }[] }>((resolve) => {
-        let watcher: ReturnType<typeof watch> | null = null;
-        let pollInterval: ReturnType<typeof setInterval> | null = null;
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        let resolved = false;
+      return new Promise<{ content: { type: "text"; text: string }[] }>(
+        (resolve) => {
+          let watcher: ReturnType<typeof watch> | null = null;
+          let pollInterval: ReturnType<typeof setInterval> | null = null;
+          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+          let resolved = false;
 
-        const cleanup = () => {
-          if (resolved) return;
-          resolved = true;
-          if (watcher) { try { watcher.close(); } catch {} }
-          if (pollInterval) clearInterval(pollInterval);
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-        };
+          const cleanup = () => {
+            if (resolved) return;
+            resolved = true;
+            if (watcher) {
+              try {
+                watcher.close();
+              } catch {}
+            }
+            if (pollInterval) clearInterval(pollInterval);
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          };
 
-        const onFound = () => {
-          cleanup();
-          resolve({ content: [{ type: "text" as const, text: `READY: ${file_path}` }] });
-        };
+          const onFound = () => {
+            cleanup();
+            resolve({
+              content: [{ type: "text" as const, text: `READY: ${file_path}` }],
+            });
+          };
 
-        const onTimeout = () => {
-          cleanup();
-          resolve({ content: [{ type: "text" as const, text: `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s` }] });
-        };
+          const onTimeout = () => {
+            cleanup();
+            resolve({
+              content: [
+                {
+                  type: "text" as const,
+                  text: `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s`,
+                },
+              ],
+            });
+          };
 
-        // fs.watch on parent directory
-        try {
-          watcher = watch(targetDir, (event, filename) => {
-            if (!resolved && filename === targetName && existsSync(file_path)) {
+          // fs.watch on parent directory
+          try {
+            watcher = watch(targetDir, (event, filename) => {
+              if (
+                !resolved &&
+                filename === targetName &&
+                existsSync(file_path)
+              ) {
+                onFound();
+              }
+            });
+            watcher.on("error", () => {
+              // Watcher failed — poll fallback handles it
+            });
+          } catch {
+            // Directory doesn't exist or watch not supported — poll handles it
+          }
+
+          // Poll fallback every 2 seconds
+          pollInterval = setInterval(() => {
+            if (!resolved && existsSync(file_path)) {
               onFound();
             }
-          });
-          watcher.on("error", () => {
-            // Watcher failed — poll fallback handles it
-          });
-        } catch {
-          // Directory doesn't exist or watch not supported — poll handles it
-        }
+          }, 2000);
 
-        // Poll fallback every 2 seconds
-        pollInterval = setInterval(() => {
-          if (!resolved && existsSync(file_path)) {
-            onFound();
-          }
-        }, 2000);
-
-        // Timeout
-        timeoutHandle = setTimeout(onTimeout, timeoutMs);
-      });
+          // Timeout
+          timeoutHandle = setTimeout(onTimeout, timeoutMs);
+        },
+      );
     },
   );
 }
@@ -192,7 +235,8 @@ function registerSpecConfigTool(server: McpServer): void {
         const value = process.env[env];
         let display: string;
         if (value === undefined || value === "") {
-          display = label === "session_id" ? "unset" : "unset (default: enabled)";
+          display =
+            label === "session_id" ? "unset" : "unset (default: enabled)";
         } else if (value === "false") {
           display = `${value} (disabled)`;
         } else {
@@ -239,13 +283,20 @@ function registerSpecPlanParseTool(server: McpServer): void {
           lines.push(`- **Iterations:** ${spec.metadata.iterations}`);
         }
         if (spec.metadata?.worktree !== undefined) {
-          lines.push(`- **Worktree:** ${spec.metadata.worktree ? "Yes" : "No"}`);
+          lines.push(
+            `- **Worktree:** ${spec.metadata.worktree ? "Yes" : "No"}`,
+          );
         }
 
         if (spec.tasks.length > 0) {
           lines.push("", "### Tasks");
           for (const task of spec.tasks) {
-            const marker = task.status === "complete" ? "[x]" : task.status === "in-progress" ? "[~]" : "[ ]";
+            const marker =
+              task.status === "complete"
+                ? "[x]"
+                : task.status === "in-progress"
+                  ? "[~]"
+                  : "[ ]";
             lines.push(`- ${marker} Task ${task.position}: ${task.title}`);
           }
         }
@@ -253,7 +304,11 @@ function registerSpecPlanParseTool(server: McpServer): void {
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error parsing plan: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error parsing plan: ${msg}` },
+          ],
+        };
       }
     },
   );
@@ -261,12 +316,18 @@ function registerSpecPlanParseTool(server: McpServer): void {
 
 // --- spec_notify ---
 
-function registerSpecNotifyTool(server: McpServer, client: SidecarClient | null, memoryStore: MemoryStore | null): void {
+function registerSpecNotifyTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  memoryStore: MemoryStore | null,
+): void {
   server.tool(
     "spec_notify",
     "Create a notification in the SQLite store. Useful for recording workflow events visible in the dashboard.",
     {
-      type: z.enum(["info", "warning", "error", "success"]).describe("Notification type"),
+      type: z
+        .enum(["info", "warning", "error", "success"])
+        .describe("Notification type"),
       title: z.string().describe("Short notification title"),
       message: z.string().optional().describe("Longer notification message"),
       spec_id: z.string().optional().describe("Associated spec ID"),
@@ -288,10 +349,21 @@ function registerSpecNotifyTool(server: McpServer, client: SidecarClient | null,
             specId: spec_id ?? null,
           });
         }
-        return { content: [{ type: "text" as const, text: `Notification created: ${title}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Notification created: ${title}` },
+          ],
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error creating notification: ${msg}` }] };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error creating notification: ${msg}`,
+            },
+          ],
+        };
       }
     },
   );
@@ -299,13 +371,20 @@ function registerSpecNotifyTool(server: McpServer, client: SidecarClient | null,
 
 // --- spec_events ---
 
-function registerSpecEventsTool(server: McpServer, client: SidecarClient | null, memoryStore: MemoryStore | null): void {
+function registerSpecEventsTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  memoryStore: MemoryStore | null,
+): void {
   server.tool(
     "spec_events",
     "Get recent spec lifecycle events (phase changes, task updates, TDD cycles, etc.) for a spec.",
     {
       spec_id: z.string().describe("Spec ID to get events for"),
-      limit: z.number().optional().describe("Maximum number of events to return (default 20)"),
+      limit: z
+        .number()
+        .optional()
+        .describe("Maximum number of events to return (default 20)"),
     },
     async ({ spec_id, limit }) => {
       try {
@@ -314,7 +393,14 @@ function registerSpecEventsTool(server: McpServer, client: SidecarClient | null,
           : memoryStore!.getSpecEvents(spec_id, limit ?? 20);
 
         if (events.length === 0) {
-          return { content: [{ type: "text" as const, text: `No events found for spec: ${spec_id}` }] };
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No events found for spec: ${spec_id}`,
+              },
+            ],
+          };
         }
 
         const lines = [`## Events for ${spec_id}`, ""];
@@ -327,7 +413,11 @@ function registerSpecEventsTool(server: McpServer, client: SidecarClient | null,
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error getting events: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error getting events: ${msg}` },
+          ],
+        };
       }
     },
   );
@@ -335,7 +425,11 @@ function registerSpecEventsTool(server: McpServer, client: SidecarClient | null,
 
 // --- spec_status ---
 
-function registerSpecStatusTool(server: McpServer, client: SidecarClient | null, specStore: SpecStore | null): void {
+function registerSpecStatusTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  specStore: SpecStore | null,
+): void {
   server.tool(
     "spec_status",
     "Get the current spec/plan status for a project. Shows title, progress percentage, and remaining tasks.",
@@ -348,14 +442,23 @@ function registerSpecStatusTool(server: McpServer, client: SidecarClient | null,
         : specStore!.getCurrentSpec(project);
 
       if (!spec) {
-        return { content: [{ type: "text", text: "No active spec found for this project." }] };
+        return {
+          content: [
+            { type: "text", text: "No active spec found for this project." },
+          ],
+        };
       }
 
       const totalTasks = spec.tasks.length;
-      const doneTasks = spec.tasks.filter((t) => t.status === "complete").length;
-      const inProgress = spec.tasks.filter((t) => t.status === "in-progress").length;
+      const doneTasks = spec.tasks.filter(
+        (t) => t.status === "complete",
+      ).length;
+      const inProgress = spec.tasks.filter(
+        (t) => t.status === "in-progress",
+      ).length;
       const pending = spec.tasks.filter((t) => t.status === "pending").length;
-      const percent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+      const percent =
+        totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
       const lines = [
         `## Current Spec: ${spec.title}`,
@@ -370,13 +473,21 @@ function registerSpecStatusTool(server: McpServer, client: SidecarClient | null,
       if (totalTasks > 0) {
         lines.push("", "### Tasks");
         for (const task of spec.tasks) {
-          const marker = task.status === "complete" ? "[x]" : task.status === "in-progress" ? "[~]" : "[ ]";
+          const marker =
+            task.status === "complete"
+              ? "[x]"
+              : task.status === "in-progress"
+                ? "[~]"
+                : "[ ]";
           lines.push(`- ${marker} Task ${task.position}: ${task.title}`);
         }
       }
 
       if (inProgress > 0 || pending > 0) {
-        lines.push("", `**Remaining:** ${inProgress} in progress, ${pending} pending`);
+        lines.push(
+          "",
+          `**Remaining:** ${inProgress} in progress, ${pending} pending`,
+        );
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };

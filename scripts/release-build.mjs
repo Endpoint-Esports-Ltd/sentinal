@@ -55,11 +55,15 @@ for (const { os, arch } of TARGETS) {
 
 // Generate checksums
 console.log("Generating checksums...");
-const checksumFiles = TARGETS.map(({ os, arch }) => `sentinal-${os}-${arch}`).join(" ");
+const checksumFiles = TARGETS.map(
+  ({ os, arch }) => `sentinal-${os}-${arch}`,
+).join(" ");
 execSync(`sha256sum ${checksumFiles} > checksums.txt`, {
   cwd: DIST_DIR,
   stdio: "inherit",
 });
 
 console.log(`Build complete. Artifacts in ${DIST_DIR}/:`);
-execSync(`ls -lh ${DIST_DIR}/sentinal-* ${DIST_DIR}/checksums.txt`, { stdio: "inherit" });
+execSync(`ls -lh ${DIST_DIR}/sentinal-* ${DIST_DIR}/checksums.txt`, {
+  stdio: "inherit",
+});

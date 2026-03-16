@@ -8,7 +8,10 @@ describe("estimateContextUsage", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `sentinal-context-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = join(
+      tmpdir(),
+      `sentinal-context-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(tmpDir, { recursive: true });
     // Clear env overrides
     delete process.env.SENTINAL_BYTES_PER_TOKEN;

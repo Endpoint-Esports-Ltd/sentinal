@@ -44,7 +44,10 @@ function readSkillDirs(dir) {
   return readdirSync(dir)
     .filter((d) => existsSync(join(dir, d, "SKILL.md")))
     .sort()
-    .map((d) => ({ name: `${d}/SKILL.md`, content: readFileSync(join(dir, d, "SKILL.md"), "utf-8") }));
+    .map((d) => ({
+      name: `${d}/SKILL.md`,
+      content: readFileSync(join(dir, d, "SKILL.md"), "utf-8"),
+    }));
 }
 
 function escapeForTemplate(s) {
@@ -54,7 +57,9 @@ function escapeForTemplate(s) {
 function emitRecord(lines, varName, entries) {
   lines.push(`export const ${varName}: Record<string, string> = {`);
   for (const entry of entries) {
-    lines.push(`  ${JSON.stringify(entry.name)}: \`${escapeForTemplate(entry.content)}\`,`);
+    lines.push(
+      `  ${JSON.stringify(entry.name)}: \`${escapeForTemplate(entry.content)}\`,`,
+    );
   }
   lines.push("};");
   lines.push("");
@@ -92,7 +97,9 @@ console.log(`  Config: ${ocConfigJson ? "OK" : "MISSING"}`);
 
 console.log("\n── Claude Code ──");
 
-const ccPluginJson = readFile(join(CLAUDE_DIR, ".claude-plugin", "plugin.json"));
+const ccPluginJson = readFile(
+  join(CLAUDE_DIR, ".claude-plugin", "plugin.json"),
+);
 const ccLspJson = readFile(join(CLAUDE_DIR, ".lsp.json"));
 const ccMcpJson = readFile(join(CLAUDE_DIR, ".mcp.json"));
 const ccSettingsJson = readFile(join(CLAUDE_DIR, "settings.json"));
@@ -113,12 +120,16 @@ for (const { label, val } of ccConfigFiles) {
   console.log(`  ${val ? "OK" : "MISSING"}: ${label}`);
 }
 console.log(`  Agents: ${ccAgents.map((a) => a.name).join(", ") || "(none)"}`);
-console.log(`  Commands: ${ccCommands.map((c) => c.name).join(", ") || "(none)"}`);
+console.log(
+  `  Commands: ${ccCommands.map((c) => c.name).join(", ") || "(none)"}`,
+);
 console.log(`  Rules: ${ccRules.map((r) => r.name).join(", ") || "(none)"}`);
 
 const missingConfigs = ccConfigFiles.filter((c) => !c.val);
 if (missingConfigs.length > 0) {
-  console.error(`\nERROR: Missing Claude Code config files: ${missingConfigs.map((c) => c.label).join(", ")}`);
+  console.error(
+    `\nERROR: Missing Claude Code config files: ${missingConfigs.map((c) => c.label).join(", ")}`,
+  );
   process.exit(1);
 }
 
@@ -145,35 +156,51 @@ const lines = [
 
 emitString(lines, "EMBEDDED_OPENCODE_PLUGIN", pluginContent);
 
-lines.push("// ─── OpenCode Commands ───────────────────────────────────────────────────────");
+lines.push(
+  "// ─── OpenCode Commands ───────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_COMMANDS", ocCommands);
 
-lines.push("// ─── OpenCode Rules ─────────────────────────────────────────────────────────");
+lines.push(
+  "// ─── OpenCode Rules ─────────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_RULES", ocRules);
 
-lines.push("// ─── OpenCode Agents ────────────────────────────────────────────────────────");
+lines.push(
+  "// ─── OpenCode Agents ────────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_OC_AGENTS", ocAgents);
 
-lines.push("// ─── OpenCode Skills ────────────────────────────────────────────────────────");
+lines.push(
+  "// ─── OpenCode Skills ────────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_OC_SKILLS", ocSkills);
 
-lines.push("// ─── OpenCode Config Template ───────────────────────────────────────────────");
+lines.push(
+  "// ─── OpenCode Config Template ───────────────────────────────────────────────",
+);
 lines.push("");
 if (ocConfigJson) {
   emitString(lines, "EMBEDDED_OC_CONFIG_JSON", ocConfigJson);
 }
 
-lines.push("// ═══════════════════════════════════════════════════════════════════════════════");
+lines.push(
+  "// ═══════════════════════════════════════════════════════════════════════════════",
+);
 lines.push("// Claude Code Assets");
-lines.push("// ═══════════════════════════════════════════════════════════════════════════════");
+lines.push(
+  "// ═══════════════════════════════════════════════════════════════════════════════",
+);
 lines.push("");
 
 // Config files
-lines.push("// ─── Claude Code Config Files ────────────────────────────────────────────────");
+lines.push(
+  "// ─── Claude Code Config Files ────────────────────────────────────────────────",
+);
 lines.push("");
 emitString(lines, "EMBEDDED_CC_PLUGIN_JSON", ccPluginJson);
 emitString(lines, "EMBEDDED_CC_LSP_JSON", ccLspJson);
@@ -182,17 +209,23 @@ emitString(lines, "EMBEDDED_CC_SETTINGS_JSON", ccSettingsJson);
 emitString(lines, "EMBEDDED_CC_HOOKS_JSON", ccHooksJson);
 
 // Agents
-lines.push("// ─── Claude Code Agents ──────────────────────────────────────────────────────");
+lines.push(
+  "// ─── Claude Code Agents ──────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_CC_AGENTS", ccAgents);
 
 // Commands
-lines.push("// ─── Claude Code Commands ────────────────────────────────────────────────────");
+lines.push(
+  "// ─── Claude Code Commands ────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_CC_COMMANDS", ccCommands);
 
 // Rules
-lines.push("// ─── Claude Code Rules ───────────────────────────────────────────────────────");
+lines.push(
+  "// ─── Claude Code Rules ───────────────────────────────────────────────────────",
+);
 lines.push("");
 emitRecord(lines, "EMBEDDED_CC_RULES", ccRules);
 

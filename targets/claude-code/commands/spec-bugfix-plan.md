@@ -72,9 +72,11 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
    **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
 
    Same pattern as spec-plan Step 1.1 using `sentinal worktree detect/create`.
+
 3. **Generate filename:** `docs/plans/YYYY-MM-DD-<bug-slug>.md`
 4. `mkdir -p docs/plans`
 5. **Write header:**
+
    ```markdown
    # [Bug Description] Fix Plan
 
@@ -88,11 +90,14 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
    > Investigating bug...
 
    ## Summary
+
    **Symptom:** [Bug description from user]
 
    ---
+
    _Tracing root cause..._
    ```
+
 6. **Register:**
 
    **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
@@ -122,12 +127,14 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
 Read as many files as needed. For each: read completely, trace execution path from user action to symptom, note specific lines where behavior diverges.
 
 **Backward tracing technique (from symptom to source):**
+
 1. Find where the error/wrong behavior appears — note file:line
 2. What called this with the wrong value/state? Trace one level up.
 3. Keep tracing until you find the **source** — where the bad data originates
 4. **Fix at the source, not where the error appears**
 
 **Multi-component systems (Angular + NestJS):** Before concluding, instrument at boundaries:
+
 - What data enters each component? What exits?
 - WHERE does it break? Run once to gather evidence, THEN investigate the failing component.
 
@@ -142,6 +149,7 @@ Read as many files as needed. For each: read completely, trace execution path fr
 ### 1.2.5: Root Cause Statement
 
 State clearly:
+
 - **Root cause:** `src/path/file.ts:lineN` — `functionName()` does X but should do Y
 - **Why:** Explain WHY it causes the symptom (not just what's wrong)
 - **Confidence:** High (traced fully) / Medium (strong hypothesis) / Low (needs more data)
@@ -165,10 +173,10 @@ BEFORE writing the plan:
 
 ### Size the task structure
 
-| Size | Criteria | Tasks |
-|------|----------|-------|
-| **Compact** (default) | ≤3 files, clear root cause | 2: Fix (test + code) → Verify |
-| **Full** | 4+ files, multiple failure modes | 3: Tests → Fix → Verify |
+| Size                  | Criteria                         | Tasks                         |
+| --------------------- | -------------------------------- | ----------------------------- |
+| **Compact** (default) | ≤3 files, clear root cause       | 2: Fix (test + code) → Verify |
+| **Full**              | 4+ files, multiple failure modes | 3: Tests → Fix → Verify       |
 
 ### Compact (most bugs)
 
@@ -185,11 +193,11 @@ BEFORE writing the plan:
 
 **Defense-in-depth:** When the bug was caused by invalid data flowing through multiple layers, plan validation at every layer:
 
-| Layer | Purpose | Example |
-|-------|---------|---------|
-| Entry point | Reject invalid input at API/component boundary | NestJS DTO validation, Angular form validators |
-| Business logic | Ensure data makes sense for this operation | Service-level guards |
-| Environment guards | Prevent dangerous operations in specific contexts | Guards on destructive operations |
+| Layer              | Purpose                                           | Example                                        |
+| ------------------ | ------------------------------------------------- | ---------------------------------------------- |
+| Entry point        | Reject invalid input at API/component boundary    | NestJS DTO validation, Angular form validators |
+| Business logic     | Ensure data makes sense for this operation        | Service-level guards                           |
+| Environment guards | Prevent dangerous operations in specific contexts | Guards on destructive operations               |
 
 ---
 
@@ -208,11 +216,13 @@ Worktree: [Yes|No]
 Type: Bugfix
 
 ## Summary
+
 **Symptom:** [What user observes]
 **Trigger:** [When/how it happens]
 **Root Cause:** `src/path/file.ts:lineN` — [what's wrong and why]
 
 ## Investigation
+
 - [Key findings from tracing — breadcrumb trail so implementer understands the bug]
 - [Working example for comparison, if relevant]
 - [Recent changes that may have caused it, if relevant]
@@ -220,33 +230,39 @@ Type: Bugfix
 ## Behavior Contract
 
 ### Fix Property (C => P)
+
 **When condition C holds:** [exact condition, e.g., "user submits empty form"]
 **Property P must hold:** [expected behavior, e.g., "validation error is shown, form not submitted"]
 
 ### Preservation Property (!C => unchanged)
+
 **When condition C does NOT hold:** [e.g., "user submits valid form"]
 **Existing behavior preserved:** [e.g., "form submits successfully as before"]
 
 ## Fix Approach
+
 **Files:** [files to modify]
 **Strategy:** [how to fix — reference pattern from working code if applicable]
 **Tests:** [test files to create/modify]
 **Defense-in-depth:** [additional validation layers, if applicable — skip for isolated fixes]
 
 ## Progress
+
 - [ ] Task 1: [title]
 - [ ] Task 2: [title]
-**Tasks:** N | **Done:** 0 | **Left:** N
+      **Tasks:** N | **Done:** 0 | **Left:** N
 
 ## Tasks
 
 ### Task 1: Fix
+
 **Objective:** Write regression test → implement fix
 **Files:** [list]
 **TDD:** Write regression test → verify FAILS → implement fix → verify all PASS
 **Verify:** `npx jest <test-path> --verbose` / `bun test <test-path>`
 
 ### Task 2: Verify
+
 **Objective:** Full suite + quality checks
 **Verify:** `bun test && npx tsc --noEmit && npx eslint .`
 ```

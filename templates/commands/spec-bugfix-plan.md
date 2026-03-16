@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <bug description> or <path/to/plan.md>
 ---
 
@@ -39,6 +39,7 @@ Create plan file at `docs/plans/YYYY-MM-DD-bugfix-<slug>.md`:
 **Date:** YYYY-MM-DD
 
 ## Bug Analysis
+
 - **Symptom:** [What the user sees]
 - **Root Cause:** [file:line and explanation]
 - **Trigger:** [Steps to reproduce]
@@ -46,10 +47,12 @@ Create plan file at `docs/plans/YYYY-MM-DD-bugfix-<slug>.md`:
 ## Behavior Contract
 
 ### Fix Property
+
 **C =>** [condition]
 **P =>** [expected property/behavior]
 
 ### Preservation Property
+
 **!C =>** [negation of condition]
 **Unchanged =>** [existing behavior preserved]
 
@@ -58,14 +61,17 @@ Create plan file at `docs/plans/YYYY-MM-DD-bugfix-<slug>.md`:
 Done: 0 | Left: N
 
 ### Task 1: Write failing test proving the bug
+
 - [ ] Test that demonstrates the current broken behavior
 - **Files:** test file path
 
 ### Task 2: Fix the root cause
+
 - [ ] Minimal code change at file:line
 - **Files:** source file path
 
 ### Task 3: Write preservation test
+
 - [ ] Test that existing behavior is unchanged
 - **Files:** test file path
 ```

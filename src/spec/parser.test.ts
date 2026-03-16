@@ -7,7 +7,9 @@ describe("slugFromFilename", () => {
   });
 
   it("should strip directory path", () => {
-    expect(slugFromFilename("/docs/plans/2026-03-09-feature.md")).toBe("2026-03-09-feature");
+    expect(slugFromFilename("/docs/plans/2026-03-09-feature.md")).toBe(
+      "2026-03-09-feature",
+    );
   });
 
   it("should handle no extension", () => {
@@ -44,12 +46,18 @@ Some summary text.
 `;
 
   it("should extract title", () => {
-    const spec = parsePlanContent(newFormatContent, "/plans/2026-03-09-market research-parity.md");
+    const spec = parsePlanContent(
+      newFormatContent,
+      "/plans/2026-03-09-market research-parity.md",
+    );
     expect(spec.title).toBe("market research Feature Parity Implementation Plan");
   });
 
   it("should extract slug from filename", () => {
-    const spec = parsePlanContent(newFormatContent, "/plans/2026-03-09-market research-parity.md");
+    const spec = parsePlanContent(
+      newFormatContent,
+      "/plans/2026-03-09-market research-parity.md",
+    );
     expect(spec.id).toBe("2026-03-09-market research-parity");
   });
 
@@ -78,10 +86,26 @@ Some summary text.
   it("should extract tasks from Progress Tracking", () => {
     const spec = parsePlanContent(newFormatContent, "/plans/test.md");
     expect(spec.tasks).toHaveLength(4);
-    expect(spec.tasks[0]).toEqual({ position: 1, title: "CLI binary scaffold", status: "in-progress" });
-    expect(spec.tasks[1]).toEqual({ position: 2, title: "Memory system", status: "complete" });
-    expect(spec.tasks[2]).toEqual({ position: 3, title: "Session management", status: "pending" });
-    expect(spec.tasks[3]).toEqual({ position: 4, title: "Hook integration", status: "complete" });
+    expect(spec.tasks[0]).toEqual({
+      position: 1,
+      title: "CLI binary scaffold",
+      status: "in-progress",
+    });
+    expect(spec.tasks[1]).toEqual({
+      position: 2,
+      title: "Memory system",
+      status: "complete",
+    });
+    expect(spec.tasks[2]).toEqual({
+      position: 3,
+      title: "Session management",
+      status: "pending",
+    });
+    expect(spec.tasks[3]).toEqual({
+      position: 4,
+      title: "Hook integration",
+      status: "complete",
+    });
   });
 });
 
@@ -97,22 +121,34 @@ Some design overview.
 `;
 
   it("should extract title", () => {
-    const spec = parsePlanContent(oldFormatContent, "/plans/2026-03-03-sentinal-design.md");
+    const spec = parsePlanContent(
+      oldFormatContent,
+      "/plans/2026-03-03-sentinal-design.md",
+    );
     expect(spec.title).toBe("Sentinal Design Document");
   });
 
   it("should extract status from bold format", () => {
-    const spec = parsePlanContent(oldFormatContent, "/plans/2026-03-03-sentinal-design.md");
+    const spec = parsePlanContent(
+      oldFormatContent,
+      "/plans/2026-03-03-sentinal-design.md",
+    );
     expect(spec.status).toBe("APPROVED");
   });
 
   it("should mark APPROVED as approved", () => {
-    const spec = parsePlanContent(oldFormatContent, "/plans/2026-03-03-sentinal-design.md");
+    const spec = parsePlanContent(
+      oldFormatContent,
+      "/plans/2026-03-03-sentinal-design.md",
+    );
     expect(spec.approved).toBe(true);
   });
 
   it("should extract created from Date field", () => {
-    const spec = parsePlanContent(oldFormatContent, "/plans/2026-03-03-sentinal-design.md");
+    const spec = parsePlanContent(
+      oldFormatContent,
+      "/plans/2026-03-03-sentinal-design.md",
+    );
     expect(spec.created).toBe("2026-03-03");
   });
 
@@ -160,8 +196,16 @@ Some assumptions.
   it("should extract tasks from Implementation Tasks when no Progress Tracking", () => {
     const spec = parsePlanContent(implContent, "/plans/test.md");
     expect(spec.tasks).toHaveLength(2);
-    expect(spec.tasks[0]).toEqual({ position: 1, title: "Fix login bug", status: "in-progress" });
-    expect(spec.tasks[1]).toEqual({ position: 2, title: "Add error handling", status: "pending" });
+    expect(spec.tasks[0]).toEqual({
+      position: 1,
+      title: "Fix login bug",
+      status: "in-progress",
+    });
+    expect(spec.tasks[1]).toEqual({
+      position: 2,
+      title: "Add error handling",
+      status: "pending",
+    });
   });
 
   it("should detect bugfix type", () => {
@@ -179,7 +223,10 @@ describe("parsePlanContent — edge cases", () => {
   });
 
   it("should handle content with no metadata", () => {
-    const spec = parsePlanContent("# Just a Title\n\nSome text.", "/plans/test.md");
+    const spec = parsePlanContent(
+      "# Just a Title\n\nSome text.",
+      "/plans/test.md",
+    );
     expect(spec.title).toBe("Just a Title");
     expect(spec.status).toBe("PENDING");
   });
@@ -256,14 +303,22 @@ Type: Feature
 
   it("extracts testStrategy from inline format", () => {
     const spec = parsePlanContent(richContent, "/plans/test.md");
-    expect(spec.tasks[0].testStrategy).toBe("Unit test entity validation, integration test migration");
-    expect(spec.tasks[1].testStrategy).toBe("Unit test JWT service, mock strategy");
+    expect(spec.tasks[0].testStrategy).toBe(
+      "Unit test entity validation, integration test migration",
+    );
+    expect(spec.tasks[1].testStrategy).toBe(
+      "Unit test JWT service, mock strategy",
+    );
   });
 
   it("extracts definitionOfDone from inline format", () => {
     const spec = parsePlanContent(richContent, "/plans/test.md");
-    expect(spec.tasks[0].definitionOfDone).toBe("Entity created, migration runs, tests pass");
-    expect(spec.tasks[2].definitionOfDone).toBe("POST /auth/login and POST /auth/register work");
+    expect(spec.tasks[0].definitionOfDone).toBe(
+      "Entity created, migration runs, tests pass",
+    );
+    expect(spec.tasks[2].definitionOfDone).toBe(
+      "POST /auth/login and POST /auth/register work",
+    );
   });
 });
 

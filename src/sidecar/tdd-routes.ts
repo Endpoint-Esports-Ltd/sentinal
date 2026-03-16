@@ -32,18 +32,22 @@ export function bulkTddTransition(
   if (action === "confirm_red") {
     const specClause = specId ? " AND spec_id = ?" : "";
     const params = specId ? [Date.now(), specId] : [Date.now()];
-    const result = db.prepare(
-      `UPDATE tdd_cycles SET state = 'RED_CONFIRMED', updated_at = ? WHERE state = 'TEST_WRITTEN'${specClause}`,
-    ).run(...params);
+    const result = db
+      .prepare(
+        `UPDATE tdd_cycles SET state = 'RED_CONFIRMED', updated_at = ? WHERE state = 'TEST_WRITTEN'${specClause}`,
+      )
+      .run(...params);
     return { count: result.changes };
   }
 
   // confirm_green: clear RED_CONFIRMED states
   const specClause = specId ? " AND spec_id = ?" : "";
   const params = specId ? [specId] : [];
-  const result = db.prepare(
-    `DELETE FROM tdd_cycles WHERE state = 'RED_CONFIRMED'${specClause}`,
-  ).run(...params);
+  const result = db
+    .prepare(
+      `DELETE FROM tdd_cycles WHERE state = 'RED_CONFIRMED'${specClause}`,
+    )
+    .run(...params);
   return { count: result.changes };
 }
 
@@ -57,7 +61,8 @@ export async function handleTddTransitionRequest(
   ctx: SidecarContext,
 ): Promise<Response | null> {
   const url = new URL(req.url, "http://localhost");
-  if (url.pathname !== "/tdd-state/transition" || req.method !== "POST") return null;
+  if (url.pathname !== "/tdd-state/transition" || req.method !== "POST")
+    return null;
 
   try {
     const body = (await req.json()) as { action?: string; specId?: string };
@@ -65,7 +70,10 @@ export async function handleTddTransitionRequest(
 
     if (action !== "confirm_red" && action !== "confirm_green") {
       return Response.json(
-        { ok: false, error: "Invalid action. Must be 'confirm_red' or 'confirm_green'." },
+        {
+          ok: false,
+          error: "Invalid action. Must be 'confirm_red' or 'confirm_green'.",
+        },
         { status: 400 },
       );
     }

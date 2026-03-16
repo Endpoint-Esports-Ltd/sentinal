@@ -73,7 +73,11 @@ export class SpecStore {
   }
 
   /** Sync a single plan file into the SQLite index. */
-  syncFromPlanFile(planFile: string, projectPath: string, sessionId?: string): Spec {
+  syncFromPlanFile(
+    planFile: string,
+    projectPath: string,
+    sessionId?: string,
+  ): Spec {
     const spec = parsePlanFile(planFile);
     const now = Date.now();
     const tasksDone = spec.tasks.filter((t) => t.status === "complete").length;
@@ -84,9 +88,20 @@ export class SpecStore {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     upsertSpec.run(
-      spec.id, projectPath, spec.title, spec.id, spec.type, spec.status,
-      spec.approved ? 1 : 0, planFile, spec.tasks.length, tasksDone, now, now,
-      sessionId ?? null, metadataJson,
+      spec.id,
+      projectPath,
+      spec.title,
+      spec.id,
+      spec.type,
+      spec.status,
+      spec.approved ? 1 : 0,
+      planFile,
+      spec.tasks.length,
+      tasksDone,
+      now,
+      now,
+      sessionId ?? null,
+      metadataJson,
     );
 
     // Sync tasks — delete existing then re-insert
@@ -138,7 +153,9 @@ export class SpecStore {
   /** List all specs for a project, ordered by most recent first. */
   listSpecs(projectPath: string): Spec[] {
     const rows = this.db
-      .prepare("SELECT * FROM specs WHERE project_path = ? ORDER BY updated_at DESC")
+      .prepare(
+        "SELECT * FROM specs WHERE project_path = ? ORDER BY updated_at DESC",
+      )
       .all(projectPath) as RawSpec[];
     return rows.map((r) => this.deserializeSpec(r));
   }
@@ -154,7 +171,10 @@ export class SpecStore {
   /** Get the current (most recently updated) active spec for a project. */
   getCurrentSpec(projectPath: string): Spec | null {
     const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
-    const params: SQLQueryBindings[] = [projectPath, ...(ACTIVE_STATUSES as readonly string[])];
+    const params: SQLQueryBindings[] = [
+      projectPath,
+      ...(ACTIVE_STATUSES as readonly string[]),
+    ];
     const row = this.db
       .prepare(
         `SELECT * FROM specs WHERE project_path = ? AND status IN (${placeholders}) ORDER BY updated_at DESC LIMIT 1`,
@@ -167,7 +187,9 @@ export class SpecStore {
   /** Get all specs associated with a session. */
   getSpecsForSession(sessionId: string): Spec[] {
     const rows = this.db
-      .prepare("SELECT * FROM specs WHERE session_id = ? ORDER BY updated_at DESC")
+      .prepare(
+        "SELECT * FROM specs WHERE session_id = ? ORDER BY updated_at DESC",
+      )
       .all(sessionId) as RawSpec[];
     return rows.map((r) => this.deserializeSpec(r));
   }
@@ -217,7 +239,13 @@ export class SpecStore {
          SET status = ?, started_at = COALESCE(?, started_at), completed_at = COALESCE(?, completed_at)
          WHERE spec_id = ? AND position = ?`,
       )
-      .run(status, opts?.startedAt ?? null, opts?.completedAt ?? null, specId, position);
+      .run(
+        status,
+        opts?.startedAt ?? null,
+        opts?.completedAt ?? null,
+        specId,
+        position,
+      );
   }
 
   /**
@@ -229,7 +257,13 @@ export class SpecStore {
   auditCompletion(specId: string): AuditResult {
     const spec = this.getSpec(specId);
     if (!spec) {
-      return { specId, totalTasks: 0, completeTasks: 0, fixes: [], inSync: true };
+      return {
+        specId,
+        totalTasks: 0,
+        completeTasks: 0,
+        fixes: [],
+        inSync: true,
+      };
     }
 
     // Re-parse the .md file to get current checkbox states
@@ -249,7 +283,9 @@ export class SpecStore {
 
       if (mdComplete && !sqliteComplete) {
         // MD is ahead — update SQLite
-        this.updateTaskStatus(specId, mdTask.position, "complete", { completedAt: Date.now() });
+        this.updateTaskStatus(specId, mdTask.position, "complete", {
+          completedAt: Date.now(),
+        });
         fixes.push({
           taskPosition: mdTask.position,
           taskTitle: mdTask.title,
@@ -269,14 +305,18 @@ export class SpecStore {
 
     // If any sqlite-ahead fixes, rewrite the md file
     const sqliteAheadPositions = new Set(
-      fixes.filter((f) => f.issue === "sqlite-ahead").map((f) => f.taskPosition),
+      fixes
+        .filter((f) => f.issue === "sqlite-ahead")
+        .map((f) => f.taskPosition),
     );
     if (sqliteAheadPositions.size > 0) {
       this.updateMdCheckboxes(spec.planFile, sqliteAheadPositions);
     }
 
     const finalTasks = this.getTasksForSpec(specId);
-    const completeTasks = finalTasks.filter((t) => t.status === "complete").length;
+    const completeTasks = finalTasks.filter(
+      (t) => t.status === "complete",
+    ).length;
 
     return {
       specId,

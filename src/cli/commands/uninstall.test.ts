@@ -124,7 +124,11 @@ describe("cleanupOpenCodeConfig", () => {
     const config: Record<string, unknown> = {
       permission: {
         skill: { "*": "allow", "spec-*": "allow" },
-        edit: { "*": "ask", "docs/plans/*.md": "allow", "docs/plans/**/*.md": "allow" },
+        edit: {
+          "*": "ask",
+          "docs/plans/*.md": "allow",
+          "docs/plans/**/*.md": "allow",
+        },
       },
     };
     const result = cleanupOpenCodeConfig(config);
@@ -135,7 +139,11 @@ describe("cleanupOpenCodeConfig", () => {
     const config: Record<string, unknown> = {
       permission: {
         skill: { "*": "allow" },
-        edit: { "*": "ask", "docs/plans/*.md": "allow", "src/custom/**": "allow" },
+        edit: {
+          "*": "ask",
+          "docs/plans/*.md": "allow",
+          "src/custom/**": "allow",
+        },
       },
     };
     const result = cleanupOpenCodeConfig(config);
@@ -150,7 +158,13 @@ describe("cleanupOpenCodeConfig", () => {
       agent: {
         build: {
           permission: {
-            task: { "*": "ask", "plan-reviewer": "allow", "spec-reviewer": "allow", "explore": "allow", "general": "allow" },
+            task: {
+              "*": "ask",
+              "plan-reviewer": "allow",
+              "spec-reviewer": "allow",
+              explore: "allow",
+              general: "allow",
+            },
             edit: { "*": "allow" },
           },
         },
@@ -165,14 +179,22 @@ describe("cleanupOpenCodeConfig", () => {
       agent: {
         build: {
           permission: {
-            task: { "*": "ask", "plan-reviewer": "allow", "custom-agent": "allow" },
+            task: {
+              "*": "ask",
+              "plan-reviewer": "allow",
+              "custom-agent": "allow",
+            },
           },
         },
       },
     };
     const result = cleanupOpenCodeConfig(config);
-    const build = (result.agent as Record<string, Record<string, unknown>>)?.build;
-    const task = (build?.permission as Record<string, unknown>)?.task as Record<string, string>;
+    const build = (result.agent as Record<string, Record<string, unknown>>)
+      ?.build;
+    const task = (build?.permission as Record<string, unknown>)?.task as Record<
+      string,
+      string
+    >;
     expect(task["plan-reviewer"]).toBeUndefined();
     expect(task["custom-agent"]).toBe("allow");
     expect(task["*"]).toBe("ask");
@@ -184,7 +206,12 @@ describe("cleanupOpenCodeConfig", () => {
         plan: {
           permission: {
             task: { "*": "ask", "plan-reviewer": "allow" },
-            edit: { "*": "ask", "docs/plans/*.md": "allow", "docs/plans/**/*.md": "allow", "docs/plans/*.json": "allow" },
+            edit: {
+              "*": "ask",
+              "docs/plans/*.md": "allow",
+              "docs/plans/**/*.md": "allow",
+              "docs/plans/*.json": "allow",
+            },
           },
         },
       },
@@ -227,19 +254,39 @@ describe("cleanupOpenCodeConfig — roundtrip with deepMergeAdditive", () => {
 
     const sentinalPermission = {
       skill: { "*": "allow", "spec-*": "allow" },
-      edit: { "*": "ask", "docs/plans/*.md": "allow", "docs/plans/**/*.md": "allow" },
+      edit: {
+        "*": "ask",
+        "docs/plans/*.md": "allow",
+        "docs/plans/**/*.md": "allow",
+      },
     };
     const sentinalAgent = {
       build: {
         permission: {
-          task: { "*": "ask", "plan-reviewer": "allow", "spec-reviewer": "allow", "explore": "allow", "general": "allow" },
+          task: {
+            "*": "ask",
+            "plan-reviewer": "allow",
+            "spec-reviewer": "allow",
+            explore: "allow",
+            general: "allow",
+          },
           edit: { "*": "allow" },
         },
       },
       plan: {
         permission: {
-          task: { "*": "ask", "plan-reviewer": "allow", "spec-reviewer": "allow", "explore": "allow", "general": "allow" },
-          edit: { "*": "ask", "docs/plans/*.md": "allow", "docs/plans/**/*.md": "allow" },
+          task: {
+            "*": "ask",
+            "plan-reviewer": "allow",
+            "spec-reviewer": "allow",
+            explore: "allow",
+            general: "allow",
+          },
+          edit: {
+            "*": "ask",
+            "docs/plans/*.md": "allow",
+            "docs/plans/**/*.md": "allow",
+          },
         },
       },
     };
@@ -247,17 +294,30 @@ describe("cleanupOpenCodeConfig — roundtrip with deepMergeAdditive", () => {
     const afterInstall: Record<string, unknown> = {
       ...userConfig,
       plugin: [...(userConfig.plugin as string[]), "./plugins/sentinal.mjs"],
-      permission: deepMergeAdditive(userConfig.permission as Record<string, unknown>, sentinalPermission),
-      agent: deepMergeAdditive(userConfig.agent as Record<string, unknown>, sentinalAgent),
+      permission: deepMergeAdditive(
+        userConfig.permission as Record<string, unknown>,
+        sentinalPermission,
+      ),
+      agent: deepMergeAdditive(
+        userConfig.agent as Record<string, unknown>,
+        sentinalAgent,
+      ),
     };
 
     const afterUninstall = cleanupOpenCodeConfig(afterInstall);
 
     expect(afterUninstall.plugin).toEqual(["custom-plugin"]);
-    expect((afterUninstall.permission as Record<string, unknown>)?.edit).toEqual({ "*": "ask", "src/**": "allow" });
-    const buildTask = ((afterUninstall.agent as Record<string, Record<string, unknown>>)?.build?.permission as Record<string, unknown>)?.task as Record<string, string>;
+    expect(
+      (afterUninstall.permission as Record<string, unknown>)?.edit,
+    ).toEqual({ "*": "ask", "src/**": "allow" });
+    const buildTask = (
+      (afterUninstall.agent as Record<string, Record<string, unknown>>)?.build
+        ?.permission as Record<string, unknown>
+    )?.task as Record<string, string>;
     expect(buildTask?.["custom-agent"]).toBe("allow");
     expect(buildTask?.["plan-reviewer"]).toBeUndefined();
-    expect((afterUninstall.agent as Record<string, unknown>)?.plan).toBeUndefined();
+    expect(
+      (afterUninstall.agent as Record<string, unknown>)?.plan,
+    ).toBeUndefined();
   });
 });

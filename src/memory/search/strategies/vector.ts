@@ -76,8 +76,7 @@ export class VectorStrategy implements SearchStrategy {
 
 function passesFilters(obs: Observation, filters: SearchFilters): boolean {
   if (filters.type && obs.type !== filters.type) return false;
-  if (filters.types?.length && !filters.types.includes(obs.type))
-    return false;
+  if (filters.types?.length && !filters.types.includes(obs.type)) return false;
   if (filters.dateStart && obs.timestamp < filters.dateStart) return false;
   if (filters.dateEnd && obs.timestamp > filters.dateEnd) return false;
   if (filters.tags?.length) {

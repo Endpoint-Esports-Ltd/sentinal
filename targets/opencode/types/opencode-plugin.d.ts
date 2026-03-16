@@ -57,7 +57,9 @@ export interface PluginClient {
     log(options: { body: LogBody }): Promise<void>;
   };
   session: {
-    messages(options: { path: { id: string } }): Promise<SessionMessageResponse[]>;
+    messages(options: {
+      path: { id: string };
+    }): Promise<SessionMessageResponse[]>;
   };
 }
 
@@ -155,19 +157,19 @@ export interface PluginHooks {
   /** Called before a tool is executed */
   "tool.execute.before"?: (
     input: ToolExecuteInput,
-    output: ToolExecuteOutput
+    output: ToolExecuteOutput,
   ) => Promise<void>;
 
   /** Called after a tool is executed */
   "tool.execute.after"?: (
     input: ToolExecuteInput,
-    output: ToolExecuteOutput
+    output: ToolExecuteOutput,
   ) => Promise<void>;
 
   /** Called when a session is being compacted (experimental) */
   "experimental.session.compacting"?: (
     input: SessionCompactingInput,
-    output: SessionCompactingOutput
+    output: SessionCompactingOutput,
   ) => Promise<void>;
 
   /** General event handler */
@@ -190,7 +192,7 @@ export interface ToolDefinition {
   args: Record<string, z.ZodType>;
   execute(
     args: Record<string, unknown>,
-    context: ToolExecuteContext
+    context: ToolExecuteContext,
   ): Promise<unknown>;
 }
 
@@ -211,7 +213,7 @@ export interface ToolHelper {
     args: T;
     execute(
       args: { [K in keyof T]: z.infer<T[K]> },
-      context: ToolExecuteContext
+      context: ToolExecuteContext,
     ): Promise<unknown>;
   }): ToolDefinition;
 

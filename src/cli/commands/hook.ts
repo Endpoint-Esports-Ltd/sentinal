@@ -9,16 +9,30 @@ import { readStdin, output } from "../../utils/hook-output.js";
 import { SidecarClient } from "../../sidecar/client.js";
 import { autoStartSidecar } from "../../sidecar/lifecycle.js";
 
-function extractFilePath(toolInput: Record<string, unknown>): string | undefined {
-  return (toolInput.file_path as string) ?? (toolInput.filePath as string) ?? (toolInput.path as string) ?? undefined;
+function extractFilePath(
+  toolInput: Record<string, unknown>,
+): string | undefined {
+  return (
+    (toolInput.file_path as string) ??
+    (toolInput.filePath as string) ??
+    (toolInput.path as string) ??
+    undefined
+  );
 }
 
 async function runTddGuard(): Promise<void> {
   const { processTddGuard } = await import("../../hooks/tdd-guard.js");
   const input = await readStdin();
   const filePath = extractFilePath(input.tool_input ?? {});
-  const result = processTddGuard({ toolName: input.tool_name ?? "", filePath, cwd: input.cwd });
-  if (result) { output(result); process.exit(2); }
+  const result = processTddGuard({
+    toolName: input.tool_name ?? "",
+    filePath,
+    cwd: input.cwd,
+  });
+  if (result) {
+    output(result);
+    process.exit(2);
+  }
 }
 
 async function runTddTracker(): Promise<void> {
@@ -26,12 +40,18 @@ async function runTddTracker(): Promise<void> {
   const input = await readStdin();
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
-  const bashOutput = toolName === "Bash"
-    ? ((input.tool_response?.output as string) ?? (toolInput.output as string) ?? undefined)
-    : undefined;
+  const bashOutput =
+    toolName === "Bash"
+      ? ((input.tool_response?.output as string) ??
+        (toolInput.output as string) ??
+        undefined)
+      : undefined;
   await processTddTracking({
-    toolName, filePath: extractFilePath(toolInput), bashOutput,
-    sessionId: input.session_id, cwd: input.cwd,
+    toolName,
+    filePath: extractFilePath(toolInput),
+    bashOutput,
+    sessionId: input.session_id,
+    cwd: input.cwd,
   });
 }
 
@@ -55,7 +75,9 @@ async function runSessionStart(): Promise<void> {
       });
       return;
     }
-  } catch { /* fall back to direct */ }
+  } catch {
+    /* fall back to direct */
+  }
 
   const { MemoryStore } = await import("../../memory/store.js");
   const store = new MemoryStore();
@@ -83,7 +105,10 @@ async function runSessionEnd(): Promise<void> {
     if (client) {
       await client.endSession(input.session_id, { notification: true });
       const active = await client.getActiveSessions();
-      if (active.length === 0) { stopServer(); stopSidecarProcess(); }
+      if (active.length === 0) {
+        stopServer();
+        stopSidecarProcess();
+      }
     } else {
       // Direct fallback
       const { MemoryStore } = await import("../../memory/store.js");
@@ -97,7 +122,10 @@ async function runSessionEnd(): Promise<void> {
         sessionId: input.session_id,
       });
       const active = store.getActiveSessions();
-      if (active.length === 0) { stopServer(); stopSidecarProcess(); }
+      if (active.length === 0) {
+        stopServer();
+        stopSidecarProcess();
+      }
       store.close();
     }
   } catch {
@@ -107,15 +135,19 @@ async function runSessionEnd(): Promise<void> {
   const bufferPath = join(input.cwd, ".sentinal", "event-buffer.json");
   try {
     if (existsSync(bufferPath)) unlinkSync(bufferPath);
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 async function runMemoryObserver(): Promise<void> {
   const { isMemoryEnabled } = await import("../../memory/config.js");
   if (!isMemoryEnabled()) return;
 
-  const { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE } = await import("../../memory/capture.js");
-  const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE } =
+    await import("../../memory/capture.js");
+  const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+    await import("node:fs");
   const { join } = await import("node:path");
 
   const input = await readStdin();
@@ -123,11 +155,13 @@ async function runMemoryObserver(): Promise<void> {
   const toolInput = input.tool_input ?? {};
   const filePath = extractFilePath(toolInput);
   // Use tool_response for actual output (esp. Bash results); fall back to tool_input
-  const rawOutput = (input.tool_response?.output as string)
-    ?? (toolInput.output as string)
-    ?? undefined;
+  const rawOutput =
+    (input.tool_response?.output as string) ??
+    (toolInput.output as string) ??
+    undefined;
   const event = {
-    toolName, filePath,
+    toolName,
+    filePath,
     success: true,
     output: rawOutput?.slice(0, 2000),
     timestamp: Date.now(),
@@ -145,13 +179,16 @@ async function runMemoryObserver(): Promise<void> {
         for (const e of data) buffer.push(e);
       }
     }
-  } catch { /* corrupted buffer */ }
+  } catch {
+    /* corrupted buffer */
+  }
 
   buffer.push(event);
   const decision = analyzeEvent(event, buffer);
   writeFileSync(bufferPath, JSON.stringify(buffer.recent(20).reverse()));
 
-  if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE) return;
+  if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE)
+    return;
 
   const obsPayload = {
     sessionId: input.session_id,
@@ -161,7 +198,11 @@ async function runMemoryObserver(): Promise<void> {
     content: decision.content,
     filePaths: decision.filePaths,
     tags: decision.tags,
-    metadata: { source: "auto-capture", confidence: decision.confidence, toolName },
+    metadata: {
+      source: "auto-capture",
+      confidence: decision.confidence,
+      toolName,
+    },
   };
 
   try {
@@ -170,7 +211,9 @@ async function runMemoryObserver(): Promise<void> {
       await client.addObservation(obsPayload);
       return;
     }
-  } catch { /* fall back */ }
+  } catch {
+    /* fall back */
+  }
 
   try {
     const { MemoryStore } = await import("../../memory/store.js");
@@ -179,7 +222,9 @@ async function runMemoryObserver(): Promise<void> {
     const service = new MemoryService(store);
     service.addObservation({ ...obsPayload, timestamp: Date.now() });
     service.close();
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 async function runMemoryRestore(): Promise<void> {
@@ -194,7 +239,9 @@ async function runMemoryRestore(): Promise<void> {
   try {
     const { buildSemanticQuery } = await import("../../memory/restore.js");
     semanticQuery = buildSemanticQuery(input.cwd);
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   try {
     const client = await SidecarClient.connect();
@@ -205,7 +252,9 @@ async function runMemoryRestore(): Promise<void> {
       }
       return;
     }
-  } catch { /* fall back */ }
+  } catch {
+    /* fall back */
+  }
 
   try {
     const { MemoryStore } = await import("../../memory/store.js");
@@ -213,18 +262,24 @@ async function runMemoryRestore(): Promise<void> {
     const { restoreContext } = await import("../../memory/restore.js");
     const store = new MemoryStore();
     const service = new MemoryService(store);
-    const result = await restoreContext(service, { projectPath: input.cwd, semanticQuery });
+    const result = await restoreContext(service, {
+      projectPath: input.cwd,
+      semanticQuery,
+    });
     service.close();
     if (result.hasMemory && result.markdown) {
       output(hintFn("SessionStart", result.markdown));
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 async function runSpecStopGuard(): Promise<void> {
   const { block: blockFn } = await import("../../utils/hook-output.js");
   const { findGitRoot } = await import("../../utils/git.js");
-  const { findActivePlan, shouldBlockStop } = await import("../../spec/detect.js");
+  const { findActivePlan, shouldBlockStop } =
+    await import("../../spec/detect.js");
   const input = await readStdin();
 
   const gitRoot = await findGitRoot(input.cwd);
@@ -253,7 +308,9 @@ async function runPreCompact(): Promise<void> {
   try {
     const { buildSemanticQuery } = await import("../../memory/restore.js");
     semanticQuery = buildSemanticQuery(input.cwd);
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   try {
     const client = await SidecarClient.connect();
@@ -269,7 +326,10 @@ async function runPreCompact(): Promise<void> {
       const { SpecStore } = await import("../../spec/store.js");
       const store = new MemoryStore();
       const service = new MemoryService(store);
-      const restored = await restoreContext(service, { projectPath: input.cwd, semanticQuery });
+      const restored = await restoreContext(service, {
+        projectPath: input.cwd,
+        semanticQuery,
+      });
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) {
         const specStore = new SpecStore(store);
@@ -277,13 +337,24 @@ async function runPreCompact(): Promise<void> {
       }
       service.close();
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   const stateDir = join(searchDir, ".sentinal");
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(
     join(stateDir, "compact-state.json"),
-    JSON.stringify({ activePlan, memoryContext, timestamp: new Date().toISOString(), cwd: input.cwd }, null, 2),
+    JSON.stringify(
+      {
+        activePlan,
+        memoryContext,
+        timestamp: new Date().toISOString(),
+        cwd: input.cwd,
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -295,7 +366,11 @@ async function runPostCompactRestore(): Promise<void> {
   const input = await readStdin();
 
   const gitRoot = await findGitRoot(input.cwd);
-  const stateFile = join(gitRoot ?? input.cwd, ".sentinal", "compact-state.json");
+  const stateFile = join(
+    gitRoot ?? input.cwd,
+    ".sentinal",
+    "compact-state.json",
+  );
   if (!existsSync(stateFile)) return;
 
   try {
@@ -303,7 +378,9 @@ async function runPostCompactRestore(): Promise<void> {
     const msgs: string[] = ["Session restored after compaction."];
     if (state.activePlan) {
       msgs.push(`Active plan: ${state.activePlan}`);
-      msgs.push("Resume the /spec workflow by reading the plan file and continuing from where you left off.");
+      msgs.push(
+        "Resume the /spec workflow by reading the plan file and continuing from where you left off.",
+      );
     }
     if (state.memoryContext) {
       msgs.push("");
@@ -324,7 +401,10 @@ async function runToolRedirect(): Promise<void> {
   );
   if (result) {
     output(result);
-    if ("permissionDecision" in result && result.permissionDecision === "deny") {
+    if (
+      "permissionDecision" in result &&
+      result.permissionDecision === "deny"
+    ) {
       process.exit(2);
     }
   }
@@ -335,7 +415,8 @@ async function runFileChecker(): Promise<void> {
   const { hint: hintFn } = await import("../../utils/hook-output.js");
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
-  const filePath = (toolInput?.file_path as string) ?? (toolInput?.path as string);
+  const filePath =
+    (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
   const result = await processFileCheck(filePath, input.cwd);
   if (result) output(hintFn("PostToolUse", result));
@@ -344,7 +425,8 @@ async function runFileChecker(): Promise<void> {
 async function runContextMonitor(): Promise<void> {
   const { hint: hintFn } = await import("../../utils/hook-output.js");
   const { estimateContextUsage } = await import("../../sessions/context.js");
-  const { getContextWarning } = await import("../../sessions/context-display.js");
+  const { getContextWarning } =
+    await import("../../sessions/context-display.js");
   const input = await readStdin();
   const usage = estimateContextUsage(input.transcript_path);
   const warning = getContextWarning(usage);
@@ -360,7 +442,11 @@ async function runPreEditGuide(): Promise<void> {
   const filePath = extractFilePath(input.tool_input ?? {});
   if (!filePath) return;
   let client: SidecarClient | null = null;
-  try { client = await SidecarClient.connect(); } catch { /* no sidecar */ }
+  try {
+    client = await SidecarClient.connect();
+  } catch {
+    /* no sidecar */
+  }
 
   const parts: string[] = [];
 
@@ -369,9 +455,18 @@ async function runPreEditGuide(): Promise<void> {
     let store: InstanceType<typeof Store> | null = null;
     try {
       store = new Store();
-      const conflict = detectFileConflict(store, filePath, input.cwd, input.session_id);
+      const conflict = detectFileConflict(
+        store,
+        filePath,
+        input.cwd,
+        input.session_id,
+      );
       if (conflict) parts.push(conflict.message);
-    } catch { /* non-fatal */ } finally { store?.close(); }
+    } catch {
+      /* non-fatal */
+    } finally {
+      store?.close();
+    }
   }
 
   // Observation-based pre-edit guidance
@@ -412,7 +507,9 @@ export function registerHookCommand(program: Command): void {
     .action(async (name: string) => {
       const hookFn = SHARED_HOOKS[name];
       if (!hookFn) {
-        process.stderr.write(`Unknown shared hook: ${name}\nAvailable: ${Object.keys(SHARED_HOOKS).join(", ")}\n`);
+        process.stderr.write(
+          `Unknown shared hook: ${name}\nAvailable: ${Object.keys(SHARED_HOOKS).join(", ")}\n`,
+        );
         process.exit(1);
       }
       await hookFn();
@@ -425,7 +522,9 @@ export function registerHookCommand(program: Command): void {
     .action(async (name: string) => {
       const hookFn = CLAUDE_HOOKS[name];
       if (!hookFn) {
-        process.stderr.write(`Unknown claude hook: ${name}\nAvailable: ${Object.keys(CLAUDE_HOOKS).join(", ")}\n`);
+        process.stderr.write(
+          `Unknown claude hook: ${name}\nAvailable: ${Object.keys(CLAUDE_HOOKS).join(", ")}\n`,
+        );
         process.exit(1);
       }
       await hookFn();

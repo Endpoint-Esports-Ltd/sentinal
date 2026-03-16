@@ -52,8 +52,12 @@ describe("tdd utilities", () => {
     });
 
     it("should return empty for .tsx test files themselves", () => {
-      expect(getExpectedTestPaths("/src/components/Button.test.tsx")).toEqual([]);
-      expect(getExpectedTestPaths("/src/components/Button.spec.tsx")).toEqual([]);
+      expect(getExpectedTestPaths("/src/components/Button.test.tsx")).toEqual(
+        [],
+      );
+      expect(getExpectedTestPaths("/src/components/Button.spec.tsx")).toEqual(
+        [],
+      );
     });
 
     // Go
@@ -364,17 +368,23 @@ describe("tdd utilities", () => {
 
     // Go
     it("should map _test.go to .go", () => {
-      expect(getImplPathForTest("src/auth/auth_test.go")).toBe("src/auth/auth.go");
+      expect(getImplPathForTest("src/auth/auth_test.go")).toBe(
+        "src/auth/auth.go",
+      );
     });
 
     // Python suffix
     it("should map _test.py to .py", () => {
-      expect(getImplPathForTest("src/auth/auth_test.py")).toBe("src/auth/auth.py");
+      expect(getImplPathForTest("src/auth/auth_test.py")).toBe(
+        "src/auth/auth.py",
+      );
     });
 
     // Python prefix
     it("should map test_*.py to *.py", () => {
-      expect(getImplPathForTest("src/auth/test_auth.py")).toBe("src/auth/auth.py");
+      expect(getImplPathForTest("src/auth/test_auth.py")).toBe(
+        "src/auth/auth.py",
+      );
     });
 
     // Rust

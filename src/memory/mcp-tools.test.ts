@@ -14,12 +14,17 @@ import { decayQualityScores } from "./maintenance.js";
 import type { CreateObservation } from "./types.js";
 
 function makeTmpDb(): string {
-  const dir = join(tmpdir(), `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return join(dir, "test.db");
 }
 
-function makeObservation(overrides: Partial<CreateObservation> = {}): CreateObservation {
+function makeObservation(
+  overrides: Partial<CreateObservation> = {},
+): CreateObservation {
   return {
     sessionId: "test-session",
     projectPath: "/test/project",
@@ -48,17 +53,21 @@ describe("memory_maintain tool logic", () => {
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
   });
 
   describe("decay action", () => {
     it("should decay old observations and return counts", () => {
       const now = Date.now();
-      service.addObservation(makeObservation({
-        type: "error",
-        timestamp: now - 2 * THIRTY_DAYS_MS,
-        title: "Old error",
-      }));
+      service.addObservation(
+        makeObservation({
+          type: "error",
+          timestamp: now - 2 * THIRTY_DAYS_MS,
+          title: "Old error",
+        }),
+      );
 
       const result = decayQualityScores(store);
       expect(result.updated).toBeGreaterThan(0);
@@ -70,43 +79,57 @@ describe("memory_maintain tool logic", () => {
     it("should delete observations below quality threshold", () => {
       const now = Date.now();
       // Create an old error that will decay below threshold
-      service.addObservation(makeObservation({
-        type: "error",
-        timestamp: now - 365 * 24 * 60 * 60 * 1000,
-        title: "Ancient error",
-      }));
+      service.addObservation(
+        makeObservation({
+          type: "error",
+          timestamp: now - 365 * 24 * 60 * 60 * 1000,
+          title: "Ancient error",
+        }),
+      );
 
       // Decay first to lower the score
       decayQualityScores(store);
 
       const db = store.getRawDb();
-      const before = db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number };
+      const before = db
+        .prepare("SELECT COUNT(*) as count FROM observations")
+        .get() as { count: number };
       expect(before.count).toBe(1);
 
       // Verify the score is actually below threshold
-      const row = db.prepare("SELECT quality_score FROM observations WHERE id = 1").get() as { quality_score: number };
+      const row = db
+        .prepare("SELECT quality_score FROM observations WHERE id = 1")
+        .get() as { quality_score: number };
       expect(row.quality_score).toBeLessThan(0.15);
 
       // Prune observations with quality_score < 0.15
       db.run("DELETE FROM observations WHERE quality_score < ?", [0.15]);
 
-      const after = db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number };
+      const after = db
+        .prepare("SELECT COUNT(*) as count FROM observations")
+        .get() as { count: number };
       expect(after.count).toBe(0);
     });
 
     it("should not delete observations above threshold", () => {
-      service.addObservation(makeObservation({
-        type: "decision",
-        timestamp: Date.now(),
-        title: "Recent decision",
-      }));
+      service.addObservation(
+        makeObservation({
+          type: "decision",
+          timestamp: Date.now(),
+          title: "Recent decision",
+        }),
+      );
 
       const db = store.getRawDb();
-      const before = db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number };
+      const before = db
+        .prepare("SELECT COUNT(*) as count FROM observations")
+        .get() as { count: number };
 
       db.run("DELETE FROM observations WHERE quality_score < ?", [0.15]);
 
-      const after = db.prepare("SELECT COUNT(*) as count FROM observations").get() as { count: number };
+      const after = db
+        .prepare("SELECT COUNT(*) as count FROM observations")
+        .get() as { count: number };
       expect(after.count).toBe(before.count);
     });
   });
@@ -114,8 +137,18 @@ describe("memory_maintain tool logic", () => {
   describe("stats action", () => {
     it("should return quality score distribution", () => {
       // Add observations with varying scores
-      service.addObservation(makeObservation({ title: "High quality", metadata: { confidence: 0.9 } }));
-      service.addObservation(makeObservation({ title: "Low quality", metadata: { confidence: 0.3 } }));
+      service.addObservation(
+        makeObservation({
+          title: "High quality",
+          metadata: { confidence: 0.9 },
+        }),
+      );
+      service.addObservation(
+        makeObservation({
+          title: "Low quality",
+          metadata: { confidence: 0.3 },
+        }),
+      );
       service.addObservation(makeObservation({ title: "Default quality" }));
 
       const db = store.getRawDb();
@@ -129,9 +162,13 @@ describe("memory_maintain tool logic", () => {
 
       const distribution: Record<string, number> = {};
       for (const bucket of buckets) {
-        const row = db.prepare(
-          "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
-        ).get(bucket.min, bucket.max === 1.0 ? 1.01 : bucket.max) as { count: number };
+        const row = db
+          .prepare(
+            "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
+          )
+          .get(bucket.min, bucket.max === 1.0 ? 1.01 : bucket.max) as {
+          count: number;
+        };
         distribution[bucket.label] = row.count;
       }
 

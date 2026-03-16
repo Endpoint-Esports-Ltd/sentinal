@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -16,12 +22,17 @@ import {
 } from "./shared.js";
 
 function makeTmpProject(): string {
-  const dir = join(tmpdir(), `sentinal-shared-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-shared-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function makeSharedObs(overrides: Partial<SharedObservation> = {}): SharedObservation {
+function makeSharedObs(
+  overrides: Partial<SharedObservation> = {},
+): SharedObservation {
   return {
     type: "decision",
     title: "Test shared observation",
@@ -43,8 +54,12 @@ describe("sharedMemoryPath", () => {
 describe("readSharedMemory", () => {
   let projectDir: string;
 
-  beforeEach(() => { projectDir = makeTmpProject(); });
-  afterEach(() => { rmSync(projectDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    projectDir = makeTmpProject();
+  });
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 
   it("should return empty array when file does not exist", () => {
     const result = readSharedMemory(projectDir);
@@ -60,13 +75,20 @@ describe("readSharedMemory", () => {
 
   it("should parse valid shared memory file", () => {
     mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
-    writeFileSync(sharedMemoryPath(projectDir), JSON.stringify({
-      version: 1,
-      observations: [
-        makeSharedObs({ title: "First" }),
-        makeSharedObs({ title: "Second", type: "pattern" }),
-      ],
-    }, null, 2));
+    writeFileSync(
+      sharedMemoryPath(projectDir),
+      JSON.stringify(
+        {
+          version: 1,
+          observations: [
+            makeSharedObs({ title: "First" }),
+            makeSharedObs({ title: "Second", type: "pattern" }),
+          ],
+        },
+        null,
+        2,
+      ),
+    );
 
     const result = readSharedMemory(projectDir);
     expect(result).toHaveLength(2);
@@ -85,8 +107,12 @@ describe("readSharedMemory", () => {
 describe("writeSharedMemory", () => {
   let projectDir: string;
 
-  beforeEach(() => { projectDir = makeTmpProject(); });
-  afterEach(() => { rmSync(projectDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    projectDir = makeTmpProject();
+  });
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 
   it("should create .sentinal directory and write formatted JSON", () => {
     const obs = [makeSharedObs({ title: "Written" })];
@@ -114,8 +140,12 @@ describe("writeSharedMemory", () => {
 describe("addSharedObservation", () => {
   let projectDir: string;
 
-  beforeEach(() => { projectDir = makeTmpProject(); });
-  afterEach(() => { rmSync(projectDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    projectDir = makeTmpProject();
+  });
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 
   it("should add observation to empty file", () => {
     addSharedObservation(projectDir, makeSharedObs({ title: "New obs" }));
@@ -135,7 +165,10 @@ describe("addSharedObservation", () => {
 
   it("should deduplicate by title", () => {
     addSharedObservation(projectDir, makeSharedObs({ title: "Same title" }));
-    addSharedObservation(projectDir, makeSharedObs({ title: "Same title", content: "Updated" }));
+    addSharedObservation(
+      projectDir,
+      makeSharedObs({ title: "Same title", content: "Updated" }),
+    );
 
     const result = readSharedMemory(projectDir);
     expect(result).toHaveLength(1);
@@ -146,8 +179,12 @@ describe("addSharedObservation", () => {
 describe(".sentinal/.gitignore", () => {
   let projectDir: string;
 
-  beforeEach(() => { projectDir = makeTmpProject(); });
-  afterEach(() => { rmSync(projectDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    projectDir = makeTmpProject();
+  });
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
 
   it("should create .gitignore when writing shared memory", () => {
     writeSharedMemory(projectDir, [makeSharedObs()]);
@@ -163,11 +200,17 @@ describe(".sentinal/.gitignore", () => {
 
   it("should not overwrite existing .gitignore", () => {
     mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
-    writeFileSync(join(projectDir, ".sentinal", ".gitignore"), "custom content\n");
+    writeFileSync(
+      join(projectDir, ".sentinal", ".gitignore"),
+      "custom content\n",
+    );
 
     writeSharedMemory(projectDir, [makeSharedObs()]);
 
-    const content = readFileSync(join(projectDir, ".sentinal", ".gitignore"), "utf-8");
+    const content = readFileSync(
+      join(projectDir, ".sentinal", ".gitignore"),
+      "utf-8",
+    );
     expect(content).toBe("custom content\n");
   });
 });

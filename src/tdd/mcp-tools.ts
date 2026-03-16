@@ -32,13 +32,27 @@ export function registerTddTools(server: McpServer, deps: TddToolsDeps): void {
 
 // --- tdd_status ---
 
-function registerTddStatusTool(server: McpServer, client: SidecarClient | null, store: MemoryStore | null): void {
+function registerTddStatusTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  store: MemoryStore | null,
+): void {
   server.tool(
     "tdd_status",
     "Get TDD guard state for a specific file, or list all active TDD cycle states. Use to check if a file is blocked by the TDD guard.",
     {
-      file_path: z.string().optional().describe("File path to check (returns single state). Omit to list all active states."),
-      spec_id: z.string().optional().describe("Filter active states by spec ID (only used when file_path is omitted)"),
+      file_path: z
+        .string()
+        .optional()
+        .describe(
+          "File path to check (returns single state). Omit to list all active states.",
+        ),
+      spec_id: z
+        .string()
+        .optional()
+        .describe(
+          "Filter active states by spec ID (only used when file_path is omitted)",
+        ),
     },
     async ({ file_path, spec_id }) => {
       try {
@@ -46,11 +60,22 @@ function registerTddStatusTool(server: McpServer, client: SidecarClient | null, 
         if (file_path) {
           if (client) {
             const result = await client.getTddState(file_path);
-            return { content: [{ type: "text" as const, text: `**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})` }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})`,
+                },
+              ],
+            };
           }
           const tdd = store!.getTddState(file_path);
           const state = tdd?.state ?? "IDLE";
-          return { content: [{ type: "text" as const, text: `**${file_path}:** ${state}` }] };
+          return {
+            content: [
+              { type: "text" as const, text: `**${file_path}:** ${state}` },
+            ],
+          };
         }
 
         // List all active states
@@ -59,18 +84,26 @@ function registerTddStatusTool(server: McpServer, client: SidecarClient | null, 
           : store!.listActiveTddStates(spec_id ?? null);
 
         if (states.length === 0) {
-          return { content: [{ type: "text" as const, text: "No active TDD states." }] };
+          return {
+            content: [{ type: "text" as const, text: "No active TDD states." }],
+          };
         }
 
         const lines = [`## ${states.length} active TDD state(s)`, ""];
         for (const s of states) {
-          lines.push(`- **${s.filePath}:** ${s.state} (updated: ${new Date(s.updatedAt).toISOString()})`);
+          lines.push(
+            `- **${s.filePath}:** ${s.state} (updated: ${new Date(s.updatedAt).toISOString()})`,
+          );
         }
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error getting TDD status: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error getting TDD status: ${msg}` },
+          ],
+        };
       }
     },
   );
@@ -78,15 +111,28 @@ function registerTddStatusTool(server: McpServer, client: SidecarClient | null, 
 
 // --- tdd_set_state ---
 
-function registerTddSetStateTool(server: McpServer, client: SidecarClient | null, store: MemoryStore | null): void {
+function registerTddSetStateTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  store: MemoryStore | null,
+): void {
   server.tool(
     "tdd_set_state",
     "Set TDD cycle state for a file. Use state 'RED_CONFIRMED' to bypass the TDD guard and allow editing an implementation file.",
     {
-      file_path: z.string().describe("Absolute path to the implementation file"),
-      state: z.enum(TDD_CYCLE_STATES).describe("TDD cycle state: IDLE, TEST_WRITTEN, RED_CONFIRMED, GREEN_CONFIRMED"),
+      file_path: z
+        .string()
+        .describe("Absolute path to the implementation file"),
+      state: z
+        .enum(TDD_CYCLE_STATES)
+        .describe(
+          "TDD cycle state: IDLE, TEST_WRITTEN, RED_CONFIRMED, GREEN_CONFIRMED",
+        ),
       spec_id: z.string().optional().describe("Associated spec ID"),
-      test_file_path: z.string().optional().describe("Path to the corresponding test file"),
+      test_file_path: z
+        .string()
+        .optional()
+        .describe("Path to the corresponding test file"),
     },
     async ({ file_path, state, spec_id, test_file_path }) => {
       try {
@@ -103,10 +149,21 @@ function registerTddSetStateTool(server: McpServer, client: SidecarClient | null
           store!.setTddState(opts);
         }
 
-        return { content: [{ type: "text" as const, text: `Set TDD state: ${file_path} → ${state}` }] };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Set TDD state: ${file_path} → ${state}`,
+            },
+          ],
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error setting TDD state: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error setting TDD state: ${msg}` },
+          ],
+        };
       }
     },
   );
@@ -114,18 +171,35 @@ function registerTddSetStateTool(server: McpServer, client: SidecarClient | null
 
 // --- tdd_clear ---
 
-function registerTddClearTool(server: McpServer, client: SidecarClient | null, store: MemoryStore | null): void {
+function registerTddClearTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  store: MemoryStore | null,
+): void {
   server.tool(
     "tdd_clear",
     "Clear TDD cycle state for a specific file or all files associated with a spec. Provide file_path OR spec_id (at least one required).",
     {
-      file_path: z.string().optional().describe("Clear state for this specific file"),
-      spec_id: z.string().optional().describe("Clear all TDD states for this spec ID"),
+      file_path: z
+        .string()
+        .optional()
+        .describe("Clear state for this specific file"),
+      spec_id: z
+        .string()
+        .optional()
+        .describe("Clear all TDD states for this spec ID"),
     },
     async ({ file_path, spec_id }) => {
       try {
         if (!file_path && !spec_id) {
-          return { content: [{ type: "text" as const, text: "Error: Provide file_path or spec_id (at least one required)." }] };
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Error: Provide file_path or spec_id (at least one required).",
+              },
+            ],
+          };
         }
 
         if (file_path) {
@@ -134,7 +208,14 @@ function registerTddClearTool(server: McpServer, client: SidecarClient | null, s
           } else {
             store!.clearTddState(file_path);
           }
-          return { content: [{ type: "text" as const, text: `Cleared TDD state for: ${file_path}` }] };
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Cleared TDD state for: ${file_path}`,
+              },
+            ],
+          };
         }
 
         if (spec_id) {
@@ -143,13 +224,26 @@ function registerTddClearTool(server: McpServer, client: SidecarClient | null, s
           } else {
             store!.clearTddStatesForSpec(spec_id);
           }
-          return { content: [{ type: "text" as const, text: `Cleared all TDD states for spec: ${spec_id}` }] };
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Cleared all TDD states for spec: ${spec_id}`,
+              },
+            ],
+          };
         }
 
-        return { content: [{ type: "text" as const, text: "No action taken." }] };
+        return {
+          content: [{ type: "text" as const, text: "No action taken." }],
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error clearing TDD state: ${msg}` }] };
+        return {
+          content: [
+            { type: "text" as const, text: `Error clearing TDD state: ${msg}` },
+          ],
+        };
       }
     },
   );

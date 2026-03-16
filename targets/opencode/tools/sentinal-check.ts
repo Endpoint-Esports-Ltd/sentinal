@@ -34,10 +34,15 @@ interface ToolContext {
 interface ToolDefinition<T extends z.ZodRawShape> {
   description: string;
   args: T;
-  execute: (args: z.infer<z.ZodObject<T>>, context: ToolContext) => Promise<string>;
+  execute: (
+    args: z.infer<z.ZodObject<T>>,
+    context: ToolContext,
+  ) => Promise<string>;
 }
 
-function tool<T extends z.ZodRawShape>(def: ToolDefinition<T>): ToolDefinition<T> {
+function tool<T extends z.ZodRawShape>(
+  def: ToolDefinition<T>,
+): ToolDefinition<T> {
   return def;
 }
 
@@ -90,7 +95,9 @@ function checkFile(filePath: string): CheckResult {
       }
     }
   } catch (e) {
-    issues.push(`ERROR: Could not read file: ${e instanceof Error ? e.message : String(e)}`);
+    issues.push(
+      `ERROR: Could not read file: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 
   return {
@@ -110,7 +117,12 @@ function findTsFiles(dir: string, maxDepth = 5): string[] {
     try {
       const entries = readdirSync(currentDir);
       for (const entry of entries) {
-        if (entry.startsWith(".") || entry === "node_modules" || entry === "dist" || entry === "build") {
+        if (
+          entry.startsWith(".") ||
+          entry === "node_modules" ||
+          entry === "dist" ||
+          entry === "build"
+        ) {
           continue;
         }
 
@@ -143,10 +155,18 @@ function findTsFiles(dir: string, maxDepth = 5): string[] {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default tool({
-  description: "Run Sentinal quality checks on a file or directory. Checks file length, NestJS patterns, and TDD compliance.",
+  description:
+    "Run Sentinal quality checks on a file or directory. Checks file length, NestJS patterns, and TDD compliance.",
   args: {
-    path: z.string().describe("Path to a file or directory to check. Use '.' for the entire project."),
-    verbose: z.boolean().optional().describe("Show all files, including those that pass checks"),
+    path: z
+      .string()
+      .describe(
+        "Path to a file or directory to check. Use '.' for the entire project.",
+      ),
+    verbose: z
+      .boolean()
+      .optional()
+      .describe("Show all files, including those that pass checks"),
   },
   async execute(args, context) {
     const targetPath = args.path.startsWith("/")

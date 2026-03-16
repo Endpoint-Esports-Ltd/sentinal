@@ -25,7 +25,7 @@ import * as pathsModule from "./paths.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `sentinal-client-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `sentinal-client-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -160,7 +160,7 @@ describe("SidecarClient", () => {
     const planFile = join(plansDir, "test-plan.md");
     writeFileSync(
       planFile,
-      `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`
+      `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`,
     );
 
     await client.syncSpec(planFile, tmpDir);
@@ -185,11 +185,11 @@ describe("SidecarClient", () => {
     mkdirSync(plansDir, { recursive: true });
     writeFileSync(
       join(plansDir, "spec-1.md"),
-      "# Spec 1\n\nStatus: PENDING\nType: Feature\n"
+      "# Spec 1\n\nStatus: PENDING\nType: Feature\n",
     );
     writeFileSync(
       join(plansDir, "spec-2.md"),
-      "# Spec 2\n\nStatus: PENDING\nType: Feature\n"
+      "# Spec 2\n\nStatus: PENDING\nType: Feature\n",
     );
     await client.syncSpec(join(plansDir, "spec-1.md"), tmpDir);
     await client.syncSpec(join(plansDir, "spec-2.md"), tmpDir);
@@ -214,7 +214,7 @@ describe("SidecarClient", () => {
     mkdirSync(plansDir, { recursive: true });
     writeFileSync(
       join(plansDir, "spec-x.md"),
-      "# Spec X\n\nStatus: PENDING\nType: Feature\n"
+      "# Spec X\n\nStatus: PENDING\nType: Feature\n",
     );
     await client.syncSpec(join(plansDir, "spec-x.md"), tmpDir);
 
@@ -243,7 +243,7 @@ describe("SidecarClient", () => {
     mkdirSync(plansDir, { recursive: true });
     writeFileSync(
       join(plansDir, "event-test.md"),
-      "# Test\n\nStatus: PENDING\nType: Feature\n"
+      "# Test\n\nStatus: PENDING\nType: Feature\n",
     );
     await client.syncSpec(join(plansDir, "event-test.md"), tmpDir);
 
@@ -272,7 +272,7 @@ describe("SidecarClient", () => {
     mkdirSync(plansDir, { recursive: true });
     writeFileSync(
       join(plansDir, "wt-test.md"),
-      "# WT Test\n\nStatus: PENDING\nType: Feature\n"
+      "# WT Test\n\nStatus: PENDING\nType: Feature\n",
     );
     await client.syncSpec(join(plansDir, "wt-test.md"), tmpDir);
 
@@ -313,7 +313,11 @@ describe("SidecarClient.connect port file self-heal", () => {
   let tmpDir: string;
   let store: MemoryStore;
   let sidecar: Awaited<ReturnType<typeof startSidecar>>;
-  const { readFileSync: readFs, unlinkSync: unlinkFs, existsSync: existsFs } = require("node:fs");
+  const {
+    readFileSync: readFs,
+    unlinkSync: unlinkFs,
+    existsSync: existsFs,
+  } = require("node:fs");
 
   beforeEach(async () => {
     // Short path for Unix socket compatibility
@@ -322,13 +326,13 @@ describe("SidecarClient.connect port file self-heal", () => {
     store = new MemoryStore(join(tmpDir, "test.db"));
 
     spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
-      join(tmpDir, "s.sock")
+      join(tmpDir, "s.sock"),
     );
     spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
-      join(tmpDir, "sidecar.port")
+      join(tmpDir, "sidecar.port"),
     );
     spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
-      join(tmpDir, "sidecar.pid")
+      join(tmpDir, "sidecar.pid"),
     );
 
     // Start sidecar with Unix socket + HTTP
@@ -362,7 +366,11 @@ describe("SidecarClient.connect port file self-heal", () => {
     const portPath = join(tmpDir, "sidecar.port");
 
     // Remove the port file entirely
-    try { unlinkFs(portPath); } catch { /* ok */ }
+    try {
+      unlinkFs(portPath);
+    } catch {
+      /* ok */
+    }
     expect(existsFs(portPath)).toBe(false);
 
     // Connect — should succeed and create port file
@@ -388,9 +396,15 @@ describe("SidecarClient.qualityCheck", () => {
     mkdirSync(tmpDir, { recursive: true });
     store = new MemoryStore(join(tmpDir, "test.db"));
 
-    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(join(tmpDir, "s.sock"));
-    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(join(tmpDir, "sidecar.port"));
-    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(join(tmpDir, "sidecar.pid"));
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "s.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid"),
+    );
 
     sidecar = await startSidecar({ store, port: 0, httpOnly: true });
   });
@@ -446,14 +460,14 @@ describe("withSidecarOrDirect", () => {
       tmpdir(),
       `sentinal-client-isolation-${Date.now()}-${Math.random()
         .toString(36)
-        .slice(2)}`
+        .slice(2)}`,
     );
     mkdirSync(isolationDir, { recursive: true });
     spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
-      join(isolationDir, "sidecar.sock")
+      join(isolationDir, "sidecar.sock"),
     );
     spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
-      join(isolationDir, "sidecar.port")
+      join(isolationDir, "sidecar.port"),
     );
   });
 
@@ -465,7 +479,7 @@ describe("withSidecarOrDirect", () => {
   it("should fall back to direct when sidecar not running", async () => {
     const result = await withSidecarOrDirect(
       async () => "from-sidecar",
-      () => "from-direct"
+      () => "from-direct",
     );
     expect(result).toBe("from-direct");
   });
@@ -473,7 +487,7 @@ describe("withSidecarOrDirect", () => {
   it("should use async direct fallback", async () => {
     const result = await withSidecarOrDirect(
       async () => "from-sidecar",
-      async () => "from-async-direct"
+      async () => "from-async-direct",
     );
     expect(result).toBe("from-async-direct");
   });

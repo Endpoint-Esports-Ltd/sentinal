@@ -17,7 +17,10 @@ import { readStdin } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { isTestFile, getImplPathForTest } from "../utils/tdd.js";
-import { TEST_FAIL_INDICATORS, TEST_PASS_INDICATORS } from "../memory/capture.js";
+import {
+  TEST_FAIL_INDICATORS,
+  TEST_PASS_INDICATORS,
+} from "../memory/capture.js";
 
 // Re-export for backwards compatibility (implementation moved to src/utils/tdd.ts)
 export { getImplPathForTest };
@@ -50,7 +53,9 @@ export interface TddTrackerInput {
   cwd: string;
 }
 
-export async function processTddTracking(input: TddTrackerInput): Promise<void> {
+export async function processTddTracking(
+  input: TddTrackerInput,
+): Promise<void> {
   const { toolName, filePath, bashOutput, sessionId, cwd } = input;
 
   const store = new MemoryStore();
@@ -156,7 +161,9 @@ async function main(): Promise<void> {
   // Bash output is in tool_response.output
   const bashOutput =
     toolName === "Bash"
-      ? ((input.tool_response?.output as string) ?? (toolInput.output as string) ?? undefined)
+      ? ((input.tool_response?.output as string) ??
+        (toolInput.output as string) ??
+        undefined)
       : undefined;
 
   try {

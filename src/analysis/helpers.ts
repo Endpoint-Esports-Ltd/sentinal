@@ -80,7 +80,8 @@ export function extractSpecFiles(planFilePath: string): Set<string> {
 
   try {
     const content = readFileSync(planFilePath, "utf-8");
-    const fileRe = /^-\s+(?:Modify|Create|Delete|Rename|Add|Update):\s*(.+)$/gim;
+    const fileRe =
+      /^-\s+(?:Modify|Create|Delete|Rename|Add|Update):\s*(.+)$/gim;
     let match: RegExpExecArray | null;
     while ((match = fileRe.exec(content)) !== null) {
       // Normalize: strip leading ./ and trailing whitespace, strip inline comments
@@ -110,7 +111,10 @@ export function countLines(filePath: string): number {
  * Uses suffix matching: "src/auth/auth.service.ts" matches "auth.service.ts"
  * or "src/auth/auth.service.ts" but NOT "other.ts" or "auth.other.ts".
  */
-export function isExpectedFile(relPath: string, specFiles: Set<string>): boolean {
+export function isExpectedFile(
+  relPath: string,
+  specFiles: Set<string>,
+): boolean {
   if (specFiles.size === 0) return true; // No spec — all files are "expected"
   const normalized = relPath.replace(/^\.\//, "");
   return [...specFiles].some((sf) => {
@@ -123,11 +127,21 @@ export function isExpectedFile(relPath: string, specFiles: Set<string>): boolean
  * Count how many TypeScript files import from the given file.
  * Uses grep for a quick approximation.
  */
-export async function countImporters(relPath: string, project: string): Promise<number> {
+export async function countImporters(
+  relPath: string,
+  project: string,
+): Promise<number> {
   const baseName = relPath.replace(/\.[^.]+$/, "").replace(/^.*\//, "");
   try {
     const proc = Bun.spawn(
-      ["grep", "-rl", `from.*${baseName}`, "--include=*.ts", "--include=*.tsx", "src"],
+      [
+        "grep",
+        "-rl",
+        `from.*${baseName}`,
+        "--include=*.ts",
+        "--include=*.tsx",
+        "src",
+      ],
       { cwd: project, stdout: "pipe", stderr: "pipe" },
     );
     await proc.exited;

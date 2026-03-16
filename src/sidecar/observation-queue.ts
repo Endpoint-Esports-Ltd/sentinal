@@ -70,7 +70,9 @@ export const ObservationQueue = {
     if (queue.length > MAX_QUEUE_SIZE) {
       const dropped = queue.length - MAX_QUEUE_SIZE;
       queue.splice(0, dropped);
-      log?.(`observation queue: dropped ${dropped} oldest entries (cap ${MAX_QUEUE_SIZE})`);
+      log?.(
+        `observation queue: dropped ${dropped} oldest entries (cap ${MAX_QUEUE_SIZE})`,
+      );
     }
 
     writeQueue(queue);
@@ -96,7 +98,9 @@ export const ObservationQueue = {
         await sendFn(obs);
         sent++;
       } catch (e) {
-        log?.(`queue drain: failed to send "${obs.title}": ${e instanceof Error ? e.message : e}`);
+        log?.(
+          `queue drain: failed to send "${obs.title}": ${e instanceof Error ? e.message : e}`,
+        );
         failed.push(obs);
       }
     }
@@ -113,6 +117,6 @@ export const ObservationQueue = {
   pending(projectPath?: string): number {
     const queue = readQueue();
     if (!projectPath) return queue.length;
-    return queue.filter(e => e.projectPath === projectPath).length;
+    return queue.filter((e) => e.projectPath === projectPath).length;
   },
 };

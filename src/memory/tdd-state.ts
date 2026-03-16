@@ -23,9 +23,10 @@ export function readTddState(filePath: string, dbPath?: string): TddCycleState {
   try {
     db = new Database(dbPath ?? getDbPath(), { readonly: true });
     const row = db
-      .query<{ state: string }, [string]>(
-        "SELECT state FROM tdd_cycles WHERE file_path = ?",
-      )
+      .query<
+        { state: string },
+        [string]
+      >("SELECT state FROM tdd_cycles WHERE file_path = ?")
       .get(filePath);
     return (row?.state as TddCycleState) ?? "IDLE";
   } catch {

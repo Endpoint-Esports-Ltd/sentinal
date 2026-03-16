@@ -36,13 +36,17 @@ describe("nestjs checker", () => {
     it("should warn about missing class-validator on DTOs", () => {
       const content = `export class CreateUserDto { name: string; }`;
       const results = checkNestPatterns("create-user.dto.ts", content);
-      expect(results.some((r) => r.message.includes("class-validator"))).toBe(true);
+      expect(results.some((r) => r.message.includes("class-validator"))).toBe(
+        true,
+      );
     });
 
     it("should not warn for decorated DTOs", () => {
       const content = `import { IsString } from 'class-validator';\nexport class CreateUserDto { @IsString() name: string; }`;
       const results = checkNestPatterns("create-user.dto.ts", content);
-      expect(results.filter((r) => r.message.includes("class-validator"))).toEqual([]);
+      expect(
+        results.filter((r) => r.message.includes("class-validator")),
+      ).toEqual([]);
     });
   });
 });

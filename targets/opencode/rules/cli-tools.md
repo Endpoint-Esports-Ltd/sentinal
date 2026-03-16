@@ -2,24 +2,24 @@
 
 When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
 
-| MCP Tool | Replaces | Description |
-|----------|----------|-------------|
-| `spec_status` | `sentinal spec-status` | Get current spec progress |
-| `spec_register` | `sentinal register-plan` | Register/update a plan |
-| `spec_config` | `echo $SENTINAL_*` | Get all workflow toggles |
-| `spec_plan_parse` | `sentinal register-plan` + manual parse | Parse plan file metadata |
-| `spec_wait_file` | `for` loop polling | Wait for file to appear |
-| `spec_notify` | N/A | Create notification |
-| `spec_events` | N/A | Get spec event history |
-| `worktree_detect` | `sentinal worktree detect` | Find worktree by slug |
-| `worktree_create` | `sentinal worktree create` | Create worktree |
-| `worktree_diff` | `sentinal worktree diff` | Get worktree diff |
-| `worktree_sync` | `sentinal worktree sync` | Squash-merge worktree |
-| `tdd_status` | `bun -e` TDD state query | Get TDD cycle state for file or list all |
-| `tdd_set_state` | `bun -e` TDD state set | Set TDD state (e.g. RED_CONFIRMED bypass) |
-| `tdd_clear` | `bun -e` TDD state clear | Clear TDD state for file or spec |
-| `check_diagnostics` | `npx tsc --noEmit` | Spec-filtered TypeScript diagnostics with NEW/FIXED delta tracking |
-| `impact_analysis` | `git diff --stat` + manual review | Spec-aware change impact: expected vs unexpected files, 400-line limit, risk score |
+| MCP Tool            | Replaces                                | Description                                                                        |
+| ------------------- | --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `spec_status`       | `sentinal spec-status`                  | Get current spec progress                                                          |
+| `spec_register`     | `sentinal register-plan`                | Register/update a plan                                                             |
+| `spec_config`       | `echo $SENTINAL_*`                      | Get all workflow toggles                                                           |
+| `spec_plan_parse`   | `sentinal register-plan` + manual parse | Parse plan file metadata                                                           |
+| `spec_wait_file`    | `for` loop polling                      | Wait for file to appear                                                            |
+| `spec_notify`       | N/A                                     | Create notification                                                                |
+| `spec_events`       | N/A                                     | Get spec event history                                                             |
+| `worktree_detect`   | `sentinal worktree detect`              | Find worktree by slug                                                              |
+| `worktree_create`   | `sentinal worktree create`              | Create worktree                                                                    |
+| `worktree_diff`     | `sentinal worktree diff`                | Get worktree diff                                                                  |
+| `worktree_sync`     | `sentinal worktree sync`                | Squash-merge worktree                                                              |
+| `tdd_status`        | `bun -e` TDD state query                | Get TDD cycle state for file or list all                                           |
+| `tdd_set_state`     | `bun -e` TDD state set                  | Set TDD state (e.g. RED_CONFIRMED bypass)                                          |
+| `tdd_clear`         | `bun -e` TDD state clear                | Clear TDD state for file or spec                                                   |
+| `check_diagnostics` | `npx tsc --noEmit`                      | Spec-filtered TypeScript diagnostics with NEW/FIXED delta tracking                 |
+| `impact_analysis`   | `git diff --stat` + manual review       | Spec-aware change impact: expected vs unexpected files, 400-line limit, risk score |
 
 ---
 
@@ -31,10 +31,10 @@ The `sentinal` binary manages sessions, worktrees, and context. All commands sup
 
 **Session & Context:**
 
-| Command | Purpose |
-|---------|---------|
-| `sentinal check-context --json` | Get context usage % (informational only) |
-| `sentinal register-plan <path> <status>` | Associate plan with session |
+| Command                                  | Purpose                                  |
+| ---------------------------------------- | ---------------------------------------- |
+| `sentinal check-context --json`          | Get context usage % (informational only) |
+| `sentinal register-plan <path> <status>` | Associate plan with session              |
 
 **Worktree:** `sentinal worktree detect|create|diff|sync|cleanup|status --json <slug>`
 
@@ -62,6 +62,7 @@ vexor "service class" ./src --language typescript
 ```
 
 **Always use Vexor first for any codebase search.** Only fall back to Grep/Glob when:
+
 - You need an exact symbol or pattern match
 - Vexor returns no relevant results
 - You're searching for a specific known string

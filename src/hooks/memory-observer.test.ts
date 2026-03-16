@@ -11,7 +11,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import {
@@ -24,7 +30,10 @@ import {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-observer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-observer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -48,13 +57,25 @@ describe("event buffer persistence", () => {
   });
 
   afterEach(() => {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
   });
 
   it("should serialize event buffer to JSON", () => {
     const buffer = new EventBuffer(20);
-    buffer.push({ toolName: "Edit", filePath: "src/foo.ts", success: true, timestamp: 1000 });
-    buffer.push({ toolName: "Bash", success: false, output: "error TS2345", timestamp: 2000 });
+    buffer.push({
+      toolName: "Edit",
+      filePath: "src/foo.ts",
+      success: true,
+      timestamp: 1000,
+    });
+    buffer.push({
+      toolName: "Bash",
+      success: false,
+      output: "error TS2345",
+      timestamp: 2000,
+    });
 
     // Simulate the save logic from the hook
     const events = buffer.recent(20).reverse();
@@ -68,7 +89,12 @@ describe("event buffer persistence", () => {
 
   it("should deserialize event buffer from JSON", () => {
     const events: ToolEvent[] = [
-      { toolName: "Write", filePath: "src/new.ts", success: true, timestamp: 1000 },
+      {
+        toolName: "Write",
+        filePath: "src/new.ts",
+        success: true,
+        timestamp: 1000,
+      },
       { toolName: "Bash", success: false, output: "FAILED", timestamp: 2000 },
     ];
     writeFileSync(bufferPath, JSON.stringify(events));
@@ -119,9 +145,11 @@ describe("event buffer persistence", () => {
 
 describe("tool event construction from hook input", () => {
   it("should extract filePath from file_path field", () => {
-    const input = { tool_name: "Edit", tool_input: { file_path: "src/auth.ts" } };
-    const filePath =
-      (input.tool_input.file_path as string) ?? undefined;
+    const input = {
+      tool_name: "Edit",
+      tool_input: { file_path: "src/auth.ts" },
+    };
+    const filePath = (input.tool_input.file_path as string) ?? undefined;
 
     expect(filePath).toBe("src/auth.ts");
   });
@@ -145,13 +173,17 @@ describe("tool event construction from hook input", () => {
     const hookInput = {
       tool_name: "Bash",
       tool_input: { command: "bun test", output: "bun test" },
-      tool_response: { output: "FAIL src/foo.test.ts\n  1 fail\n  expect(received).toBe(expected)" },
+      tool_response: {
+        output:
+          "FAIL src/foo.test.ts\n  1 fail\n  expect(received).toBe(expected)",
+      },
     };
 
     // This mirrors the event construction logic in hook.ts runMemoryObserver
-    const rawOutput = (hookInput.tool_response?.output as string)
-      ?? (hookInput.tool_input.output as string)
-      ?? undefined;
+    const rawOutput =
+      (hookInput.tool_response?.output as string) ??
+      (hookInput.tool_input.output as string) ??
+      undefined;
 
     const event: ToolEvent = {
       toolName: hookInput.tool_name,
@@ -173,9 +205,10 @@ describe("tool event construction from hook input", () => {
       // No tool_response
     };
 
-    const rawOutput = ((hookInput as any).tool_response?.output as string)
-      ?? (hookInput.tool_input.output as string)
-      ?? undefined;
+    const rawOutput =
+      ((hookInput as any).tool_response?.output as string) ??
+      (hookInput.tool_input.output as string) ??
+      undefined;
 
     const event: ToolEvent = {
       toolName: hookInput.tool_name,
@@ -203,7 +236,9 @@ describe("capture-to-storage pipeline", () => {
 
   afterEach(() => {
     service.close();
-    try { rmSync(dbPath, { force: true }); } catch {}
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
   });
 
   it("should capture and store an error-fix sequence", () => {

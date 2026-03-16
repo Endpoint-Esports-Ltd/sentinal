@@ -1,5 +1,5 @@
 ---
-description: {{description}}
+description: { { description } }
 argument-hint: <path/to/plan.md>
 ---
 
@@ -61,6 +61,7 @@ Run ALL tests, not just the new one. Expected: ALL tests PASS
 ### 6. Update Plan
 
 After each task completes:
+
 - Update plan file: `[ ]` → `[x]`
 - Increment Done count, decrement Left count
 - Mark task as completed via TaskUpdate
@@ -68,5 +69,6 @@ After each task completes:
 ## Completion
 
 After all tasks complete:
+
 - Update plan `Status:` to `COMPLETE`
 - The dispatcher will route to the appropriate verification skill

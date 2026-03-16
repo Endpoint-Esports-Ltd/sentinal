@@ -65,7 +65,11 @@ describe("mergeAndRank", () => {
     const now = Date.now();
 
     const perfectQuality: ScoredObservation = {
-      observation: makeObs({ id: 1, qualityScore: 1.0, timestamp: now - 100000 }),
+      observation: makeObs({
+        id: 1,
+        qualityScore: 1.0,
+        timestamp: now - 100000,
+      }),
       score: 0.7,
     };
 
@@ -89,7 +93,11 @@ describe("mergeAndRank", () => {
       score: 0.2, // low relevance
     };
 
-    const result = mergeAndRank([highScoreLowQuality], [lowScoreHighQuality], 10);
+    const result = mergeAndRank(
+      [highScoreLowQuality],
+      [lowScoreHighQuality],
+      10,
+    );
 
     // highScoreLowQuality: 1.0*0.7 * 0.5 = 0.35
     // lowScoreHighQuality: 0.2*0.3 * 1.0 = 0.06

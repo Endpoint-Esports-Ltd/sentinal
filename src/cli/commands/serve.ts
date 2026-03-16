@@ -10,7 +10,11 @@
  */
 
 import type { Command } from "commander";
-import { isServerRunning, writePidFile, removePidFile } from "../../dashboard/lifecycle.js";
+import {
+  isServerRunning,
+  writePidFile,
+  removePidFile,
+} from "../../dashboard/lifecycle.js";
 import { startServer } from "../../dashboard/server.js";
 
 const DEFAULT_PORT = 41778;
@@ -23,41 +27,45 @@ export function registerServeCommand(program: Command): void {
     .option("-p, --port <port>", "Port to listen on", String(DEFAULT_PORT))
     .option("--host <host>", "Host to bind to", DEFAULT_HOST)
     .option("-d, --background", "Start as a background process")
-    .action(async (opts: { port: string; host: string; background?: boolean }) => {
-      const port = parseInt(opts.port, 10);
-      const host = opts.host;
+    .action(
+      async (opts: { port: string; host: string; background?: boolean }) => {
+        const port = parseInt(opts.port, 10);
+        const host = opts.host;
 
-      // Check for existing server
-      if (isServerRunning()) {
-        console.log(`Dashboard already running. Visit http://${host}:${port}`);
-        process.exit(0);
-      }
+        // Check for existing server
+        if (isServerRunning()) {
+          console.log(
+            `Dashboard already running. Visit http://${host}:${port}`,
+          );
+          process.exit(0);
+        }
 
-      if (opts.background) {
-        await startBackground(port, host);
-        return;
-      }
+        if (opts.background) {
+          await startBackground(port, host);
+          return;
+        }
 
-      // Foreground mode
-      const version = getVersion();
-      const server = startServer({ port, host, version });
+        // Foreground mode
+        const version = getVersion();
+        const server = startServer({ port, host, version });
 
-      writePidFile(process.pid);
-      console.log(`Sentinal Dashboard v${version}`);
-      console.log(`Listening on http://${host}:${server.port}`);
-      console.log(`Press Ctrl+C to stop`);
+        writePidFile(process.pid);
+        console.log(`Sentinal Dashboard v${version}`);
+        console.log(`Listening on http://${host}:${server.port}`);
+        console.log(`Press Ctrl+C to stop`);
 
-      // Graceful shutdown
-      const shutdown = () => {
-        console.log("\nShutting down...");
-        server.stop(true);
-        removePidFile();
-        process.exit(0);
-      };
+        // Graceful shutdown
+        const shutdown = () => {
+          console.log("\nShutting down...");
+          server.stop(true);
+          removePidFile();
+          process.exit(0);
+        };
 
-      process.on("SIGTERM", shutdown);
-      process.on("SIGINT", shutdown);
-    });
+        process.on("SIGTERM", shutdown);
+        process.on("SIGINT", shutdown);
+      },
+    );
 }
 
 async function startBackground(port: number, host: string): Promise<void> {

@@ -41,7 +41,9 @@ interface SearchHit {
  * Query memory for observations related to the target file.
  * Returns a formatted hint string, or null if no relevant observations exist.
  */
-export async function processPreEditGuide(input: PreEditInput): Promise<string | null> {
+export async function processPreEditGuide(
+  input: PreEditInput,
+): Promise<string | null> {
   const { filePath, cwd } = input;
   const fileBasename = basename(filePath);
 
@@ -79,7 +81,9 @@ export async function processPreEditGuide(input: PreEditInput): Promise<string |
 
   // Client-side filter: only keep observations whose filePaths contain the target
   const relevant = hits.filter((h) =>
-    h.filePaths?.some((fp) => fp === filePath || filePath.endsWith(fp) || fp.endsWith(filePath)),
+    h.filePaths?.some(
+      (fp) => fp === filePath || filePath.endsWith(fp) || fp.endsWith(filePath),
+    ),
   );
 
   if (relevant.length === 0) return null;
@@ -141,9 +145,15 @@ async function main(): Promise<void> {
   let client: SidecarClient | null = null;
   try {
     client = await SidecarClient.connect();
-  } catch { /* sidecar unavailable */ }
+  } catch {
+    /* sidecar unavailable */
+  }
 
-  const result = await processPreEditGuide({ filePath, cwd: input.cwd, client });
+  const result = await processPreEditGuide({
+    filePath,
+    cwd: input.cwd,
+    client,
+  });
   if (result) output(hint("PreToolUse", result));
 }
 

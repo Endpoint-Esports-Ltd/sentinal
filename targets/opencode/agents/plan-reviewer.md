@@ -35,6 +35,7 @@ Read the plan file. Note: tasks, DoD criteria, risks, scope boundaries.
 Compare plan vs user request: (1) all requirements addressed? (2) clarifications reflected? (3) tasks complete? (4) DoD measurable and verifiable? (5) risk mitigations concrete? (6) runtime environment documented if applicable?
 
 **Angular/NestJS/TypeScript checklist:**
+
 - Are Angular component types specified (standalone vs module-based)?
 - Are NestJS module dependencies declared (providers, imports, exports)?
 - Are TypeScript strict types expected (no `any`, explicit interfaces)?

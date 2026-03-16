@@ -58,7 +58,10 @@ export const CONTEXT_CHECK_INTERVAL = 5;
  * the full conversation context.
  */
 export function aggregateTokenUsage(messages: SessionMessage[]): ContextUsage {
-  const contextWindow = getEnvInt("SENTINAL_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW);
+  const contextWindow = getEnvInt(
+    "SENTINAL_CONTEXT_WINDOW",
+    DEFAULT_CONTEXT_WINDOW,
+  );
 
   // Find the most recent assistant message with token data.
   // Its input + cache.read represents the current context window fill level.
@@ -77,7 +80,10 @@ export function aggregateTokenUsage(messages: SessionMessage[]): ContextUsage {
 
   // Current context = input tokens + cache reads (both represent context sent to model)
   const contextTokens = latestTokens.input + latestTokens.cache.read;
-  const percent = Math.min(100, Math.round((contextTokens / contextWindow) * 100));
+  const percent = Math.min(
+    100,
+    Math.round((contextTokens / contextWindow) * 100),
+  );
 
   return {
     percent,

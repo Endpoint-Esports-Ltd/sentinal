@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Upgrade 8 Claude Code commands to full market research depth (~479 → ~2,000 lines)
 - Add 11 new workflow/tool rules to `targets/claude-code/rules/` (~1,100 lines)
 - Upgrade 2 agent definitions (plan-reviewer, spec-reviewer)
@@ -28,6 +29,7 @@ Type: Feature
 - Adapt all references: `competitor-cli` → `sentinal`, `semantic search CLI` → `Vexor`, `~/.legacy/` → `~/.sentinal/`
 
 ### Out of Scope
+
 - New TypeScript hook implementations (existing hooks are already at parity)
 - Team sharing features (not part of Sentinal)
 - License management (not part of Sentinal)
@@ -82,16 +84,16 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Rules too large for context window | Low | Medium | Keep rules concise; use conditional loading (`globs`) where possible |
-| Command depth causes slower skill loading | Low | Low | Claude Code loads commands on-demand; only the invoked command loads |
-| Branding inconsistencies (missed `competitor-cli` references) | Medium | Low | Grep for "legacy" and "Probe" after all changes |
-| OpenCode skills diverge from Claude Code commands | Medium | Medium | Update both targets in the same task |
+| Risk                                                 | Likelihood | Impact | Mitigation                                                           |
+| ---------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------- |
+| Rules too large for context window                   | Low        | Medium | Keep rules concise; use conditional loading (`globs`) where possible |
+| Command depth causes slower skill loading            | Low        | Low    | Claude Code loads commands on-demand; only the invoked command loads |
+| Branding inconsistencies (missed `competitor-cli` references) | Medium     | Low    | Grep for "legacy" and "Probe" after all changes                       |
+| OpenCode skills diverge from Claude Code commands    | Medium     | Medium | Update both targets in the same task                                 |
 
 ## Pre-Mortem
 
-*Assume this plan failed. Most likely internal reasons:*
+_Assume this plan failed. Most likely internal reasons:_
 
 1. **Rules reference tools that don't exist in Sentinal** (Tasks 1-2) → Trigger: A rule references `probe search` or `legacy worktree` instead of Sentinal equivalents. Check: grep all new files for "probe " and "legacy " after creation.
 2. **Commands reference wrong hook entry points** (Tasks 3-6) → Trigger: A command says `uv run python "${CLAUDE_PLUGIN_ROOT}/hooks/..."` (market research's Python hooks) instead of `sentinal hook ...`. Check: grep for "uv run" and ".py" in commands.
@@ -100,6 +102,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. All 8 Claude Code commands match market research's depth (line count within 20%)
 2. All 12 new rules exist in `targets/claude-code/rules/` (17 total including 5 existing standards) and are non-empty
 3. Both agents have detailed review phases and structured output
@@ -109,6 +112,7 @@ Type: Feature
 7. `bun test` passes with 0 failures
 
 ### Artifacts
+
 - 12 new rule files in `targets/claude-code/rules/` (17 total)
 - 8 upgraded command files in `targets/claude-code/commands/`
 - 2 upgraded agent files in `targets/claude-code/agents/`
@@ -118,6 +122,7 @@ Type: Feature
 - Updated `templates/commands/` and `templates/rules/`
 
 ### Key Links
+
 - Rules → loaded by Claude Code plugin every session → affect all AI behavior
 - Commands → invoked via `/sentinal:spec` etc. → drive the spec workflow
 - Agents → launched as sub-agents by commands → provide review feedback
@@ -149,6 +154,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `targets/claude-code/rules/testing.md`
 - Create: `targets/claude-code/rules/verification.md`
 - Create: `targets/claude-code/rules/development-practices.md`
@@ -157,6 +163,7 @@ Type: Feature
 - Create: `targets/claude-code/rules/sentinal-memory.md`
 
 **Key Decisions / Notes:**
+
 - Adapt from market research's `~/.claude/rules/` equivalents
 - Replace `semantic search CLI` → `Vexor`, `competitor-cli` → `sentinal`, `~/.legacy/` → `~/.sentinal/`
 - `testing.md` includes TDD workflow, test strategy, coverage requirements, property-based testing
@@ -167,12 +174,14 @@ Type: Feature
 - `sentinal-memory.md` covers the online learning system and memory tools
 
 **Definition of Done:**
+
 - [ ] All 6 files created with content adapted from market research
 - [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/` in any file
 - [ ] Each file has appropriate frontmatter (no `globs` — these load every session)
 - [ ] Content is functionally equivalent to market research's rules
 
 **Verify:**
+
 - `ls targets/claude-code/rules/ | wc -l` → should be 11 (5 existing + 6 new)
 - `grep -r "legacy\|probe" targets/claude-code/rules/testing.md targets/claude-code/rules/verification.md targets/claude-code/rules/development-practices.md targets/claude-code/rules/context-management.md targets/claude-code/rules/code-review-reception.md targets/claude-code/rules/sentinal-memory.md` → should return nothing
 
@@ -185,6 +194,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `targets/claude-code/rules/research-tools.md`
 - Create: `targets/claude-code/rules/cli-tools.md`
 - Create: `targets/claude-code/rules/mcp-servers.md`
@@ -192,6 +202,7 @@ Type: Feature
 - Create: `targets/claude-code/rules/team-sharing.md`
 
 **Key Decisions / Notes:**
+
 - `cli-tools.md` documents the `sentinal` CLI binary and `Vexor` semantic search (adapted from market research's semantic search CLI reference)
 - `mcp-servers.md` documents Sentinal's MCP servers with `mcp__plugin_sentinal_` prefix
 - `research-tools.md` establishes Vexor as the primary search tool with fallback chain
@@ -199,12 +210,14 @@ Type: Feature
 - `team-sharing.md` is a placeholder noting Sentinal doesn't have team features but documenting how to share `.claude/` assets manually
 
 **Definition of Done:**
+
 - [ ] All 5 files created with content adapted from market research
 - [ ] `cli-tools.md` references `sentinal` CLI commands and `vexor` for search
 - [ ] `mcp-servers.md` uses `mcp__plugin_sentinal_` prefix throughout
 - [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/`
 
 **Verify:**
+
 - `ls targets/claude-code/rules/ | wc -l` → should be 16 (5 existing + 6 new from Task 1 + 5 new from Task 2)
 - `grep -rli "probe\b" targets/claude-code/rules/` → should return nothing
 
@@ -217,9 +230,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `targets/claude-code/rules/task-and-workflow.md`
 
 **Key Decisions / Notes:**
+
 - This is 192 lines in market research — the most complex rule
 - Covers: plan mode guidance, task complexity triage, task management, sub-agent usage, /spec workflow overview, deviation handling, plan registration, worktree isolation
 - Must reference `sentinal register-plan`, `sentinal worktree`, `sentinal check-context`
@@ -227,12 +242,14 @@ Type: Feature
 - The /spec workflow section should reference `Skill('spec-plan')`, `Skill('spec-implement')`, etc.
 
 **Definition of Done:**
+
 - [ ] File created with full task management, /spec orchestration, and deviation handling
 - [ ] All CLI references use `sentinal` commands
 - [ ] Workflow dispatch table matches Sentinal's command structure
 - [ ] Content is functionally equivalent to market research's task-and-workflow.md
 
 **Verify:**
+
 - `wc -l targets/claude-code/rules/task-and-workflow.md` → should be ~180-200 lines
 - `grep "sentinal" targets/claude-code/rules/task-and-workflow.md | wc -l` → multiple hits
 - `ls targets/claude-code/rules/ | wc -l` → should be 17 (5 existing + 6 from Task 1 + 5 from Task 2 + 1 from Task 3)
@@ -246,9 +263,11 @@ Type: Feature
 **Dependencies:** Tasks 1-3 (rules must exist for commands to reference)
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec.md`
 
 **Key Decisions / Notes:**
+
 - Current: 48 lines. Target: ~80 lines (matching market research)
 - Add: env var toggle checking (`$SENTINAL_WORKTREE_ENABLED`, `$SENTINAL_PLAN_QUESTIONS_ENABLED`, `$SENTINAL_PLAN_APPROVAL_ENABLED`)
 - Add: detailed dispatch constraints (⛔ No substantive work here)
@@ -257,12 +276,14 @@ Type: Feature
 - Keep env var names as `$SENTINAL_*` since the rules already reference them and they're set by the installed infrastructure
 
 **Definition of Done:**
+
 - [ ] Command has proper YAML frontmatter (description, argument-hint, user-invocable, model)
 - [ ] Includes env var toggle reading step
 - [ ] Includes model routing table
 - [ ] Includes dispatch constraints matching market research
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/spec.md` → should be ~75-85 lines
 
 ---
@@ -274,9 +295,11 @@ Type: Feature
 **Dependencies:** Tasks 1-3
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-plan.md`
 
 **Key Decisions / Notes:**
+
 - Current: 76 lines. Target: ~375 lines (matching market research)
 - Add: Step 0 (toggle configuration reading)
 - Add: AskUserQuestion integration with batched questions
@@ -290,6 +313,7 @@ Type: Feature
 - Add: YAML frontmatter with `model: opus` and `user-invocable: false`
 
 **Definition of Done:**
+
 - [ ] Command has all 8 steps from market research's spec-plan (Step 0 through Step 1.8)
 - [ ] Includes detailed plan template with all required sections
 - [ ] Includes AskUserQuestion integration
@@ -297,6 +321,7 @@ Type: Feature
 - [ ] Line count is ~350-380 lines
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/spec-plan.md` → should be ~350-380
 
 ---
@@ -308,9 +333,11 @@ Type: Feature
 **Dependencies:** Tasks 1-3
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-implement.md`
 
 **Key Decisions / Notes:**
+
 - Current: 72 lines. Target: ~134 lines (matching market research)
 - Add: Critical constraints section (no sub-agents, TDD mandatory, never skip tasks, plan is source of truth)
 - Add: Feedback loop awareness (multiple implementation cycles)
@@ -322,12 +349,14 @@ Type: Feature
 - Add: YAML frontmatter with `model: sonnet`
 
 **Definition of Done:**
+
 - [ ] Command has all steps (2.1 through 2.5) matching market research
 - [ ] Includes worktree detection via `sentinal worktree`
 - [ ] Includes pre-mortem and assumption checking during TDD loop
 - [ ] All CLI references use `sentinal` commands
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/spec-implement.md` → should be ~130-140
 
 ---
@@ -339,9 +368,11 @@ Type: Feature
 **Dependencies:** Tasks 1-3
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-verify.md`
 
 **Key Decisions / Notes:**
+
 - Current: 63 lines. Target: ~360 lines (matching market research)
 - Add: Step 0 (toggle configuration for spec reviewer)
 - Add: Step 3.0 (Runtime profile classification: Minimal/API/Full)
@@ -353,6 +384,7 @@ Type: Feature
 - Replace: `~/.legacy/bin/legacy` → `sentinal`, `$SENTINAL_SESSION_ID` → `$SENTINAL_SESSION_ID` (keep as-is, shared env var)
 
 **Definition of Done:**
+
 - [ ] Command has all verification phases matching market research
 - [ ] Includes runtime profile classification
 - [ ] Includes Phase A (code finalization) and Phase B (runtime verification)
@@ -360,6 +392,7 @@ Type: Feature
 - [ ] All CLI references use `sentinal` commands
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/spec-verify.md` → should be ~350-370
 
 ---
@@ -371,19 +404,23 @@ Type: Feature
 **Dependencies:** Tasks 1-3
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-bugfix-plan.md`
 - Modify: `targets/claude-code/commands/spec-bugfix-verify.md`
 
 **Key Decisions / Notes:**
+
 - spec-bugfix-plan: Current 77 lines → Target ~257 lines. Add: Step 0 (toggles), systematic investigation phases, Behavior Contract with formal notation, worktree creation, plan-reviewer for complex bugs, notification hooks, approval gate
 - spec-bugfix-verify: Current 45 lines → Target ~90 lines. Add: Step 0 (toggles), detailed Behavior Contract audit, regression test confirmation, defense-in-depth validation, quality checks without sub-agents
 
 **Definition of Done:**
+
 - [ ] spec-bugfix-plan.md has systematic investigation, Behavior Contract, and approval gate
 - [ ] spec-bugfix-verify.md has detailed verification without sub-agents
 - [ ] Both commands reference `sentinal` CLI
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/spec-bugfix-plan.md` → ~250-260
 - `wc -l targets/claude-code/commands/spec-bugfix-verify.md` → ~85-95
 
@@ -396,19 +433,23 @@ Type: Feature
 **Dependencies:** Tasks 1-3
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/learn.md`
 - Modify: `targets/claude-code/commands/sync.md`
 
 **Key Decisions / Notes:**
+
 - learn.md: Current 71 lines → Target ~211 lines. Add: Detailed extraction criteria, skill creation workflow, quality assessment rubric, automatic trigger conditions, session evaluation checklist
 - sync.md: Current 27 lines → Target ~549 lines. Add: Comprehensive codebase exploration phases, framework detection, monorepo support, rule generation templates, MCP documentation generation, coding standards activation, skills discovery, verification output
 
 **Definition of Done:**
+
 - [ ] learn.md has detailed extraction criteria and skill creation workflow
 - [ ] sync.md has comprehensive codebase exploration and rule generation
 - [ ] Both reference Sentinal-specific tools and conventions
 
 **Verify:**
+
 - `wc -l targets/claude-code/commands/learn.md` → ~200-220
 - `wc -l targets/claude-code/commands/sync.md` → ~540-560
 
@@ -421,20 +462,24 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/claude-code/agents/plan-reviewer.md`
 - Modify: `targets/claude-code/agents/spec-reviewer.md`
 
 **Key Decisions / Notes:**
+
 - plan-reviewer: Add detailed completeness checklist, architecture review criteria, adversarial review prompts, YAGNI check, risk assessment criteria
 - spec-reviewer: Add three-phase review (compliance, quality, goal), Angular/NestJS-specific checks, security audit checklist, confidence-based filtering
 - Both: Keep YAML frontmatter consistent with current format (name, description, tools, model, background, permissionMode)
 
 **Definition of Done:**
+
 - [ ] plan-reviewer has detailed review checklist and adversarial prompts
 - [ ] spec-reviewer has three-phase review with confidence-based filtering
 - [ ] Both reference Angular/NestJS/TypeScript-specific quality criteria
 
 **Verify:**
+
 - `wc -l targets/claude-code/agents/plan-reviewer.md` → ~60-80 lines
 - `wc -l targets/claude-code/agents/spec-reviewer.md` → ~70-90 lines
 
@@ -447,6 +492,7 @@ Type: Feature
 **Dependencies:** Tasks 1-10 (all Claude Code upgrades complete)
 
 **Files:**
+
 - Modify: `targets/opencode/commands/spec.md`
 - Modify: `targets/opencode/commands/learn.md`
 - Modify: `targets/opencode/commands/sync.md`
@@ -460,12 +506,14 @@ Type: Feature
 - Create: `targets/opencode/rules/testing.md` (+ all 11 new rules)
 
 **Key Decisions / Notes:**
+
 - OpenCode commands and skills should mirror Claude Code commands in content
 - OpenCode uses different tool names (e.g., `activate_skill` instead of `Skill`)
 - OpenCode rules follow the same markdown format
 - Copy all 11 new rules from Claude Code targets to OpenCode targets
 
 **Definition of Done:**
+
 - [ ] All 5 OpenCode skills match their Claude Code command equivalents
 - [ ] All 3 OpenCode commands match their Claude Code equivalents
 - [ ] Both OpenCode agents match their Claude Code equivalents
@@ -473,6 +521,7 @@ Type: Feature
 - [ ] OpenCode-specific tool references maintained where different
 
 **Verify:**
+
 - `diff <(ls targets/claude-code/rules/) <(ls targets/opencode/rules/)` → should be identical
 - `ls targets/opencode/rules/ | wc -l` → 17
 - After `bun run embed-assets` (Task 12), confirm OpenCode rules appear: `grep -c "standards-angular" src/cli/embedded-assets.ts` → should return >1
@@ -486,9 +535,11 @@ Type: Feature
 **Dependencies:** Tasks 1-11
 
 **Files:**
+
 - None created/modified (verification only)
 
 **Key Decisions / Notes:**
+
 - Run `bun run embed-assets` and verify output
 - Count rules, commands, agents in generated `src/cli/embedded-assets.ts`
 - Grep entire `targets/` directory for leftover `competitor-cli` / `probe` references
@@ -496,6 +547,7 @@ Type: Feature
 - Update `templates/commands/` and `templates/rules/` to match targets if they're out of sync
 
 **Definition of Done:**
+
 - [ ] `bun run embed-assets` succeeds
 - [ ] Generated `embedded-assets.ts` includes all 17 rules, 8 commands, 2 agents for Claude Code
 - [ ] `grep -rli "\\blegacy\\b\|\\bprobe\\b" targets/claude-code/ targets/opencode/` returns no matches (excluding env var names like $SENTINAL_WORKTREE_ENABLED which are shared)
@@ -503,6 +555,7 @@ Type: Feature
 - [ ] Template files in `templates/` are updated to match targets
 
 **Verify:**
+
 - `bun run embed-assets 2>&1 | tail -20`
 - `bun test`
 - `grep -rn "\\bprobe\\b" targets/claude-code/ targets/opencode/ | grep -v SENTINAL_ | head -20` → empty

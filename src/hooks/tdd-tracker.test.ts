@@ -19,7 +19,10 @@ import {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `sentinal-tdd-tracker-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `sentinal-tdd-tracker-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -49,18 +52,26 @@ const PASS_OUTPUT = "5 pass\n0 fail\nAll tests passed";
 
 describe("hasTestFailure", () => {
   it("detects '3 fail'", () => expect(hasTestFailure("3 fail\n")).toBe(true));
-  it("detects 'tests failed'", () => expect(hasTestFailure("2 tests failed")).toBe(true));
-  it("detects AssertionError", () => expect(hasTestFailure("AssertionError: expected")).toBe(true));
-  it("returns false for passing output", () => expect(hasTestFailure("5 pass")).toBe(false));
-  it("returns false for empty string", () => expect(hasTestFailure("")).toBe(false));
+  it("detects 'tests failed'", () =>
+    expect(hasTestFailure("2 tests failed")).toBe(true));
+  it("detects AssertionError", () =>
+    expect(hasTestFailure("AssertionError: expected")).toBe(true));
+  it("returns false for passing output", () =>
+    expect(hasTestFailure("5 pass")).toBe(false));
+  it("returns false for empty string", () =>
+    expect(hasTestFailure("")).toBe(false));
 });
 
 describe("hasTestPass", () => {
   it("detects '5 pass'", () => expect(hasTestPass("5 pass")).toBe(true));
-  it("detects 'tests passed'", () => expect(hasTestPass("All tests passed")).toBe(true));
-  it("detects 'Tests: 10 passed'", () => expect(hasTestPass("Tests: 10 passed")).toBe(true));
-  it("returns false for failing output", () => expect(hasTestPass("3 fail")).toBe(false));
-  it("returns false for empty string", () => expect(hasTestPass("")).toBe(false));
+  it("detects 'tests passed'", () =>
+    expect(hasTestPass("All tests passed")).toBe(true));
+  it("detects 'Tests: 10 passed'", () =>
+    expect(hasTestPass("Tests: 10 passed")).toBe(true));
+  it("returns false for failing output", () =>
+    expect(hasTestPass("3 fail")).toBe(false));
+  it("returns false for empty string", () =>
+    expect(hasTestPass("")).toBe(false));
 });
 
 describe("getImplPathForTest", () => {
@@ -190,8 +201,16 @@ describe("processTddTracking", () => {
       const ss = new SpecStore(store);
       const spec = ss.getCurrentSpec(tmpDir);
 
-      store.setTddState({ filePath: "src/a.ts", state: "RED_CONFIRMED", specId: spec!.id });
-      store.setTddState({ filePath: "src/b.ts", state: "TEST_WRITTEN", specId: spec!.id });
+      store.setTddState({
+        filePath: "src/a.ts",
+        state: "RED_CONFIRMED",
+        specId: spec!.id,
+      });
+      store.setTddState({
+        filePath: "src/b.ts",
+        state: "TEST_WRITTEN",
+        specId: spec!.id,
+      });
 
       const states = store.listActiveTddStates(spec!.id);
       for (const cycle of states) {

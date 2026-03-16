@@ -45,7 +45,8 @@ export const WorktreeConfigSchema = z.object({
 
 export type WorktreeConfig = z.infer<typeof WorktreeConfigSchema>;
 
-export const DEFAULT_WORKTREE_CONFIG: WorktreeConfig = WorktreeConfigSchema.parse({});
+export const DEFAULT_WORKTREE_CONFIG: WorktreeConfig =
+  WorktreeConfigSchema.parse({});
 
 // ─── Diff Types ───────────────────────────────────────────────────────────────
 

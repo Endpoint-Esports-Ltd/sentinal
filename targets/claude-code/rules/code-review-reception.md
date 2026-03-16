@@ -15,11 +15,11 @@ If any item is unclear: **STOP** — do not implement anything yet. Ask for clar
 
 ### Source-Specific Handling
 
-| Source | Approach |
-|--------|----------|
-| **User feedback** | Trusted — implement after understanding. Still ask if scope unclear. |
-| **External reviewers** | Verify first: (1) technically correct for THIS codebase? (2) breaks existing functionality? (3) reason for current implementation? (4) conflicts with user's prior decisions? |
-| **Spec-reviewer agents** | `must_fix` and `should_fix` → fix immediately. `suggestion` → implement if quick. No discussion needed. |
+| Source                   | Approach                                                                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **User feedback**        | Trusted — implement after understanding. Still ask if scope unclear.                                                                                                          |
+| **External reviewers**   | Verify first: (1) technically correct for THIS codebase? (2) breaks existing functionality? (3) reason for current implementation? (4) conflicts with user's prior decisions? |
+| **Spec-reviewer agents** | `must_fix` and `should_fix` → fix immediately. `suggestion` → implement if quick. No discussion needed.                                                                       |
 
 ### YAGNI Check
 
@@ -39,12 +39,12 @@ When a reviewer suggests adding or "properly implementing" a feature:
 
 ### Forbidden Responses
 
-| Never Say | Instead |
-|-----------|---------|
-| "You're absolutely right!" | State the technical requirement |
-| "Great point!" / "Excellent feedback!" | Just start working — actions > words |
-| "Let me implement that now" (before verification) | Verify against codebase first |
-| "Thanks for catching that!" | "Fixed. [Brief description of what changed]" |
+| Never Say                                         | Instead                                      |
+| ------------------------------------------------- | -------------------------------------------- |
+| "You're absolutely right!"                        | State the technical requirement              |
+| "Great point!" / "Excellent feedback!"            | Just start working — actions > words         |
+| "Let me implement that now" (before verification) | Verify against codebase first                |
+| "Thanks for catching that!"                       | "Fixed. [Brief description of what changed]" |
 
 ### When to Push Back
 

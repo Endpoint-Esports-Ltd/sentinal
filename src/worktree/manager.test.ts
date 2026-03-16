@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync, realpathSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  realpathSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MemoryStore } from "../memory/store.js";
@@ -10,7 +16,10 @@ import { WorktreeError, type WorktreeConfig } from "./types.js";
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeTmpDir(): string {
-  const raw = join(tmpdir(), `sentinal-wtm-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const raw = join(
+    tmpdir(),
+    `sentinal-wtm-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(raw, { recursive: true });
   return realpathSync(raw);
 }
@@ -26,7 +35,12 @@ function initRepo(dir: string): void {
 }
 
 /** Add a file and commit in a directory. */
-function addAndCommit(dir: string, filename: string, content: string, message: string): void {
+function addAndCommit(
+  dir: string,
+  filename: string,
+  content: string,
+  message: string,
+): void {
   writeFileSync(join(dir, filename), content);
   Bun.spawnSync(["git", "add", "."], { cwd: dir });
   Bun.spawnSync(["git", "commit", "-m", message], { cwd: dir });
@@ -150,7 +164,12 @@ describe("WorktreeManager", () => {
 
     it("should detect changes in worktree", () => {
       const wt = manager.create(undefined, repoDir);
-      addAndCommit(wt.worktreePath, "new-file.ts", "export const x = 1;\n", "add new file");
+      addAndCommit(
+        wt.worktreePath,
+        "new-file.ts",
+        "export const x = 1;\n",
+        "add new file",
+      );
 
       const result = manager.diff(wt.id);
       expect(result.filesChanged).toBeGreaterThan(0);
@@ -161,10 +180,23 @@ describe("WorktreeManager", () => {
   describe("squashMerge", () => {
     it("should squash merge worktree into base branch", () => {
       const wt = manager.create(undefined, repoDir);
-      addAndCommit(wt.worktreePath, "feature.ts", "export const feature = true;\n", "add feature");
-      addAndCommit(wt.worktreePath, "helper.ts", "export const help = true;\n", "add helper");
+      addAndCommit(
+        wt.worktreePath,
+        "feature.ts",
+        "export const feature = true;\n",
+        "add feature",
+      );
+      addAndCommit(
+        wt.worktreePath,
+        "helper.ts",
+        "export const help = true;\n",
+        "add helper",
+      );
 
-      const mergeCommit = manager.squashMerge(wt.id, "feat: merge test feature");
+      const mergeCommit = manager.squashMerge(
+        wt.id,
+        "feat: merge test feature",
+      );
 
       expect(mergeCommit).toMatch(/^[a-f0-9]{40}$/);
 
@@ -181,7 +213,9 @@ describe("WorktreeManager", () => {
       addAndCommit(wt.worktreePath, "a.ts", "a", "commit");
       manager.squashMerge(wt.id, "feat: test");
 
-      expect(() => manager.squashMerge(wt.id, "feat: again")).toThrow(WorktreeError);
+      expect(() => manager.squashMerge(wt.id, "feat: again")).toThrow(
+        WorktreeError,
+      );
     });
 
     it("should use default commit message when none provided", () => {
@@ -189,7 +223,10 @@ describe("WorktreeManager", () => {
       addAndCommit(wt.worktreePath, "b.ts", "b", "commit");
       const hash = manager.squashMerge(wt.id);
 
-      const result = Bun.spawnSync(["git", "log", "-1", "--format=%s", hash], { cwd: repoDir, stdout: "pipe" });
+      const result = Bun.spawnSync(["git", "log", "-1", "--format=%s", hash], {
+        cwd: repoDir,
+        stdout: "pipe",
+      });
       const msg = result.stdout?.toString().trim();
       expect(msg).toContain("worktree-");
     });
@@ -239,7 +276,12 @@ describe("WorktreeManager", () => {
   describe("hasConflicts", () => {
     it("should return false when no conflicts", () => {
       const wt = manager.create(undefined, repoDir);
-      addAndCommit(wt.worktreePath, "new.ts", "export const x = 1;\n", "add file");
+      addAndCommit(
+        wt.worktreePath,
+        "new.ts",
+        "export const x = 1;\n",
+        "add file",
+      );
 
       expect(manager.hasConflicts(wt.id)).toBe(false);
     });
@@ -247,7 +289,12 @@ describe("WorktreeManager", () => {
     it("should detect conflicts", () => {
       const wt = manager.create(undefined, repoDir);
 
-      addAndCommit(wt.worktreePath, "README.md", "# Changed in worktree\n", "worktree change");
+      addAndCommit(
+        wt.worktreePath,
+        "README.md",
+        "# Changed in worktree\n",
+        "worktree change",
+      );
 
       Bun.spawnSync(["git", "checkout", "main"], { cwd: repoDir });
       addAndCommit(repoDir, "README.md", "# Changed on main\n", "main change");

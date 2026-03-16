@@ -88,7 +88,9 @@ async function restoreContextAsync(
 
     const results = await Promise.race([
       searchPromise,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), SEMANTIC_TIMEOUT)),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), SEMANTIC_TIMEOUT),
+      ),
     ]);
 
     if (results && results.length > 0) {
@@ -98,7 +100,10 @@ async function restoreContextAsync(
 
       // Supplement if sparse: add chronological results not already in semantic set
       if (recent.length < 3) {
-        const chronological = service.getRecentForProject(options.projectPath, recentLimit);
+        const chronological = service.getRecentForProject(
+          options.projectPath,
+          recentLimit,
+        );
         const existingIds = new Set(recent.map((o) => o.id));
         for (const obs of chronological) {
           if (!existingIds.has(obs.id)) {
@@ -144,7 +149,10 @@ function restoreContextSync(
 const MAX_SHARED_OBSERVATIONS = 15;
 
 /** Merge shared observations from .sentinal/project-memory.json with SQLite observations */
-function mergeSharedObservations(sqliteObs: Observation[], projectPath: string): Observation[] {
+function mergeSharedObservations(
+  sqliteObs: Observation[],
+  projectPath: string,
+): Observation[] {
   const shared = readSharedMemory(projectPath);
   if (shared.length === 0) return sqliteObs;
 
@@ -179,7 +187,8 @@ function buildRestoreMarkdown(
   options: RestoreOptions,
   recent: Observation[],
 ): RestoredContext {
-  const decisionWindowMs = options.decisionWindowMs ?? DEFAULTS.decisionWindowMs;
+  const decisionWindowMs =
+    options.decisionWindowMs ?? DEFAULTS.decisionWindowMs;
   const maxOutputLength = options.maxOutputLength ?? DEFAULTS.maxOutputLength;
 
   // 2. Categorize observations
@@ -198,9 +207,7 @@ function buildRestoreMarkdown(
       dateStart: now - decisionWindowMs,
       limit: 5,
     })
-    .filter(
-      (r) => !decisions.some((d) => d.id === r.id),
-    );
+    .filter((r) => !decisions.some((d) => d.id === r.id));
 
   // 4. Build markdown
   const sections: string[] = [];
@@ -307,9 +314,7 @@ function buildRestoreMarkdown(
       sections.push("");
       sections.push("### Related to Current Files");
       for (const o of uniqueRelated.slice(0, 5)) {
-        sections.push(
-          `- [${o.type}] ${o.title} (${formatDate(o.timestamp)})`,
-        );
+        sections.push(`- [${o.type}] ${o.title} (${formatDate(o.timestamp)})`);
       }
     }
   }
@@ -318,8 +323,7 @@ function buildRestoreMarkdown(
 
   // Truncate if too long
   if (markdown.length > maxOutputLength) {
-    markdown =
-      markdown.slice(0, maxOutputLength - 20) + "\n\n*(truncated)*";
+    markdown = markdown.slice(0, maxOutputLength - 20) + "\n\n*(truncated)*";
   }
 
   return {
@@ -336,14 +340,19 @@ function buildRestoreMarkdown(
  * Uses active spec task (primary), falls back to recent files + project name.
  * ALWAYS returns a non-empty string (project basename is the minimum).
  */
-export function buildSemanticQuery(projectPath: string, service?: MemoryService): string {
+export function buildSemanticQuery(
+  projectPath: string,
+  service?: MemoryService,
+): string {
   const parts: string[] = [];
 
   // 1. Active spec task (highest priority)
   try {
     const active = findActivePlan(projectPath);
     if (active?.spec.tasks) {
-      const currentTask = active.spec.tasks.find((t) => t.status === "pending" || t.status === "in-progress");
+      const currentTask = active.spec.tasks.find(
+        (t) => t.status === "pending" || t.status === "in-progress",
+      );
       if (currentTask) {
         parts.push(currentTask.title);
         if (currentTask.description) parts.push(currentTask.description);
@@ -352,7 +361,9 @@ export function buildSemanticQuery(projectPath: string, service?: MemoryService)
         parts.push(active.spec.title);
       }
     }
-  } catch { /* spec detection failed — continue */ }
+  } catch {
+    /* spec detection failed — continue */
+  }
 
   // 2. Recent files (fallback or supplement)
   if (parts.length === 0 && service) {
@@ -365,7 +376,9 @@ export function buildSemanticQuery(projectPath: string, service?: MemoryService)
       if (files.size > 0) {
         parts.push("Recent work on: " + [...files].slice(0, 10).join(", "));
       }
-    } catch { /* service query failed — continue */ }
+    } catch {
+      /* service query failed — continue */
+    }
   }
 
   // 3. Minimum fallback: project basename (NEVER return empty)

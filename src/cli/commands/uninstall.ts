@@ -35,7 +35,12 @@ import { detectShell, getShellConfigPath, removeBlock } from "./shell-init.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MARKETPLACE_DIR = join(homedir(), ".claude", "plugins", "sentinal-marketplace");
+const MARKETPLACE_DIR = join(
+  homedir(),
+  ".claude",
+  "plugins",
+  "sentinal-marketplace",
+);
 const MARKETPLACE_NAME = "sentinal-marketplace";
 const PLUGIN_NAME = "sentinal";
 
@@ -52,13 +57,25 @@ const RULE_FILES = [
 ];
 
 /** MCP server keys managed by Sentinal. */
-const MCP_KEYS = ["context7", "web-search", "grep-mcp", "web-fetch", "sentinal"];
+const MCP_KEYS = [
+  "context7",
+  "web-search",
+  "grep-mcp",
+  "web-fetch",
+  "sentinal",
+];
 
 /** Agent files installed by Sentinal. */
 const AGENT_FILES = ["plan-reviewer.md", "spec-reviewer.md"];
 
 /** Skill directory names installed by Sentinal. */
-const SKILL_DIRS = ["spec-plan", "spec-implement", "spec-verify", "spec-bugfix-plan", "spec-bugfix-verify"];
+const SKILL_DIRS = [
+  "spec-plan",
+  "spec-implement",
+  "spec-verify",
+  "spec-bugfix-plan",
+  "spec-bugfix-verify",
+];
 
 /** All possible plugin filenames (deployed via different install paths). */
 const PLUGIN_FILENAMES = ["sentinal.mjs", "sentinal.ts", "sentinal.js"];
@@ -72,10 +89,19 @@ const PLUGIN_PATH_PATTERNS = [
 ];
 
 /** Agent task permission keys managed by Sentinal. */
-const SENTINAL_TASK_KEYS = ["plan-reviewer", "spec-reviewer", "explore", "general"];
+const SENTINAL_TASK_KEYS = [
+  "plan-reviewer",
+  "spec-reviewer",
+  "explore",
+  "general",
+];
 
 /** Edit permission glob keys managed by Sentinal. */
-const SENTINAL_EDIT_PLAN_KEYS = ["docs/plans/*.md", "docs/plans/**/*.md", "docs/plans/*.json"];
+const SENTINAL_EDIT_PLAN_KEYS = [
+  "docs/plans/*.md",
+  "docs/plans/**/*.md",
+  "docs/plans/*.json",
+];
 
 // ─── Options ────────────────────────────────────────────────────────────────
 
@@ -91,21 +117,34 @@ export interface UninstallOptions {
 export function registerUninstallCommand(program: Command): void {
   program
     .command("uninstall [target]")
-    .description("Uninstall Sentinal from an AI assistant (claude, opencode, both)")
-    .option("--local", "Uninstall OpenCode plugin from current project instead of global")
-    .option("--remove-binary", "Also remove the sentinal binary, npm package, and shell integration")
-    .action(async (target?: string, opts?: { local?: boolean; removeBinary?: boolean }) => {
-      try {
-        const uninstallOpts: UninstallOptions = {
-          local: opts?.local,
-          preserveBinary: !opts?.removeBinary,
-        };
-        await uninstallDispatcher(target, uninstallOpts);
-      } catch (e) {
-        err(`Uninstall failed: ${(e as Error).message}`);
-        process.exit(1);
-      }
-    });
+    .description(
+      "Uninstall Sentinal from an AI assistant (claude, opencode, both)",
+    )
+    .option(
+      "--local",
+      "Uninstall OpenCode plugin from current project instead of global",
+    )
+    .option(
+      "--remove-binary",
+      "Also remove the sentinal binary, npm package, and shell integration",
+    )
+    .action(
+      async (
+        target?: string,
+        opts?: { local?: boolean; removeBinary?: boolean },
+      ) => {
+        try {
+          const uninstallOpts: UninstallOptions = {
+            local: opts?.local,
+            preserveBinary: !opts?.removeBinary,
+          };
+          await uninstallDispatcher(target, uninstallOpts);
+        } catch (e) {
+          err(`Uninstall failed: ${(e as Error).message}`);
+          process.exit(1);
+        }
+      },
+    );
 }
 
 // ─── Detection ──────────────────────────────────────────────────────────────
@@ -132,9 +171,13 @@ export function detectInstalledTargets(overrides?: {
 
   const claude = existsSync(marketplaceDir);
   const opencode =
-    PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f)))
-    || AGENT_FILES.some((f) => existsSync(join(xdgConfig, "opencode", "agents", f)))
-    || SKILL_DIRS.some((d) => existsSync(join(xdgConfig, "opencode", "skills", d)));
+    PLUGIN_FILENAMES.some((f) => existsSync(join(opencodePluginsDir, f))) ||
+    AGENT_FILES.some((f) =>
+      existsSync(join(xdgConfig, "opencode", "agents", f)),
+    ) ||
+    SKILL_DIRS.some((d) =>
+      existsSync(join(xdgConfig, "opencode", "skills", d)),
+    );
 
   return { claude, opencode };
 }
@@ -238,7 +281,9 @@ export async function uninstallClaudeCode(): Promise<void> {
   console.log("");
 
   if (!commandExists("claude")) {
-    throw new Error("Claude Code CLI not found. Cannot uninstall Claude Code plugin.");
+    throw new Error(
+      "Claude Code CLI not found. Cannot uninstall Claude Code plugin.",
+    );
   }
 
   let foundSomething = false;
@@ -246,9 +291,17 @@ export async function uninstallClaudeCode(): Promise<void> {
   // ── Uninstall plugin ──
 
   const pluginList = run(["claude", "plugin", "list"]);
-  if (pluginList.ok && pluginList.stdout.includes(`${PLUGIN_NAME}@${MARKETPLACE_NAME}`)) {
+  if (
+    pluginList.ok &&
+    pluginList.stdout.includes(`${PLUGIN_NAME}@${MARKETPLACE_NAME}`)
+  ) {
     info("Uninstalling plugin...");
-    run(["claude", "plugin", "uninstall", `${PLUGIN_NAME}@${MARKETPLACE_NAME}`]);
+    run([
+      "claude",
+      "plugin",
+      "uninstall",
+      `${PLUGIN_NAME}@${MARKETPLACE_NAME}`,
+    ]);
     ok(`[OK] Plugin uninstalled: ${PLUGIN_NAME}@${MARKETPLACE_NAME}`);
     foundSomething = true;
   } else {
@@ -295,7 +348,9 @@ export async function uninstallClaudeCode(): Promise<void> {
 
 // ─── OpenCode uninstaller ───────────────────────────────────────────────────
 
-export async function uninstallOpenCode(opts: UninstallOptions = {}): Promise<void> {
+export async function uninstallOpenCode(
+  opts: UninstallOptions = {},
+): Promise<void> {
   const local = opts.local ?? false;
   const preserveBinary = opts.preserveBinary ?? true;
 
@@ -533,13 +588,17 @@ function removeBinary(): void {
  * Removes only Sentinal-owned keys; preserves user-added keys.
  * Returns a new config object (does not mutate input).
  */
-export function cleanupOpenCodeConfig(input: Record<string, unknown>): Record<string, unknown> {
+export function cleanupOpenCodeConfig(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
   const config = JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
 
   // Remove sentinal plugin entries
   const plugins = (config.plugin as string[]) ?? [];
   const pluginPaths = new Set(PLUGIN_PATH_PATTERNS);
-  config.plugin = plugins.filter((p) => !pluginPaths.has(p) && !p.includes("sentinal"));
+  config.plugin = plugins.filter(
+    (p) => !pluginPaths.has(p) && !p.includes("sentinal"),
+  );
 
   // Remove sentinal MCP server keys
   const mcp = (config.mcp as Record<string, unknown>) ?? {};
@@ -562,10 +621,14 @@ export function cleanupOpenCodeConfig(input: Record<string, unknown>): Record<st
   }
 
   // Remove sentinal agent config entries
-  const agents = config.agent as Record<string, Record<string, unknown>> | undefined;
+  const agents = config.agent as
+    | Record<string, Record<string, unknown>>
+    | undefined;
   if (agents) {
     for (const [name, agentCfg] of Object.entries(agents)) {
-      const permission = agentCfg.permission as Record<string, unknown> | undefined;
+      const permission = agentCfg.permission as
+        | Record<string, unknown>
+        | undefined;
       if (!permission) continue;
 
       // Clean up task permissions
@@ -574,7 +637,10 @@ export function cleanupOpenCodeConfig(input: Record<string, unknown>): Record<st
         for (const key of SENTINAL_TASK_KEYS) delete taskPerm[key];
         // Remove task block if only "*" remains
         const taskKeys = Object.keys(taskPerm);
-        if (taskKeys.length === 0 || (taskKeys.length === 1 && taskKeys[0] === "*")) {
+        if (
+          taskKeys.length === 0 ||
+          (taskKeys.length === 1 && taskKeys[0] === "*")
+        ) {
           delete permission.task;
         }
       }
@@ -605,7 +671,10 @@ export function cleanupOpenCodeConfig(input: Record<string, unknown>): Record<st
   }
 
   // Clean up empty plugin array
-  if (Array.isArray(config.plugin) && (config.plugin as string[]).length === 0) {
+  if (
+    Array.isArray(config.plugin) &&
+    (config.plugin as string[]).length === 0
+  ) {
     delete config.plugin;
   }
 

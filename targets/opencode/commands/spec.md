@@ -13,13 +13,13 @@ argument-hint: "<task description>" or "<path/to/plan.md>"
 
 ## Workflow
 
-| Phase | Skill | When |
-|-------|-------|------|
-| Feature Planning | `spec-plan` | New feature task |
-| Bugfix Planning | `spec-bugfix-plan` | Bug/crash/regression |
-| Implementation | `spec-implement` | Plan approved |
-| Feature Verification | `spec-verify` | Feature complete |
-| Bugfix Verification | `spec-bugfix-verify` | Bugfix complete |
+| Phase                | Skill                | When                 |
+| -------------------- | -------------------- | -------------------- |
+| Feature Planning     | `spec-plan`          | New feature task     |
+| Bugfix Planning      | `spec-bugfix-plan`   | Bug/crash/regression |
+| Implementation       | `spec-implement`     | Plan approved        |
+| Feature Verification | `spec-verify`        | Feature complete     |
+| Bugfix Verification  | `spec-bugfix-verify` | Bugfix complete      |
 
 ---
 
@@ -55,13 +55,13 @@ If worktree disabled and type clear: skip all questions, load skill with `--work
 
 Read plan. Register: `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
 
-| Status | Approved | Type | Skill |
-|--------|----------|------|-------|
-| PENDING | No | Feature/absent | `spec-plan` |
-| PENDING | No | Bugfix | `spec-bugfix-plan` |
-| PENDING | Yes | * | `spec-implement` |
-| COMPLETE | * | Feature/absent | `spec-verify` |
-| COMPLETE | * | Bugfix | `spec-bugfix-verify` |
-| VERIFIED | * | * | Report completion, done |
+| Status   | Approved | Type           | Skill                   |
+| -------- | -------- | -------------- | ----------------------- |
+| PENDING  | No       | Feature/absent | `spec-plan`             |
+| PENDING  | No       | Bugfix         | `spec-bugfix-plan`      |
+| PENDING  | Yes      | \*             | `spec-implement`        |
+| COMPLETE | \*       | Feature/absent | `spec-verify`           |
+| COMPLETE | \*       | Bugfix         | `spec-bugfix-verify`    |
+| VERIFIED | \*       | \*             | Report completion, done |
 
 ARGUMENTS: $ARGUMENTS
