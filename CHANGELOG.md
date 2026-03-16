@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.13.0...v1.14.0) (2026-03-16)
+
+
+### Features
+
+* replace idle timeout with session-aware sidecar lifecycle ([92e9b3e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/92e9b3eb1e22190eb7280e994aa8526716a3f76d))
+
 # [1.13.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.12.0...v1.13.0) (2026-03-16)
 
 
