@@ -116,7 +116,7 @@ All subsequent work happens inside the worktree directory.
    - Angular: `npx ng test --include=<test-file> --watch=false`
    - Bun: `bun test <test-file>`
 8. **Run actual program** — use plan's Runtime Environment section. Check port: `lsof -i :<port>`
-9. **Check diagnostics** — zero errors. Use `check_diagnostics` MCP tool for spec-filtered diagnostics with delta tracking, or `npx tsc --noEmit` directly.
+9. **Run quality checks** — `quality_report` MCP tool. **Quality checks do NOT run automatically on edit.** You MUST call this after completing edits to each file. Runs tsc + eslint + prettier. Zero errors required.
 10. **Validate Definition of Done** — all criteria from plan
 11. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?
 12. **Per-task commit (worktree only):** `git add <files> && git commit -m "{type}(spec): {task-name}"`

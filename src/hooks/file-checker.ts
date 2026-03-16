@@ -2,11 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { readStdin, hint, output } from "../utils/hook-output.js";
 import { checkFileLength } from "../utils/file-length.js";
 import { getExpectedTestPaths, isTestFile } from "../utils/tdd.js";
-import { detectPackageManager, detectFramework } from "../checkers/detect.js";
-import { runTypeScriptChecks } from "../checkers/typescript.js";
+import { detectFramework } from "../checkers/detect.js";
 import { isAngularFile, runAngularChecks } from "../checkers/angular.js";
 import { isNestFile, checkNestPatterns } from "../checkers/nestjs.js";
-import { SidecarClient } from "../sidecar/client.js";
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 const ALL_CODE_EXTENSIONS = [
@@ -17,10 +15,6 @@ const ALL_CODE_EXTENSIONS = [
   ".c",
   ".cpp",
 ];
-
-function getRunnerCommand(pm: string): string {
-  return pm === "bun" ? "bunx" : "npx";
-}
 
 export async function processFileCheck(
   filePath: string,
@@ -58,55 +52,17 @@ export async function processFileCheck(
     }
   }
 
-  // TypeScript-specific checks (tsc, eslint, prettier via sidecar, Angular)
+  // Angular structural checks (pattern detection, not subprocess quality checks)
   if (isTs) {
-    let usedSidecar = false;
-    try {
-      const client = await SidecarClient.connect();
-      if (client) {
-        const qr = await client.qualityCheck({
-          projectPath: cwd,
-          filePath,
-          checks: ["tsc", "eslint", "prettier"],
-        });
-        usedSidecar = true;
-        if (qr.tsc && !qr.tsc.ok) {
-          messages.push(
-            `[tsc] TypeScript type errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`,
-          );
-        }
-        if (qr.eslint && !qr.eslint.ok) {
-          messages.push(
-            `[eslint] ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`,
-          );
-        } else if (qr.eslint?.autoFixed) {
-          messages.push("[eslint] Auto-fixed formatting issues");
-        }
-        if (qr.prettier?.autoFixed) {
-          messages.push("[prettier] Auto-formatted file");
-        }
-      }
-    } catch {
-      /* sidecar unavailable, fall back */
-    }
-
-    if (!usedSidecar) {
-      const pm = detectPackageManager(cwd);
-      const runner = getRunnerCommand(pm);
-      const tsResults = runTypeScriptChecks(filePath, cwd, runner);
-      for (const r of tsResults) {
-        if (r.autoFixed) messages.push(`[${r.tool}] ${r.message}`);
-        else if (r.severity === "error")
-          messages.push(`[${r.tool}] ${r.message}`);
-      }
-    }
-
     const frameworks = detectFramework(cwd);
     if (frameworks.includes("angular") && isAngularFile(filePath)) {
       for (const r of runAngularChecks(cwd))
         messages.push(`[Angular] ${r.message}`);
     }
   }
+
+  // NOTE: tsc, eslint, and prettier are now on-demand only via quality_report MCP tool.
+  // They no longer run automatically on every edit.
 
   return messages.length === 0 ? null : messages.join("\n");
 }

@@ -51,11 +51,11 @@ When verification reveals errors during a `/spec` workflow, fix ALL of them with
 
 ### Sentinal Quality Tools
 
-Use these MCP tools for efficient verification:
+**Quality checks (tsc, eslint, prettier) do NOT run automatically on every edit.** Sentinal only performs instant structural checks (file length, companion tests) per edit. You MUST call `quality_report` after finishing edits to each file.
 
 | Tool | When |
 |------|------|
-| `quality_report` | Combined tsc + eslint + prettier in one call. Use for comprehensive checks. |
+| `quality_report` | **MUST call after finishing edits to each file.** Runs tsc + eslint + prettier in one call. |
 | `check_diagnostics` | TypeScript diagnostics with delta tracking (NEW/FIXED since last run). Spec-filtered. |
 | `impact_analysis` | Verify changed files align with active spec. Shows file length warnings and risk score. |
 

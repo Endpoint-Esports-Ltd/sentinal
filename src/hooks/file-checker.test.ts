@@ -12,13 +12,19 @@ describe("file-checker hook", () => {
     expect(result === null || typeof result === "string").toBe(true);
   });
 
-  it("should run quality checks via sidecar when available", async () => {
-    // Run against the sentinal project itself — sidecar may or may not be running
-    // This tests the fallback path works correctly either way
+  it("should perform only structural checks (no sidecar quality calls)", async () => {
+    // Quality checks (tsc, eslint, prettier) are now on-demand only.
+    // processFileCheck should only do instant structural checks.
     const projectRoot = join(import.meta.dir, "../..");
     const filePath = join(projectRoot, "src/hooks/file-checker.ts");
     const result = await processFileCheck(filePath, projectRoot);
-    // Result is either null (no issues) or a string of messages
+    // Result is either null (no issues) or a string of structural messages
     expect(result === null || typeof result === "string").toBe(true);
+    // Should NOT contain any quality check output
+    if (result) {
+      expect(result).not.toContain("[tsc]");
+      expect(result).not.toContain("[eslint]");
+      expect(result).not.toContain("[prettier]");
+    }
   });
 });

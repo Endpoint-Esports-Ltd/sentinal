@@ -10,7 +10,7 @@
  * - TDD enforcement (companion test file checks)
  * - NestJS pattern validation (DTOs, controllers, entities)
  * - Angular 17+ pattern validation (standalone components, control flow)
- * - TypeScript type checking (tsc --noEmit)
+ * - Quality checks (tsc, eslint, prettier) on-demand via quality_report MCP tool
  * - Tool redirection hints (semantic search suggestions)
  * - Context usage monitoring with visual bar
  * - Session state preservation across compaction
@@ -511,47 +511,8 @@ export const SentinalPlugin: Plugin = async ({
             }
           }
 
-          // Quality checks via sidecar (tsc + eslint + prettier) with tsc-only fallback
-          try {
-            if (sidecar) {
-              const fp = typeof filePath === "string" ? filePath : undefined;
-              const qr = await sidecar.qualityCheck({
-                projectPath: projectRoot,
-                filePath: fp,
-                checks: ["tsc", "eslint", "prettier"],
-              });
-              if (qr.tsc && !qr.tsc.ok)
-                issues.push(
-                  `TypeScript errors:\n${qr.tsc.errors.slice(0, 5).join("\n")}`,
-                );
-              if (qr.eslint && !qr.eslint.ok)
-                issues.push(
-                  `ESLint errors:\n${qr.eslint.errors.slice(0, 5).join("\n")}`,
-                );
-              if (qr.prettier?.autoFixed)
-                issues.push("Prettier: auto-formatted file");
-            } else {
-              const cmd = $`npx tsc --noEmit 2>&1` as {
-                quiet(): {
-                  nothrow(): Promise<{
-                    exitCode: number;
-                    text(): Promise<string>;
-                  }>;
-                };
-              };
-              const r = await cmd.quiet().nothrow();
-              if (r.exitCode !== 0) {
-                const errs = (await r.text())
-                  .split("\n")
-                  .filter((l: string) => l.includes("error TS"))
-                  .slice(0, 5);
-                if (errs.length > 0)
-                  issues.push(`TypeScript errors:\n${errs.join("\n")}`);
-              }
-            }
-          } catch {
-            /* quality check failed */
-          }
+          // NOTE: tsc, eslint, and prettier are now on-demand only via quality_report MCP tool.
+          // They no longer run automatically on every edit.
 
           if (issues.length > 0) {
             const level = shouldBlock ? "error" : "warn";

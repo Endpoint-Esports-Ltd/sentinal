@@ -1,0 +1,49 @@
+{
+  "review_summary": "Plan is well-aligned with user request and code assumptions are verified. Key gaps: spec-implement skill exists in targets/ (not just ~/.config) and needs updating; several other skills/rules that mention tsc-on-every-edit patterns are not covered; fallback removal in Task 1 may silently lose eslint+prettier fallback.",
+  "alignment_score": "medium",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "requirement_coverage",
+      "title": "spec-implement skill in targets/ is not updated (only ~/.config mentioned)",
+      "description": "Plan Task 3 says 'Do NOT update the spec-implement skill (it's in ~/.config, not targets/)'. But the skill also exists at `targets/opencode/skills/spec-implement/SKILL.md` (line 119 references check_diagnostics). The targets/ copy is what gets embedded into the OpenCode plugin. If this isn't updated to explicitly state 'tsc does NOT run automatically on edit', OpenCode users will not get the updated instruction. User requirement: 'Update rules/skills to encourage running check_diagnostics after finishing work on a file.'",
+      "suggested_fix": "Add `targets/opencode/skills/spec-implement/SKILL.md` to Task 3 file list. Update step 2.3 item 9 to say: 'Check diagnostics — zero errors. tsc does NOT run automatically on edit. You MUST call `check_diagnostics` MCP tool after completing edits to each file.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Missing updates to verification skills (spec-verify, spec-bugfix-verify) in both targets",
+      "description": "Multiple skill files reference tsc patterns that will become misleading: `targets/opencode/skills/spec-verify/SKILL.md` (L124, L299), `targets/opencode/skills/spec-bugfix-verify/SKILL.md` (L46-48), `targets/claude-code/commands/spec-verify.md` (L124, L299), `targets/claude-code/commands/spec-bugfix-verify.md` (L46-48), and `targets/claude-code/commands/spec-implement.md` (L119). These all mention tsc but don't clarify it's now on-demand only. While they won't break anything, they miss the opportunity to reinforce the behavioral change the user wants.",
+      "suggested_fix": "Add these files to Task 3 or create a Task 4. At minimum, add a note in each that 'tsc does not run automatically on edit — you must explicitly call check_diagnostics'. Focus on the spec-implement commands/skills since those are the primary implementation-phase instructions."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 1 fallback removal drops eslint+prettier fallback entirely",
+      "description": "Task 1 Key Decisions says: 'just remove the entire fallback block. ESLint/prettier auto-fix is less critical as a fallback — the AI can run them manually.' But the user requirement is to keep file-scoped eslint+prettier running on every edit. When the sidecar is unavailable, the AI loses all automatic quality checks silently. The `runTypeScriptChecks()` function runs all three (tsc+eslint+prettier), so removing the call loses eslint+prettier too.",
+      "suggested_fix": "Instead of removing the fallback entirely, add a lightweight eslint+prettier-only fallback. Options: (1) Add a `skipTsc` parameter to `runTypeScriptChecks()`, (2) Call eslint and prettier directly via subprocess in the fallback, or (3) At minimum, document in the plan that eslint+prettier fallback is intentionally dropped and why."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "No automated test coverage for Task 2 (OpenCode plugin)",
+      "description": "Task 2 Verify section only has 'bun run embed-assets' and 'Manual: edit a TS file in OpenCode'. There's no unit/integration test to verify tsc is removed from the checks array or that the fallback block is gone. If someone re-adds tsc later, there's no test to catch the regression.",
+      "suggested_fix": "If the OpenCode plugin has no test file, note this as a known gap in DoD. At minimum, add a DoD item: 'grep confirms no tsc in per-edit quality check path' as a verification step."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Plan mentions sidecar skipTsc option in Scope but no task implements it",
+      "description": "In-Scope section includes 'Update sidecar quality check endpoint to support a skipTsc option' but none of the three tasks implement this. The current approach (just removing 'tsc' from the checks array) works fine without a sidecar change. This is either YAGNI or a missing task.",
+      "suggested_fix": "Remove 'Update sidecar quality check endpoint to support a skipTsc option' from the In-Scope section since it's not needed — the checks array already controls which checks run."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "AGENTS.md global config still says tsc runs on every edit",
+      "description": "The user's `~/.config/Claude/AGENTS.md` (loaded in every session) states under Quality Enforcement: 'TypeScript: Run tsc --noEmit for type checking' — implying it runs automatically. After this change, that will be misleading. This file is outside the project but directly affects AI behavior.",
+      "suggested_fix": "Add a note to Task 3 to update AGENTS.md (or flag it as out-of-scope with a follow-up). Update to: 'TypeScript: tsc is on-demand via check_diagnostics (not automatic on every edit).'"
+    }
+  ]
+}
