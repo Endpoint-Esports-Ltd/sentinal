@@ -17,6 +17,7 @@ import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { mcpText } from "../mcp/helpers.js";
 import { decayQualityScores } from "./maintenance.js";
 import { registerSharedTools, saveToSharedIfRequested } from "./shared.js";
 
@@ -97,9 +98,7 @@ function registerSearchTool(
           });
 
       if (results.length === 0) {
-        return {
-          content: [{ type: "text", text: "No matching observations found." }],
-        };
+        return mcpText("No matching observations found.");
       }
 
       const header = "| ID | Date | Type | Title | ~Tokens |";
@@ -119,7 +118,7 @@ function registerSearchTool(
         "Use `memory_get` with specific IDs to retrieve full details.",
       ].join("\n");
 
-      return { content: [{ type: "text", text }] };
+      return mcpText(text);
     },
   );
 }
@@ -151,11 +150,7 @@ function registerTimelineTool(
         : service!.timeline(anchor, d, d, project);
 
       if (result.entries.length === 0) {
-        return {
-          content: [
-            { type: "text", text: `Observation #${anchor} not found.` },
-          ],
-        };
+        return mcpText(`Observation #${anchor} not found.`);
       }
 
       const lines: string[] = [`Timeline around observation #${anchor}:`, ""];
@@ -178,7 +173,7 @@ function registerTimelineTool(
         "Use `memory_get` with specific IDs to retrieve full details.",
       );
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return mcpText(lines.join("\n"));
     },
   );
 }
@@ -206,11 +201,7 @@ function registerGetTool(
         : service!.getObservations(ids);
 
       if (observations.length === 0) {
-        return {
-          content: [
-            { type: "text", text: "No observations found for the given IDs." },
-          ],
-        };
+        return mcpText("No observations found for the given IDs.");
       }
 
       const blocks = observations.map((obs) => {
@@ -235,7 +226,7 @@ function registerGetTool(
         return lines.join("\n");
       });
 
-      return { content: [{ type: "text", text: blocks.join("\n\n---\n\n") }] };
+      return mcpText(blocks.join("\n\n---\n\n"));
     },
   );
 }
@@ -326,14 +317,9 @@ function registerSaveTool(
         : shared
           ? " (shared skipped: only decision/discovery/pattern types can be shared)"
           : "";
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
-          },
-        ],
-      };
+      return mcpText(
+        `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
+      );
     },
   );
 }
@@ -370,14 +356,9 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
       if (action === "decay") {
         const result = decayQualityScores(store, { dryRun });
         const prefix = dryRun ? "[DRY RUN] " : "";
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
-            },
-          ],
-        };
+        return mcpText(
+          `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
+        );
       }
 
       if (action === "prune") {
@@ -389,14 +370,9 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
               "SELECT COUNT(*) as count FROM observations WHERE quality_score < ?",
             )
             .get(threshold) as { count: number };
-          return {
-            content: [
-              {
-                type: "text",
-                text: `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
-              },
-            ],
-          };
+          return mcpText(
+            `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
+          );
         }
 
         const countBefore = (
@@ -412,14 +388,9 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
         ).count;
         const pruned = countBefore - countAfter;
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
-            },
-          ],
-        };
+        return mcpText(
+          `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
+        );
       }
 
       // stats action
@@ -444,7 +415,7 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
       }
       lines.push("", `**Total:** ${total} observations`);
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return mcpText(lines.join("\n"));
     },
   );
 }
@@ -499,7 +470,7 @@ function registerStatsTool(
         }
       }
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return mcpText(lines.join("\n"));
     },
   );
 }

@@ -6,33 +6,13 @@
  */
 
 import type { SidecarContext } from "./server.js";
+import { ok, fail, readBody } from "./response.js";
 import { restoreContext } from "../memory/restore.js";
 import type {
   AssistantType,
   NotificationType,
   TddCycleState,
 } from "../memory/types.js";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function ok(data: unknown = null): Response {
-  return json({ ok: true, data });
-}
-
-function fail(error: string, status = 400): Response {
-  return json({ ok: false, error }, status);
-}
-
-async function readBody<T>(req: Request): Promise<T> {
-  return (await req.json()) as T;
-}
 
 // ─── Router ──────────────────────────────────────────────────────────────
 

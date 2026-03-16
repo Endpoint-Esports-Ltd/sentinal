@@ -17,19 +17,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import { startSidecar, stopSidecar, getSidecarPortPath } from "./server.js";
 import { SidecarClient, withSidecarOrDirect } from "./client.js";
 import { MemoryStore } from "../memory/store.js";
 import * as pathsModule from "./paths.js";
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-client-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 describe("SidecarClient", () => {
   let tmpDir: string;

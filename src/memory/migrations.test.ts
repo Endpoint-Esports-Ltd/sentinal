@@ -1,19 +1,10 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import { runMigrations } from "./migrations.js";
 import { DB_CONSTANTS } from "./types.js";
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-mig-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 describe("runMigrations", () => {
   let tmpDir: string;

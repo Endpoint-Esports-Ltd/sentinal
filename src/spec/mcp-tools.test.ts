@@ -11,25 +11,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
 import { registerSpecTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
-
-// --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-spec-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
+import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
 
 function makePlanFile(dir: string, slug: string, status = "PENDING"): string {
   const plansDir = join(dir, "docs", "plans");
@@ -64,61 +52,17 @@ Approved: Yes
   return planFile;
 }
 
-/**
- * Extract tool handler from McpServer by capturing the registration.
- * McpServer.tool() stores handlers internally — we intercept them.
- */
-function captureTools(
-  store: MemoryStore,
-): Map<
-  string,
-  (
-    args: Record<string, unknown>,
-  ) => Promise<{ content: { type: string; text: string }[] }>
-> {
-  const tools = new Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >();
-
-  const server = new McpServer({ name: "test", version: "0.0.1" });
-
-  // Monkey-patch server.tool to capture handlers
-  const origTool = server.tool.bind(server);
-  server.tool = ((...args: unknown[]) => {
-    // server.tool(name, description, schema, handler) — 4-arg form
-    if (args.length >= 4 && typeof args[0] === "string") {
-      const name = args[0] as string;
-      const handler = args[3] as (
-        args: Record<string, unknown>,
-      ) => Promise<{ content: { type: string; text: string }[] }>;
-      tools.set(name, handler);
-    }
-    return origTool(...(args as Parameters<typeof origTool>));
-  }) as typeof server.tool;
-
-  registerSpecTools(server, store);
-  return tools;
-}
-
 // --- spec_register tests ---
 
 describe("spec_register MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -182,17 +126,12 @@ describe("spec_register MCP tool", () => {
 describe("spec_wait_file MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -246,12 +185,7 @@ describe("spec_wait_file MCP tool", () => {
 describe("spec_config MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   const ENV_KEYS = [
     "SENTINAL_PLAN_QUESTIONS_ENABLED",
@@ -267,7 +201,7 @@ describe("spec_config MCP tool", () => {
     store = new MemoryStore(join(tmpDir, "test.db"));
     // Save and clear env vars
     for (const key of ENV_KEYS) delete process.env[key];
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -312,17 +246,12 @@ describe("spec_config MCP tool", () => {
 describe("spec_plan_parse MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -359,17 +288,12 @@ describe("spec_plan_parse MCP tool", () => {
 describe("spec_notify MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -406,17 +330,12 @@ describe("spec_notify MCP tool", () => {
 describe("spec_events MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let tools: Map<
-    string,
-    (
-      args: Record<string, unknown>,
-    ) => Promise<{ content: { type: string; text: string }[] }>
-  >;
+  let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerSpecTools, store);
   });
 
   afterEach(() => {
@@ -464,28 +383,12 @@ describe("spec_events MCP tool", () => {
 
 // --- Sidecar mode tests ---
 
-type ToolHandler = (
-  args: Record<string, unknown>,
-) => Promise<{ content: { type: string; text: string }[] }>;
-
 function captureSidecarTools(
   mockClient: Partial<SidecarClient>,
 ): Map<string, ToolHandler> {
-  const tools = new Map<string, ToolHandler>();
-  const server = new McpServer({ name: "test", version: "0.0.1" });
-
-  const origTool = server.tool.bind(server);
-  server.tool = ((...args: unknown[]) => {
-    if (args.length >= 4 && typeof args[0] === "string") {
-      const name = args[0] as string;
-      const handler = args[3] as ToolHandler;
-      tools.set(name, handler);
-    }
-    return origTool(...(args as Parameters<typeof origTool>));
-  }) as typeof server.tool;
-
-  registerSpecTools(server, { client: mockClient as SidecarClient });
-  return tools;
+  return captureTools(registerSpecTools, {
+    client: mockClient as SidecarClient,
+  });
 }
 
 describe("spec MCP tools (sidecar mode)", () => {

@@ -1,0 +1,28 @@
+{
+  "review_summary": "Plan is well-aligned with P1 scope and mechanical refactoring constraints. Three issues found: captureTools signature differences need explicit handling in the plan, memory/mcp-tools.ts inclusion is ambiguous, and server.ts is a missed Response.json consumer.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "captureTools() has 4 different signatures — plan underspecifies unification strategy",
+      "description": "The plan (line 166) says captureTools accepts 'any registerXTools function and its deps' and the monkey-patch pattern is identical. However, grep shows the 4 implementations have different parameter signatures: worktree takes `(store: MemoryStore)`, tdd takes `(deps: {...})`, spec takes a different deps shape, analysis takes `(deps: {...})`. The plan's proposed generic `captureTools(registerFn, deps)` needs explicit typing for the `deps` parameter — likely a generic type parameter `captureTools<D>(registerFn: (server, deps: D) => void, deps: D)`. Without this, the implementer may struggle with TypeScript strict typing or resort to `any`.",
+      "suggested_fix": "Add to Task 3 Key Decisions: 'captureTools is generic over the deps type: `captureTools<D>(registerFn: (server: McpServer, deps: D) => void, deps: D): Map<string, ToolHandler>`. Each call site passes its module-specific deps type and register function. Verify the worktree variant which takes `(store: MemoryStore)` directly rather than a deps object — may need its registerWorktreeTools signature checked.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "memory/mcp-tools.ts inclusion is ambiguous — conditional scope is unplannable",
+      "description": "Task 2 line 139 says: 'The memory/mcp-tools.ts file also has this pattern but is already at 506 lines — include it if under limit after changes.' This makes scope conditional on implementation outcomes. The implementer won't know until mid-task whether to include it, and it's not reflected in the file list, replacement counts, or DoD.",
+      "suggested_fix": "Either explicitly include memory/mcp-tools.ts in Task 2's file list (the line reduction from replacing boilerplate with imports should bring it well under 400 lines), or explicitly exclude it in Out of Scope. Recommend including it — replacing ~8 inline patterns with mcpText/mcpError imports will reduce the file significantly."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "server.ts also uses Response.json() but is not listed as a Task 1 consumer",
+      "description": "Grep found `Response.json(` at src/sidecar/server.ts line 277. The plan lists routes.ts, quality-routes.ts, project-routes.ts, and tdd-routes.ts as consumers but omits server.ts. This may be intentional (server.ts might have a different response shape), but it's not mentioned.",
+      "suggested_fix": "Evaluate whether server.ts:277's Response.json usage fits the ok/fail/json pattern. If yes, add it to Task 1's file list. If not, add a note in Task 1 Key Decisions: 'server.ts uses Response.json() for a different purpose (e.g., health check) and is intentionally excluded.'"
+    }
+  ]
+}

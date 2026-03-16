@@ -14,6 +14,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { join } from "node:path";
 import { z } from "zod";
+import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
@@ -122,14 +123,9 @@ function registerCheckDiagnosticsTool(
           const result = await Promise.race([proc.exited, timeoutPromise]);
           if (result === "timeout") {
             proc.kill();
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `TIMEOUT: tsc did not complete within ${timeoutMs}ms.`,
-                },
-              ],
-            };
+            return mcpText(
+              `TIMEOUT: tsc did not complete within ${timeoutMs}ms.`,
+            );
           }
           currentErrors = parseTscOutput(await proc.stdout.text());
         }
@@ -236,17 +232,12 @@ function registerCheckDiagnosticsTool(
           lines.push("", `_Active spec: ${activeSpec.title}_`);
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error running check_diagnostics: ${msg}\n\nFallback: run \`npx tsc --noEmit\` directly.`,
-            },
-          ],
-        };
+        return mcpText(
+          `Error running check_diagnostics: ${msg}\n\nFallback: run \`npx tsc --noEmit\` directly.`,
+        );
       }
     },
   );
@@ -281,14 +272,9 @@ function registerImpactAnalysisTool(
         );
 
         if (allChangedRelPaths.size === 0) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "## Impact Analysis\n\n0 files changed. Nothing to analyze.",
-              },
-            ],
-          };
+          return mcpText(
+            "## Impact Analysis\n\n0 files changed. Nothing to analyze.",
+          );
         }
 
         // Get active spec task files
@@ -343,17 +329,12 @@ function registerImpactAnalysisTool(
           specFiles,
           activeSpec?.title ?? null,
         );
-        return { content: [{ type: "text" as const, text: lines }] };
+        return mcpText(lines);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error running impact_analysis: ${msg}\n\nFallback: run \`git diff --stat HEAD\` directly.`,
-            },
-          ],
-        };
+        return mcpText(
+          `Error running impact_analysis: ${msg}\n\nFallback: run \`git diff --stat HEAD\` directly.`,
+        );
       }
     },
   );
@@ -422,24 +403,9 @@ function registerQualityReportTool(
           });
         }
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: formatQualityReport(project, file, result),
-            },
-          ],
-        };
+        return mcpText(formatQualityReport(project, file, result));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `## Quality Report — Error\n\n${msg}`,
-            },
-          ],
-        };
+        return mcpError("## Quality Report — Error\n", err);
       }
     },
   );

@@ -16,9 +16,9 @@ import {
   spyOn,
   mock,
 } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import { createSentinalServer, registerMcpCleanupHandlers } from "./server.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
@@ -27,15 +27,6 @@ import * as lifecycleModule from "../sidecar/lifecycle.js";
 import type { CreateObservation } from "../memory/types.js";
 
 // --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function makeObservation(
   overrides: Partial<CreateObservation> = {},

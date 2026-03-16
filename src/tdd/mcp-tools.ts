@@ -10,6 +10,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { TDD_CYCLE_STATES } from "../memory/types.js";
 import type { SidecarClient } from "../sidecar/client.js";
@@ -60,22 +61,11 @@ function registerTddStatusTool(
         if (file_path) {
           if (client) {
             const result = await client.getTddState(file_path);
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})`,
-                },
-              ],
-            };
+            return mcpText(`**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})`);
           }
           const tdd = store!.getTddState(file_path);
           const state = tdd?.state ?? "IDLE";
-          return {
-            content: [
-              { type: "text" as const, text: `**${file_path}:** ${state}` },
-            ],
-          };
+          return mcpText(`**${file_path}:** ${state}`);
         }
 
         // List all active states
@@ -84,9 +74,7 @@ function registerTddStatusTool(
           : store!.listActiveTddStates(spec_id ?? null);
 
         if (states.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: "No active TDD states." }],
-          };
+          return mcpText("No active TDD states.");
         }
 
         const lines = [`## ${states.length} active TDD state(s)`, ""];
@@ -96,14 +84,9 @@ function registerTddStatusTool(
           );
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error getting TDD status: ${msg}` },
-          ],
-        };
+        return mcpError("Error getting TDD status", err);
       }
     },
   );
@@ -149,21 +132,9 @@ function registerTddSetStateTool(
           store!.setTddState(opts);
         }
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Set TDD state: ${file_path} → ${state}`,
-            },
-          ],
-        };
+        return mcpText(`Set TDD state: ${file_path} → ${state}`);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error setting TDD state: ${msg}` },
-          ],
-        };
+        return mcpError("Error setting TDD state", err);
       }
     },
   );
@@ -192,14 +163,7 @@ function registerTddClearTool(
     async ({ file_path, spec_id }) => {
       try {
         if (!file_path && !spec_id) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: Provide file_path or spec_id (at least one required).",
-              },
-            ],
-          };
+          return mcpText("Error: Provide file_path or spec_id (at least one required).");
         }
 
         if (file_path) {
@@ -208,14 +172,7 @@ function registerTddClearTool(
           } else {
             store!.clearTddState(file_path);
           }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Cleared TDD state for: ${file_path}`,
-              },
-            ],
-          };
+          return mcpText(`Cleared TDD state for: ${file_path}`);
         }
 
         if (spec_id) {
@@ -224,26 +181,12 @@ function registerTddClearTool(
           } else {
             store!.clearTddStatesForSpec(spec_id);
           }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Cleared all TDD states for spec: ${spec_id}`,
-              },
-            ],
-          };
+          return mcpText(`Cleared all TDD states for spec: ${spec_id}`);
         }
 
-        return {
-          content: [{ type: "text" as const, text: "No action taken." }],
-        };
+        return mcpText("No action taken.");
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error clearing TDD state: ${msg}` },
-          ],
-        };
+        return mcpError("Error clearing TDD state", err);
       }
     },
   );

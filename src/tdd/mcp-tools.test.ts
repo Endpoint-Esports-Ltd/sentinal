@@ -8,50 +8,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { registerTddTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
-
-// --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-tdd-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-type ToolHandler = (
-  args: Record<string, unknown>,
-) => Promise<{ content: { type: string; text: string }[] }>;
-
-function captureTools(deps: {
-  client?: SidecarClient | null;
-  store?: MemoryStore | null;
-}): Map<string, ToolHandler> {
-  const tools = new Map<string, ToolHandler>();
-  const server = new McpServer({ name: "test", version: "0.0.1" });
-
-  const origTool = server.tool.bind(server);
-  server.tool = ((...args: unknown[]) => {
-    if (args.length >= 4 && typeof args[0] === "string") {
-      const name = args[0] as string;
-      const handler = args[3] as ToolHandler;
-      tools.set(name, handler);
-    }
-    return origTool(...(args as Parameters<typeof origTool>));
-  }) as typeof server.tool;
-
-  registerTddTools(server, deps);
-  return tools;
-}
+import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
 
 // --- Direct mode tests (no sidecar) ---
 
@@ -63,7 +26,7 @@ describe("TDD MCP tools (direct mode)", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools({ store });
+    tools = captureTools(registerTddTools, { store });
   });
 
   afterEach(() => {
@@ -241,7 +204,7 @@ describe("TDD MCP tools (sidecar mode)", () => {
       }),
     } as unknown as SidecarClient;
 
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerTddTools, { client: mockClient });
     const handler = tools.get("tdd_status")!;
     const result = await handler({ file_path: "/src/foo.ts" });
     expect(result.content[0].text).toContain("RED_CONFIRMED");
@@ -259,7 +222,7 @@ describe("TDD MCP tools (sidecar mode)", () => {
       ],
     } as unknown as SidecarClient;
 
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerTddTools, { client: mockClient });
     const handler = tools.get("tdd_status")!;
     const result = await handler({});
     expect(result.content[0].text).toContain("2 active");
@@ -273,7 +236,7 @@ describe("TDD MCP tools (sidecar mode)", () => {
       },
     } as unknown as SidecarClient;
 
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerTddTools, { client: mockClient });
     const handler = tools.get("tdd_set_state")!;
     await handler({ file_path: "/src/foo.ts", state: "RED_CONFIRMED" });
 
@@ -290,7 +253,7 @@ describe("TDD MCP tools (sidecar mode)", () => {
       },
     } as unknown as SidecarClient;
 
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerTddTools, { client: mockClient });
     const handler = tools.get("tdd_clear")!;
     await handler({ file_path: "/src/foo.ts" });
 
@@ -305,7 +268,7 @@ describe("TDD MCP tools (sidecar mode)", () => {
       },
     } as unknown as SidecarClient;
 
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerTddTools, { client: mockClient });
     const handler = tools.get("tdd_clear")!;
     await handler({ spec_id: "my-spec" });
 

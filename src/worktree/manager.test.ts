@@ -7,22 +7,13 @@ import {
   existsSync,
 } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { WorktreeError, type WorktreeConfig } from "./types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function makeTmpDir(): string {
-  const raw = join(
-    tmpdir(),
-    `sentinal-wtm-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(raw, { recursive: true });
-  return realpathSync(raw);
-}
 
 /** Create a temp git repo with an initial commit. */
 function initRepo(dir: string): void {
@@ -65,7 +56,7 @@ describe("WorktreeManager", () => {
   let manager: WorktreeManager;
 
   beforeEach(() => {
-    tmpDir = makeTmpDir();
+    tmpDir = realpathSync(makeTmpDir());
     repoDir = join(tmpDir, "repo");
     dbDir = join(tmpDir, "db");
     mkdirSync(repoDir, { recursive: true });

@@ -9,10 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
@@ -20,17 +18,9 @@ import { WorktreeManager } from "./manager.js";
 import { registerWorktreeTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import type { DiffSummary } from "./types.js";
+import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
 
 // --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-wt-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function createSpec(
   tmpDir: string,
@@ -45,28 +35,6 @@ function createSpec(
   specStore.syncFromPlanFile(planFile, "/test/project");
 }
 
-type ToolHandler = (
-  args: Record<string, unknown>,
-) => Promise<{ content: { type: string; text: string }[] }>;
-
-function captureTools(store: MemoryStore): Map<string, ToolHandler> {
-  const tools = new Map<string, ToolHandler>();
-  const server = new McpServer({ name: "test", version: "0.0.1" });
-
-  const origTool = server.tool.bind(server);
-  server.tool = ((...args: unknown[]) => {
-    if (args.length >= 4 && typeof args[0] === "string") {
-      const name = args[0] as string;
-      const handler = args[3] as ToolHandler;
-      tools.set(name, handler);
-    }
-    return origTool(...(args as Parameters<typeof origTool>));
-  }) as typeof server.tool;
-
-  registerWorktreeTools(server, store);
-  return tools;
-}
-
 // --- worktree_detect tests ---
 
 describe("worktree_detect MCP tool", () => {
@@ -77,7 +45,7 @@ describe("worktree_detect MCP tool", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerWorktreeTools, store);
   });
 
   afterEach(() => {
@@ -131,7 +99,7 @@ describe("worktree_create MCP tool", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerWorktreeTools, store);
   });
 
   afterEach(() => {
@@ -173,7 +141,7 @@ describe("worktree_create MCP tool", () => {
 
     try {
       // Re-capture tools with mocked manager
-      const mockedTools = captureTools(store);
+      const mockedTools = captureTools(registerWorktreeTools, store);
       const handler = mockedTools.get("worktree_create")!;
       const result = await handler({
         plan_slug: "test-feature",
@@ -199,7 +167,7 @@ describe("worktree_diff MCP tool", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerWorktreeTools, store);
   });
 
   afterEach(() => {
@@ -256,7 +224,7 @@ describe("worktree_diff MCP tool", () => {
     };
 
     try {
-      const mockedTools = captureTools(store);
+      const mockedTools = captureTools(registerWorktreeTools, store);
       const handler = mockedTools.get("worktree_diff")!;
       const result = await handler({
         plan_slug: "diff-feature",
@@ -286,7 +254,7 @@ describe("worktree_sync MCP tool", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools(store);
+    tools = captureTools(registerWorktreeTools, store);
   });
 
   afterEach(() => {
@@ -326,7 +294,7 @@ describe("worktree_sync MCP tool", () => {
     };
 
     try {
-      const mockedTools = captureTools(store);
+      const mockedTools = captureTools(registerWorktreeTools, store);
       const handler = mockedTools.get("worktree_sync")!;
       const result = await handler({
         plan_slug: "conflict-feature",
@@ -364,7 +332,7 @@ describe("worktree_sync MCP tool", () => {
     };
 
     try {
-      const mockedTools = captureTools(store);
+      const mockedTools = captureTools(registerWorktreeTools, store);
       const handler = mockedTools.get("worktree_sync")!;
       const result = await handler({
         plan_slug: "merge-feature",
@@ -397,17 +365,9 @@ describe("worktree MCP tools (sidecar mode)", () => {
       }),
     } as unknown as SidecarClient;
 
-    const tools = new Map<string, ToolHandler>();
-    const server = new McpServer({ name: "test", version: "0.0.1" });
-    const origTool = server.tool.bind(server);
-    server.tool = ((...args: unknown[]) => {
-      if (args.length >= 4 && typeof args[0] === "string") {
-        tools.set(args[0] as string, args[3] as ToolHandler);
-      }
-      return origTool(...(args as Parameters<typeof origTool>));
-    }) as typeof server.tool;
-
-    registerWorktreeTools(server, { client: mockClient });
+    const tools = captureTools(registerWorktreeTools, {
+      client: mockClient,
+    });
 
     const handler = tools.get("worktree_detect")!;
     const result = await handler({ plan_slug: "my-slug", project: "/test" });

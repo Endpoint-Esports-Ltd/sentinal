@@ -8,23 +8,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { makeTmpDir } from "../../test-helpers.js";
 import { MemoryStore } from "../../memory/store.js";
 import { SpecStore } from "../../spec/store.js";
 import { WorktreeStore } from "../../worktree/store.js";
 
 // --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-wt-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function createSpec(
   tmpDir: string,

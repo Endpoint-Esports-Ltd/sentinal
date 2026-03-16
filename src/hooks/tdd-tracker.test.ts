@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import {
@@ -17,15 +17,6 @@ import {
 } from "./tdd-tracker.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-tdd-tracker-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function writePlan(dir: string, filename: string, content: string): string {
   const plansDir = join(dir, "docs", "plans");

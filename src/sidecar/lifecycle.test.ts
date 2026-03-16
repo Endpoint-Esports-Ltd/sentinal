@@ -14,15 +14,14 @@ import {
   mock,
   spyOn,
 } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  mkdirSync,
   writeFileSync,
   readFileSync,
   existsSync,
   rmSync,
 } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import {
   readSidecarPid,
   removeSidecarPid,
@@ -32,17 +31,6 @@ import {
   isSidecarReachable,
 } from "./lifecycle.js";
 import * as serverModule from "./server.js";
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-lifecycle-test-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 describe("sidecar lifecycle", () => {
   let tmpDir: string;

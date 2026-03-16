@@ -16,6 +16,7 @@ import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { DEFAULT_WORKTREE_CONFIG } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { mcpText, mcpError } from "../mcp/helpers.js";
 
 // --- Public API ---
 
@@ -71,14 +72,7 @@ function registerWorktreeDetectTool(
           : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No active worktree found for slug: ${plan_slug}`,
-              },
-            ],
-          };
+          return mcpText(`No active worktree found for slug: ${plan_slug}`);
         }
 
         const lines = [
@@ -91,14 +85,9 @@ function registerWorktreeDetectTool(
           `- **ID:** ${wt.id}`,
         ];
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error detecting worktree: ${msg}` },
-          ],
-        };
+        return mcpError("Error detecting worktree", err);
       }
     },
   );
@@ -134,14 +123,9 @@ function registerWorktreeCreateTool(
           `- **Base Branch:** ${wt.baseBranch}`,
         ];
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error creating worktree: ${msg}` },
-          ],
-        };
+        return mcpError("Error creating worktree", err);
       }
     },
   );
@@ -170,14 +154,7 @@ function registerWorktreeDiffTool(
           : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No active worktree found for slug: ${plan_slug}`,
-              },
-            ],
-          };
+          return mcpText(`No active worktree found for slug: ${plan_slug}`);
         }
 
         const diff = manager.diff(wt.id);
@@ -199,14 +176,9 @@ function registerWorktreeDiffTool(
           }
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error getting diff: ${msg}` },
-          ],
-        };
+        return mcpError("Error getting diff", err);
       }
     },
   );
@@ -239,38 +211,22 @@ function registerWorktreeSyncTool(
           : wtStore.resolveBySlug(plan_slug, projectPath);
 
         if (!wt) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No active worktree found for slug: ${plan_slug}`,
-              },
-            ],
-          };
+          return mcpText(`No active worktree found for slug: ${plan_slug}`);
         }
 
         // Check for conflicts first
         if (manager.hasConflicts(wt.id)) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Error: Worktree has merge conflicts. Resolve them before syncing.`,
-              },
-            ],
-          };
+          return mcpText(
+            `Error: Worktree has merge conflicts. Resolve them before syncing.`,
+          );
         }
 
         const commitHash = manager.squashMerge(wt.id, message);
-        const text = `Merged: ${commitHash} (branch: ${wt.branchName} → ${wt.baseBranch})`;
-        return { content: [{ type: "text" as const, text }] };
+        return mcpText(
+          `Merged: ${commitHash} (branch: ${wt.branchName} → ${wt.baseBranch})`,
+        );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error syncing worktree: ${msg}` },
-          ],
-        };
+        return mcpError("Error syncing worktree", err);
       }
     },
   );

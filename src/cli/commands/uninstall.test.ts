@@ -6,19 +6,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { makeTmpDir } from "../../test-helpers.js";
 import { detectInstalledTargets, cleanupOpenCodeConfig } from "./uninstall.js";
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-uninstall-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 describe("detectInstalledTargets", () => {
   let tmpDir: string;

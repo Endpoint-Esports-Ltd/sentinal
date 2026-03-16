@@ -7,50 +7,15 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { registerAnalysisTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
 
 // --- Helpers ---
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-analysis-mcp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-type ToolHandler = (
-  args: Record<string, unknown>,
-) => Promise<{ content: { type: string; text: string }[] }>;
-
-function captureTools(deps: {
-  client?: SidecarClient | null;
-  store?: MemoryStore | null;
-}): Map<string, ToolHandler> {
-  const tools = new Map<string, ToolHandler>();
-  const server = new McpServer({ name: "test", version: "0.0.1" });
-
-  const origTool = server.tool.bind(server);
-  server.tool = ((...args: unknown[]) => {
-    if (args.length >= 4 && typeof args[0] === "string") {
-      const name = args[0] as string;
-      const handler = args[3] as ToolHandler;
-      tools.set(name, handler);
-    }
-    return origTool(...(args as Parameters<typeof origTool>));
-  }) as typeof server.tool;
-
-  registerAnalysisTools(server, deps);
-  return tools;
-}
 
 // Minimal plan file content for tests
 function writePlan(
@@ -98,7 +63,7 @@ describe("Analysis MCP tools — registration", () => {
   });
 
   it("should register check_diagnostics and impact_analysis tools", () => {
-    const tools = captureTools({ store });
+    const tools = captureTools(registerAnalysisTools, { store });
     expect(tools.has("check_diagnostics")).toBe(true);
     expect(tools.has("impact_analysis")).toBe(true);
   });
@@ -114,7 +79,7 @@ describe("check_diagnostics", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools({ store });
+    tools = captureTools(registerAnalysisTools, { store });
   });
 
   afterEach(() => {
@@ -295,7 +260,7 @@ describe("impact_analysis", () => {
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    tools = captureTools({ store });
+    tools = captureTools(registerAnalysisTools, { store });
   });
 
   afterEach(() => {
@@ -536,7 +501,7 @@ describe("impact_analysis", () => {
 describe("Analysis MCP tools (sidecar mode)", () => {
   it("should register tools when client provided", () => {
     const mockClient = {} as unknown as SidecarClient;
-    const tools = captureTools({ client: mockClient });
+    const tools = captureTools(registerAnalysisTools, { client: mockClient });
     expect(tools.has("check_diagnostics")).toBe(true);
     expect(tools.has("impact_analysis")).toBe(true);
     expect(tools.has("quality_report")).toBe(true);
@@ -547,12 +512,12 @@ describe("Analysis MCP tools (sidecar mode)", () => {
 
 describe("quality_report MCP tool", () => {
   it("should be registered with correct schema", () => {
-    const tools = captureTools({});
+    const tools = captureTools(registerAnalysisTools, {});
     expect(tools.has("quality_report")).toBe(true);
   });
 
   it("should return structured quality report for project", async () => {
-    const tools = captureTools({});
+    const tools = captureTools(registerAnalysisTools, {});
     const handler = tools.get("quality_report")!;
     const projectPath = join(import.meta.dir, "../..");
 
@@ -570,7 +535,7 @@ describe("quality_report MCP tool", () => {
   });
 
   it("should support single-file mode", async () => {
-    const tools = captureTools({});
+    const tools = captureTools(registerAnalysisTools, {});
     const handler = tools.get("quality_report")!;
     const projectPath = join(import.meta.dir, "../..");
 

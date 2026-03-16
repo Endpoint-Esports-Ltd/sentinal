@@ -23,6 +23,7 @@ import {
   existsSync,
   rmSync,
 } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import {
   startSidecar,
   stopSidecar,
@@ -46,15 +47,6 @@ async function post(base: string, path: string, body: unknown): Promise<any> {
   return res.json();
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-sidecar-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 describe("sidecar server", () => {
   let tmpDir: string;

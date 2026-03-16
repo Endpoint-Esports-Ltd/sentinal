@@ -16,6 +16,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { z } from "zod";
+import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { SpecStore } from "./store.js";
@@ -96,20 +97,15 @@ function registerSpecRegisterTool(
             (t) => t.status === "complete",
           ).length;
           const text = `Registered: ${parsed.id} (${parsed.status}, ${done}/${parsed.tasks.length} tasks)`;
-          return { content: [{ type: "text" as const, text }] };
+          return mcpText(text);
         }
 
         const spec = specStore!.syncFromPlanFile(plan_path, projectPath);
         const done = spec.tasks.filter((t) => t.status === "complete").length;
         const text = `Registered: ${spec.id} (${spec.status}, ${done}/${spec.tasks.length} tasks)`;
-        return { content: [{ type: "text" as const, text }] };
+        return mcpText(text);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error registering plan: ${msg}` },
-          ],
-        };
+        return mcpError("Error registering plan", err);
       }
     },
   );
@@ -133,15 +129,13 @@ function registerSpecWaitFileTool(server: McpServer): void {
 
       // Fast path: file already exists
       if (existsSync(file_path)) {
-        return {
-          content: [{ type: "text" as const, text: `READY: ${file_path}` }],
-        };
+        return mcpText(`READY: ${file_path}`);
       }
 
       const targetDir = dirname(file_path);
       const targetName = basename(file_path);
 
-      return new Promise<{ content: { type: "text"; text: string }[] }>(
+      return new Promise<ReturnType<typeof mcpText>>(
         (resolve) => {
           let watcher: ReturnType<typeof watch> | null = null;
           let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -162,21 +156,16 @@ function registerSpecWaitFileTool(server: McpServer): void {
 
           const onFound = () => {
             cleanup();
-            resolve({
-              content: [{ type: "text" as const, text: `READY: ${file_path}` }],
-            });
+            resolve(mcpText(`READY: ${file_path}`));
           };
 
           const onTimeout = () => {
             cleanup();
-            resolve({
-              content: [
-                {
-                  type: "text" as const,
-                  text: `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s`,
-                },
-              ],
-            });
+            resolve(
+              mcpText(
+                `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s`,
+              ),
+            );
           };
 
           // fs.watch on parent directory
@@ -245,7 +234,7 @@ function registerSpecConfigTool(server: McpServer): void {
         lines.push(`- **${label}:** ${display}`);
       }
 
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      return mcpText(lines.join("\n"));
     },
   );
 }
@@ -301,14 +290,9 @@ function registerSpecPlanParseTool(server: McpServer): void {
           }
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error parsing plan: ${msg}` },
-          ],
-        };
+        return mcpError("Error parsing plan", err);
       }
     },
   );
@@ -349,21 +333,9 @@ function registerSpecNotifyTool(
             specId: spec_id ?? null,
           });
         }
-        return {
-          content: [
-            { type: "text" as const, text: `Notification created: ${title}` },
-          ],
-        };
+        return mcpText(`Notification created: ${title}`);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error creating notification: ${msg}`,
-            },
-          ],
-        };
+        return mcpError("Error creating notification", err);
       }
     },
   );
@@ -393,14 +365,7 @@ function registerSpecEventsTool(
           : memoryStore!.getSpecEvents(spec_id, limit ?? 20);
 
         if (events.length === 0) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No events found for spec: ${spec_id}`,
-              },
-            ],
-          };
+          return mcpText(`No events found for spec: ${spec_id}`);
         }
 
         const lines = [`## Events for ${spec_id}`, ""];
@@ -410,14 +375,9 @@ function registerSpecEventsTool(
           lines.push(`- **${event.eventType}** (${time}): ${details}`);
         }
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        return mcpText(lines.join("\n"));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [
-            { type: "text" as const, text: `Error getting events: ${msg}` },
-          ],
-        };
+        return mcpError("Error getting events", err);
       }
     },
   );
@@ -442,11 +402,7 @@ function registerSpecStatusTool(
         : specStore!.getCurrentSpec(project);
 
       if (!spec) {
-        return {
-          content: [
-            { type: "text", text: "No active spec found for this project." },
-          ],
-        };
+        return mcpText("No active spec found for this project.");
       }
 
       const totalTasks = spec.tasks.length;
@@ -490,7 +446,7 @@ function registerSpecStatusTool(
         );
       }
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return mcpText(lines.join("\n"));
     },
   );
 }

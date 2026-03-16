@@ -7,6 +7,7 @@
 
 import type { MemoryStore } from "../memory/store.js";
 import type { SidecarContext } from "./server.js";
+import { ok, fail } from "./response.js";
 
 // ─── Bulk Transition Logic ────────────────────────────────────────────────────
 
@@ -69,19 +70,15 @@ export async function handleTddTransitionRequest(
     const { action, specId } = body;
 
     if (action !== "confirm_red" && action !== "confirm_green") {
-      return Response.json(
-        {
-          ok: false,
-          error: "Invalid action. Must be 'confirm_red' or 'confirm_green'.",
-        },
-        { status: 400 },
+      return fail(
+        "Invalid action. Must be 'confirm_red' or 'confirm_green'.",
       );
     }
 
     const result = bulkTddTransition(ctx.store, action, specId);
-    return Response.json({ ok: true, data: result });
+    return ok(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return Response.json({ ok: false, error: msg }, { status: 500 });
+    return fail(msg, 500);
   }
 }

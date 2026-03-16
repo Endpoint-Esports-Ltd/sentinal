@@ -9,7 +9,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   mkdirSync,
@@ -18,6 +17,7 @@ import {
   readFileSync,
   existsSync,
 } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import {
@@ -28,15 +28,6 @@ import {
 } from "../memory/capture.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-observer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function makeTmpDb(): string {
   const dir = makeTmpDir();

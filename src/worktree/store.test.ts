@@ -1,22 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
 import type { Worktree, WorktreeStatus } from "./types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function makeTmpDir(): string {
-  const dir = join(
-    tmpdir(),
-    `sentinal-wts-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 /** Create a worktree record. specId defaults to null (no FK constraint). */
 function makeWorktree(

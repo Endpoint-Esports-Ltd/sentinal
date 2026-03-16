@@ -11,23 +11,13 @@ import {
   existsSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { realpathSync } from "node:fs";
+import { makeTmpDir } from "../test-helpers.js";
 
 // We test the internal functions by importing them, but override the PID path
 // by testing the core logic directly rather than the path-dependent functions.
 
 describe("Dashboard Lifecycle", () => {
   let tmpDir: string;
-
-  function makeTmpDir(): string {
-    const dir = join(
-      realpathSync(tmpdir()),
-      `sentinal-lc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    mkdirSync(dir, { recursive: true });
-    return dir;
-  }
 
   afterEach(() => {
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });

@@ -6,6 +6,7 @@
  */
 
 import { resolve } from "node:path";
+import { ok, fail } from "./response.js";
 import { analyzeProject, type ProjectContext } from "../project/context.js";
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
@@ -26,29 +27,23 @@ export async function handleProjectContextRequest(
 
   const projectPath = url.searchParams.get("project");
   if (!projectPath) {
-    return Response.json(
-      { ok: false, error: "Missing 'project' parameter" },
-      { status: 400 },
-    );
+    return fail("Missing 'project' parameter");
   }
 
   const refresh = url.searchParams.get("refresh") === "true";
   const cacheKey = resolve(projectPath);
 
   if (!refresh && projectContextCache.has(cacheKey)) {
-    return Response.json({ ok: true, data: projectContextCache.get(cacheKey) });
+    return ok(projectContextCache.get(cacheKey));
   }
 
   try {
     const ctx = analyzeProject(projectPath);
     projectContextCache.set(cacheKey, ctx);
-    return Response.json({ ok: true, data: ctx });
+    return ok(ctx);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return Response.json(
-      { ok: false, error: `Analysis failed: ${msg}` },
-      { status: 500 },
-    );
+    return fail(`Analysis failed: ${msg}`, 500);
   }
 }
 

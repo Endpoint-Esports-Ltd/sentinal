@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { makeTmpDir } from "../test-helpers.js";
 import {
   gitExec,
   gitExecOrThrow,
@@ -19,16 +19,6 @@ import { WorktreeError } from "../worktree/types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function makeTmpDir(): string {
-  const raw = join(
-    tmpdir(),
-    `sentinal-git-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  mkdirSync(raw, { recursive: true });
-  // Resolve symlinks (macOS /var → /private/var) so paths match git output
-  return realpathSync(raw);
-}
-
 /** Create a temp git repo with an initial commit. */
 function initRepo(dir: string): void {
   Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
@@ -45,7 +35,7 @@ describe("git utils", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = makeTmpDir();
+    tmpDir = realpathSync(makeTmpDir());
   });
 
   afterEach(() => {
