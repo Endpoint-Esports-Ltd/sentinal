@@ -14,6 +14,7 @@ import { basename } from "node:path";
 import type { MemoryService } from "./service.js";
 import type { Observation, ObservationType } from "./types.js";
 import { findActivePlan } from "../spec/detect.js";
+import { readSharedMemory, toObservation } from "./shared.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,11 +116,13 @@ async function restoreContextAsync(
     recent = service.getRecentForProject(options.projectPath, recentLimit);
   }
 
-  if (recent.length === 0) {
+  const merged = mergeSharedObservations(recent, options.projectPath);
+
+  if (merged.length === 0) {
     return { markdown: "", observationCount: 0, hasMemory: false };
   }
 
-  return buildRestoreMarkdown(service, options, recent);
+  return buildRestoreMarkdown(service, options, merged);
 }
 
 function restoreContextSync(
@@ -129,12 +132,46 @@ function restoreContextSync(
   const recentLimit = options.recentLimit ?? DEFAULTS.recentLimit;
 
   const recent = service.getRecentForProject(options.projectPath, recentLimit);
+  const merged = mergeSharedObservations(recent, options.projectPath);
 
-  if (recent.length === 0) {
+  if (merged.length === 0) {
     return { markdown: "", observationCount: 0, hasMemory: false };
   }
 
-  return buildRestoreMarkdown(service, options, recent);
+  return buildRestoreMarkdown(service, options, merged);
+}
+
+const MAX_SHARED_OBSERVATIONS = 15;
+
+/** Merge shared observations from .sentinal/project-memory.json with SQLite observations */
+function mergeSharedObservations(sqliteObs: Observation[], projectPath: string): Observation[] {
+  const shared = readSharedMemory(projectPath);
+  if (shared.length === 0) return sqliteObs;
+
+  const existingTitles = new Set(sqliteObs.map((o) => o.title));
+  const deduped = shared.filter((s) => !existingTitles.has(s.title));
+  const truncated = deduped.length > MAX_SHARED_OBSERVATIONS;
+  const converted = deduped
+    .slice(0, MAX_SHARED_OBSERVATIONS)
+    .map((s, i) => toObservation(s, projectPath, i));
+
+  if (truncated) {
+    converted.push({
+      id: -(converted.length + 1),
+      sessionId: "shared",
+      projectPath,
+      timestamp: Date.now(),
+      type: "discovery",
+      title: `Showing ${MAX_SHARED_OBSERVATIONS} of ${deduped.length} shared observations`,
+      content: `${deduped.length - MAX_SHARED_OBSERVATIONS} additional shared observations were omitted. See .sentinal/project-memory.json for the full list.`,
+      filePaths: [],
+      tags: ["shared-memory"],
+      metadata: { source: "shared" },
+      qualityScore: 1.0,
+    });
+  }
+
+  return [...sqliteObs, ...converted];
 }
 
 function buildRestoreMarkdown(

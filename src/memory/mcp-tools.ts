@@ -18,6 +18,7 @@ import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { decayQualityScores } from "./maintenance.js";
+import { registerSharedTools, saveToSharedIfRequested } from "./shared.js";
 
 export interface MemoryToolsDeps {
   client?: SidecarClient | null;
@@ -37,6 +38,7 @@ export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | M
     registerSaveTool(server, service, store, null);
     registerStatsTool(server, service, null);
     registerMaintainTool(server, store);
+    registerSharedTools(server, { service, client: null });
     return service;
   }
 
@@ -49,6 +51,7 @@ export function registerMemoryTools(server: McpServer, deps: MemoryToolsDeps | M
   registerSaveTool(server, service, store, client);
   registerStatsTool(server, service, client);
   if (store) registerMaintainTool(server, store);
+  registerSharedTools(server, { client, service });
   return service;
 }
 
@@ -195,8 +198,9 @@ function registerSaveTool(
       project: z.string().describe("Project path this observation relates to"),
       tags: z.array(z.string()).optional().describe("Tags/concepts for categorization"),
       filePaths: z.array(z.string()).optional().describe("Related file paths"),
+      shared: z.boolean().optional().describe("Also save to shared project memory (.sentinal/project-memory.json)"),
     },
-    async ({ title, content, type, project, tags, filePaths }) => {
+    async ({ title, content, type, project, tags, filePaths, shared }) => {
       // Resolve real session ID when exactly one active session exists
       let sessionId = `mcp-${Date.now()}`;
       try {
@@ -223,10 +227,18 @@ function registerSaveTool(
         obsId = result.id;
       }
 
+      // Also save to shared project memory if requested
+      const wasShared = await saveToSharedIfRequested({
+        project, type, title, content, tags, filePaths, shared,
+      });
+
+      const suffix = wasShared
+        ? " + shared to project memory"
+        : shared ? " (shared skipped: only decision/discovery/pattern types can be shared)" : "";
       return {
         content: [{
           type: "text",
-          text: `Saved observation #${obsId}: "${title}" (${type})`,
+          text: `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
         }],
       };
     },

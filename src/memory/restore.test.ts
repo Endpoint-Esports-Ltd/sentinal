@@ -343,6 +343,49 @@ describe("restoreContext", () => {
     expect(result.observationCount).toBeGreaterThan(0);
   });
 
+  // ─── Shared Memory Integration ──────────────────────────────────────────
+
+  it("should include shared observations in restore output", async () => {
+    // Dynamically import shared memory helpers
+    const { writeSharedMemory } = await import("./shared.js");
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+
+    const projectDir = join(tmpdir(), `sentinal-restore-shared-${Date.now()}`);
+    mkdirSync(projectDir, { recursive: true });
+
+    try {
+      // Write shared observations to the project
+      writeSharedMemory(projectDir, [{
+        type: "decision",
+        title: "Shared architecture decision",
+        content: "We use event-driven architecture",
+        tags: ["architecture"],
+        filePaths: [],
+        createdAt: "2026-03-15",
+      }]);
+
+      const result = await restoreContext(service, {
+        projectPath: projectDir,
+      });
+
+      expect(result.hasMemory).toBe(true);
+      expect(result.markdown).toContain("Shared architecture decision");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should work when no shared memory file exists", async () => {
+    const result = await restoreContext(service, {
+      projectPath: "/nonexistent/project",
+    });
+
+    // Should still work (empty shared memory, no SQLite data for this path)
+    expect(result.hasMemory).toBe(false);
+  });
+
   it("should only include observations for the specified project", async () => {
     service.addObservation(
       makeObservation({
