@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.0...v1.14.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* return JSON errors from sidecar and prefer local tool binaries ([32e2f6e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32e2f6e843f8d72a100628bfcd2598272a1f8651))
+
 # [1.14.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.13.0...v1.14.0) (2026-03-16)
 
 
