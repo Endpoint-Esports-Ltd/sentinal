@@ -1,0 +1,28 @@
+{
+  "review_summary": "Plan accurately identifies both bugs and proposes correct fixes. All code assumptions verified against source. One should_fix on the getToolCommand API design clarity and one suggestion on return type documentation.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "getToolCommand return type and caller update pattern is ambiguous",
+      "description": "Task 2 Key Decisions shows two different caller patterns: `const [bin, ...prefix] = getToolCommand(...)` vs 'simpler: getToolCommand returns an array of command parts'. The current callers use `[runner, \"eslint\", \"--fix\", target]` where runner is a single string. If getToolCommand returns `[\"/path/to/eslint\"]` (array of 1) for local binary vs `[\"bunx\", \"eslint\"]` (array of 2) for fallback, the caller construction differs fundamentally — local doesn't need the tool name repeated but bunx does. This ambiguity could lead to doubled tool names like `[\"/path/to/eslint\", \"eslint\", \"--fix\"]`.",
+      "suggested_fix": "Specify that `getToolCommand(projectPath, toolName)` returns `string[]` representing the full command prefix including the tool name. Local: `['/abs/path/node_modules/.bin/eslint']`. Fallback: `['bunx', 'eslint']`. Callers then spread it: `[...getToolCommand(projectPath, 'eslint'), '--fix', target]`. Add this exact signature to Task 2 Key Decisions."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 1 DoD missing test for Bun.serve global error handler",
+      "description": "Task 1 DoD has 4 items but only tests the TDD route case (invalid specId returning JSON). The Bun.serve global `error` handler — which catches errors outside the fetch callback — has no corresponding test in the DoD. The Testing Strategy mentions 'Test that Bun.serve error handler returns JSON for uncaught errors' (item 2) but this isn't reflected in Task 1's DoD checklist.",
+      "suggested_fix": "Add a DoD item to Task 1: '[ ] New test verifying Bun.serve error handler returns JSON (not HTML) for uncaught exceptions'. Note: this may be difficult to trigger in tests since the fetch handler has its own try/catch — consider whether this is testable or should be documented as a defense-in-depth measure only."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "getRunner callers at line 172 (runTsc context) not mentioned in update list",
+      "description": "The grep shows `getRunner` is also called at quality-routes.ts:172 in addition to lines 230 and 285. Task 2 mentions updating callers at 'line 230,243' and 'line 285,289,314' but doesn't mention line 172. If line 172 is for tsc (which the plan says uses separate resolution), this is fine but should be explicitly noted to avoid confusion.",
+      "suggested_fix": "Add a note to Task 2 Key Decisions: 'getRunner at line 172 is used for tsc runner context — verify whether it also needs updating or is handled separately by runTsc's own resolution.'"
+    }
+  ]
+}

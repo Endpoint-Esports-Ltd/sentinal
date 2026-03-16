@@ -50,7 +50,7 @@ async function post(base: string, path: string, body: unknown): Promise<any> {
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `sentinal-sidecar-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `sentinal-sidecar-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -171,6 +171,24 @@ describe("sidecar server", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("should return JSON error for TDD set with invalid specId (FOREIGN KEY)", async () => {
+    const res = await fetch(`${base}/tdd-state`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "set",
+        filePath: "/src/foo.ts",
+        state: "RED_CONFIRMED",
+        specId: "non-existent-spec",
+      }),
+    });
+    // Must return JSON, not Bun's default HTML error page
+    const contentType = res.headers.get("content-type") ?? "";
+    expect(contentType).toContain("application/json");
+    const r = (await res.json()) as any;
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeDefined();
+  });
+
   // ─── Observations ─────────────────────────────────────────────────────
 
   it("should add an observation", async () => {
@@ -214,13 +232,13 @@ describe("sidecar server", () => {
     const planFile = join(plansDir, "test-plan.md");
     writeFileSync(
       planFile,
-      `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`
+      `# Test Plan\n\nStatus: IN PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n- [ ] Task 2\n`,
     );
 
     await post(base, "/spec/sync", { planPath: planFile, projectPath: tmpDir });
     const r = await get(
       base,
-      `/spec/current?project=${encodeURIComponent(tmpDir)}`
+      `/spec/current?project=${encodeURIComponent(tmpDir)}`,
     );
     expect(r.ok).toBe(true);
     expect(r.data).not.toBeNull();
@@ -261,7 +279,7 @@ describe("sidecar server", () => {
     const planFile = join(plansDir, "events-test.md");
     writeFileSync(
       planFile,
-      `# Events Test\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n`
+      `# Events Test\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [ ] Task 1\n`,
     );
     await post(base, "/spec/sync", { planPath: planFile, projectPath: tmpDir });
 
@@ -332,13 +350,13 @@ describe("startSidecar alreadyRunning port file sync", () => {
 
     // Mock paths to use tmpDir (short path for Unix socket compatibility)
     spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
-      join(tmpDir, "s.sock")
+      join(tmpDir, "s.sock"),
     );
     spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
-      join(tmpDir, "sidecar.port")
+      join(tmpDir, "sidecar.port"),
     );
     spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
-      join(tmpDir, "sidecar.pid")
+      join(tmpDir, "sidecar.pid"),
     );
 
     // Start first sidecar with Unix socket (writes correct port file)
@@ -400,18 +418,18 @@ describe("stopSidecar PID guard", () => {
   beforeEach(() => {
     tmpDir = join(
       tmpdir(),
-      `sentinal-stop-race-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      `sentinal-stop-race-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(tmpDir, { recursive: true });
 
     spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
-      join(tmpDir, "sidecar.pid")
+      join(tmpDir, "sidecar.pid"),
     );
     spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
-      join(tmpDir, "sidecar.sock")
+      join(tmpDir, "sidecar.sock"),
     );
     spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
-      join(tmpDir, "sidecar.port")
+      join(tmpDir, "sidecar.port"),
     );
   });
 
@@ -544,8 +562,13 @@ describe("idle auto-shutdown", () => {
     let shutdownCalled = false;
     // Create an active session so sessionsEverSeen flips true
     sidecar.ctx.store.insertSession({
-      id: "temp-session", startTime: Date.now(), endTime: null,
-      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+      id: "temp-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
     });
     await get(base, "/ping");
 
@@ -554,7 +577,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 600_000,
       staleActivityMs: 600_000,
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     // Let the checker see the active session
@@ -574,8 +599,13 @@ describe("idle auto-shutdown", () => {
     let shutdownCalled = false;
     // Create an active session (no end_time)
     sidecar.ctx.store.insertSession({
-      id: "active-session", startTime: Date.now(), endTime: null,
-      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+      id: "active-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
     });
     // Keep activity fresh
     await get(base, "/ping");
@@ -585,7 +615,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 600_000,
       staleActivityMs: 600_000,
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     await new Promise((r) => setTimeout(r, 150));
@@ -597,8 +629,13 @@ describe("idle auto-shutdown", () => {
     let shutdownCalled = false;
     // Start with active session
     sidecar.ctx.store.insertSession({
-      id: "trans-session", startTime: Date.now(), endTime: null,
-      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+      id: "trans-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
     });
     await get(base, "/ping");
 
@@ -607,7 +644,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 600_000,
       staleActivityMs: 600_000,
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     // Session is active — should stay alive
@@ -630,7 +669,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 50,
       staleActivityMs: 600_000,
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     // No sessions ever created, idle timeout is 50ms
@@ -646,7 +687,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 60,
       staleActivityMs: 600_000,
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     // Keep requests flowing — should prevent fallback idle shutdown
@@ -663,8 +706,13 @@ describe("idle auto-shutdown", () => {
     let shutdownCalled = false;
     // Create an active session
     sidecar.ctx.store.insertSession({
-      id: "stale-client-session", startTime: Date.now(), endTime: null,
-      projectPath: "/test", assistant: "claude-code", summary: null, transcriptPath: null,
+      id: "stale-client-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
     });
     // Don't send any requests — activity is stale from the start
 
@@ -673,7 +721,9 @@ describe("idle auto-shutdown", () => {
       checkIntervalMs: 20,
       fallbackIdleMs: 600_000,
       staleActivityMs: 30, // Very short stale threshold for test
-      onShutdown: () => { shutdownCalled = true; },
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
     });
 
     // Session exists but activity is older than staleActivityMs (30ms)

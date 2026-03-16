@@ -67,9 +67,25 @@ const activeChecks = new Set<string>();
 /** Total concurrent quality checks across all projects. */
 let concurrentCount = 0;
 
-function getRunner(projectPath: string): string {
+/**
+ * Resolve the command prefix for a tool (e.g. eslint, prettier, tsc).
+ * Prefers a local node_modules/.bin binary over bunx/npx to avoid
+ * broken transitive dependencies in temp-installed packages.
+ *
+ * Returns a string[] command prefix including the tool name.
+ *   Local:    ['/abs/path/node_modules/.bin/eslint']
+ *   Fallback: ['bunx', 'eslint']
+ */
+export function getToolCommand(
+  projectPath: string,
+  toolName: string,
+): string[] {
+  const localBin = join(projectPath, "node_modules", ".bin", toolName);
+  if (existsSync(localBin)) {
+    return [localBin];
+  }
   const pm = detectPackageManager(projectPath);
-  return pm === "bun" ? "bunx" : "npx";
+  return pm === "bun" ? ["bunx", toolName] : ["npx", toolName];
 }
 
 function json(data: unknown, status = 200): Response {
@@ -169,7 +185,6 @@ async function runTsc(
   timeout: number,
 ): Promise<ToolResult> {
   const start = Date.now();
-  const runner = getRunner(projectPath);
   const hash = projectHash(projectPath);
   const tsBuildInfoPath = join(TSBUILDINFO_DIR, `${hash}.tsbuildinfo`);
 
@@ -186,8 +201,7 @@ async function runTsc(
 
   const incremental = true;
   const cmd = [
-    runner,
-    "tsc",
+    ...getToolCommand(projectPath, "tsc"),
     "--noEmit",
     "--pretty",
     "false",
@@ -227,7 +241,6 @@ async function runEslint(
   timeout: number,
 ): Promise<ToolResult> {
   const start = Date.now();
-  const runner = getRunner(projectPath);
   const target = filePath ?? ".";
 
   // Detect auto-fix by comparing file mtime before/after (for single-file mode)
@@ -240,7 +253,7 @@ async function runEslint(
     }
   }
 
-  const cmd = [runner, "eslint", "--fix", target];
+  const cmd = [...getToolCommand(projectPath, "eslint"), "--fix", target];
   const result = await runWithTimeout(cmd, projectPath, timeout);
   const durationMs = Date.now() - start;
 
@@ -282,12 +295,12 @@ async function runPrettier(
   timeout: number,
 ): Promise<ToolResult> {
   const start = Date.now();
-  const runner = getRunner(projectPath);
+  const prettierCmd = getToolCommand(projectPath, "prettier");
   const target = filePath ?? ".";
 
   // First: check
   const check = await runWithTimeout(
-    [runner, "prettier", "--check", target],
+    [...prettierCmd, "--check", target],
     projectPath,
     timeout,
   );
@@ -312,7 +325,7 @@ async function runPrettier(
 
   // Issues found — auto-fix
   const fix = await runWithTimeout(
-    [runner, "prettier", "--write", target],
+    [...prettierCmd, "--write", target],
     projectPath,
     timeout,
   );

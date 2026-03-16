@@ -8,9 +8,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { MemoryStore } from "../memory/store.js";
 import { startSidecar, stopSidecar } from "./server.js";
+import { getToolCommand } from "./quality-routes.js";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 
 // ─── Test Sidecar Setup ────────────────────────────────────────────────────
 
@@ -141,14 +142,22 @@ describe("POST /quality-check concurrency", () => {
 
     // Fire two requests simultaneously for the same project
     const [r1, r2] = await Promise.all([
-      post(base, "/quality-check", { projectPath, checks: ["tsc"], timeout: 60000 }),
-      post(base, "/quality-check", { projectPath, checks: ["tsc"], timeout: 60000 }),
+      post(base, "/quality-check", {
+        projectPath,
+        checks: ["tsc"],
+        timeout: 60000,
+      }),
+      post(base, "/quality-check", {
+        projectPath,
+        checks: ["tsc"],
+        timeout: 60000,
+      }),
     ]);
 
     // One should succeed, one should be rejected (429)
     const results = [r1, r2];
-    const successes = results.filter(r => r.ok === true);
-    const rejects = results.filter(r => r.ok === false);
+    const successes = results.filter((r) => r.ok === true);
+    const rejects = results.filter((r) => r.ok === false);
 
     expect(successes.length).toBe(1);
     expect(rejects.length).toBe(1);
@@ -167,5 +176,50 @@ describe("POST /quality-check concurrency", () => {
       timeout: 30000,
     });
     expect(r.ok).toBe(true);
+  });
+});
+
+// ─── getToolCommand ─────────────────────────────────────────────────────────
+
+describe("getToolCommand", () => {
+  let fakeProjDir: string;
+
+  beforeAll(() => {
+    fakeProjDir = join(tmpdir(), `tool-cmd-test-${Date.now().toString(36)}`);
+    mkdirSync(join(fakeProjDir, "node_modules", ".bin"), { recursive: true });
+    // Create a bun lockfile so detectPackageManager returns "bun"
+    writeFileSync(join(fakeProjDir, "bun.lockb"), "");
+  });
+
+  afterAll(() => {
+    rmSync(fakeProjDir, { recursive: true, force: true });
+  });
+
+  it("should prefer local binary when it exists", () => {
+    // Create a fake eslint binary
+    const binPath = join(fakeProjDir, "node_modules", ".bin", "eslint");
+    writeFileSync(binPath, "#!/bin/sh\nexit 0", { mode: 0o755 });
+
+    const cmd = getToolCommand(fakeProjDir, "eslint");
+    expect(cmd).toEqual([binPath]);
+  });
+
+  it("should fall back to bunx when no local binary exists", () => {
+    const cmd = getToolCommand(fakeProjDir, "prettier");
+    expect(cmd).toEqual(["bunx", "prettier"]);
+  });
+
+  it("should fall back to npx for npm projects", () => {
+    const npmDir = join(
+      tmpdir(),
+      `tool-cmd-npm-test-${Date.now().toString(36)}`,
+    );
+    mkdirSync(npmDir, { recursive: true });
+    writeFileSync(join(npmDir, "package-lock.json"), "{}");
+
+    const cmd = getToolCommand(npmDir, "eslint");
+    expect(cmd).toEqual(["npx", "eslint"]);
+
+    rmSync(npmDir, { recursive: true, force: true });
   });
 });

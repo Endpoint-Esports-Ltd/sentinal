@@ -198,7 +198,7 @@ export interface SidecarStartResult {
 }
 
 export async function startSidecar(
-  opts: SidecarServerOptions = {}
+  opts: SidecarServerOptions = {},
 ): Promise<SidecarStartResult> {
   const store = opts.store ?? new MemoryStore();
   const service = new MemoryService(store);
@@ -221,7 +221,9 @@ export async function startSidecar(
       if (probe.ok) {
         // Another sidecar is already serving — sync the port file from its health response
         try {
-          const health = (await probe.json()) as { data?: { httpPort?: number } };
+          const health = (await probe.json()) as {
+            data?: { httpPort?: number };
+          };
           const livePort = health?.data?.httpPort;
           if (typeof livePort === "number" && livePort > 0) {
             const portPath = getSidecarPortPath();
@@ -230,12 +232,16 @@ export async function startSidecar(
               const content = readFileSync(portPath, "utf-8").trim();
               filePort = parseInt(content, 10);
               if (Number.isNaN(filePort)) filePort = null;
-            } catch { /* no port file */ }
+            } catch {
+              /* no port file */
+            }
             if (filePort !== livePort) {
               writeFileSync(portPath, String(livePort), "utf-8");
             }
           }
-        } catch { /* non-fatal — port sync is best-effort */ }
+        } catch {
+          /* non-fatal — port sync is best-effort */
+        }
 
         return {
           server: null as unknown as ReturnType<typeof Bun.serve>,
@@ -266,14 +272,26 @@ export async function startSidecar(
     return handleSidecarRequest(req, ctx);
   };
 
+  // Defense-in-depth: ensure uncaught errors return JSON, not Bun's default HTML
+  const errorHandler = (err: Error) =>
+    Response.json(
+      { ok: false, error: `Internal error: ${err.message}` },
+      { status: 500 },
+    );
+
   if (useUnix) {
     try {
-      const server = Bun.serve({ unix: socketPath, fetch: fetchHandler });
+      const server = Bun.serve({
+        unix: socketPath,
+        fetch: fetchHandler,
+        error: errorHandler,
+      });
       // Also bind HTTP for non-Bun clients (e.g. OpenCode's Node.js runtime)
       const httpServer = Bun.serve({
         port: opts.port ?? 0,
         hostname: "127.0.0.1",
         fetch: fetchHandler,
+        error: errorHandler,
       });
       ctx.httpPort = httpServer.port;
       writeFileSync(getSidecarPortPath(), String(httpServer.port), "utf-8");
@@ -288,6 +306,7 @@ export async function startSidecar(
     port: opts.port ?? 0,
     hostname: "127.0.0.1",
     fetch: fetchHandler,
+    error: errorHandler,
   });
   ctx.httpPort = server.port;
   writeFileSync(getSidecarPortPath(), String(server.port), "utf-8");
@@ -304,7 +323,7 @@ export async function startSidecar(
 export function stopSidecar(
   server: ReturnType<typeof Bun.serve>,
   ctx: SidecarContext,
-  httpServer?: ReturnType<typeof Bun.serve>
+  httpServer?: ReturnType<typeof Bun.serve>,
 ): void {
   server.stop(true);
   if (httpServer) httpServer.stop(true);

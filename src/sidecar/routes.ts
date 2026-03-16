@@ -38,7 +38,7 @@ async function readBody<T>(req: Request): Promise<T> {
 
 export async function handleSidecarRequest(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -47,7 +47,11 @@ export async function handleSidecarRequest(
   try {
     // Health
     if (path === "/health" && method === "GET") {
-      return ok({ status: "running", pid: process.pid, httpPort: ctx.httpPort ?? null });
+      return ok({
+        status: "running",
+        pid: process.pid,
+        httpPort: ctx.httpPort ?? null,
+      });
     }
 
     // Ping — lightweight keep-alive for idle shutdown
@@ -142,7 +146,7 @@ export async function handleSidecarRequest(
 
 async function handleCreateSession(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     id: string;
@@ -178,10 +182,10 @@ async function handleCreateSession(
 async function handleEndSession(
   id: string,
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{ summary?: string; notification?: boolean }>(
-    req
+    req,
   );
   ctx.store.endSession(id, body.summary);
 
@@ -214,7 +218,7 @@ function handleGetTddState(url: URL, ctx: SidecarContext): Response {
 
 async function handleSetTddState(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     action: "set" | "clear" | "clearForSpec";
@@ -231,14 +235,25 @@ async function handleSetTddState(
   } else if (body.action === "clearForSpec" && body.specId) {
     ctx.store.clearTddStatesForSpec(body.specId);
   } else if (body.action === "set" && body.filePath && body.state) {
-    ctx.store.setTddState({
-      filePath: body.filePath,
-      state: body.state,
-      specId: body.specId,
-      taskPosition: body.taskPosition,
-      testFilePath: body.testFilePath,
-      lastFailOutput: body.lastFailOutput,
-    });
+    try {
+      ctx.store.setTddState({
+        filePath: body.filePath,
+        state: body.state,
+        specId: body.specId,
+        taskPosition: body.taskPosition,
+        testFilePath: body.testFilePath,
+        lastFailOutput: body.lastFailOutput,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("FOREIGN KEY")) {
+        return fail(
+          "FOREIGN KEY constraint failed: spec_id does not exist",
+          400,
+        );
+      }
+      throw e;
+    }
   } else {
     return fail("Invalid action or missing required fields");
   }
@@ -247,7 +262,7 @@ async function handleSetTddState(
 
 async function handleAddObservation(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     sessionId: string;
@@ -274,18 +289,24 @@ async function handleAddObservation(
   return ok(obs);
 }
 
-async function handleRestoreContext(url: URL, ctx: SidecarContext): Promise<Response> {
+async function handleRestoreContext(
+  url: URL,
+  ctx: SidecarContext,
+): Promise<Response> {
   const projectPath = url.searchParams.get("project");
   if (!projectPath) return fail("Missing 'project' query param");
 
   const semanticQuery = url.searchParams.get("semanticQuery") ?? undefined;
-  const result = await restoreContext(ctx.service, { projectPath, semanticQuery });
+  const result = await restoreContext(ctx.service, {
+    projectPath,
+    semanticQuery,
+  });
   return ok({ hasMemory: result.hasMemory, markdown: result.markdown });
 }
 
 async function handleSyncSpec(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{ planPath: string; projectPath: string }>(req);
   ctx.specStore.syncFromPlanFile(body.planPath, body.projectPath);
@@ -302,7 +323,7 @@ function handleGetCurrentSpec(url: URL, ctx: SidecarContext): Response {
 
 async function handleMemorySearch(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     query: string;
@@ -320,7 +341,7 @@ async function handleMemorySearch(
 
 async function handleMemoryTimeline(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     anchor: number;
@@ -334,7 +355,7 @@ async function handleMemoryTimeline(
 
 async function handleMemoryGet(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{ ids: number[] }>(req);
   const observations = ctx.service.getObservations(body.ids);
@@ -348,7 +369,7 @@ function handleMemoryStats(ctx: SidecarContext): Response {
 
 async function handleInsertNotification(
   req: Request,
-  ctx: SidecarContext
+  ctx: SidecarContext,
 ): Promise<Response> {
   const body = await readBody<{
     type: string;
