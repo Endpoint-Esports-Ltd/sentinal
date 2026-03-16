@@ -15,6 +15,8 @@ import { WorktreeStore } from "../worktree/store.js";
 import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";
+import { handleTddTransitionRequest } from "./tdd-routes.js";
+import { LspClient } from "./lsp-client.js";
 
 // Re-export path helpers for backward compatibility
 export {
@@ -38,6 +40,8 @@ export interface SidecarContext {
   wtStore: WorktreeStore;
   /** HTTP port for non-Unix-socket clients. Set after server starts. */
   httpPort?: number;
+  /** LSP client for TypeScript diagnostics. Lazy-initialized on first use. */
+  lspClient?: LspClient;
 }
 
 export interface SidecarServerOptions {
@@ -203,6 +207,8 @@ export async function startSidecar(
     if (qualityResponse) return qualityResponse;
     const projectResponse = await handleProjectContextRequest(req);
     if (projectResponse) return projectResponse;
+    const tddResponse = await handleTddTransitionRequest(req, ctx);
+    if (tddResponse) return tddResponse;
     return handleSidecarRequest(req, ctx);
   };
 

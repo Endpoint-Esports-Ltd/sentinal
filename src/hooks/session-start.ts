@@ -8,10 +8,11 @@
  * Runs on: SessionStart (non-compact)
  */
 
-import { readStdin } from "../utils/hook-output.js";
+import { readStdin, hint, output } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import type { AssistantType } from "../memory/types.js";
 import { autoStartDashboard } from "../dashboard/lifecycle.js";
+import { detectSessionConflict } from "../session/conflict.js";
 
 export function detectAssistant(): AssistantType {
   // CLAUDE_PLUGIN_ROOT is set when running within a Claude Code plugin
@@ -36,6 +37,12 @@ async function main(): Promise<void> {
       summary: null,
       transcriptPath: input.transcript_path ?? null,
     });
+
+    // Check for conflicting active sessions on the same project
+    const conflict = detectSessionConflict(store, input.cwd, input.session_id);
+    if (conflict) {
+      output(hint("SessionStart", conflict.message));
+    }
 
     store.close();
 

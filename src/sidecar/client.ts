@@ -222,6 +222,15 @@ export class SidecarClient {
     return this.get(`/tdd-state/list${qs ? `?${qs}` : ""}`);
   }
 
+  // ─── TDD Bulk Transition ────────────────────────────────────────────────
+
+  async tddTransition(
+    action: "confirm_red" | "confirm_green",
+    specId?: string,
+  ): Promise<{ count: number }> {
+    return this.post("/tdd-state/transition", { action, specId });
+  }
+
   // ─── Memory ────────────────────────────────────────────────────────────
 
   async addObservation(obs: {

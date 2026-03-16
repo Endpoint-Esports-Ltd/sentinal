@@ -68,3 +68,50 @@ export async function getPreEditGuide(
     return null;
   }
 }
+
+// ─── Session Conflict Check ───────────────────────────────────────────────────
+
+interface SessionCheckSidecar {
+  getActiveSessions(): Promise<Array<{ id: string; assistant: string; projectPath: string }>>;
+}
+
+/**
+ * Check for concurrent sessions on the same project via sidecar.
+ * Returns a warning message or null if no conflicts.
+ */
+export async function checkSessionConflict(
+  sidecar: SessionCheckSidecar,
+  currentSessionId: string,
+  projectRoot: string,
+): Promise<string | null> {
+  try {
+    const sessions = await sidecar.getActiveSessions();
+    const others = sessions.filter((s) => s.id !== currentSessionId && s.projectPath === projectRoot);
+    if (others.length === 0) return null;
+
+    const descriptions = others.map((s) => `${s.id} (${s.assistant})`);
+    return `[Sentinal] Warning: ${others.length} other active session(s) on this project:\n${descriptions.map((d) => `  - ${d}`).join("\n")}\nEdits may conflict.`;
+  } catch {
+    return null;
+  }
+}
+
+// ─── TDD Bulk Transition ──────────────────────────────────────────────────────
+
+interface TddTransitionSidecar {
+  tddTransition(action: "confirm_red" | "confirm_green", specId?: string): Promise<{ count: number }>;
+}
+
+/**
+ * Trigger bulk TDD state transitions via sidecar.
+ * Fire-and-forget — errors are silently swallowed.
+ */
+export async function transitionTddState(
+  sidecar: TddTransitionSidecar,
+  action: "confirm_red" | "confirm_green",
+  specId?: string,
+): Promise<void> {
+  try {
+    await sidecar.tddTransition(action, specId);
+  } catch { /* non-fatal */ }
+}

@@ -77,7 +77,7 @@ interface PluginHooks {
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 
-import { getGrepHint, getFetchHint, getPreEditGuide } from "./sentinal-helpers.js";
+import { getGrepHint, getFetchHint, getPreEditGuide, checkSessionConflict, transitionTddState } from "./sentinal-helpers.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -173,18 +173,15 @@ async function sidecarTddTrack(
       return;
     }
 
-    // Case 2: Bash shows test failure → RED_CONFIRMED (set on last known TEST_WRITTEN file)
-    // Note: this is a simplified version — the full tracker in Claude Code hooks queries
-    // all active TDD states and transitions them. For now we rely on the guard endpoint
-    // which reads the latest state from the sidecar.
+    // Case 2: Bash shows test failure → bulk transition TEST_WRITTEN → RED_CONFIRMED
     if (toolName.toLowerCase() === "bash" && bashOutput && TEST_FAIL_INDICATORS.some(r => r.test(bashOutput))) {
-      // TODO: Add /tdd-state/transition endpoint to sidecar for bulk state transitions
+      await transitionTddState(sidecar, "confirm_red");
       return;
     }
 
-    // Case 3: Bash shows test pass → clear state
+    // Case 3: Bash shows test pass → bulk clear RED_CONFIRMED states
     if (toolName.toLowerCase() === "bash" && bashOutput && TEST_PASS_INDICATORS.some(r => r.test(bashOutput))) {
-      // TODO: Add /tdd-state/transition endpoint to sidecar for bulk state transitions
+      await transitionTddState(sidecar, "confirm_green");
     }
   } catch { /* non-fatal */ }
 }
@@ -519,6 +516,12 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
             }
           }
         } catch (e) { log(`restoreContext failed: ${e instanceof Error ? e.message : e}`); }
+
+        // Check for conflicting sessions on the same project
+        if (sidecar) {
+          const conflictMsg = await checkSessionConflict(sidecar, sessionId, projectRoot);
+          if (conflictMsg) await client.app.log({ body: { service: "sentinal", level: "warn", message: conflictMsg } });
+        }
 
         // Restore spec plan state from previous compaction
         const stateFile = join(projectRoot, ".sentinal", "compact-state.json");

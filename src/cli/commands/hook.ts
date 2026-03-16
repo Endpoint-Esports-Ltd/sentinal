@@ -353,14 +353,32 @@ async function runContextMonitor(): Promise<void> {
 
 async function runPreEditGuide(): Promise<void> {
   const { processPreEditGuide } = await import("../../hooks/pre-edit-guide.js");
+  const { detectFileConflict } = await import("../../session/conflict.js");
+  const { MemoryStore: Store } = await import("../../memory/store.js");
   const { hint: hintFn } = await import("../../utils/hook-output.js");
   const input = await readStdin();
   const filePath = extractFilePath(input.tool_input ?? {});
   if (!filePath) return;
   let client: SidecarClient | null = null;
   try { client = await SidecarClient.connect(); } catch { /* no sidecar */ }
-  const result = await processPreEditGuide({ filePath, cwd: input.cwd, client });
-  if (result) output(hintFn("PreToolUse", result));
+
+  const parts: string[] = [];
+
+  // File-level conflict check (uses session_id from hook input)
+  if (input.session_id) {
+    let store: InstanceType<typeof Store> | null = null;
+    try {
+      store = new Store();
+      const conflict = detectFileConflict(store, filePath, input.cwd, input.session_id);
+      if (conflict) parts.push(conflict.message);
+    } catch { /* non-fatal */ } finally { store?.close(); }
+  }
+
+  // Observation-based pre-edit guidance
+  const guide = await processPreEditGuide({ filePath, cwd: input.cwd, client });
+  if (guide) parts.push(guide);
+
+  if (parts.length > 0) output(hintFn("PreToolUse", parts.join("\n")));
 }
 
 const SHARED_HOOKS: Record<string, () => Promise<void>> = {

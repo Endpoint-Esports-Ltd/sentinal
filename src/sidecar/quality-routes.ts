@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { detectPackageManager } from "../checkers/detect.js";
 import { parseTscOutput } from "../analysis/helpers.js";
 import { projectHash } from "../analysis/helpers.js";
+import { LspClient, isLspAvailable } from "./lsp-client.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -341,15 +342,51 @@ async function runPrettier(
  * Run quality checks. Used by both the HTTP route handler and the MCP tool
  * fallback path (direct invocation without HTTP round-trip).
  */
+async function runTscLsp(
+  lspClient: LspClient,
+  projectPath: string,
+): Promise<ToolResult> {
+  const start = Date.now();
+  try {
+    const diagnostics = await lspClient.getDiagnostics(projectPath);
+    const errors = diagnostics
+      .filter((d) => d.severity === "error")
+      .map((d) => `${d.file}(${d.line},${d.column}): ${d.message}`);
+    return {
+      ok: errors.length === 0,
+      errors,
+      durationMs: Date.now() - start,
+      incremental: true,
+    };
+  } catch {
+    return {
+      ok: false,
+      errors: ["LSP diagnostics failed"],
+      durationMs: Date.now() - start,
+      incremental: false,
+    };
+  }
+}
+
 export async function runQualityChecks(
-  opts: QualityCheckRequest,
+  opts: QualityCheckRequest & { lspClient?: LspClient },
 ): Promise<QualityCheckResult> {
-  const { projectPath, filePath, timeout = DEFAULT_TIMEOUT } = opts;
+  const { projectPath, filePath, timeout = DEFAULT_TIMEOUT, lspClient } = opts;
   const checks = opts.checks ?? DEFAULT_CHECKS;
   const result: QualityCheckResult = {};
 
   if (checks.includes("tsc")) {
-    result.tsc = await runTsc(projectPath, timeout);
+    // Try LSP first, fall back to tsc subprocess
+    if (lspClient) {
+      const lspResult = await runTscLsp(lspClient, projectPath);
+      if (!lspResult.errors.includes("LSP diagnostics failed")) {
+        result.tsc = lspResult;
+      } else {
+        result.tsc = await runTsc(projectPath, timeout);
+      }
+    } else {
+      result.tsc = await runTsc(projectPath, timeout);
+    }
   }
   if (checks.includes("eslint")) {
     result.eslint = await runEslint(projectPath, filePath, timeout);
@@ -365,7 +402,7 @@ export async function runQualityChecks(
 
 export async function handleQualityRequest(
   req: Request,
-  _ctx: SidecarContext,
+  ctx: SidecarContext,
 ): Promise<Response | null> {
   const url = new URL(req.url, "http://localhost");
   const path = url.pathname;
@@ -398,7 +435,14 @@ export async function handleQualityRequest(
     activeChecks.add(body.projectPath);
     concurrentCount++;
     try {
-      const result = await runQualityChecks(body);
+      // Lazy-init LSP client on first diagnostics request
+      if (!ctx.lspClient && isLspAvailable()) {
+        ctx.lspClient = new LspClient();
+      }
+      const result = await runQualityChecks({
+        ...body,
+        lspClient: ctx.lspClient,
+      });
       return ok(result);
     } finally {
       activeChecks.delete(body.projectPath);

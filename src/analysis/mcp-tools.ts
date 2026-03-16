@@ -82,36 +82,57 @@ function registerCheckDiagnosticsTool(
       const timeoutMs = timeout_ms ?? 30000;
 
       try {
-        const proc = Bun.spawn(
-          ["npx", "tsc", "--noEmit", "--pretty", "false"],
-          {
-            cwd: project,
-            stdout: "pipe",
-            stderr: "pipe",
-          },
-        );
+        // Try LSP-based diagnostics via sidecar first
+        let currentErrors: ReturnType<typeof parseTscOutput> = [];
+        let usedLsp = false;
 
-        const timeoutPromise = new Promise<"timeout">((resolve) =>
-          setTimeout(() => resolve("timeout"), timeoutMs),
-        );
-
-        const result = await Promise.race([proc.exited, timeoutPromise]);
-
-        if (result === "timeout") {
-          proc.kill();
-          const partialStderr = await proc.stderr.text().catch(() => "");
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `TIMEOUT: tsc did not complete within ${timeoutMs}ms. Run \`npx tsc --noEmit\` directly for full output.${partialStderr ? `\n\nPartial stderr:\n${partialStderr}` : ""}`,
-              },
-            ],
-          };
+        if (client) {
+          try {
+            const qr = await client.qualityCheck({
+              projectPath: project,
+              checks: ["tsc"],
+            });
+            if (qr.tsc && !qr.tsc.timedOut) {
+              currentErrors = qr.tsc.errors.map((e) => {
+                const m = e.match(/^(.+?)\((\d+),(\d+)\): (.+)$/);
+                return m
+                  ? {
+                      file: m[1],
+                      line: parseInt(m[2]),
+                      column: parseInt(m[3]),
+                      message: m[4],
+                    }
+                  : { file: "unknown", line: 0, column: 0, message: e };
+              });
+              usedLsp = true;
+            }
+          } catch {
+            /* sidecar unavailable, fall through to direct tsc */
+          }
         }
 
-        const tscOutput = await proc.stdout.text();
-        const currentErrors = parseTscOutput(tscOutput);
+        if (!usedLsp) {
+          const proc = Bun.spawn(
+            ["npx", "tsc", "--noEmit", "--pretty", "false"],
+            { cwd: project, stdout: "pipe", stderr: "pipe" },
+          );
+          const timeoutPromise = new Promise<"timeout">((resolve) =>
+            setTimeout(() => resolve("timeout"), timeoutMs),
+          );
+          const result = await Promise.race([proc.exited, timeoutPromise]);
+          if (result === "timeout") {
+            proc.kill();
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `TIMEOUT: tsc did not complete within ${timeoutMs}ms.`,
+                },
+              ],
+            };
+          }
+          currentErrors = parseTscOutput(await proc.stdout.text());
+        }
         const errorCount = currentErrors.length;
 
         // Load baseline from cache
