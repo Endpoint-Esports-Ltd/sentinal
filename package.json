@@ -1,6 +1,6 @@
 {
   "name": "@endpoint/sentinal",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "license": "UNLICENSED",
   "description": "Quality plugin for TypeScript, Angular, and NestJS - supports Claude Code and OpenCode",
   "exports": {

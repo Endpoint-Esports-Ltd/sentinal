@@ -1,3 +1,16 @@
+# [1.17.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.16.0...v1.17.0) (2026-03-17)
+
+
+### Bug Fixes
+
+* add per-test timeouts to quality-check tests for CI reliability ([0fd2ec7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0fd2ec7549a143592b937733de1b629ad05ba110))
+* use dynamic timestamps in getUsageSummary tests to avoid rolling window expiry ([309e81b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/309e81b7043667a2258cf07f042c4808edb337f0))
+
+
+### Features
+
+* async hooks, subagent-scoped MCP, and prompt context injection ([80c7f11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/80c7f11b73e3ae9153e30d6347a84ff6a886fb8f))
+
 # [1.16.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.15.0...v1.16.0) (2026-03-16)
 
 
