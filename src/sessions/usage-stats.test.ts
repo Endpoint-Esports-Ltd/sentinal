@@ -163,6 +163,8 @@ describe("getDailyUsage", () => {
 
 describe("getUsageSummary", () => {
   let tmpDir: string;
+  // Use a dynamic recent timestamp so entries always fall within the 7-day rolling window
+  const recentTimestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   beforeEach(() => {
     tmpDir = join(
@@ -180,7 +182,7 @@ describe("getUsageSummary", () => {
     const logFile = join(tmpDir, "session.jsonl");
     // Create entries with known cost to test percentage calculation
     const lines = [
-      assistantEntry("claude-opus-4-6", 10000, 5000, "2026-03-10T10:00:01Z"),
+      assistantEntry("claude-opus-4-6", 10000, 5000, recentTimestamp),
     ];
     writeFileSync(logFile, lines.join("\n"));
 
@@ -199,7 +201,7 @@ describe("getUsageSummary", () => {
     const logFile = join(tmpDir, "session.jsonl");
     // Use large token counts so cost is meaningful relative to plan limits
     const lines = [
-      assistantEntry("claude-opus-4-6", 500000, 200000, "2026-03-10T10:00:01Z"),
+      assistantEntry("claude-opus-4-6", 500000, 200000, recentTimestamp),
     ];
     writeFileSync(logFile, lines.join("\n"));
 
