@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is well-structured with solid architecture for all 3 options. Key risks: (1) Task 6 shared context builder between CC Bun CLI and OC Node.js plugin is architecturally impractical given the single-file OC plugin constraint, (2) Task 3 removes external MCP tools from main conversation with no escape hatch for ad-hoc user requests outside spec workflows, (3) Claude Code subagent mcpServers frontmatter is an untested assumption on this codebase.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Shared context builder between CC and OC is architecturally impractical",
+      "description": "Task 6 DoD states 'Context builder function is shared between Claude Code and OpenCode'. However, the CC hook runs as a Bun subprocess (`src/hooks/prompt-context.ts`) while the OC plugin is a standalone Node.js file (`targets/opencode/plugins/sentinal.ts`). The OC plugin cannot import from `src/` — it's deployed as a single file. The plan's Context for Implementer section confirms: 'OpenCode plugin runs in Node.js (NOT Bun)'. Sharing a function between these two execution contexts would require either duplicating the code or introducing a build step to bundle shared code into the OC plugin.",
+      "suggested_fix": "Remove the 'shared context builder' DoD item. Instead: (1) implement the context builder in `src/hooks/prompt-context.ts` for CC, (2) duplicate the formatting logic inline in the OC plugin's compaction handler (it's ~10 lines of string formatting), (3) add a comment in both locations cross-referencing each other to keep them in sync. This matches the existing codebase pattern where OC plugin duplicates small utilities."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "External MCP tools inaccessible for ad-hoc user requests in main conversation",
+      "description": "Task 3 removes all 4 external MCP servers from `.mcp.json`, scoping them only to plan-reviewer and spec-reviewer subagents. The plan acknowledges 'Claude can delegate to a general subagent that has the tools' but the general/explore subagents are Claude Code built-ins that can't receive custom mcpServers. If a user says 'search the web for X' or 'look up the docs for library Y' in the main conversation, those tools are gone. The user request says 'subagent-scoped MCP servers' but doesn't imply removing all access from the main conversation.",
+      "suggested_fix": "Add a dedicated 'research' custom subagent (e.g., `targets/claude-code/agents/research.md`) with all 4 external MCP servers in its frontmatter. Give it a description like 'Research assistant with web search, documentation lookup, and code search capabilities'. This provides an explicit delegation target for ad-hoc research requests. Add this file to Task 3's file list and DoD."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Claude Code subagent mcpServers frontmatter never used in this codebase",
+      "description": "The current plan-reviewer.md frontmatter (line 4) uses `tools: Read, Grep, Glob, Write` for built-in tools but has no `mcpServers` field. The plan assumes inline MCP server definitions work in subagent frontmatter (Assumption #2). This is documented by Anthropic but has never been tested in this codebase. If it doesn't work, Tasks 3 and 7 fail entirely.",
+      "suggested_fix": "Add a verification step to Task 3: before modifying all files, test with a single MCP server (e.g., just `context7`) in plan-reviewer.md frontmatter, start a Claude Code session, invoke the plan-reviewer, and confirm the tool is available. If it fails, the fallback should be documented: keep external servers in .mcp.json but add a comment noting the context cost."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 5 missing hook.ts dispatch registration details",
+      "description": "Task 5 DoD says 'hook.ts dispatch map includes prompt-context' but doesn't specify whether this is a 'shared' or 'claude' hook. The task notes say 'sentinal hook shared prompt-context' (shared), but the hook reads from `compact-state.json` which is a local file concept — it should work cross-platform. The hook.ts dispatch map (line 1-40 shows pattern) uses dynamic imports. Need clarity on which dispatch table to add it to.",
+      "suggested_fix": "Clarify in Task 5 notes: add `prompt-context` to the shared dispatch table in hook.ts (alongside `tdd-guard`, `tdd-tracker`, etc.) since it uses `findActivePlan()` which is platform-agnostic. The hooks.json entry should use `sentinal hook shared prompt-context` command."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "No fallback if UserPromptSubmit additionalContext delivery is unreliable",
+      "description": "Task 5 depends on UserPromptSubmit returning `additionalContext` that gets injected into the next turn. The plan notes this is confirmed in official docs, but there's no fallback if the context injection is silently dropped or delayed. Since this is the primary mechanism for post-compaction state recovery in CC, failure here means the core Goal Verification truth #3 is unmet.",
+      "suggested_fix": "Add a risk mitigation to Task 5: if UserPromptSubmit additionalContext doesn't appear reliably, fall back to using the existing SessionStart hook's memory-restore mechanism which already works. Add a manual verification step: 'Confirm injected context appears in Claude's response by asking it to echo the current spec state.'"
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "file-checker timeout reduction (60s → 10s) is unrelated to async hooks",
+      "description": "Task 1 includes reducing file-checker timeout from 60s to 10s. While reasonable, this is a separate optimization not requested in the user requirements ('async PostToolUse hooks' for tdd-tracker, memory-observer, context-monitor). Bundling it risks blame if anything breaks.",
+      "suggested_fix": "Keep the timeout change but note it explicitly as a bonus fix in the task description so the implementer knows it's ancillary. Low risk but should be documented as separate from the async hook changes."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 7 includes codesign but no DoD item for it",
+      "description": "Task 7 notes mention `codesign -f -s - ~/.sentinal/bin/sentinal` after rebuild, but this isn't in the DoD checklist. On macOS, failing to codesign after rebuilding will cause 'killed' errors on execution.",
+      "suggested_fix": "Add DoD item: '[ ] CLI binary is codesigned after rebuild (`codesign -f -s - ~/.sentinal/bin/sentinal`)'"
+    }
+  ]
+}

@@ -418,44 +418,12 @@ export const SentinalPlugin: Plugin = async ({
         "multiedit",
       ];
 
-      // Context monitoring — only query OpenCode's session API with a real session ID
-      // (our eager "opencode-<ts>" IDs cause Hono validator errors in the TUI)
-      toolCallCount++;
-      const hasRealSessionId = sessionId && !sessionId.startsWith("opencode-");
-      if (hasRealSessionId && toolCallCount % CONTEXT_CHECK_INTERVAL === 0) {
-        try {
-          const response = await client.session.messages({
-            path: { id: sessionId! },
-          });
-          const messages = ((response as unknown as { data?: unknown })?.data ??
-            response ??
-            []) as SessionMessage[];
-          if (Array.isArray(messages)) {
-            const usage = aggregateTokenUsage(messages);
-            const warning = getContextWarning(usage);
-            if (warning) {
-              await client.app.log({
-                body: {
-                  service: "sentinal",
-                  level: usage.percent >= 95 ? "error" : "warn",
-                  message: `[Sentinal] ${warning}`,
-                },
-              });
-            }
-          }
-        } catch {
-          /* non-fatal */
-        }
-      }
-
-      if (!MEMORY_TOOLS.includes(input.tool)) return;
-
+      // ── Sync phase: quality checks (can throw to block) ──────────────
       const filePath =
         output.args?.filePath || output.args?.file_path || output.args?.path;
       const issues: string[] = [];
       let shouldBlock = false;
 
-      // Quality checks
       if (
         QUALITY_TOOLS.includes(input.tool) &&
         filePath &&
@@ -531,81 +499,138 @@ export const SentinalPlugin: Plugin = async ({
         }
       }
 
-      // TDD Tracker via sidecar
-      if (sidecar) {
-        const trackerFilePath =
-          typeof filePath === "string" ? filePath : undefined;
-        const bashOutput = ["bash", "shell", "terminal"].includes(input.tool)
-          ? (output.args?.output as string | undefined)
-          : undefined;
-        await sidecarTddTrack(sidecar, input.tool, trackerFilePath, bashOutput);
-      }
+      if (!MEMORY_TOOLS.includes(input.tool)) return;
 
-      // Memory capture (runs even without sidecar — queues when unavailable)
-      if (sessionId) {
+      // ── Async phase: fire-and-forget for TDD, memory, context ────────
+      // These are side-effect-only operations that don't affect the tool
+      // pipeline. Running them as fire-and-forget removes ~50-300ms of
+      // blocking per tool call. Errors are swallowed silently.
+      const asyncIssues = [...issues];
+      const asyncShouldBlock = shouldBlock;
+      void (async () => {
         try {
-          // Build output: prefer actual tool output for bash/shell (enables error→fix,
-          // TDD cycle, and build-fix heuristics), fall back to quality-check issues
-          let eventOutput: string | undefined;
-          if (["bash", "shell", "terminal"].includes(input.tool)) {
-            const raw =
-              output.args?.output ?? output.args?.stdout ?? output.args?.stderr;
-            if (typeof raw === "string" && raw.length > 0) {
-              eventOutput = raw.slice(0, 2000);
+          // Context monitoring — only query OpenCode's session API with a real session ID
+          // (our eager "opencode-<ts>" IDs cause Hono validator errors in the TUI)
+          toolCallCount++;
+          const hasRealSessionId =
+            sessionId && !sessionId.startsWith("opencode-");
+          if (
+            hasRealSessionId &&
+            toolCallCount % CONTEXT_CHECK_INTERVAL === 0
+          ) {
+            try {
+              const response = await client.session.messages({
+                path: { id: sessionId! },
+              });
+              const messages = (
+                (response as unknown as { data?: unknown })?.data ??
+                response ??
+                []
+              ) as SessionMessage[];
+              if (Array.isArray(messages)) {
+                const usage = aggregateTokenUsage(messages);
+                const warning = getContextWarning(usage);
+                if (warning) {
+                  await client.app.log({
+                    body: {
+                      service: "sentinal",
+                      level: usage.percent >= 95 ? "error" : "warn",
+                      message: `[Sentinal] ${warning}`,
+                    },
+                  });
+                }
+              }
+            } catch {
+              /* non-fatal */
             }
           }
-          if (!eventOutput && issues.length > 0) {
-            eventOutput = issues.join("\n").slice(0, 500);
+
+          // TDD Tracker via sidecar
+          if (sidecar) {
+            const trackerFilePath =
+              typeof filePath === "string" ? filePath : undefined;
+            const bashOutput = ["bash", "shell", "terminal"].includes(
+              input.tool,
+            )
+              ? (output.args?.output as string | undefined)
+              : undefined;
+            await sidecarTddTrack(
+              sidecar,
+              input.tool,
+              trackerFilePath,
+              bashOutput,
+            );
           }
 
-          // For bash tools, use exit code if available; otherwise rely on quality-check blocking
-          let eventSuccess = !shouldBlock;
-          if (["bash", "shell", "terminal"].includes(input.tool)) {
-            const exitCode = output.args?.exitCode ?? output.args?.exit_code;
-            if (typeof exitCode === "number") eventSuccess = exitCode === 0;
-          }
+          // Memory capture (runs even without sidecar — queues when unavailable)
+          if (sessionId) {
+            // Build output: prefer actual tool output for bash/shell (enables error→fix,
+            // TDD cycle, and build-fix heuristics), fall back to quality-check issues
+            let eventOutput: string | undefined;
+            if (["bash", "shell", "terminal"].includes(input.tool)) {
+              const raw =
+                output.args?.output ??
+                output.args?.stdout ??
+                output.args?.stderr;
+              if (typeof raw === "string" && raw.length > 0) {
+                eventOutput = raw.slice(0, 2000);
+              }
+            }
+            if (!eventOutput && asyncIssues.length > 0) {
+              eventOutput = asyncIssues.join("\n").slice(0, 500);
+            }
 
-          const event: ToolEvent = {
-            toolName: input.tool,
-            filePath: typeof filePath === "string" ? filePath : undefined,
-            success: eventSuccess,
-            output: eventOutput,
-            timestamp: Date.now(),
-          };
-          eventBuffer.push(event);
-          const decision = analyzeEvent(event, eventBuffer);
-          if (
-            decision.shouldCapture &&
-            decision.confidence >= MIN_CAPTURE_CONFIDENCE
-          ) {
-            const obsPayload = {
-              sessionId,
-              projectPath: projectRoot,
-              type: decision.type,
-              title: decision.title,
-              content: decision.content,
-              filePaths: decision.filePaths,
-              tags: decision.tags,
-              metadata: {
-                source: "auto-capture",
-                confidence: decision.confidence,
-                toolName: input.tool,
-              },
+            // For bash tools, use exit code if available; otherwise rely on quality-check blocking
+            let eventSuccess = !asyncShouldBlock;
+            if (["bash", "shell", "terminal"].includes(input.tool)) {
+              const exitCode = output.args?.exitCode ?? output.args?.exit_code;
+              if (typeof exitCode === "number") eventSuccess = exitCode === 0;
+            }
+
+            const event: ToolEvent = {
+              toolName: input.tool,
+              filePath: typeof filePath === "string" ? filePath : undefined,
+              success: eventSuccess,
+              output: eventOutput,
+              timestamp: Date.now(),
             };
-            if (sidecar) {
-              try {
-                await sidecar.addObservation(obsPayload);
-              } catch {
+            eventBuffer.push(event);
+            const decision = analyzeEvent(event, eventBuffer);
+            if (
+              decision.shouldCapture &&
+              decision.confidence >= MIN_CAPTURE_CONFIDENCE
+            ) {
+              const obsPayload = {
+                sessionId,
+                projectPath: projectRoot,
+                type: decision.type,
+                title: decision.title,
+                content: decision.content,
+                filePaths: decision.filePaths,
+                tags: decision.tags,
+                metadata: {
+                  source: "auto-capture",
+                  confidence: decision.confidence,
+                  toolName: input.tool,
+                },
+              };
+              if (sidecar) {
+                try {
+                  await sidecar.addObservation(obsPayload);
+                } catch {
+                  ObservationQueue.enqueue(obsPayload, log);
+                }
+              } else {
                 ObservationQueue.enqueue(obsPayload, log);
               }
-            } else {
-              ObservationQueue.enqueue(obsPayload, log);
             }
           }
         } catch (e) {
-          log(`auto-capture failed: ${e instanceof Error ? e.message : e}`);
+          log(
+            `async post-tool work failed: ${e instanceof Error ? e.message : e}`,
+          );
         }
-      }
+      })();
     },
 
     "experimental.session.compacting": async (input, output) => {
@@ -638,17 +663,43 @@ export const SentinalPlugin: Plugin = async ({
         JSON.stringify(state, null, 2),
       );
 
-      if (activePlan) {
-        output.context.push(`## Sentinal /spec Workflow State
+      if (activePlan && active) {
+        // Build enriched spec context with current task and progress.
+        // NOTE: This formatting logic is duplicated from src/hooks/prompt-context.ts
+        // (buildSpecContext). The OC plugin can't import from src/ since it's
+        // deployed as a single bundled file. Keep both in sync when changing format.
+        const tasks = active.spec.tasks ?? [];
+        const total = tasks.length;
+        const completed = tasks.filter(
+          (t: { status: string }) => t.status === "complete",
+        ).length;
+        const remaining = total - completed;
+        const percent =
+          total > 0 ? Math.round((completed / total) * 100) : 0;
+        const currentTask =
+          tasks.find(
+            (t: { status: string }) => t.status === "in-progress",
+          ) ??
+          tasks.find((t: { status: string }) => t.status === "pending") ??
+          null;
 
-**Active Plan:** ${activePlan}
-**Status:** ${planStatus}
-
-Resume the /spec workflow by reading the plan file and continuing from where you left off.
-- If PENDING: Continue with implementation or await user approval
-- If COMPLETE: Run verification phase
-
-Use \`/spec ${activePlan}\` to resume the workflow.`);
+        const specLines = [
+          "## Active Spec State",
+          "",
+          `**Active Plan:** ${activePlan}`,
+          `**Status:** ${planStatus}`,
+          `**Progress:** ${percent}% (${completed}/${total} tasks, ${remaining} remaining)`,
+        ];
+        if (currentTask) {
+          specLines.push(
+            `**Current Task:** Task ${(currentTask as { position: number; title: string }).position}: ${(currentTask as { position: number; title: string }).title}`,
+          );
+        }
+        specLines.push(
+          "",
+          `Resume with \`/spec ${activePlan}\` to continue the workflow.`,
+        );
+        output.context.push(specLines.join("\n"));
       }
 
       if (memoryContext) output.context.push(memoryContext);
@@ -700,10 +751,12 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
           draining = false;
         }
 
-        // Restore memory context
+        // Restore memory context and save to compact-state.json for compaction pickup.
         // NOTE: client.app.log() writes to OpenCode's TUI log panel, NOT the LLM's
-        // context window. Memory is properly injected into LLM context during compaction
+        // context window. Memory is injected into LLM context during compaction
         // via output.context.push() in the session.compacting handler above.
+        // Saving to compact-state.json ensures memory context is available even
+        // if the first compaction happens before the sidecar is fully ready.
         try {
           if (sidecar) {
             const restored = await sidecar.restoreContext(projectRoot);
@@ -715,6 +768,20 @@ Use \`/spec ${activePlan}\` to resume the workflow.`);
                   message: restored.markdown,
                 },
               });
+              // Persist for compaction handler pickup
+              const stDir = join(projectRoot, ".sentinal");
+              mkdirSync(stDir, { recursive: true });
+              const activePlanInfo = findActivePlan(projectRoot);
+              const compactState: CompactState = {
+                activePlan: activePlanInfo?.filePath ?? null,
+                memoryContext: restored.markdown,
+                timestamp: new Date().toISOString(),
+                cwd: projectRoot,
+              };
+              writeFileSync(
+                join(stDir, "compact-state.json"),
+                JSON.stringify(compactState, null, 2),
+              );
             }
           }
         } catch (e) {

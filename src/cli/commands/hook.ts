@@ -476,6 +476,11 @@ async function runPreEditGuide(): Promise<void> {
   if (parts.length > 0) output(hintFn("PreToolUse", parts.join("\n")));
 }
 
+async function runPromptContext(): Promise<void> {
+  const { main } = await import("../../hooks/prompt-context.js");
+  await main();
+}
+
 const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "tdd-guard": runTddGuard,
   "tdd-tracker": runTddTracker,
@@ -487,6 +492,7 @@ const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "pre-compact": runPreCompact,
   "post-compact-restore": runPostCompactRestore,
   "pre-edit-guide": runPreEditGuide,
+  "prompt-context": runPromptContext,
 };
 
 const CLAUDE_HOOKS: Record<string, () => Promise<void>> = {

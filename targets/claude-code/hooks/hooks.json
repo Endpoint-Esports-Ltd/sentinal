@@ -69,7 +69,8 @@
           {
             "type": "command",
             "command": "sentinal hook shared tdd-tracker",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       },
@@ -79,7 +80,7 @@
           {
             "type": "command",
             "command": "sentinal hook claude file-checker",
-            "timeout": 60
+            "timeout": 10
           }
         ]
       },
@@ -89,7 +90,8 @@
           {
             "type": "command",
             "command": "sentinal hook shared memory-observer",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       },
@@ -99,6 +101,18 @@
           {
             "type": "command",
             "command": "sentinal hook claude context-monitor",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sentinal hook shared prompt-context",
             "timeout": 5
           }
         ]

@@ -5,6 +5,26 @@ tools: Read, Grep, Glob, Write, Bash(git diff:*), Bash(git log:*)
 model: sonnet
 background: true
 permissionMode: plan
+mcpServers:
+  - context7:
+      type: stdio
+      command: npx
+      args: ["-y", "@upstash/context7-mcp"]
+  - web-search:
+      type: stdio
+      command: npx
+      args: ["-y", "open-websearch"]
+      env:
+        MODE: stdio
+        DEFAULT_SEARCH_ENGINE: duckduckgo
+        ALLOWED_SEARCH_ENGINES: "duckduckgo,bing,exa"
+  - grep-mcp:
+      type: http
+      url: https://mcp.grep.app
+  - web-fetch:
+      type: stdio
+      command: npx
+      args: ["-y", "fetcher-mcp"]
 ---
 
 # Spec Reviewer
