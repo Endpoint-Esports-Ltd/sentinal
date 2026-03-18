@@ -1,3 +1,10 @@
+## [1.19.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.1...v1.19.2) (2026-03-18)
+
+
+### Bug Fixes
+
+* add verification action prompt for COMPLETE plans in prompt-context ([a027382](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a027382b4ee956d7fa2d3c6bf7e7ac0ff90cc980))
+
 ## [1.19.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.0...v1.19.1) (2026-03-18)
 
 
