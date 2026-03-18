@@ -44,7 +44,7 @@ import { registerUsageCommand } from "./commands/usage.js";
 // Injected at compile time by `bun build --define`. Falls back to package.json at runtime.
 declare const __SENTINAL_VERSION__: string | undefined;
 
-function getVersion(): string {
+export function getVersion(): string {
   // Prefer compile-time constant (set by build:cli --define)
   if (typeof __SENTINAL_VERSION__ !== "undefined") {
     return __SENTINAL_VERSION__;

@@ -53,10 +53,28 @@ function specCard(spec: Spec): string {
     })
     .join("");
 
+  // Build timing display
+  let timingHtml = "";
+  if (spec.startedAt) {
+    if (spec.completedAt) {
+      const durationMs = spec.completedAt - spec.startedAt;
+      const durationMin = Math.round(durationMs / 60000);
+      const hours = Math.floor(durationMin / 60);
+      const mins = durationMin % 60;
+      const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      timingHtml = `<span class="text-xs text-emerald-500">&#9202; ${durationStr}</span>`;
+    } else {
+      const elapsedMs = Date.now() - spec.startedAt;
+      const elapsedMin = Math.round(elapsedMs / 60000);
+      timingHtml = `<span class="text-xs text-blue-400">&#9202; ${elapsedMin}m elapsed</span>`;
+    }
+  }
+
   const meta = [
     spec.type,
     spec.approved ? "Approved" : null,
     spec.metadata?.iterations ? `${spec.metadata.iterations} iterations` : null,
+    spec.parent ? `Wave ${spec.wave ?? "?"}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -67,6 +85,7 @@ function specCard(spec: Spec): string {
     <div class="flex items-center gap-2 mb-2">
       ${statusBadge(spec.status)}
       <span class="text-xs text-gray-500">${escapeHtml(meta)}</span>
+      ${timingHtml}
     </div>
     ${progressBar(tasksDone, spec.tasks.length)}
     ${

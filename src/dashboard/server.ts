@@ -107,6 +107,34 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
     } else if (path === "/fragments/dashboard") {
       const data = getDashboardData(ctx);
       response = html(dashboardFragment(data));
+    } else if (path === "/fragments/memories") {
+      const { memoriesListFragment } = await import("./views/memories.js");
+      const q = url.searchParams.get("q") ?? "";
+      const typeParam = url.searchParams.get("type") ?? undefined;
+      const page = parseInt(url.searchParams.get("page") ?? "1", 10);
+      const offset = (page - 1) * 20;
+      const filterType = typeParam as import("../memory/types.js").ObservationType | undefined;
+      const observations = q
+        ? ctx.store.searchFTS(q, {
+            limit: 20,
+            offset,
+            orderBy: "relevance",
+            exactMatch: false,
+            type: filterType,
+          })
+        : ctx.store.searchFilters({
+            limit: 20,
+            offset,
+            orderBy: "date_desc",
+            exactMatch: false,
+            type: filterType,
+          });
+      response = html(memoriesListFragment(observations, page));
+    } else if (path === "/fragments/sessions") {
+      const { sessionsFragment } = await import("./views/sessions.js");
+      const active = ctx.store.getActiveSessions();
+      const ended = ctx.store.listSessions({ limit: 50 });
+      response = html(sessionsFragment(active, ended));
 
       // ─── HTML View Routes ─────────────────────────────────────────
     } else if (path === "/") {
@@ -195,7 +223,13 @@ async function renderView(
       }
       case "memories": {
         const { memoriesView } = await import("./views/memories.js");
-        content = memoriesView([]);
+        const observations = ctx.store.searchFilters({
+          limit: 20,
+          offset: 0,
+          orderBy: "date_desc",
+          exactMatch: false,
+        });
+        content = memoriesView(observations);
         break;
       }
       case "sessions": {

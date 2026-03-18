@@ -70,11 +70,38 @@ export function isServerRunning(): boolean {
 
 /**
  * Auto-start the dashboard server if not already running.
+ * If running but version mismatches (stale binary), restart it.
  * Spawns `sentinal serve` as a detached background process.
  * Non-fatal — dashboard is supplementary.
  */
-export function autoStartDashboard(): void {
-  if (isServerRunning()) return;
+export async function autoStartDashboard(
+  currentVersion?: string,
+): Promise<void> {
+  if (isServerRunning()) {
+    // Check version match if current version is known
+    if (currentVersion) {
+      try {
+        const resp = await fetch("http://127.0.0.1:41778/api/health", {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (resp.ok) {
+          const data = (await resp.json()) as { version?: string };
+          if (data.version && data.version !== currentVersion) {
+            // Version mismatch — restart with new binary
+            stopServer();
+            // Small delay to allow port release
+            await new Promise((r) => setTimeout(r, 200));
+          } else {
+            return; // Running and up-to-date
+          }
+        }
+      } catch {
+        return; // Can't reach — assume it's fine
+      }
+    } else {
+      return; // Running, no version to check
+    }
+  }
 
   try {
     const cmd = findSentinalCmd();

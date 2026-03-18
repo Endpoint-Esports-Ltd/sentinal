@@ -48,6 +48,10 @@ interface RawSpec {
   updated_at: number;
   session_id: string | null;
   metadata: string | null;
+  parent: string | null;
+  wave: number | null;
+  started_at: number | null;
+  completed_at: number | null;
 }
 
 interface RawSpecTask {
@@ -509,6 +513,10 @@ export class SpecStore {
       approved: row.approved === 1,
       planFile: row.plan_file,
       sessionId: row.session_id ?? undefined,
+      parent: row.parent ?? undefined,
+      wave: row.wave ?? undefined,
+      startedAt: row.started_at ?? undefined,
+      completedAt: row.completed_at ?? undefined,
       tasks,
       metadata,
     };

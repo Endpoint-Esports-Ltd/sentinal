@@ -62,7 +62,9 @@ async function runSessionStart(): Promise<void> {
   const assistant = detectAssistant();
 
   autoStartSidecar();
-  autoStartDashboard();
+  // Pass version so dashboard restarts on binary update
+  const { getVersion } = await import("../index.js");
+  await autoStartDashboard(getVersion());
 
   try {
     const client = await SidecarClient.connect();
