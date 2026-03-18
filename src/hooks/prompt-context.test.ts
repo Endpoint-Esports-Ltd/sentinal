@@ -171,6 +171,24 @@ describe("buildSpecContext", () => {
     expect(result).toContain("100%");
   });
 
+  it("should show verification action prompt for COMPLETE plans", () => {
+    writePlan(tmpDir, "2026-03-17-complete.md", COMPLETE_PLAN);
+    const result = buildSpecContext(tmpDir);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Action Required");
+    expect(result).toContain("not VERIFIED");
+  });
+
+  it("should show resume prompt for non-COMPLETE plans", () => {
+    writePlan(tmpDir, "2026-03-17-test-feature.md", ACTIVE_PLAN);
+    const result = buildSpecContext(tmpDir);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Resume with");
+    expect(result).not.toContain("Action Required");
+  });
+
   it("should handle plans directory not existing", () => {
     // tmpDir exists but has no docs/plans/
     const result = buildSpecContext(tmpDir);

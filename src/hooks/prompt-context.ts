@@ -54,10 +54,18 @@ export function buildSpecContext(searchDir: string): string | null {
     );
   }
 
-  lines.push(
-    "",
-    `Resume with \`/spec ${filePath}\` if needed.`,
-  );
+  // Add action prompt based on status
+  if (spec.status === "COMPLETE") {
+    lines.push(
+      "",
+      `**Action Required:** Plan is COMPLETE but not VERIFIED. Run \`/spec ${filePath}\` to start verification.`,
+    );
+  } else {
+    lines.push(
+      "",
+      `Resume with \`/spec ${filePath}\` if needed.`,
+    );
+  }
 
   return lines.join("\n");
 }
