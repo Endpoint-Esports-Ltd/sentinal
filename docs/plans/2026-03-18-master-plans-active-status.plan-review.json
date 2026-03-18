@@ -1,0 +1,63 @@
+{
+  "review_summary": "Plan covers both requirements (IN_PROGRESS lifecycle fix + master plans with waves) with good task decomposition. However, it has critical gaps: Zod schemas are not updated alongside TypeScript types, findActivePlan lacks a task to handle master+child plan coexistence, and the SpecSchema omits parent/wave fields.",
+  "alignment_score": "medium",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 4: SPEC_TYPES array and SpecSchema Zod enum not updated for 'master'",
+      "description": "The plan says to extend SpecType but SpecType is derived from SPEC_TYPES const array via `(typeof SPEC_TYPES)[number]` (types.ts:28-29). The SpecSchema also uses `z.enum(SPEC_TYPES)` at line 71. Task 4 only mentions updating the type normalization in parser.ts — it does not mention adding 'master' to the SPEC_TYPES array or that SpecSchema.type will automatically pick it up. If the implementer only adds to a union type manually, the Zod validation will reject master plans at runtime.",
+      "suggested_fix": "In Task 4, explicitly state: add 'master' to the SPEC_TYPES array (`export const SPEC_TYPES = ['feature', 'bugfix', 'master'] as const`). Note that SpecType and SpecSchema.type are both derived from this array, so no separate union type change is needed."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 5: SpecSchema Zod object must be updated for parent/wave fields",
+      "description": "Task 5 says to add `parent?: string` and `wave?: number` to the 'Spec interface', but the Spec type is `z.infer<typeof SpecSchema>` (types.ts:87). There is no separate Spec interface — it's fully derived from the Zod schema. The implementer must add these fields to SpecSchema, not to a non-existent interface.",
+      "suggested_fix": "In Task 5, replace 'add parent and wave to the Spec interface' with: add `parent: z.string().optional()` and `wave: z.number().int().optional()` to SpecSchema. The Spec type will be updated automatically via z.infer."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "No task addresses findActivePlan behavior with master+child plans",
+      "description": "findActivePlan() (detect.ts:25-47) returns the first active plan sorted reverse-alphabetically. With master+child plans both active simultaneously, it may return a child plan instead of the master. The Risk table says 'Master plans take precedence' and Pre-Mortem #1 identifies this as the most likely failure mode, but NO task implements the fix. This is a runtime bug waiting to happen.",
+      "suggested_fix": "Add a subtask (to Task 4 or a new Task 4b) to modify findActivePlan() to prioritize Type: Master plans when multiple active plans exist. For example: find all active plans, return the master if one exists, otherwise return the most recent child. Add a unit test with a master + child plan both active."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "store.ts likely needs schema changes for parent/wave fields",
+      "description": "Task 5 adds parent and wave fields to the Spec type, but the plan lists store.ts as a key file (line 63) without any task modifying it. If SpecStore persists specs to SQLite, the spec_plans table likely needs new columns for parent and wave, plus the upsert/query logic updated. Without this, master-child relationships won't survive across sessions.",
+      "suggested_fix": "Audit store.ts for how Spec objects are persisted. If it stores individual fields (not JSON blob), add parent/wave columns via migration. Add this as a subtask to Task 5 or a new task between 5 and 6."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Tasks 6, 7, 8 have no automated tests — only manual verification",
+      "description": "Tasks 6 (spec-master-plan skill), 7 (dispatcher routing), and 8 (spec-master-execute skill) only specify 'Manual: read files' or 'Manual: trace through' verification. These are skill/command markdown files so traditional unit tests don't apply, but there's no structured verification — easy to miss routing gaps or inconsistencies between the two target locations.",
+      "suggested_fix": "Add a verification step: diff the claude-code and opencode versions to confirm identical content. For the dispatcher (Task 7), add a table completeness check — enumerate all (Status × Type × Approved) combinations and confirm each has a routing row."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "No task handles the embed-assets registration of new skills in install.ts",
+      "description": "Task 9 mentions modifying install.ts 'if new skills need registration' but treats it as optional. The two new skills (spec-master-plan, spec-master-execute) need to be registered in the install command so they appear in Claude Code / OpenCode. This is vague — if missed, the skills won't be available to users.",
+      "suggested_fix": "In Task 9, explicitly check whether install.ts has a skill registration manifest. If new skills must be added there, make it a required DoD item, not conditional."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "YAGNI: spec-master-plan skill may be premature",
+      "description": "The user request focuses on master plans with waves/phases for parallel execution. Task 6 creates a full spec-master-plan skill with exploration, question, and reviewer flow mirroring spec-plan. For an initial implementation, the master plan could be authored manually (it's just a markdown file with specific headers) while the execution skill (Task 8) provides the real value.",
+      "suggested_fix": "Consider making Task 6 simpler — just document the master plan format/template rather than building a full planning skill. The spec-master-execute skill (Task 8) is the critical path. This reduces scope from 9 tasks to ~8 and defers the planning skill to a follow-up."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "Architecture diagrams mentioned but format not specified",
+      "description": "The user request says master plans include 'architecture diagrams'. Task 6 mentions 'mermaid or ASCII' in parentheses but doesn't commit to a format or provide guidance on how diagrams integrate with the markdown plan format.",
+      "suggested_fix": "In Task 6, specify Mermaid as the primary diagram format (already supported by GitHub markdown rendering) with a brief example in the template."
+    }
+  ]
+}

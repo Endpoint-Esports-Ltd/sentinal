@@ -40,6 +40,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 6) migrateV6(db);
   if (currentVersion < 7) migrateV7(db);
   if (currentVersion < 8) migrateV8(db);
+  if (currentVersion < 9) migrateV9(db);
 }
 
 // ─── V1: Core tables (observations, sessions, FTS) ───────────────────────────
@@ -316,4 +317,28 @@ function migrateV8(db: Database): void {
   );
 
   db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (8)");
+}
+
+// ─── V9: parent and wave columns on specs ────────────────────────────────────
+
+function migrateV9(db: Database): void {
+  // Only add columns if specs table exists (created in V2)
+  const tables = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='specs'",
+    )
+    .all();
+  if (tables.length > 0) {
+    const cols = db.prepare("PRAGMA table_info(specs)").all() as Array<{
+      name: string;
+    }>;
+    if (!cols.some((c) => c.name === "parent")) {
+      db.run("ALTER TABLE specs ADD COLUMN parent TEXT");
+    }
+    if (!cols.some((c) => c.name === "wave")) {
+      db.run("ALTER TABLE specs ADD COLUMN wave INTEGER");
+    }
+  }
+
+  db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (9)");
 }

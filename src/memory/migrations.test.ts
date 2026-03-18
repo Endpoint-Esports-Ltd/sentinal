@@ -213,7 +213,7 @@ describe("runMigrations", () => {
     expect(rows[2]!.quality_score).toBe(1.0); // null metadata → default
   });
 
-  it("should set schema version to 8 after V8 migration", () => {
+  it("should set schema version to 9 after V9 migration", () => {
     tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, "test.db");
     db = new Database(dbPath, { create: true });
@@ -222,6 +222,13 @@ describe("runMigrations", () => {
     const row = db
       .prepare("SELECT MAX(version) as version FROM schema_version")
       .get() as { version: number };
-    expect(row.version).toBe(8);
+    expect(row.version).toBe(9);
+
+    // V9 adds parent and wave columns to specs
+    const cols = db.prepare("PRAGMA table_info(specs)").all() as Array<{
+      name: string;
+    }>;
+    expect(cols.some((c) => c.name === "parent")).toBe(true);
+    expect(cols.some((c) => c.name === "wave")).toBe(true);
   });
 });

@@ -21,6 +21,7 @@ export interface ActivePlan {
 /**
  * Find the most recent active (non-terminal) plan in `docs/plans/`.
  * Plans are sorted reverse-alphabetically so date-prefixed files come first.
+ * Master plans take precedence over child/regular plans when multiple are active.
  */
 export function findActivePlan(searchDir: string): ActivePlan | null {
   const plansDir = join(searchDir, "docs", "plans");
@@ -32,18 +33,28 @@ export function findActivePlan(searchDir: string): ActivePlan | null {
       .sort()
       .reverse();
 
+    let firstActive: ActivePlan | null = null;
+
     for (const file of files) {
       const filePath = join(plansDir, file);
       const spec = parsePlanFile(filePath);
-      if (ACTIVE_STATUSES.includes(spec.status)) {
+      if (!ACTIVE_STATUSES.includes(spec.status)) continue;
+
+      // Master plans always take precedence
+      if (spec.type === "master") {
         return { filePath, spec };
       }
+
+      // Track the first (most recent) active non-master plan
+      if (!firstActive) {
+        firstActive = { filePath, spec };
+      }
     }
+
+    return firstActive;
   } catch {
     return null;
   }
-
-  return null;
 }
 
 // --- Stop Guard Logic ---

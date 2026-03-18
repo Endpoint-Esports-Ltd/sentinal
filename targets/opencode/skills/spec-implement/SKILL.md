@@ -78,6 +78,18 @@ All subsequent work happens inside the worktree directory.
 
 ---
 
+### Step 2.1c: Set Active Status
+
+**Set `Status: IN_PROGRESS` in the plan file** to indicate active implementation. This replaces the ambiguous `PENDING + Approved: Yes` state.
+
+**Preferred:** Use `spec_register` MCP tool with `plan_path` and `status: "IN_PROGRESS"`.
+
+**Fallback:** `sentinal register-plan "<plan_path>" "IN_PROGRESS" 2>/dev/null || true`
+
+This ensures the dispatcher, stop guard, and prompt-context all know the plan is being actively worked on.
+
+---
+
 ### Step 2.2: Set Up Task List (MANDATORY)
 
 1. **Check existing:** `TaskList` — if tasks exist from prior session, resume (don't recreate)

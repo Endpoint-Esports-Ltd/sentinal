@@ -22,13 +22,15 @@ model: sonnet
                     → Bugfix:  Skill('spec-bugfix-plan') → Investigate → Plan → Implement → Verify
 ```
 
-| Phase                | Skill                | Model  |
-| -------------------- | -------------------- | ------ |
-| Feature Planning     | `spec-plan`          | Opus   |
-| Bugfix Planning      | `spec-bugfix-plan`   | Opus   |
-| Implementation       | `spec-implement`     | Sonnet |
-| Feature Verification | `spec-verify`        | Sonnet |
-| Bugfix Verification  | `spec-bugfix-verify` | Sonnet |
+| Phase                 | Skill                  | Model  |
+| --------------------- | ---------------------- | ------ |
+| Feature Planning      | `spec-plan`            | Opus   |
+| Bugfix Planning       | `spec-bugfix-plan`     | Opus   |
+| Master Planning       | `spec-master-plan`     | Opus   |
+| Implementation        | `spec-implement`       | Sonnet |
+| Master Execution      | `spec-master-execute`  | Sonnet |
+| Feature Verification  | `spec-verify`          | Sonnet |
+| Bugfix Verification   | `spec-bugfix-verify`   | Sonnet |
 
 ---
 
@@ -45,6 +47,7 @@ ELSE:
 
 - **Bugfix:** Something broken, crashing, wrong results, regressing → fix existing behavior
 - **Feature:** New functionality, enhancements, refactoring, migrations → build or change something
+- **Master:** Large multi-phase project requiring parallel execution across waves
 - **Ambiguous:** Ask user (bundled with worktree question)
 
 ### 0.1.2 User Questions (new plans only)
@@ -63,18 +66,24 @@ ELSE:
 
 - **Bugfix:** `Skill(skill='spec-bugfix-plan', args='<task_description> --worktree=yes|no')`
 - **Feature:** `Skill(skill='spec-plan', args='<task_description> --worktree=yes|no')`
+- **Master:** `Skill(skill='spec-master-plan', args='<task_description> --worktree=yes|no')`
 
 ## 0.2 Status-Based Dispatch (existing plans)
 
 Read plan, register association. **Preferred:** Use `spec_register` MCP tool. **Fallback:** `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
 
-| Status   | Approved | Type           | Skill                   |
-| -------- | -------- | -------------- | ----------------------- |
-| PENDING  | No       | Feature/absent | `spec-plan`             |
-| PENDING  | No       | Bugfix         | `spec-bugfix-plan`      |
-| PENDING  | Yes      | \*             | `spec-implement`        |
-| COMPLETE | \*       | Feature/absent | `spec-verify`           |
-| COMPLETE | \*       | Bugfix         | `spec-bugfix-verify`    |
-| VERIFIED | \*       | \*             | Report completion, done |
+| Status      | Approved | Type           | Skill                   |
+| ----------- | -------- | -------------- | ----------------------- |
+| PENDING     | No       | Feature/absent | `spec-plan`             |
+| PENDING     | No       | Bugfix         | `spec-bugfix-plan`      |
+| PENDING     | No       | Master         | `spec-master-plan`      |
+| PENDING     | Yes      | Feature/Bugfix | `spec-implement`        |
+| PENDING     | Yes      | Master         | `spec-master-execute`   |
+| IN_PROGRESS | \*       | Feature/Bugfix | `spec-implement`        |
+| IN_PROGRESS | \*       | Master         | `spec-master-execute`   |
+| COMPLETE    | \*       | Feature/absent | `spec-verify`           |
+| COMPLETE    | \*       | Bugfix         | `spec-bugfix-verify`    |
+| COMPLETE    | \*       | Master         | `spec-verify`           |
+| VERIFIED    | \*       | \*             | Report completion, done |
 
 ARGUMENTS: $ARGUMENTS

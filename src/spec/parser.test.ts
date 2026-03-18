@@ -352,3 +352,88 @@ Type: Feature
     expect(spec.tasks[2].status).toBe("pending");
   });
 });
+
+describe("parsePlanContent — master plan type", () => {
+  const masterContent = `# Big Feature Master Plan
+
+Created: 2026-03-18
+Status: PENDING
+Approved: Yes
+Type: Master
+
+## Goal
+
+Build a comprehensive user management system.
+
+## Architecture
+
+Component diagram here.
+
+## Phases
+
+- [ ] Phase 1: User model (Wave 1)
+- [ ] Phase 2: Auth API (Wave 1)
+- [ ] Phase 3: Dashboard UI (Wave 2)
+`;
+
+  it("should parse Type: Master correctly", () => {
+    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    expect(spec.type).toBe("master");
+  });
+
+  it("should be valid with zero tasks", () => {
+    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    expect(spec.tasks).toHaveLength(0);
+  });
+
+  it("should preserve approved status", () => {
+    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    expect(spec.approved).toBe(true);
+  });
+});
+
+describe("parsePlanContent — parent and wave fields", () => {
+  const childContent = `# User Model Implementation
+
+Created: 2026-03-18
+Status: PENDING
+Approved: No
+Type: Feature
+Parent: big-feature
+Wave: 1
+
+## Summary
+
+Implement the user model.
+
+## Progress Tracking
+
+- [ ] Task 1: Create schema
+- [ ] Task 2: Add migrations
+`;
+
+  it("should parse Parent field", () => {
+    const spec = parsePlanContent(childContent, "/plans/2026-03-18-user-model.md");
+    expect(spec.parent).toBe("big-feature");
+  });
+
+  it("should parse Wave field as number", () => {
+    const spec = parsePlanContent(childContent, "/plans/2026-03-18-user-model.md");
+    expect(spec.wave).toBe(1);
+  });
+
+  it("should handle plans without Parent/Wave", () => {
+    const regularContent = `# Regular Plan
+
+Status: PENDING
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: Something
+`;
+    const spec = parsePlanContent(regularContent, "/plans/regular.md");
+    expect(spec.parent).toBeUndefined();
+    expect(spec.wave).toBeUndefined();
+  });
+});

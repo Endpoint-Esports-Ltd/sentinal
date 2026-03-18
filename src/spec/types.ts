@@ -25,7 +25,7 @@ export const SPEC_STATUSES = [
 
 export type SpecStatus = (typeof SPEC_STATUSES)[number];
 
-export const SPEC_TYPES = ["feature", "bugfix"] as const;
+export const SPEC_TYPES = ["feature", "bugfix", "master"] as const;
 export type SpecType = (typeof SPEC_TYPES)[number];
 
 export const TASK_STATUSES = [
@@ -74,6 +74,8 @@ export const SpecSchema = z.object({
   created: z.string().optional(),
   sessionId: z.string().nullable().optional(),
   tasks: z.array(SpecTaskSchema).default([]),
+  parent: z.string().optional(),
+  wave: z.number().int().optional(),
   metadata: z
     .object({
       iterations: z.number().optional(),

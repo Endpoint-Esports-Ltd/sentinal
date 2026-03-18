@@ -84,8 +84,8 @@ export class SpecStore {
     const metadataJson = JSON.stringify(spec.metadata ?? {});
 
     const upsertSpec = this.db.prepare(
-      `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata, parent, wave)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     upsertSpec.run(
       spec.id,
@@ -102,6 +102,8 @@ export class SpecStore {
       now,
       sessionId ?? null,
       metadataJson,
+      spec.parent ?? null,
+      spec.wave ?? null,
     );
 
     // Sync tasks — delete existing then re-insert

@@ -57,6 +57,22 @@ Approved: Yes
 Type: Feature
 `;
 
+const IN_PROGRESS_PLAN = `# In Progress Plan
+
+Created: 2026-03-17
+Status: IN_PROGRESS
+Approved: Yes
+Type: Feature
+
+## Progress Tracking
+
+- [x] Task 1: Setup
+- [~] Task 2: Implementation
+- [ ] Task 3: Testing
+
+**Total Tasks:** 3 | **Completed:** 1 | **Remaining:** 2
+`;
+
 const COMPLETE_PLAN = `# Complete Plan
 
 Created: 2026-03-17
@@ -134,6 +150,16 @@ describe("buildSpecContext", () => {
     expect(result).not.toBeNull();
     expect(result).toContain("3");
     expect(result).toMatch(/remaining/i);
+  });
+
+  it("should display IN_PROGRESS status correctly", () => {
+    writePlan(tmpDir, "2026-03-17-in-progress.md", IN_PROGRESS_PLAN);
+    const result = buildSpecContext(tmpDir);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("IN_PROGRESS");
+    expect(result).toContain("33%"); // 1 of 3 tasks complete
+    expect(result).toContain("2 remaining");
   });
 
   it("should handle COMPLETE status with all tasks done", () => {

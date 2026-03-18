@@ -37,8 +37,9 @@ export function parsePlanContent(content: string, filePath: string): Spec {
   const tasks = extractTasks(lines);
 
   const status = normalizeStatus(meta.status);
+  const typeLower = meta.type?.toLowerCase();
   const type = (
-    meta.type?.toLowerCase() === "bugfix" ? "bugfix" : "feature"
+    typeLower === "bugfix" ? "bugfix" : typeLower === "master" ? "master" : "feature"
   ) as SpecType;
   const approved =
     meta.approved?.toLowerCase() === "yes" || status === "APPROVED";
@@ -51,6 +52,8 @@ export function parsePlanContent(content: string, filePath: string): Spec {
     approved,
     planFile: filePath,
     created: meta.created,
+    parent: meta.parent || undefined,
+    wave: meta.wave ? parseInt(meta.wave, 10) : undefined,
     tasks,
     metadata: {
       iterations: meta.iterations ? parseInt(meta.iterations, 10) : undefined,
@@ -73,6 +76,8 @@ interface RawMetadata {
   created?: string;
   iterations?: string;
   worktree?: string;
+  parent?: string;
+  wave?: string;
 }
 
 /** Extract metadata from either new-format or old-format plan files. */
@@ -86,7 +91,7 @@ function extractMetadata(lines: string[]): RawMetadata {
 
     // New format: `Key: Value`
     const plainMatch = line.match(
-      /^(Status|Type|Approved|Created|Iterations|Worktree):\s*(.+)$/i,
+      /^(Status|Type|Approved|Created|Iterations|Worktree|Parent|Wave):\s*(.+)$/i,
     );
     if (plainMatch) {
       const key = plainMatch[1].toLowerCase() as keyof RawMetadata;
