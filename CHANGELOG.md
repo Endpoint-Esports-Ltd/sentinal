@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.2...v1.20.0) (2026-03-18)
+
+
+### Features
+
+* add /quick command, /pause with resume detection, and spec_metrics ([5c6f8bd](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5c6f8bdbef718940e341758333e8c8c9b67ceb14))
+
 ## [1.19.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.1...v1.19.2) (2026-03-18)
 
 
