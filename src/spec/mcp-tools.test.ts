@@ -110,6 +110,43 @@ describe("spec_register MCP tool", () => {
     expect(spec!.status).toBe("IN_PROGRESS");
   });
 
+  it("should block VERIFIED when current status is IN_PROGRESS", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-skip-verify", "IN_PROGRESS");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "VERIFIED",
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain("Cannot transition");
+    expect(text).toContain("COMPLETE first");
+
+    // Verify the file was NOT updated
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: IN_PROGRESS");
+  });
+
+  it("should allow VERIFIED when current status is COMPLETE", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-verify-ok", "COMPLETE");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "VERIFIED",
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain("VERIFIED");
+    expect(text).not.toContain("Cannot transition");
+
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: VERIFIED");
+  });
+
   it("should default project to CWD when not provided", async () => {
     const planFile = makePlanFile(tmpDir, "2026-01-01-default-project");
     const handler = tools.get("spec_register")!;
@@ -579,5 +616,72 @@ Approved: Yes
     expect(text).toContain("Current Task");
     expect(text).toContain("Task 2");
     expect(text).toContain("33%");
+  });
+});
+
+// --- spec_metrics tests ---
+
+describe("spec_metrics MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, ToolHandler>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(registerSpecTools, store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return no metrics when no plan exists", async () => {
+    const handler = tools.get("spec_metrics")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("No active spec");
+  });
+
+  it("should return timing data when plan has timing", async () => {
+    // Create a plan and sync it
+    const planFile = makePlanFile(tmpDir, "2026-03-18-test", "IN_PROGRESS");
+    const specStore = new SpecStore(store);
+    specStore.syncFromPlanFile(planFile, tmpDir, "test-session");
+
+    // Manually set timing on the spec
+    store.getRawDb().run(
+      "UPDATE specs SET started_at = ? WHERE id = ?",
+      [Date.now() - 3600000, "2026-03-18-test"],
+    );
+
+    const handler = tools.get("spec_metrics")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Plan Timing");
+    expect(text).toContain("Started");
+  });
+
+  it("should return task timing when tasks have timing data", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-03-18-test", "IN_PROGRESS");
+    const specStore = new SpecStore(store);
+    specStore.syncFromPlanFile(planFile, tmpDir, "test-session");
+
+    // Set task timing
+    const now = Date.now();
+    store.getRawDb().run(
+      "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
+      [now - 900000, now - 300000, "2026-03-18-test"],
+    );
+
+    const handler = tools.get("spec_metrics")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Task Timing");
+    expect(text).toContain("First task");
   });
 });

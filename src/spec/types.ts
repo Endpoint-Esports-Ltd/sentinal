@@ -76,6 +76,8 @@ export const SpecSchema = z.object({
   tasks: z.array(SpecTaskSchema).default([]),
   parent: z.string().optional(),
   wave: z.number().int().optional(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
   metadata: z
     .object({
       iterations: z.number().optional(),

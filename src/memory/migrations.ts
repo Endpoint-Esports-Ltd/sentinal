@@ -41,6 +41,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 7) migrateV7(db);
   if (currentVersion < 8) migrateV8(db);
   if (currentVersion < 9) migrateV9(db);
+  if (currentVersion < 10) migrateV10(db);
 }
 
 // ─── V1: Core tables (observations, sessions, FTS) ───────────────────────────
@@ -341,4 +342,27 @@ function migrateV9(db: Database): void {
   }
 
   db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (9)");
+}
+
+// ─── V10: started_at and completed_at on specs ──────────────────────────────
+
+function migrateV10(db: Database): void {
+  const tables = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='specs'",
+    )
+    .all();
+  if (tables.length > 0) {
+    const cols = db.prepare("PRAGMA table_info(specs)").all() as Array<{
+      name: string;
+    }>;
+    if (!cols.some((c) => c.name === "started_at")) {
+      db.run("ALTER TABLE specs ADD COLUMN started_at INTEGER");
+    }
+    if (!cols.some((c) => c.name === "completed_at")) {
+      db.run("ALTER TABLE specs ADD COLUMN completed_at INTEGER");
+    }
+  }
+
+  db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (10)");
 }

@@ -40,6 +40,11 @@ echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED REVIEWER=$SENTINAL_PLAN_REVIEWE
 
 Reference these values throughout: Steps 1.2/1.3b/1.4 (questions), 1.7 (reviewer), 1.8 (approval).
 
+**Quick mode detection:** If `plan_reviewer_enabled`, `approval_enabled`, AND `spec_reviewer_enabled` are ALL `"false"`, this is a quick task (invoked via `/quick`). Use a lighter plan template in Step 1.6:
+- Skip `## Risks and Mitigations`, `## Pre-Mortem`, `## Context for Implementer` sections
+- Keep `## Summary`, `## Scope`, `## Goal Verification`, `## Implementation Tasks`
+- Exploration and questions still run normally
+
 ---
 
 ## Asking User Questions

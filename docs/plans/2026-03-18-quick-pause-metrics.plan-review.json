@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is well-structured and covers all three user requirements. Critical data-loss bug: syncFromPlanFile uses INSERT OR REPLACE (specs) and DELETE+re-insert (spec_tasks) which will clobber started_at/completed_at timing data set by earlier calls. Must be addressed before metrics can work.",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "syncFromPlanFile INSERT OR REPLACE will clobber specs timing columns",
+      "description": "Task 5 adds started_at/completed_at to the specs table and sets them during status transitions in syncFromPlanFile. However, syncFromPlanFile uses `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata, parent, wave)` (store.ts:87-88) — this omits started_at/completed_at. INSERT OR REPLACE deletes the existing row and re-inserts, so any previously-set timing values will be lost on every subsequent sync call. This makes plan-level metrics permanently broken.",
+      "suggested_fix": "Change the INSERT OR REPLACE to an INSERT...ON CONFLICT(id) DO UPDATE pattern that preserves started_at/completed_at. The UPDATE clause should use COALESCE to keep existing values: `started_at = COALESCE(excluded.started_at, specs.started_at)`. Alternatively, include started_at/completed_at in the INSERT column list and pass the correct values."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "syncFromPlanFile DELETE+re-insert destroys spec_tasks timing data",
+      "description": "syncFromPlanFile runs `DELETE FROM spec_tasks WHERE spec_id = ?` (store.ts:110) then re-inserts all tasks WITHOUT started_at/completed_at (store.ts:112-113). This means every call to syncFromPlanFile wipes any timing data previously set by updateTaskStatus. The plan assumes task timing 'just works' (Assumption 3, Task 6) but the data is destroyed on every plan sync.",
+      "suggested_fix": "Task 5 must also fix the task sync strategy. Either: (1) use INSERT...ON CONFLICT DO UPDATE that preserves timing columns, or (2) read existing timing before delete and re-apply on insert. Document this as a subtask in Task 5 with its own DoD checkbox. This is the same root cause as the specs table issue — both need the same fix pattern."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 5 syncFromPlanFile phase_change detection needs existing-status lookup",
+      "description": "Task 5 says 'detect status changes by comparing new status vs existing spec's status' but syncFromPlanFile currently has no code to fetch the existing spec before upserting. The plan doesn't specify how to get the old status. Since INSERT OR REPLACE is used, you can't use a RETURNING clause on the delete side.",
+      "suggested_fix": "Add an explicit step to Task 5: before the upsert, SELECT the existing spec's status. Compare old vs new status. If changed, log the phase_change event and set timing fields. Include this as a DoD checkbox: '[ ] Old status fetched before upsert for comparison'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 3 pause command .gitignore assumption unverified",
+      "description": "Plan states 'already allowed by .sentinal/.gitignore via the `!` exceptions' but this was not verified. If continue-here.md is gitignored, the WIP commit won't include it, breaking resume across machines.",
+      "suggested_fix": "Add a DoD checkbox to Task 3: '[ ] Verify .sentinal/.gitignore allows continue-here.md (add `!continue-here.md` exception if needed)'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 2 modifies spec-plan but user said 'keep exploration' — clarify conciseness boundaries",
+      "description": "User requirement says 'Quick mode: skip plan reviewer + approval + spec reviewer. Keep exploration and TDD.' Task 2 proposes 'Skip Batch 2 questions, keep exploration brief (1-2 key files)'. Reducing exploration depth may conflict with 'keep exploration'. The user explicitly said to keep exploration — making it briefer is a judgment call that should be flagged.",
+      "suggested_fix": "Remove the 'keep exploration brief' guidance from Task 2. Quick mode should only skip the three reviewer/approval phases, not change exploration depth. The user can always write a terse task description to naturally limit scope."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "YAGNI: --quick --full composable flag mentioned but not required",
+      "description": "Plan mentions 'Composable flags following GSD pattern: --quick alone or --quick --full for plan-checking only' (Scope, line 22) and Task 1 notes. User only requested --quick. The --full composition adds design complexity without a requirement.",
+      "suggested_fix": "Remove --quick --full references from Scope and Task 1. Keep --quick simple. If composable flags are needed later, they can be added in a separate spec."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 7 'CLI binary codesigned' is environment-specific and may block CI",
+      "description": "Task 7 DoD includes '[ ] CLI binary codesigned' which requires macOS keychain access and may not be achievable in all environments.",
+      "suggested_fix": "Change to '[ ] CLI binary codesigned (if signing identity available)' or remove — codesigning is typically a release concern, not a feature task."
+    }
+  ]
+}

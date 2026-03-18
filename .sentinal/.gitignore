@@ -2,6 +2,7 @@
 *
 !.gitignore
 !project-memory.json
+!continue-here.md
 !rules
 !rules/
 !rules/**

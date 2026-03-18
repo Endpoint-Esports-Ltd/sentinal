@@ -34,6 +34,24 @@ model: sonnet
 
 ---
 
+## 0.0 Resume Detection
+
+**Check FIRST, before any other routing.**
+
+```bash
+ls .sentinal/continue-here.md 2>/dev/null
+```
+
+If the file exists:
+1. Read it — extract `Plan:`, `Current Task:`, `Created:` fields
+2. Calculate age: if >24 hours, warn "Paused work is from [date] — context may be stale"
+3. Show: "Found paused work: [plan path] at [current task]"
+4. Ask: "Resume paused work?" (Recommended) / "Start new task (discard pause)"
+5. **If resume:** Read the plan path from handoff, delete `.sentinal/continue-here.md`, dispatch by status (Section 0.2)
+6. **If new task:** Delete `.sentinal/continue-here.md`, continue to Section 0.1
+
+---
+
 ## 0.1 Parse & Route
 
 ```

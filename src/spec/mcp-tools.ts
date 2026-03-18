@@ -58,6 +58,7 @@ export function registerSpecTools(
   registerSpecNotifyTool(server, client, effectiveStore);
   registerSpecEventsTool(server, client, effectiveStore);
   registerSpecInitTool(server, client, specStore);
+  registerSpecMetricsTool(server, client, specStore);
 }
 
 // --- spec_register ---
@@ -85,8 +86,25 @@ function registerSpecRegisterTool(
       try {
         const projectPath = project ?? process.cwd();
 
-        // If status override requested, update the plan file first (file is source of truth)
+        // If status override requested, validate transition and update file
         if (status) {
+          // Validate status transition — prevent skipping verification
+          const currentSpec = parsePlanFile(plan_path);
+          const currentStatus = currentSpec.status;
+
+          const INVALID_TRANSITIONS: Record<string, string[]> = {
+            VERIFIED: ["PENDING", "IN_PROGRESS"], // Can't set VERIFIED without going through COMPLETE
+          };
+
+          const blockedFrom = INVALID_TRANSITIONS[status];
+          if (blockedFrom?.includes(currentStatus)) {
+            return mcpText(
+              `Cannot transition from ${currentStatus} to ${status}. ` +
+                `Plan must go through COMPLETE first (run verification phase). ` +
+                `Status transition: PENDING → IN_PROGRESS → COMPLETE → VERIFIED`,
+            );
+          }
+
           const content = readFileSync(plan_path, "utf-8");
           const updated = content.replace(/^(Status:\s*).+$/m, `$1${status}`);
           writeFileSync(plan_path, updated);
@@ -545,6 +563,131 @@ function registerSpecInitTool(
           );
         }
         lines.push("");
+      }
+
+      return mcpText(lines.join("\n"));
+    },
+  );
+}
+
+// --- spec_metrics (plan + task timing) ---
+
+function registerSpecMetricsTool(
+  server: McpServer,
+  _client: SidecarClient | null,
+  specStore: SpecStore | null,
+): void {
+  server.tool(
+    "spec_metrics",
+    "Get performance metrics for a spec: plan duration, per-task timing, and velocity data. Use for tracking implementation speed.",
+    {
+      project: z.string().describe("Project path to check for active specs"),
+      spec_id: z
+        .string()
+        .optional()
+        .describe("Specific spec ID (defaults to active spec)"),
+    },
+    async ({ project, spec_id }) => {
+      const active = findActivePlan(project);
+      if (!active && !spec_id) {
+        return mcpText(
+          "No active spec found. Provide a spec_id to query a specific plan.",
+        );
+      }
+
+      const targetId = spec_id ?? active?.spec.id;
+      if (!targetId || !specStore) {
+        return mcpText("No spec found.");
+      }
+
+      const rawSpec = specStore.getSpecTiming(targetId);
+      if (!rawSpec) {
+        return mcpText(`Spec not found: ${targetId}`);
+      }
+
+      const lines: string[] = [
+        `## Spec Metrics: ${rawSpec.title}`,
+        "",
+      ];
+
+      // Plan timing
+      if (rawSpec.startedAt) {
+        const startDate = new Date(rawSpec.startedAt).toISOString();
+        lines.push("### Plan Timing", "");
+        lines.push(`- **Started:** ${startDate}`);
+        if (rawSpec.completedAt) {
+          const endDate = new Date(rawSpec.completedAt).toISOString();
+          const durationMs = rawSpec.completedAt - rawSpec.startedAt;
+          const durationMin = Math.round(durationMs / 60000);
+          const hours = Math.floor(durationMin / 60);
+          const mins = durationMin % 60;
+          const durationStr =
+            hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+          lines.push(`- **Completed:** ${endDate}`);
+          lines.push(`- **Duration:** ${durationStr}`);
+        } else {
+          const elapsedMs = Date.now() - rawSpec.startedAt;
+          const elapsedMin = Math.round(elapsedMs / 60000);
+          lines.push(
+            `- **Status:** ${rawSpec.status} (${elapsedMin}m elapsed)`,
+          );
+        }
+        lines.push("");
+      }
+
+      // Task timing
+      const rawTasks = specStore.getTaskTiming(targetId);
+      const tasksWithTiming = rawTasks.filter(
+        (t) => t.startedAt || t.completedAt,
+      );
+
+      if (tasksWithTiming.length > 0) {
+        lines.push("### Task Timing", "");
+        lines.push("| Task | Status | Duration |");
+        lines.push("|------|--------|----------|");
+
+        let totalDuration = 0;
+        let longestDuration = 0;
+        let longestTask = "";
+
+        for (const task of rawTasks) {
+          if (task.startedAt && task.completedAt) {
+            const dur = task.completedAt - task.startedAt;
+            const durMin = Math.round(dur / 60000);
+            totalDuration += dur;
+            if (dur > longestDuration) {
+              longestDuration = dur;
+              longestTask = `Task ${task.position}`;
+            }
+            lines.push(
+              `| ${task.position}: ${task.title} | ${task.status} | ${durMin}m |`,
+            );
+          } else if (task.startedAt) {
+            const elapsed = Math.round(
+              (Date.now() - task.startedAt) / 60000,
+            );
+            lines.push(
+              `| ${task.position}: ${task.title} | ${task.status} | ${elapsed}m (in progress) |`,
+            );
+          }
+        }
+
+        lines.push("");
+
+        if (tasksWithTiming.length > 1) {
+          const avgMin = Math.round(
+            totalDuration / tasksWithTiming.length / 60000,
+          );
+          const longestMin = Math.round(longestDuration / 60000);
+          lines.push("### Summary", "");
+          lines.push(
+            `- **Total tasks:** ${rawTasks.length} | **With timing:** ${tasksWithTiming.length}`,
+          );
+          lines.push(
+            `- **Average:** ${avgMin}m | **Longest:** ${longestTask} (${longestMin}m)`,
+          );
+          lines.push("");
+        }
       }
 
       return mcpText(lines.join("\n"));

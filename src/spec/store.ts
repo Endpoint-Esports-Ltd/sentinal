@@ -67,9 +67,11 @@ interface RawSpecTask {
 
 export class SpecStore {
   private db: Database;
+  private memoryStore: MemoryStore;
 
   constructor(memoryStore: MemoryStore) {
     this.db = memoryStore.getRawDb();
+    this.memoryStore = memoryStore;
   }
 
   /** Sync a single plan file into the SQLite index. */
@@ -83,9 +85,45 @@ export class SpecStore {
     const tasksDone = spec.tasks.filter((t) => t.status === "complete").length;
     const metadataJson = JSON.stringify(spec.metadata ?? {});
 
+    // Fetch existing spec to detect status transitions and preserve timing
+    const existingSpec = this.db
+      .prepare("SELECT status, started_at, completed_at FROM specs WHERE id = ?")
+      .get(spec.id) as
+      | { status: string; started_at: number | null; completed_at: number | null }
+      | undefined;
+
+    const oldStatus = existingSpec?.status ?? null;
+
+    // Determine timing fields based on status transitions
+    let startedAt: number | null = existingSpec?.started_at ?? null;
+    let completedAt: number | null = existingSpec?.completed_at ?? null;
+
+    if (spec.status === "IN_PROGRESS" && oldStatus !== "IN_PROGRESS" && !startedAt) {
+      startedAt = now;
+    }
+    if (spec.status === "VERIFIED" && oldStatus !== "VERIFIED" && !completedAt) {
+      completedAt = now;
+    }
+
+    // Use ON CONFLICT to preserve timing columns and created_at
     const upsertSpec = this.db.prepare(
-      `INSERT OR REPLACE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata, parent, wave)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata, parent, wave, started_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         type = excluded.type,
+         status = excluded.status,
+         approved = excluded.approved,
+         plan_file = excluded.plan_file,
+         task_count = excluded.task_count,
+         tasks_done = excluded.tasks_done,
+         updated_at = excluded.updated_at,
+         session_id = COALESCE(excluded.session_id, specs.session_id),
+         metadata = excluded.metadata,
+         parent = excluded.parent,
+         wave = excluded.wave,
+         started_at = COALESCE(excluded.started_at, specs.started_at),
+         completed_at = COALESCE(excluded.completed_at, specs.completed_at)`,
     );
     upsertSpec.run(
       spec.id,
@@ -104,17 +142,39 @@ export class SpecStore {
       metadataJson,
       spec.parent ?? null,
       spec.wave ?? null,
+      startedAt,
+      completedAt,
     );
 
-    // Sync tasks — delete existing then re-insert
-    this.db.prepare("DELETE FROM spec_tasks WHERE spec_id = ?").run(spec.id);
-    const insertTask = this.db.prepare(
+    // Log phase_change event on status transitions
+    if (oldStatus && oldStatus !== spec.status) {
+      this.memoryStore.logSpecEvent({
+        specId: spec.id,
+        sessionId: sessionId ?? undefined,
+        eventType: "phase_change",
+        details: { from: oldStatus, to: spec.status },
+      });
+    }
+
+    // Sync tasks — use ON CONFLICT to preserve timing columns
+    const upsertTask = this.db.prepare(
       `INSERT INTO spec_tasks (spec_id, position, title, status, description, test_strategy, definition_of_done)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(spec_id, position) DO UPDATE SET
+         title = excluded.title,
+         status = excluded.status,
+         description = excluded.description,
+         test_strategy = excluded.test_strategy,
+         definition_of_done = excluded.definition_of_done`,
     );
+
+    // Delete tasks that no longer exist in the plan (position > task count)
+    this.db
+      .prepare("DELETE FROM spec_tasks WHERE spec_id = ? AND position > ?")
+      .run(spec.id, spec.tasks.length);
 
     for (const task of spec.tasks) {
-      insertTask.run(
+      upsertTask.run(
         spec.id,
         task.position,
         task.title,
@@ -126,6 +186,64 @@ export class SpecStore {
     }
 
     return spec;
+  }
+
+  /** Get spec-level timing data. */
+  getSpecTiming(
+    specId: string,
+  ): {
+    title: string;
+    status: string;
+    startedAt: number | null;
+    completedAt: number | null;
+  } | null {
+    const row = this.db
+      .prepare(
+        "SELECT title, status, started_at, completed_at FROM specs WHERE id = ?",
+      )
+      .get(specId) as {
+      title: string;
+      status: string;
+      started_at: number | null;
+      completed_at: number | null;
+    } | undefined;
+    if (!row) return null;
+    return {
+      title: row.title,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  /** Get task-level timing data. */
+  getTaskTiming(
+    specId: string,
+  ): Array<{
+    position: number;
+    title: string;
+    status: string;
+    startedAt: number | null;
+    completedAt: number | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        "SELECT position, title, status, started_at, completed_at FROM spec_tasks WHERE spec_id = ? ORDER BY position",
+      )
+      .all(specId) as Array<{
+      position: number;
+      title: string;
+      status: string;
+      started_at: number | null;
+      completed_at: number | null;
+    }>;
+    return rows.map((r) => ({
+      position: r.position,
+      title: r.title,
+      status: r.status,
+      startedAt: r.started_at,
+      completedAt: r.completed_at,
+    }));
   }
 
   /** Sync all plan files from a directory into the SQLite index. */
