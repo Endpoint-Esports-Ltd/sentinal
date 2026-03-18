@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.17.0...v1.18.0) (2026-03-18)
+
+
+### Features
+
+* add IN_PROGRESS status lifecycle and master plans with wave execution ([bac3009](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bac30097701f076f00b724d0703b264ae3ac36ee))
+
 # [1.17.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.16.0...v1.17.0) (2026-03-17)
 
 
