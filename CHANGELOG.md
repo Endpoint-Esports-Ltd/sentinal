@@ -1,3 +1,10 @@
+## [1.20.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.0...v1.20.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* dashboard stale version, empty memories, and missing fragment routes ([1c603cc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1c603cc9465f8bbb480306e66e1e9549b7623170))
+
 # [1.20.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.2...v1.20.0) (2026-03-18)
 
 
