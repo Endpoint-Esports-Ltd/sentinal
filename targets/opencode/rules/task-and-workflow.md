@@ -107,7 +107,7 @@ Use `run_in_background=true` only for long-running processes (dev servers, watch
 sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true
 ```
 
-Call after creating plan header, reading existing plan, and after status changes (PENDING → COMPLETE → VERIFIED).
+Call after creating plan header, reading existing plan, and after status changes (PENDING → IN_PROGRESS → COMPLETE → VERIFIED).
 
 ---
 
@@ -116,9 +116,11 @@ Call after creating plan header, reading existing plan, and after status changes
 **⛔ When `/spec` is invoked, the structured workflow is MANDATORY.**
 
 ```
-/spec → Dispatcher → Detect type → Feature: Skill('spec-plan') → Plan, verify, approve
-                                 → Bugfix:  Skill('spec-bugfix-plan') → Root cause, plan, approve
-        → Skill('spec-implement')   → TDD loop for each task (both types)
+/spec → Dispatcher → Detect type → Feature: Skill('spec-plan')          → Plan, verify, approve
+                                 → Bugfix:  Skill('spec-bugfix-plan')   → Root cause, plan, approve
+                                 → Master:  Skill('spec-master-plan')   → Architecture, phases, waves
+        → Skill('spec-implement')      → TDD loop for each task (Feature/Bugfix)
+        → Skill('spec-master-execute') → Wave-parallel execution (Master plans)
         → Feature: Skill('spec-verify')        → Tests, execution, code review
         → Bugfix:  Skill('spec-bugfix-verify') → Tests, quality checks, fix confirmation
 ```

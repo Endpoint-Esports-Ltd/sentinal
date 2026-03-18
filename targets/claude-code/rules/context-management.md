@@ -24,7 +24,7 @@ Context limits are not the enemy. After compaction, you continue exactly where y
 
 When compaction occurs, preserve these in your summary:
 
-- **Active Plan:** file path, status (PENDING/COMPLETE/VERIFIED), task progress, current objective
+- **Active Plan:** file path, status (PENDING/IN_PROGRESS/COMPLETE/VERIFIED), task progress, current objective
 - **Technical Context:** key decisions, files being modified, errors being debugged, dependencies discovered
 - **Task State:** current objective, TDD phase (red/green/refactor), blockers
 

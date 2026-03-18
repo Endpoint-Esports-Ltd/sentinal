@@ -30,7 +30,7 @@ description: Spec planning phase - explore codebase, design plan, get approval
 
 **⛔ Run FIRST, before any other step.**
 
-**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+**Preferred:** Use `spec_init` MCP tool (returns config toggles, active plan state, and current task in one call).
 
 ```bash
 echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED REVIEWER=$SENTINAL_PLAN_REVIEWER_ENABLED APPROVAL=$SENTINAL_PLAN_APPROVAL_ENABLED"

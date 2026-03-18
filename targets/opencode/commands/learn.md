@@ -2,8 +2,6 @@
 description: Use after significant debugging, workarounds, or multi-step workflows worth standardizing for future sessions
 ---
 
----
-
 # /learn - Online Learning System
 
 **Extract reusable knowledge from this session into skills.** Evaluates what was learned, checks for existing skills, creates new ones when valuable.

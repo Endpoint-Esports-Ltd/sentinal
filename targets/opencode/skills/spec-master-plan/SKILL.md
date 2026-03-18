@@ -24,7 +24,7 @@ argument-hint: "<task description> --worktree=yes|no"
 
 ## Step 0: Read Toggle Configuration
 
-**Preferred:** Use `spec_config` MCP tool.
+**Preferred:** Use `spec_init` MCP tool (returns config toggles, active plan state, and current task in one call).
 
 ---
 

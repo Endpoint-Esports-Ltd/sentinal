@@ -2,8 +2,6 @@
 description: Sync project rules and skills with codebase - reads existing rules/skills, explores code, updates documentation, creates new skills
 ---
 
----
-
 # /sync - Sync Project Rules & Skills
 
 **Sync custom rules and skills with the current codebase.** Reads existing rules/skills, explores code patterns, identifies gaps, updates documentation, creates new skills.

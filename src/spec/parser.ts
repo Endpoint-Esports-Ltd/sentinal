@@ -375,8 +375,7 @@ function normalizeStatus(raw: string | undefined): SpecStatus {
   // Direct match
   if (SPEC_STATUSES.includes(upper as SpecStatus)) return upper as SpecStatus;
 
-  // Common aliases
-  if (upper === "IN_PROGRESS") return "IN_PROGRESS";
+  // Common aliases (IN_PROGRESS already covered by direct match above)
   if (upper === "DONE" || upper === "FINISHED") return "VERIFIED";
 
   return "PENDING";

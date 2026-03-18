@@ -40,7 +40,7 @@ If you haven't completed Step 1.2, you cannot propose fixes. Symptom fixes are f
 
 **⛔ Run FIRST, before any other step.** Read all toggle env vars in a single Bash call:
 
-**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+**Preferred:** Use `spec_init` MCP tool (returns config toggles, active plan state, and current task in one call).
 
 ```bash
 echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED APPROVAL=$SENTINAL_PLAN_APPROVAL_ENABLED"

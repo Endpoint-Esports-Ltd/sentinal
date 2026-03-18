@@ -3,8 +3,6 @@ name: spec-bugfix-verify
 description: Bugfix verification phase - tests, quality checks, fix confirmation
 ---
 
----
-
 # /spec-bugfix-verify - Bugfix Verification Phase
 
 **Phase 3 (bugfix).** Lightweight verification: run tests, quality checks, confirm fix works.

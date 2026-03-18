@@ -4,6 +4,7 @@ When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
 
 | MCP Tool            | Replaces                                | Description                                                                        |
 | ------------------- | --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `spec_init`         | `spec_status` + `spec_config` combined  | **Preferred at workflow start.** Returns config, active plan, current task in one call |
 | `spec_status`       | `sentinal spec-status`                  | Get current spec progress                                                          |
 | `spec_register`     | `sentinal register-plan`                | Register/update a plan                                                             |
 | `spec_config`       | `echo $SENTINAL_*`                      | Get all workflow toggles                                                           |

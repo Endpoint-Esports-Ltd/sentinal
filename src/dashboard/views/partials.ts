@@ -9,11 +9,16 @@ import { escapeHtml } from "./layout.js";
 // ─── Status Badges ──────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
+  pending: "bg-yellow-600",
   "in progress": "bg-blue-600",
   "in-progress": "bg-blue-600",
+  in_progress: "bg-blue-600",
   approved: "bg-green-600",
   complete: "bg-green-700",
   completed: "bg-green-700",
+  verified: "bg-emerald-600",
+  cancelled: "bg-red-700",
+  failed: "bg-red-600",
   draft: "bg-gray-600",
   rejected: "bg-red-600",
   active: "bg-emerald-600",

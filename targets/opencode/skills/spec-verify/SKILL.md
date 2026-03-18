@@ -3,8 +3,6 @@ name: spec-verify
 description: Spec verification phase - tests, execution, code review, E2E
 ---
 
----
-
 # /spec-verify - Verification Phase
 
 **Phase 3 of the /spec workflow (features).** Runs comprehensive verification: automated checks, code review, program execution, and E2E tests. For bugfix plans, use `spec-bugfix-verify` instead.
@@ -30,7 +28,7 @@ description: Spec verification phase - tests, execution, code review, E2E
 
 **⛔ Run FIRST, before any other step.** Read the reviewer toggle env var:
 
-**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+**Preferred:** Use `spec_init` MCP tool (returns config toggles, active plan state, and current task in one call).
 
 ```bash
 echo "REVIEWER=$SENTINAL_SPEC_REVIEWER_ENABLED"

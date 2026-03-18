@@ -30,7 +30,7 @@ model: sonnet
 
 **⛔ Run FIRST, before any other step.** Read the reviewer toggle env var:
 
-**Preferred:** Use `spec_config` MCP tool (returns all toggles in one call).
+**Preferred:** Use `spec_init` MCP tool (returns config toggles, active plan state, and current task in one call).
 
 ```bash
 echo "REVIEWER=$SENTINAL_SPEC_REVIEWER_ENABLED"

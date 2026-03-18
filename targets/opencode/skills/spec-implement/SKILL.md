@@ -3,8 +3,6 @@ name: spec-implement
 description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACTOR
 ---
 
----
-
 # /spec-implement - Implementation Phase
 
 **Phase 2 of the /spec workflow.** Reads approved plan, implements each task using TDD (Red → Green → Refactor).
