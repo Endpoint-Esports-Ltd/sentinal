@@ -242,6 +242,37 @@ For EACH task, verify its Definition of Done criteria against the running progra
 
 If any criterion unmet: fix inline if possible, or add task and loop back.
 
+### Step 3.8a: Three-Level Artifact Verification
+
+For each artifact listed in the plan's `## Goal Verification > Artifacts` section, verify three levels:
+
+| Level | Check | How |
+|-------|-------|-----|
+| **1. Exists** | File is present on disk | `ls <path>` or Read tool |
+| **2. Substantive** | File is NOT a stub | Read file, check for stub patterns (below) |
+| **3. Wired** | File is imported/used by other files | `grep -r "import.*<filename>" src/` or Grep tool |
+
+**Stub patterns to flag (file is likely incomplete):**
+
+- `return null` or `return undefined` as the only return statement
+- `return <div>Placeholder</div>` or `return <div>TODO</div>`
+- Empty function/method bodies: `() => {}`, `async () => {}`
+- `throw new Error("Not implemented")` or `throw new Error("TODO")`
+- `console.log("TODO")` as the only meaningful content
+- `Response.json({ message: "Not implemented" })`
+- Functions that only contain comments and no logic
+
+**For each artifact, report:**
+
+```
+| Artifact | Exists | Substantive | Wired | Notes |
+|----------|--------|-------------|-------|-------|
+| src/auth/login.ts | Yes | Yes | Yes (imported by router.ts) | — |
+| src/auth/logout.ts | Yes | STUB | No | Only contains `return null` |
+```
+
+**Any STUB or unwired artifact is a must_fix finding.** Fix before proceeding.
+
 ### Step 3.8b: Not Verified Acknowledgment
 
 List what was **NOT** verified and why. Include in the verification report (Step 3.13).

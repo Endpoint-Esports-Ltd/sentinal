@@ -188,14 +188,33 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 
 **Assumptions:** After creating tasks, write `## Assumptions` — one bullet per assumption: what you assume, which finding supports it, which task numbers depend on it.
 
-#### Step 1.5.1: Goal Verification Criteria
+#### Step 1.5.1: Goal Verification Criteria (must_haves)
 
-After creating tasks, derive for the `## Goal Verification` section:
+After creating tasks, derive **structured, verifiable** criteria for the `## Goal Verification` section:
 
-1. State the goal
-2. Derive 3-7 observable truths (falsifiable, user-perspective)
-3. For each truth, identify supporting artifacts
-4. Identify 2-5 key links (critical component connections)
+1. **State the goal** (1 sentence)
+
+2. **Derive 3-7 Truths** — each must be **grep-verifiable** or **curl-testable**, never vague prose:
+   - ✅ `GET /api/users returns 200 with JSON array` (curl-testable)
+   - ✅ `src/auth/login.ts contains bcrypt.compare call` (grep-verifiable)
+   - ❌ `Authentication works correctly` (vague — not falsifiable)
+
+3. **List Artifacts** — each with `path`, `provides`, and `exports`:
+   ```
+   | Artifact | Provides | Exports |
+   |----------|----------|---------|
+   | src/auth/login.ts | Login endpoint | POST /api/auth/login |
+   | src/auth/guard.ts | Auth middleware | AuthGuard class |
+   ```
+
+4. **List Key Links** — each with `from`, `to`, `via`, and `pattern` (grep-verifiable):
+   ```
+   | From | To | Via | Pattern |
+   |------|----|-----|---------|
+   | src/auth/login.ts | prisma.user | credential lookup | prisma\.user\.findUnique |
+   | src/router.ts | src/auth/login.ts | route registration | import.*login |
+   ```
+   Key links prove artifacts are **wired together**, not just created in isolation.
 
 #### Step 1.5.2: Pre-Mortem & Falsification Signals
 
@@ -269,10 +288,18 @@ _Assume this plan failed. Most likely internal reasons:_
 ## Goal Verification
 
 ### Truths
+1. [grep-verifiable or curl-testable statement]
+2. [grep-verifiable or curl-testable statement]
 
 ### Artifacts
+| Artifact | Provides | Exports |
+|----------|----------|---------|
+| [exact file path] | [what it delivers] | [public API/exports] |
 
 ### Key Links
+| From | To | Via | Pattern |
+|------|----|-----|---------|
+| [source file] | [target] | [connection type] | [grep pattern] |
 
 ## Progress Tracking
 

@@ -102,6 +102,22 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 
 ---
 
+### Step 2.2b: Deviation Rules
+
+**When you discover something unexpected during implementation, follow these rules:**
+
+| Deviation | Action | Examples |
+|-----------|--------|---------|
+| **Auto-fix (no permission)** | Fix inline, note in plan | Wrong types, broken imports, missing error handling, missing validation, logic bugs caused by current task |
+| **Ask user** | STOP, describe the issue, wait for decision | New DB tables, switching libraries, changing API contracts, architectural changes, scope expansion |
+| **Out of scope** | Note in plan `## Deferred Issues`, continue | Pre-existing bugs, issues in files not touched by this plan, performance issues unrelated to current task |
+
+**Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. Document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task.
+
+**Scope boundary:** Only fix issues caused by current task's changes. Pre-existing issues go to `## Deferred Issues`.
+
+---
+
 ### Step 2.3: TDD Loop
 
 **For EVERY task:**
@@ -131,9 +147,10 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 9. **Run quality checks** — `quality_report` MCP tool. **Quality checks do NOT run automatically on edit.** You MUST call this after completing edits to each file. Runs tsc + eslint + prettier. Zero errors required.
 10. **Validate Definition of Done** — all criteria from plan
 11. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?
-12. **Per-task commit (worktree only):** `git add <files> && git commit -m "{type}(spec): {task-name}"`
-13. **Mark completed:** `TaskUpdate(taskId, status="completed")`
-14. **Update plan file immediately** (Step 2.4)
+12. **Analysis paralysis guard:** If you have made 5+ consecutive Read/Grep/Glob/Search calls without any Write/Edit/Bash command, STOP. State in one sentence why you haven't written anything yet. If blocked, report the blocker in the plan and move to the next task.
+13. **Per-task commit (worktree only):** `git add <files> && git commit -m "{type}(spec): {task-name}"`
+14. **Mark completed:** `TaskUpdate(taskId, status="completed")`
+15. **Update plan file immediately** (Step 2.4)
 
 ---
 

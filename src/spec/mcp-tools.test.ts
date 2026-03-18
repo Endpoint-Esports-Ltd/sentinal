@@ -509,3 +509,75 @@ describe("spec MCP tools (sidecar mode)", () => {
     expect(result.content[0].text).toContain("No events");
   });
 });
+
+// --- spec_init tests ---
+
+describe("spec_init MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, ToolHandler>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(registerSpecTools, store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return config and 'no active plan' when no plan exists", async () => {
+    const handler = tools.get("spec_init")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Configuration");
+    expect(text).toContain("No active plan");
+  });
+
+  it("should return active plan details when a plan exists", async () => {
+    makePlanFile(tmpDir, "2026-03-18-test-feature", "IN_PROGRESS");
+
+    const handler = tools.get("spec_init")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Active Plan");
+    expect(text).toContain("IN_PROGRESS");
+    expect(text).toContain("Task 1");
+    expect(text).toContain("Task 2");
+    expect(text).toContain("Configuration");
+  });
+
+  it("should include current task info", async () => {
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(
+      join(plansDir, "2026-03-18-with-progress.md"),
+      `# Test Plan
+
+Status: IN_PROGRESS
+Type: Feature
+Approved: Yes
+
+## Progress Tracking
+
+- [x] Task 1: Done task
+- [~] Task 2: Current task
+- [ ] Task 3: Future task
+
+**Total Tasks:** 3 | **Completed:** 1 | **Remaining:** 2
+`,
+    );
+
+    const handler = tools.get("spec_init")!;
+    const result = await handler({ project: tmpDir });
+    const text = result.content[0].text;
+
+    expect(text).toContain("Current Task");
+    expect(text).toContain("Task 2");
+    expect(text).toContain("33%");
+  });
+});

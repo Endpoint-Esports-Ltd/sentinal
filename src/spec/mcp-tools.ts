@@ -18,9 +18,11 @@ import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
+import { findActivePlan } from "./detect.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import type { SpecTask } from "./types.js";
 
 // --- Public API ---
 
@@ -55,6 +57,7 @@ export function registerSpecTools(
   registerSpecPlanParseTool(server);
   registerSpecNotifyTool(server, client, effectiveStore);
   registerSpecEventsTool(server, client, effectiveStore);
+  registerSpecInitTool(server, client, specStore);
 }
 
 // --- spec_register ---
@@ -444,6 +447,104 @@ function registerSpecStatusTool(
           "",
           `**Remaining:** ${inProgress} in progress, ${pending} pending`,
         );
+      }
+
+      return mcpText(lines.join("\n"));
+    },
+  );
+}
+
+// --- spec_init (compound workflow context) ---
+
+function registerSpecInitTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  specStore: SpecStore | null,
+): void {
+  server.tool(
+    "spec_init",
+    "Get all workflow context in a single call: active plan state, config toggles, current task, and remaining work. Use at the start of any spec workflow to avoid multiple file reads.",
+    {
+      project: z
+        .string()
+        .describe("Project path to check for active specs"),
+    },
+    async ({ project }) => {
+      const lines: string[] = ["## Spec Workflow Context", ""];
+
+      // --- Configuration ---
+      lines.push("### Configuration", "");
+      for (const { env, label } of CONFIG_KEYS) {
+        const value = process.env[env];
+        let display: string;
+        if (value === undefined || value === "") {
+          display =
+            label === "session_id" ? "unset" : "unset (default: enabled)";
+        } else if (value === "false") {
+          display = `${value} (disabled)`;
+        } else {
+          display = value;
+        }
+        lines.push(`- **${label}:** ${display}`);
+      }
+      lines.push("");
+
+      // --- Active Plan ---
+      const active = findActivePlan(project);
+      if (!active) {
+        lines.push("### Active Plan", "", "No active plan found.", "");
+        return mcpText(lines.join("\n"));
+      }
+
+      const { filePath, spec } = active;
+      const tasks: SpecTask[] = spec.tasks;
+      const totalTasks = tasks.length;
+      const doneTasks = tasks.filter(
+        (t) => t.status === "complete",
+      ).length;
+      const percent =
+        totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+      lines.push(
+        "### Active Plan",
+        "",
+        `- **Title:** ${spec.title}`,
+        `- **Status:** ${spec.status}`,
+        `- **Type:** ${spec.type}`,
+        `- **Approved:** ${spec.approved ? "Yes" : "No"}`,
+        `- **Progress:** ${doneTasks}/${totalTasks} tasks (${percent}%)`,
+        `- **Plan File:** ${filePath}`,
+        "",
+      );
+
+      // --- Current Task ---
+      const currentTask =
+        tasks.find((t) => t.status === "in-progress") ??
+        tasks.find((t) => t.status === "pending") ??
+        null;
+
+      if (currentTask) {
+        lines.push(
+          "### Current Task",
+          "",
+          `- **Task ${currentTask.position}:** ${currentTask.title} (${currentTask.status})`,
+          "",
+        );
+      }
+
+      // --- Remaining Tasks ---
+      const remainingTasks = tasks.filter(
+        (t) => t.status !== "complete",
+      );
+      if (remainingTasks.length > 0) {
+        lines.push("### Remaining Tasks", "");
+        for (const task of remainingTasks) {
+          const marker = task.status === "in-progress" ? "[~]" : "[ ]";
+          lines.push(
+            `- ${marker} Task ${task.position}: ${task.title}`,
+          );
+        }
+        lines.push("");
       }
 
       return mcpText(lines.join("\n"));
