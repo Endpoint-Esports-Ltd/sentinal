@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.18.0...v1.19.0) (2026-03-18)
+
+
+### Features
+
+* add GSD-inspired quality guards and compound spec_init MCP tool ([f9ca385](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f9ca3852469ef5e562e6256f323a9925fe683ea5))
+
 # [1.18.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.17.0...v1.18.0) (2026-03-18)
 
 
