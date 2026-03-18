@@ -95,6 +95,7 @@ export async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   try {
     const response = await fetch(RELEASE_URL, {
       headers: getGitHubHeaders(),
+      signal: AbortSignal.timeout(15_000), // 15 second timeout for API calls
     });
 
     if (!response.ok) {
@@ -261,6 +262,7 @@ export async function downloadAndInstall(
       : asset.browser_download_url;
     const response = await fetch(downloadUrl, {
       headers: getGitHubHeaders("application/octet-stream"),
+      signal: AbortSignal.timeout(120_000), // 2 minute timeout for large binaries
     });
 
     if (!response.ok) {
@@ -268,7 +270,39 @@ export async function downloadAndInstall(
       return false;
     }
 
-    const data = await response.arrayBuffer();
+    // Stream the response with progress indicator
+    const totalSize = asset.size;
+    const reader = response.body?.getReader();
+    if (!reader) {
+      console.error("Download failed: No response body");
+      return false;
+    }
+
+    const chunks: Uint8Array[] = [];
+    let downloaded = 0;
+    let lastPercent = -1;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      downloaded += value.length;
+
+      const percent = Math.floor((downloaded / totalSize) * 100);
+      if (percent !== lastPercent && percent % 10 === 0) {
+        process.stdout.write(`\r  ${percent}% (${formatBytes(downloaded)} / ${formatBytes(totalSize)})`);
+        lastPercent = percent;
+      }
+    }
+    process.stdout.write("\r  100% — Download complete.                    \n");
+
+    // Combine chunks into a single buffer
+    const data = new Uint8Array(downloaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      data.set(chunk, offset);
+      offset += chunk.length;
+    }
 
     // Ensure bin directory exists
     if (!existsSync(BIN_DIR)) {
