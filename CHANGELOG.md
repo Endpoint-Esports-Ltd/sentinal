@@ -1,3 +1,10 @@
+## [1.19.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.0...v1.19.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* resolve cross-platform parity issues and stale references from audit ([0314c8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0314c8d0c31761e91a059d3717d3cf4953ab5eff))
+
 # [1.19.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.18.0...v1.19.0) (2026-03-18)
 
 
