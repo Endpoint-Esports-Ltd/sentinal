@@ -1,0 +1,10 @@
+# Ignore everything in .sentinal/ except shared project memory, rules, and skills
+*
+!.gitignore
+!project-memory.json
+!rules
+!rules/
+!rules/**
+!skills
+!skills/
+!skills/**

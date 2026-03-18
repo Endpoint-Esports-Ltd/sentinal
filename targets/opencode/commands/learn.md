@@ -40,12 +40,11 @@ SLUG=$(basename "$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')" 2>
 # Result: "my-api", "acme-backend", "sentinal"
 ```
 
-Skill directories (ALWAYS write to BOTH):
+Skill directory:
 
-- `.claude/skills/{slug}-{name}/SKILL.md`
-- `.opencode/skills/{slug}-{name}/SKILL.md`
+- `.sentinal/skills/{slug}-{name}/SKILL.md`
 
-Both files must have identical content. This ensures teams using either Claude Code or OpenCode can discover and use learned skills.
+Read by both Claude Code and OpenCode via symlinks and config (set up by `sentinal install`).
 
 **Naming rules:** Lowercase with hyphens only. The slug provides context; the name should be 1-3 words max that are descriptive (not generic). Examples: `my-api-auth-flow`, `acme-deploy`. Never use generic names like "helper", "utils", "tools", "handler", "workflow".
 
@@ -65,7 +64,7 @@ Before writing, decide WHERE your skill falls. **Move left whenever possible** â
 
 ### Skill Template
 
-**Location:** `.claude/skills/{slug}-{skill-name}/SKILL.md` AND `.opencode/skills/{slug}-{skill-name}/SKILL.md`
+**Location:** `.sentinal/skills/{slug}-{skill-name}/SKILL.md`
 
 Before writing, answer these five questions:
 
@@ -147,8 +146,8 @@ Ask yourself:
 ## Phase 2: Check Existing
 
 ```bash
-ls .claude/skills/ .opencode/skills/ 2>/dev/null
-grep -ri "keyword" .claude/skills/ .opencode/skills/ 2>/dev/null
+ls .sentinal/skills/ 2>/dev/null
+grep -ri "keyword" .sentinal/skills/ 2>/dev/null
 ```
 
 | Found            | Action                         |
@@ -161,7 +160,7 @@ grep -ri "keyword" .claude/skills/ .opencode/skills/ 2>/dev/null
 
 ## Phase 3: Create Skill & Persist to Memory
 
-Write to BOTH `.claude/skills/{slug}-{skill-name}/SKILL.md` AND `.opencode/skills/{slug}-{skill-name}/SKILL.md` using the template from Phase 0. Both files must have identical content.
+Write to `.sentinal/skills/{slug}-{skill-name}/SKILL.md` using the template from Phase 0.
 
 **Also persist to Sentinal memory** using `memory_save` MCP tool with `type: "pattern"`, relevant `tags`, and the `project` path. This ensures the knowledge is available via `memory_search` in future sessions even before the skill is activated. Use `memory_search` first to check for existing observations that overlap.
 
@@ -209,7 +208,7 @@ Write to BOTH `.claude/skills/{slug}-{skill-name}/SKILL.md` AND `.opencode/skill
 
 **Scenario:** Discovered that Angular `OnPush` change detection misses updates from RxJS subjects unless `markForCheck()` is called explicitly.
 
-**Result:** `.claude/skills/my-project-angular-cd/SKILL.md` AND `.opencode/skills/my-project-angular-cd/SKILL.md`
+**Result:** `.sentinal/skills/my-project-angular-cd/SKILL.md`
 
 ```yaml
 name: my-project-angular-cd

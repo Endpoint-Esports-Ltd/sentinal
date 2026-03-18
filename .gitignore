@@ -3,5 +3,5 @@ dist/
 targets/claude-code/hooks/dist/
 *.tsbuildinfo
 .DS_Store
-.sentinal/
+# .sentinal/ contents controlled by .sentinal/.gitignore (ignores all except rules/, skills/, project-memory.json)
 .idea/
