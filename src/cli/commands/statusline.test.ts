@@ -1,5 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import { formatStatusline, buildProgressBar } from "./statusline.js";
+import {
+  formatStatusline,
+  buildProgressBar,
+  detectPlanTier,
+} from "./statusline.js";
 
 describe("buildProgressBar", () => {
   it("should render empty bar at 0%", () => {
@@ -17,6 +21,36 @@ describe("buildProgressBar", () => {
   it("should clamp to 0-100 range", () => {
     expect(buildProgressBar(-10, 5)).toBe("░░░░░");
     expect(buildProgressBar(150, 5)).toBe("▓▓▓▓▓");
+  });
+});
+
+describe("detectPlanTier", () => {
+  it("should return max_20x when context window size is >= 1000000", () => {
+    expect(detectPlanTier(null, 1000000)).toBe("max_20x");
+  });
+
+  it("should return max_20x when context window size exceeds 1000000", () => {
+    expect(detectPlanTier(null, 2000000)).toBe("max_20x");
+  });
+
+  it("should return max_5x when context window size is 200000", () => {
+    expect(detectPlanTier(null, 200000)).toBe("max_5x");
+  });
+
+  it("should return max_5x when no context window size provided", () => {
+    expect(detectPlanTier(null, undefined)).toBe("max_5x");
+  });
+
+  it("should use manual config over auto-detection", () => {
+    expect(detectPlanTier("max_20x", 200000)).toBe("max_20x");
+  });
+
+  it("should handle quoted config value", () => {
+    expect(detectPlanTier('"max_20x"', undefined)).toBe("max_20x");
+  });
+
+  it("should default to max_5x with no config and no context window", () => {
+    expect(detectPlanTier(null, undefined)).toBe("max_5x");
   });
 });
 

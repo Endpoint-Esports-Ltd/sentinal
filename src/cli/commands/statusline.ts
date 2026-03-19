@@ -33,6 +33,28 @@ export interface StatuslineInput {
 // --- Public API ---
 
 /**
+ * Detect plan tier from manual config and/or session context window size.
+ * Manual config takes precedence. If no config, auto-detect from context window size
+ * (1M+ tokens = Max 20x plan). Falls back to max_5x.
+ */
+export function detectPlanTier(
+  configValue: string | null | undefined,
+  contextWindowSize: number | undefined,
+): PlanTier {
+  // Manual config takes precedence
+  if (configValue === "max_20x" || configValue === '"max_20x"') {
+    return "max_20x";
+  }
+
+  // Auto-detect from context window size (1M+ = Max 20x)
+  if (contextWindowSize !== undefined && contextWindowSize >= 1_000_000) {
+    return "max_20x";
+  }
+
+  return "max_5x";
+}
+
+/**
  * Build a progress bar string.
  */
 export function buildProgressBar(percent: number, width = 5): string {
@@ -103,27 +125,35 @@ export function registerStatuslineCommand(program: Command): void {
           }
         }
 
-        // Get plan tier from config
-        let planTier: PlanTier = "max_5x";
-        try {
-          const store = new MemoryStore();
-          const raw = store.getSetting("plan_tier");
-          if (raw === '"max_20x"' || raw === "max_20x") {
-            planTier = "max_20x";
-          }
-          store.close();
-        } catch {
-          // Use default
-        }
-
-        // Get context % from session JSON (Claude Code provides context_window.used_percentage)
+        // Get context window data from session JSON
         const ctxWindow = sessionJson.context_window as
           | Record<string, unknown>
           | undefined;
+        const contextWindowSize =
+          typeof ctxWindow?.context_window_size === "number"
+            ? ctxWindow.context_window_size
+            : undefined;
         const contextPct =
           typeof ctxWindow?.used_percentage === "number"
             ? Math.round(ctxWindow.used_percentage)
             : 0;
+
+        // Detect plan tier from config + session context window size
+        let configValue: string | null = null;
+        let planTier: PlanTier = "max_5x";
+        try {
+          const store = new MemoryStore();
+          configValue = store.getSetting("plan_tier");
+          planTier = detectPlanTier(configValue, contextWindowSize);
+          // Auto-persist when detected from context window and no config exists
+          if (!configValue && planTier === "max_20x") {
+            store.setSetting("plan_tier", "max_20x");
+          }
+          store.close();
+        } catch {
+          // Fallback: detect without config
+          planTier = detectPlanTier(null, contextWindowSize);
+        }
 
         // Get all log files (used for both session and weekly calculations)
         const logFiles = findLogFiles();
