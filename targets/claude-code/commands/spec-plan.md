@@ -167,6 +167,7 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 
 **Objective:** [1-2 sentences]
 **Dependencies:** [None | Task X, Task Y]
+**Wave:** [1 | 2 | ...]
 
 **Files:**
 
@@ -194,6 +195,21 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 **Zero-context assumption:** Assume implementer knows nothing. Provide exact file paths, explain domain concepts, reference similar patterns.
 
 **Assumptions:** After creating tasks, write `## Assumptions` — one bullet per assumption: what you assume, which finding supports it, which task numbers depend on it.
+
+#### Step 1.5.0: Execution Wave Grouping
+
+**After defining all tasks, group them into execution waves for parallel implementation.**
+
+1. **Analyze dependencies:** Wave 1 = tasks with no dependencies. Wave 2 = tasks depending only on Wave 1 tasks. Wave N = tasks depending only on Wave 1..N-1 tasks.
+2. **Check file overlap:** Tasks in the same wave MUST NOT modify the same files. If two tasks in the same wave share files, move one to the next wave. This is required for worktree-isolated parallel execution.
+3. **Assign `**Wave:**` field** to each task.
+4. **Write `## Execution Waves` section** (see Step 1.6 template).
+5. **Update Progress Tracking** to show wave assignments: `- [ ] Task 1: [summary] (Wave 1)`
+
+**Rules:**
+- If all tasks are in Wave 1 (no dependencies, no shared files), that's fine — maximum parallelism.
+- If wave analysis is unclear, default to sequential: each task in its own wave.
+- Single-task waves are normal and expected.
 
 #### Step 1.5.1: Goal Verification Criteria (must_haves)
 
@@ -292,6 +308,11 @@ _Assume this plan failed. Most likely internal reasons:_
 1. **[Failure scenario]** (Task N) → Trigger: [observable condition]
 2. **[Failure scenario]** (Task N) → Trigger: [observable condition]
 
+## Execution Waves
+
+**Wave 1** — [label] (parallel): [rationale for why these tasks are independent]
+**Wave 2** — [label] (parallel): [rationale — depends on Wave 1 because...]
+
 ## Goal Verification
 
 ### Truths
@@ -310,7 +331,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ## Progress Tracking
 
-- [ ] Task 1: [summary]
+- [ ] Task 1: [summary] (Wave 1)
+- [ ] Task 2: [summary] (Wave 1)
+- [ ] Task 3: [summary] (Wave 2)
       **Total Tasks:** N | **Completed:** 0 | **Remaining:** N
 
 ## Implementation Tasks

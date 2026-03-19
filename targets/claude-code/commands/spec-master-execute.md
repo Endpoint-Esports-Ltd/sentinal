@@ -87,30 +87,31 @@ FOR each wave (1, 2, 3, ...):
 
 ### Spawning Subagents
 
-For each child plan in the current wave, spawn a subagent:
+For each child plan in the current wave, spawn an Agent with worktree isolation:
 
 ```
-Task(
-  subagent_type="general",
+Agent(
+  description="Execute Phase N: <title>",
+  isolation="worktree",
   prompt="""
   Execute the spec workflow for this child plan.
-  
+
   **Plan file:** <child-plan-path>
   **Master plan:** <master-plan-path>
-  
+
   1. Read the plan file
   2. If Status is PENDING + Approved: Yes → run /spec <child-plan-path> (implements + verifies)
   3. If Status is IN_PROGRESS → resume /spec <child-plan-path>
   4. If Status is COMPLETE → run verification only
   5. If Status is VERIFIED → report done, no work needed
-  
+
   The child plan should end at Status: VERIFIED when all tasks pass verification.
   Report the final status when done.
   """
 )
 ```
 
-**Spawn all subagents for a wave in a single message** to enable parallel execution.
+**Spawn all Agents for a wave in a single message** to enable parallel execution. Each Agent gets its own worktree, ensuring phases don't interfere with each other.
 
 ### Failure Handling
 

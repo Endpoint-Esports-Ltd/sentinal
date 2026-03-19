@@ -57,10 +57,19 @@ Done: 0 | Left: N
 ### Task 1: [Name]
 
 - [ ] Description of what to build/change
+- **Dependencies:** [None | Task X]
+- **Wave:** [1 | 2 | ...]
 - **Files:** create/modify/test file paths
 - **DoD:** Definition of Done for this task
 
 ### Task 2: ...
+
+## Execution Waves
+
+**Wave 1** — [label]: [which tasks, why independent]
+**Wave 2** — [label]: [which tasks, why they depend on Wave 1]
+
+After defining tasks, group by dependency into waves. Tasks in the same wave MUST NOT modify the same files. If wave analysis is unclear, default to sequential (each task in its own wave).
 
 ## Risks
 

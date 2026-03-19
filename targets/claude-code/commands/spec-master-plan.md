@@ -119,7 +119,7 @@ Explain wave ordering and dependency rationale:
 ```
 
 ### Phases Section
-Table listing each child plan:
+Table listing each child plan. Each child plan should include an `## Execution Waves` section to enable parallel task execution within that phase.
 
 ```markdown
 ## Phases

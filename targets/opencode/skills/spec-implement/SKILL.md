@@ -15,7 +15,7 @@ description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACT
 
 ## ⛔ Critical Constraints
 
-- **NO sub-agents** — all tasks execute sequentially in main context
+- **Sub-agents ONLY for parallel wave execution** — use `Task(subagent_type="general")` to run independent tasks concurrently within a wave. No sub-agents for research or other purposes.
 - **TDD is MANDATORY** — no production code without failing test first (Sentinal hooks enforce this)
 - **NEVER SKIP TASKS** — every task must be fully implemented, no "MVP scope" exceptions
 - **Quality over speed** — never rush due to context pressure. Context warnings are informational. Finish current task with full quality — auto-compaction handles the rest.
@@ -116,9 +116,52 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 
 ---
 
+### Step 2.2c: Parse Execution Waves
+
+**Read the plan's `## Execution Waves` section.**
+
+- **If no `## Execution Waves` section exists:** Skip wave-based execution entirely. Fall back to the original sequential per-task TDD loop in Step 2.3 (legacy path). Do NOT assign all tasks to Wave 1.
+- **If waves section exists:** Group uncompleted `[ ]` tasks by their `**Wave:**` field. Execute waves in order (Wave 1, then Wave 2, etc.).
+
+**Wave Execution Loop:**
+
+```
+FOR each wave (1, 2, 3, ...):
+  1. Collect uncompleted tasks in this wave
+  2. IF none remaining → skip wave
+  3. IF wave has 1 task → execute in main context (Step 2.3 TDD Loop)
+  4. IF wave has 2+ tasks → spawn parallel Tasks:
+     Spawn one Task per task (all in single message for concurrency):
+        Task(
+          subagent_type="general",
+          prompt="""
+          You are implementing a single task from a spec plan using TDD.
+
+          **Plan file:** <plan-path>
+          **Your task:** Task N: <title>
+          **Task details:** [paste full task section from plan]
+
+          Follow TDD: RED (failing test) → GREEN (minimal impl) → REFACTOR
+          Use quality_report MCP tool after edits.
+          Do NOT update the plan file checkboxes — the orchestrator handles this.
+          """
+        )
+     Wait for ALL tasks in wave to complete.
+     Check results — if any failed:
+        Report failure, ask user: "Retry?" / "Skip and continue?" / "Stop?"
+  5. Update plan checkboxes for all completed tasks in this wave (Step 2.4)
+  6. Proceed to next wave
+```
+
+**⛔ Plan file update rule:** Parallel tasks must NOT update plan checkboxes. The orchestrating main context updates all checkboxes after each wave completes. For single-task waves executed in main context, update inline as before.
+
+**⛔ OpenCode safety note:** Parallel tasks share the same working directory (no worktree isolation). The file-overlap constraint in wave planning is critical — if two parallel tasks write to the same file, they will corrupt each other's changes.
+
+---
+
 ### Step 2.3: TDD Loop
 
-**For EVERY task:**
+**For EVERY task (executed in main context — single-task waves or legacy sequential):**
 
 1. **Read plan's implementation steps** — list files to create/modify/delete
 2. **Pre-Mortem check:** Scan plan's `## Pre-Mortem` section — if any trigger condition is observably true for this task, note it in the plan and adapt your approach autonomously. Only escalate to user if it's an architectural-level change.

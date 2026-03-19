@@ -20,7 +20,17 @@ ARGUMENTS: $ARGUMENTS
 1. Read the plan file from ARGUMENTS
 2. Verify `Status: PENDING` and `Approved: Yes`
 3. Create tasks from the plan using TaskCreate
-4. Start with the first uncompleted task
+4. **Parse Execution Waves:** Read `## Execution Waves` section. If present, group tasks by wave. If absent, fall back to sequential execution (legacy path).
+5. Start with Wave 1 (or the first uncompleted task if no waves)
+
+## Wave Execution
+
+If the plan has `## Execution Waves`:
+
+- **Single-task wave:** Execute in main context using the TDD Loop below
+- **Multi-task wave:** Spawn parallel subagents (one per task, all in single message). Each subagent follows TDD independently. Wait for all to complete before proceeding to next wave.
+- **After each wave:** Update plan checkboxes for all completed tasks. Parallel subagents must NOT update checkboxes themselves.
+- **If no waves section:** Execute all tasks sequentially using the TDD Loop below
 
 ## TDD Loop (per task)
 
