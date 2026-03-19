@@ -1,3 +1,10 @@
+## [1.21.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.0...v1.21.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* auto-detect plan tier from Claude Code session context window size ([33cfa17](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/33cfa179b9bd1651a636de97a52e9c9d12e8ac8a))
+
 # [1.21.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.2...v1.21.0) (2026-03-19)
 
 
