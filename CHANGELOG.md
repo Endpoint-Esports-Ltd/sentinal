@@ -1,3 +1,15 @@
+# [1.21.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.2...v1.21.0) (2026-03-19)
+
+
+### Bug Fixes
+
+* stop hook no longer blocks on PENDING plans ([66d7bff](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/66d7bffcd2f859f500bc1120dd0d3df260f97d51))
+
+
+### Features
+
+* add execution wave grouping and parallel task implementation to spec workflow ([685403b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/685403b374cada82d437e9b3d69e0e5a4777d2f9))
+
 ## [1.20.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.1...v1.20.2) (2026-03-18)
 
 
