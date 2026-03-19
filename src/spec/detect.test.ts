@@ -84,16 +84,16 @@ describe("shouldBlockStop", () => {
     expect(shouldBlockStop(null)).toBeNull();
   });
 
-  it("should return null for terminal statuses", () => {
+  it("should return null for terminal and non-active statuses", () => {
     expect(shouldBlockStop("VERIFIED")).toBeNull();
     expect(shouldBlockStop("CANCELLED")).toBeNull();
-    expect(shouldBlockStop("IN_PROGRESS")).toBeNull();
+    expect(shouldBlockStop("PENDING")).toBeNull();
   });
 
-  it("should block on PENDING status", () => {
-    const reason = shouldBlockStop("PENDING");
+  it("should block on IN_PROGRESS status", () => {
+    const reason = shouldBlockStop("IN_PROGRESS");
     expect(reason).not.toBeNull();
-    expect(reason).toContain("PENDING");
+    expect(reason).toContain("IN_PROGRESS");
     expect(reason).toContain("/spec");
   });
 

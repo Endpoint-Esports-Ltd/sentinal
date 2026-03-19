@@ -5,18 +5,18 @@ import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 
 describe("spec-stop-guard", () => {
-  it("should block PENDING", () => {
-    const r = shouldBlockStop("PENDING");
+  it("should not block PENDING", () => {
+    expect(shouldBlockStop("PENDING")).toBeNull();
+  });
+  it("should block IN_PROGRESS", () => {
+    const r = shouldBlockStop("IN_PROGRESS");
     expect(r).not.toBeNull();
-    expect(r).toContain("PENDING");
+    expect(r).toContain("IN_PROGRESS");
   });
   it("should block COMPLETE", () => {
     const r = shouldBlockStop("COMPLETE");
     expect(r).not.toBeNull();
     expect(r).toContain("COMPLETE");
-  });
-  it("should not block IN_PROGRESS", () => {
-    expect(shouldBlockStop("IN_PROGRESS")).toBeNull();
   });
   it("should not block VERIFIED", () => {
     expect(shouldBlockStop("VERIFIED")).toBeNull();

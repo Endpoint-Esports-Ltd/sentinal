@@ -65,8 +65,8 @@ export function findActivePlan(searchDir: string): ActivePlan | null {
  */
 export function shouldBlockStop(status: SpecStatus | null): string | null {
   if (!status) return null;
-  if (status === "PENDING")
-    return `Active spec plan is PENDING (awaiting implementation). Resume with /spec <plan-path>. Do NOT stop.`;
+  if (status === "IN_PROGRESS")
+    return `Active spec plan is IN_PROGRESS (implementation underway). Resume with /spec <plan-path>. Do NOT stop.`;
   if (status === "COMPLETE")
     return `Active spec plan is COMPLETE (awaiting verification). Run verification phase. Do NOT stop.`;
   return null;
