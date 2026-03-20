@@ -249,7 +249,7 @@ export class MemoryStore {
   insertSession(session: Omit<Session, "observationCount">): Session {
     this.db
       .prepare(
-        `INSERT INTO sessions (id, start_time, end_time, project_path, assistant, summary, transcript_path)
+        `INSERT OR IGNORE INTO sessions (id, start_time, end_time, project_path, assistant, summary, transcript_path)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
