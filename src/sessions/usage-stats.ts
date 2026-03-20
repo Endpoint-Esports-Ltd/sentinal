@@ -115,8 +115,8 @@ export const DISPLAY_MODELS = new Set(["claude-opus-4-6", "claude-sonnet-4-6"]);
 // Rolling window for weekly usage (7 days in ms)
 const WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Rolling window for session/short-term rate limit (4 hours in ms)
-const SESSION_WINDOW_MS = 4 * 60 * 60 * 1000;
+// Rolling window for session/short-term rate limit (5 hours in ms)
+const SESSION_WINDOW_MS = 5 * 60 * 60 * 1000;
 
 // API-cost-equivalent 4-hour session limits in USD (estimates)
 export const SESSION_LIMITS: Record<PlanTier, number> = {

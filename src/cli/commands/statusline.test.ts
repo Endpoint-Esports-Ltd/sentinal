@@ -3,6 +3,7 @@ import {
   formatStatusline,
   buildProgressBar,
   detectPlanTier,
+  extractRateLimits,
 } from "./statusline.js";
 
 describe("buildProgressBar", () => {
@@ -51,6 +52,45 @@ describe("detectPlanTier", () => {
 
   it("should default to max_5x with no config and no context window", () => {
     expect(detectPlanTier(null, undefined)).toBe("max_5x");
+  });
+});
+
+describe("extractRateLimits", () => {
+  it("should extract rate_limit data from session JSON", () => {
+    const result = extractRateLimits({
+      rate_limit: {
+        session_used_percentage: 42,
+        weekly_used_percentage: 17,
+      },
+    });
+    expect(result).toEqual({ sessionPct: 42, weeklyPct: 17 });
+  });
+
+  it("should return null when rate_limit is missing", () => {
+    expect(extractRateLimits({})).toBeNull();
+  });
+
+  it("should return null when rate_limit has non-number values", () => {
+    expect(
+      extractRateLimits({ rate_limit: { session_used_percentage: "bad" } }),
+    ).toBeNull();
+  });
+
+  it("should handle rate_limit with only session percentage", () => {
+    const result = extractRateLimits({
+      rate_limit: { session_used_percentage: 50 },
+    });
+    expect(result).toEqual({ sessionPct: 50, weeklyPct: undefined });
+  });
+
+  it("should round fractional percentages", () => {
+    const result = extractRateLimits({
+      rate_limit: {
+        session_used_percentage: 42.7,
+        weekly_used_percentage: 17.3,
+      },
+    });
+    expect(result).toEqual({ sessionPct: 43, weeklyPct: 17 });
   });
 });
 

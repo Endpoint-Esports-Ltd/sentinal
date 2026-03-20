@@ -55,6 +55,28 @@ export function detectPlanTier(
 }
 
 /**
+ * Extract rate limit data from Claude Code's session JSON.
+ * Returns null if rate_limit data is not present or invalid.
+ */
+export function extractRateLimits(
+  sessionJson: Record<string, unknown>,
+): { sessionPct: number; weeklyPct: number | undefined } | null {
+  const rateLimit = sessionJson.rate_limit as
+    | Record<string, unknown>
+    | undefined;
+  if (!rateLimit) return null;
+
+  const sessionRaw = rateLimit.session_used_percentage;
+  if (typeof sessionRaw !== "number") return null;
+
+  const weeklyRaw = rateLimit.weekly_used_percentage;
+  const weeklyPct =
+    typeof weeklyRaw === "number" ? Math.round(weeklyRaw) : undefined;
+
+  return { sessionPct: Math.round(sessionRaw), weeklyPct };
+}
+
+/**
  * Build a progress bar string.
  */
 export function buildProgressBar(percent: number, width = 5): string {
@@ -155,31 +177,79 @@ export function registerStatuslineCommand(program: Command): void {
           planTier = detectPlanTier(null, contextWindowSize);
         }
 
-        // Get all log files (used for both session and weekly calculations)
-        const logFiles = findLogFiles();
+        // Try to use Claude Code's rate_limit data (accurate server-side data)
+        const rateLimits = extractRateLimits(sessionJson);
 
-        // Calculate 4-hour session window usage across all projects
-        const sessionWindow = getSessionWindowUsage(logFiles, planTier);
-        const sessionPct = sessionWindow.pctOfLimit;
-        let sessionResetIn = 0;
-        for (const [model, data] of Object.entries(sessionWindow.byModel)) {
-          if (!DISPLAY_MODELS.has(model)) continue;
-          if (data.resetsIn > sessionResetIn) {
-            sessionResetIn = data.resetsIn;
-          }
-        }
-        const sessionDuration = formatResetCountdown(sessionResetIn);
+        // Get log files for model breakdown and fallback calculations
+        const logFiles = findLogFiles();
         const summary = getUsageSummary(logFiles, planTier);
 
-        // Build model usage array (only display known models, not background ones like haiku)
+        // Session usage: prefer rate_limit, fall back to log-based
+        let sessionPct: number;
+        let sessionDuration: string;
+        if (rateLimits) {
+          sessionPct = rateLimits.sessionPct;
+          // Session duration from log-based calculation (rate_limit doesn't include reset time)
+          const sessionWindow = getSessionWindowUsage(logFiles, planTier);
+          let sessionResetIn = 0;
+          for (const [model, data] of Object.entries(sessionWindow.byModel)) {
+            if (!DISPLAY_MODELS.has(model)) continue;
+            if (data.resetsIn > sessionResetIn) {
+              sessionResetIn = data.resetsIn;
+            }
+          }
+          sessionDuration = formatResetCountdown(sessionResetIn);
+        } else {
+          const sessionWindow = getSessionWindowUsage(logFiles, planTier);
+          sessionPct = sessionWindow.pctOfLimit;
+          let sessionResetIn = 0;
+          for (const [model, data] of Object.entries(sessionWindow.byModel)) {
+            if (!DISPLAY_MODELS.has(model)) continue;
+            if (data.resetsIn > sessionResetIn) {
+              sessionResetIn = data.resetsIn;
+            }
+          }
+          sessionDuration = formatResetCountdown(sessionResetIn);
+        }
+
+        // Build model usage array (only display known models)
         const modelUsage: Array<{ name: string; pct: number }> = [];
         let displayModelsResetIn = 0;
+
+        // Calculate log-based model proportions
+        const logModelEntries: Array<{
+          name: string;
+          pct: number;
+          cost: number;
+        }> = [];
+        let totalDisplayCost = 0;
         for (const [model, data] of Object.entries(summary.byModel)) {
           if (!DISPLAY_MODELS.has(model)) continue;
           const shortName = model.includes("opus") ? "Opus" : "Sonnet";
-          modelUsage.push({ name: shortName, pct: data.pctOfLimit });
+          logModelEntries.push({
+            name: shortName,
+            pct: data.pctOfLimit,
+            cost: data.costEquiv,
+          });
+          totalDisplayCost += data.costEquiv;
           if (data.resetsIn > displayModelsResetIn) {
             displayModelsResetIn = data.resetsIn;
+          }
+        }
+
+        if (rateLimits?.weeklyPct !== undefined && totalDisplayCost > 0) {
+          // Scale model percentages to match Claude Code's weekly total
+          for (const entry of logModelEntries) {
+            const proportion = entry.cost / totalDisplayCost;
+            modelUsage.push({
+              name: entry.name,
+              pct: Math.round(proportion * rateLimits.weeklyPct),
+            });
+          }
+        } else {
+          // Fall back to log-based percentages
+          for (const entry of logModelEntries) {
+            modelUsage.push({ name: entry.name, pct: entry.pct });
           }
         }
 
