@@ -1,3 +1,10 @@
+## [1.21.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.1...v1.21.2) (2026-03-20)
+
+
+### Bug Fixes
+
+* use Claude Code's rate_limit data for accurate statusline usage ([8431135](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/8431135beff8b3a2fcf4cfb67d580537dbdfd302))
+
 ## [1.21.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.0...v1.21.1) (2026-03-19)
 
 
