@@ -1,3 +1,10 @@
+## [1.21.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.2...v1.21.3) (2026-03-21)
+
+
+### Bug Fixes
+
+* handle duplicate session insert on resume without error ([c18df8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c18df8d830d7068e578d71e67d72dec3c88bc8ef))
+
 ## [1.21.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.1...v1.21.2) (2026-03-20)
 
 
