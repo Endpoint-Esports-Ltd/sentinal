@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "observations": [
+    {
+      "type": "pattern",
+      "title": "Test timing patterns: rolling window drift and subprocess timeout cascades",
+      "content": "Two test failure patterns discovered in CI:\n\n1. **Rolling window timestamp drift** — Tests with hardcoded dates (e.g., \"2026-03-10\") silently break when real time advances past the rolling window boundary (7-day or 4-hour windows). Fix: use `new Date(Date.now() - 60*60*1000).toISOString()` for timestamps that must stay within the window.\n\n2. **Subprocess timeout cascade** — bun:test defaults to 5s per test. Quality-check tests spawning tsc/eslint/prettier can take 5-30s in CI. When first test times out, the sidecar's concurrency guard (`activeChecks.has(projectPath)`) still has the project locked, causing ALL subsequent tests to fail with \"already running\". Fix: add per-test timeouts via third argument to `it()`: `it(\"name\", async () => {...}, 60_000)`.\n\nAffected files: `src/sessions/usage-stats.test.ts`, `src/sidecar/quality-routes.test.ts`, `src/sidecar/client.test.ts`. Skill: `.claude/skills/sentinal-test-timing/SKILL.md`",
+      "tags": [
+        "testing",
+        "ci",
+        "bun:test",
+        "timeout",
+        "rolling-window",
+        "timestamp"
+      ],
+      "filePaths": [
+        "src/sessions/usage-stats.test.ts",
+        "src/sidecar/quality-routes.test.ts",
+        "src/sidecar/client.test.ts"
+      ],
+      "createdAt": "2026-03-18",
+      "author": "Evan Tiley"
+    },
+    {
+      "type": "pattern",
+      "title": "Platform hook architecture: MCP (~5-20ms) vs Claude Code hooks (~50-200ms) vs OpenCode plugin (~1-5ms)",
+      "content": "Decision framework for new sidecar-dependent features:\n\n**Performance ranking:**\n1. OpenCode plugin handler: ~1-5ms (in-process, single SidecarClient via closure)\n2. MCP tool (both platforms): ~5-20ms (long-running process, single client at startup)\n3. Claude Code hooks: ~50-200ms (NEW process per event, fresh connect each time)\n\n**When to use each:**\n- MCP tool: on-demand queries, user/AI-initiated operations\n- Claude Code hook: must intercept/block tool calls (PreToolUse), or react to lifecycle events (SessionStart, PreCompact, UserPromptSubmit)\n- OpenCode plugin: all event-reactive logic (tool.execute.before/after, event, session.compacting)\n\n**Key gotchas:**\n- OpenCode `tool.execute.after` `input.tool` uses built-in names (\"write\",\"edit\",\"bash\") — MCP tool calls have different names and won't match `MEMORY_TOOLS` filter\n- Claude Code async hooks CAN return additionalContext but CANNOT return decision/block\n- OpenCode `client.app.log()` writes to TUI only, NOT LLM context — use compact-state.json\n- Claude Code subagent frontmatter supports `mcpServers` for scoping; OpenCode does not\n\nSkill: `.claude/skills/sentinal-hook-architecture/SKILL.md`",
+      "tags": [
+        "architecture",
+        "performance",
+        "hooks",
+        "mcp",
+        "opencode",
+        "claude-code",
+        "sidecar"
+      ],
+      "filePaths": [
+        "targets/claude-code/hooks/hooks.json",
+        "targets/opencode/plugins/sentinal.ts",
+        "src/mcp/server.ts",
+        "src/cli/commands/hook.ts"
+      ],
+      "createdAt": "2026-03-18",
+      "author": "Evan Tiley"
+    }
+  ]
+}
