@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.3...v1.22.0) (2026-03-23)
+
+
+### Features
+
+* add project memory ([c561c63](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c561c63a4a2e2e172ac6efecea057c3516faca7c))
+
 ## [1.21.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.2...v1.21.3) (2026-03-21)
 
 
