@@ -49,6 +49,12 @@ import { greet } from "./greet.js";
 import { detectShell, applyShellInit } from "./shell-init.js";
 import { isStatuslineActive } from "./statusline.js";
 import {
+  resolveModelRouting,
+  applyModelRouting,
+} from "../../config/model-routing.js";
+import { DEFAULT_MODEL_ROUTING } from "../../config/types.js";
+import { MemoryStore } from "../../memory/store.js";
+import {
   MARKETPLACE_DIR,
   MARKETPLACE_NAME,
   PLUGIN_NAME,
@@ -311,6 +317,20 @@ export async function installClaudeCode(): Promise<void> {
     copyDirRecursive(claudeTarget, pluginDir, {
       exclude: ["install.sh", "uninstall.sh", "tsconfig.json", "dist"],
     });
+  }
+
+  // Apply model routing config to plugin files
+  try {
+    const routingStore = new MemoryStore();
+    const routing = resolveModelRouting(routingStore);
+    routingStore.close();
+    const isNonDefault = (Object.keys(DEFAULT_MODEL_ROUTING) as Array<keyof typeof DEFAULT_MODEL_ROUTING>).some(k => routing[k] !== DEFAULT_MODEL_ROUTING[k]);
+    const { patched } = applyModelRouting([pluginDir], routing);
+    if (isNonDefault && patched.length > 0) {
+      info(`Applied model routing to ${patched.length} skill files`);
+    }
+  } catch {
+    // Model routing is supplementary — don't fail install
   }
 
   ok(`[OK] Marketplace created at ${MARKETPLACE_DIR}`);

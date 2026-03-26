@@ -16,6 +16,9 @@ import {
   getModelRouting,
   setModelRouting,
   resetModelRouting,
+  resolveModelRouting,
+  applyModelRouting,
+  findInstalledPluginDirs,
 } from "../../config/model-routing.js";
 import {
   DEFAULT_MODEL_ROUTING,
@@ -124,6 +127,17 @@ export function registerConfigCommand(program: Command): void {
         const result = setModelRouting(store, partial);
         console.log(`Updated ${key} = "${value}"`);
         console.log(`  model_routing = ${JSON.stringify(result)}`);
+        // Apply to installed plugin files immediately (with env var overrides)
+        const dirs = findInstalledPluginDirs();
+        if (dirs.length > 0) {
+          const resolved = resolveModelRouting(store);
+          const { patched } = applyModelRouting(dirs, resolved);
+          if (patched.length > 0) {
+            console.log(
+              `  Applied to ${patched.length} installed plugin file(s)`,
+            );
+          }
+        }
       } else if (subPath.length > 0) {
         // Generic dot-path: read existing, set nested, write back
         const existing = store.getSetting(rootKey);
@@ -165,6 +179,16 @@ export function registerConfigCommand(program: Command): void {
         store.deleteSetting(s.key);
       }
       console.log(`Reset ${settings.length} setting(s) to defaults.`);
+      // Restore default model routing in installed plugin files
+      const dirs = findInstalledPluginDirs();
+      if (dirs.length > 0) {
+        const { patched } = applyModelRouting(dirs, DEFAULT_MODEL_ROUTING);
+        if (patched.length > 0) {
+          console.log(
+            `  Restored default model routing in ${patched.length} plugin file(s)`,
+          );
+        }
+      }
       store.close();
     });
 }
