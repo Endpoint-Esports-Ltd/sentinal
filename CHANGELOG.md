@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.22.0...v1.23.0) (2026-03-26)
+
+
+### Features
+
+* detect competing statusline plugins and yield gracefully ([bb32a57](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bb32a578236b0dc90e608b59f39a43840dca59c0))
+
 # [1.22.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.3...v1.22.0) (2026-03-23)
 
 
