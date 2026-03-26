@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.23.0...v1.24.0) (2026-03-26)
+
+
+### Features
+
+* wire model routing config to Claude Code skill frontmatter ([35df380](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/35df380af4041a09bfb3cd233a92cb3d6836ddd0))
+
 # [1.23.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.22.0...v1.23.0) (2026-03-26)
 
 
