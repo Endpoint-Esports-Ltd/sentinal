@@ -47,6 +47,7 @@ import {
 } from "../../utils/shell.js";
 import { greet } from "./greet.js";
 import { detectShell, applyShellInit } from "./shell-init.js";
+import { isStatuslineActive } from "./statusline.js";
 import {
   MARKETPLACE_DIR,
   MARKETPLACE_NAME,
@@ -349,8 +350,13 @@ export async function installClaudeCode(): Promise<void> {
 
   console.log("");
   info("Configuring statusline...");
-  configureStatusline();
-  ok("[OK] Statusline configured (sentinal statusline)");
+  if (configureStatusline()) {
+    ok("[OK] Statusline configured (sentinal statusline)");
+  } else {
+    note(
+      "Statusline skipped — another statusline plugin is active.",
+    );
+  }
 
   // ── Done ──
 
@@ -365,8 +371,9 @@ export async function installClaudeCode(): Promise<void> {
 
 // ─── Statusline configuration ───────────────────────────────────────────────
 
-/** Configure Claude Code's native statusline to use `sentinal statusline`. */
-function configureStatusline(): void {
+/** Configure Claude Code's native statusline to use `sentinal statusline`.
+ *  Returns true if configured, false if skipped (another plugin active). */
+function configureStatusline(): boolean {
   const settingsPath = join(homedir(), ".claude", "settings.json");
   let settings: Record<string, unknown> = {};
 
@@ -383,6 +390,11 @@ function configureStatusline(): void {
     mkdirp(join(homedir(), ".claude"));
   }
 
+  // Skip if another statusline plugin is active
+  if (!isStatuslineActive(settingsPath)) {
+    return false;
+  }
+
   const binPath = getSentinalBinPath();
   settings.statusLine = {
     type: "command",
@@ -390,6 +402,7 @@ function configureStatusline(): void {
   };
 
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  return true;
 }
 
 // ─── Claude Code embedded asset writer ──────────────────────────────────────
@@ -878,7 +891,9 @@ function setupProjectSymlinks(): void {
                 cpSync(src, dst, { recursive: true });
               }
             }
-            info(`    Migrated ${entries.length} items from ${linkPath.replace(cwd + "/", "")}`);
+            info(
+              `    Migrated ${entries.length} items from ${linkPath.replace(cwd + "/", "")}`,
+            );
           }
           rmSync(linkPath, { recursive: true, force: true });
         }

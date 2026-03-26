@@ -9,6 +9,9 @@
  */
 
 import type { Command } from "commander";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import {
   getSessionWindowUsage,
   getUsageSummary,
@@ -18,6 +21,7 @@ import {
   type PlanTier,
 } from "../../sessions/usage-stats.js";
 import { MemoryStore } from "../../memory/store.js";
+import { stripJsoncComments } from "../../utils/shell.js";
 
 // --- Types ---
 
@@ -31,6 +35,35 @@ export interface StatuslineInput {
 }
 
 // --- Public API ---
+
+/**
+ * Check if Sentinal's statusline is the active plugin in Claude Code settings.
+ * Returns true (active) if: command contains "sentinal", file missing, or unparseable.
+ * Returns false if another plugin (e.g., ccstatusline) owns the statusline.
+ */
+export function isStatuslineActive(settingsPath?: string): boolean {
+  const path = settingsPath ?? join(homedir(), ".claude", "settings.json");
+
+  if (!existsSync(path)) return true;
+
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const cleaned = stripJsoncComments(raw);
+    const settings = JSON.parse(cleaned) as Record<string, unknown>;
+    const statusLine = settings.statusLine as
+      | Record<string, unknown>
+      | undefined;
+    const command =
+      typeof statusLine?.command === "string" ? statusLine.command : null;
+
+    if (!command) return true;
+
+    return command.toLowerCase().includes("sentinal");
+  } catch {
+    // Can't read/parse — safe default: assume sentinal is active
+    return true;
+  }
+}
 
 /**
  * Detect plan tier from manual config and/or session context window size.
@@ -126,6 +159,13 @@ export function registerStatuslineCommand(program: Command): void {
     )
     .action(async () => {
       try {
+        // If another statusline plugin is active, drain stdin and yield silently
+        if (!isStatuslineActive()) {
+          process.stdin.resume();
+          process.stdin.on("end", () => {});
+          return;
+        }
+
         // Read session JSON from stdin (Claude Code provides this)
         let stdinData = "";
         try {

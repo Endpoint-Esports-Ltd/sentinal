@@ -1,9 +1,13 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   formatStatusline,
   buildProgressBar,
   detectPlanTier,
   extractRateLimits,
+  isStatuslineActive,
 } from "./statusline.js";
 
 describe("buildProgressBar", () => {
@@ -91,6 +95,75 @@ describe("extractRateLimits", () => {
       },
     });
     expect(result).toEqual({ sessionPct: 43, weeklyPct: 17 });
+  });
+});
+
+describe("isStatuslineActive", () => {
+  const testDir = join(tmpdir(), `sentinal-test-${process.pid}`);
+  const settingsPath = join(testDir, "settings.json");
+
+  beforeEach(() => {
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true });
+    }
+  });
+
+  it("should return false when command points to another plugin", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        statusLine: { type: "command", command: "npx ccstatusline-usage" },
+      }),
+    );
+    expect(isStatuslineActive(settingsPath)).toBe(false);
+  });
+
+  it("should return true when command contains sentinal", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        statusLine: {
+          type: "command",
+          command: "/Users/evan/.sentinal/bin/sentinal statusline",
+        },
+      }),
+    );
+    expect(isStatuslineActive(settingsPath)).toBe(true);
+  });
+
+  it("should return true when settings.json does not exist", () => {
+    expect(isStatuslineActive(join(testDir, "nonexistent.json"))).toBe(true);
+  });
+
+  it("should return true when statusLine field is missing", () => {
+    writeFileSync(settingsPath, JSON.stringify({ enabledPlugins: {} }));
+    expect(isStatuslineActive(settingsPath)).toBe(true);
+  });
+
+  it("should return true when statusLine has no command", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ statusLine: { type: "command" } }),
+    );
+    expect(isStatuslineActive(settingsPath)).toBe(true);
+  });
+
+  it("should handle JSONC with comments", () => {
+    writeFileSync(
+      settingsPath,
+      `{
+  // This is a comment
+  "statusLine": {
+    "type": "command",
+    "command": "npx ccstatusline-usage"
+  }
+}`,
+    );
+    expect(isStatuslineActive(settingsPath)).toBe(false);
   });
 });
 
