@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.24.0...v1.25.0) (2026-04-02)
+
+
+### Features
+
+* add OpenCode system prompt injection via experimental.chat.system.transform ([2f24ab7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2f24ab783d3e37b4a237f5be4b4679f13a2de5f3))
+
 # [1.24.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.23.0...v1.24.0) (2026-03-26)
 
 
