@@ -60,38 +60,42 @@ describe("detectPlanTier", () => {
 });
 
 describe("extractRateLimits", () => {
-  it("should extract rate_limit data from session JSON", () => {
+  it("should extract nested rate_limits data from session JSON", () => {
     const result = extractRateLimits({
-      rate_limit: {
-        session_used_percentage: 42,
-        weekly_used_percentage: 17,
+      rate_limits: {
+        five_hour: { used_percentage: 42, resets_at: "2026-04-02T12:00:00Z" },
+        seven_day: { used_percentage: 17, resets_at: "2026-04-08T00:00:00Z" },
       },
     });
     expect(result).toEqual({ sessionPct: 42, weeklyPct: 17 });
   });
 
-  it("should return null when rate_limit is missing", () => {
+  it("should return null when rate_limits is missing", () => {
     expect(extractRateLimits({})).toBeNull();
   });
 
-  it("should return null when rate_limit has non-number values", () => {
+  it("should return null when five_hour has non-number used_percentage", () => {
     expect(
-      extractRateLimits({ rate_limit: { session_used_percentage: "bad" } }),
+      extractRateLimits({
+        rate_limits: { five_hour: { used_percentage: "bad" } },
+      }),
     ).toBeNull();
   });
 
-  it("should handle rate_limit with only session percentage", () => {
+  it("should handle rate_limits with only five_hour", () => {
     const result = extractRateLimits({
-      rate_limit: { session_used_percentage: 50 },
+      rate_limits: {
+        five_hour: { used_percentage: 50 },
+      },
     });
     expect(result).toEqual({ sessionPct: 50, weeklyPct: undefined });
   });
 
   it("should round fractional percentages", () => {
     const result = extractRateLimits({
-      rate_limit: {
-        session_used_percentage: 42.7,
-        weekly_used_percentage: 17.3,
+      rate_limits: {
+        five_hour: { used_percentage: 42.7 },
+        seven_day: { used_percentage: 17.3 },
       },
     });
     expect(result).toEqual({ sessionPct: 43, weeklyPct: 17 });

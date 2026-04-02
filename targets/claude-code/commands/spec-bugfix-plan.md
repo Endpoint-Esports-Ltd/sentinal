@@ -3,6 +3,7 @@ description: "Bugfix spec planning phase - investigate root cause, design fix, g
 argument-hint: "<bug description> or <path/to/plan.md>"
 user-invocable: false
 model: opus
+effort: high
 ---
 
 # /spec-bugfix-plan - Bugfix Planning Phase

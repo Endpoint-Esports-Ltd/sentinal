@@ -3,6 +3,7 @@ name: research
 description: Research assistant with web search, documentation lookup, and code search capabilities. Use when the user needs to search the web, look up library docs, or find real-world code examples.
 tools: Read, Grep, Glob
 model: sonnet
+maxTurns: 30
 permissionMode: plan
 mcpServers:
   - context7:

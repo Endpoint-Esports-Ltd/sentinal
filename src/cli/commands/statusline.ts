@@ -89,20 +89,29 @@ export function detectPlanTier(
 
 /**
  * Extract rate limit data from Claude Code's session JSON.
- * Returns null if rate_limit data is not present or invalid.
+ * Claude Code sends: { rate_limits: { five_hour: { used_percentage, resets_at }, seven_day: { ... } } }
+ * Returns null if rate_limits data is not present or invalid.
  */
 export function extractRateLimits(
   sessionJson: Record<string, unknown>,
 ): { sessionPct: number; weeklyPct: number | undefined } | null {
-  const rateLimit = sessionJson.rate_limit as
+  const rateLimits = sessionJson.rate_limits as
     | Record<string, unknown>
     | undefined;
-  if (!rateLimit) return null;
+  if (!rateLimits) return null;
 
-  const sessionRaw = rateLimit.session_used_percentage;
+  const fiveHour = rateLimits.five_hour as
+    | Record<string, unknown>
+    | undefined;
+  if (!fiveHour) return null;
+
+  const sessionRaw = fiveHour.used_percentage;
   if (typeof sessionRaw !== "number") return null;
 
-  const weeklyRaw = rateLimit.weekly_used_percentage;
+  const sevenDay = rateLimits.seven_day as
+    | Record<string, unknown>
+    | undefined;
+  const weeklyRaw = sevenDay?.used_percentage;
   const weeklyPct =
     typeof weeklyRaw === "number" ? Math.round(weeklyRaw) : undefined;
 

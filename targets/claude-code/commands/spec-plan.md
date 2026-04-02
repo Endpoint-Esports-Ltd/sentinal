@@ -3,6 +3,7 @@ description: "Spec planning phase - explore codebase, design plan, get approval"
 argument-hint: "<task description> or <path/to/plan.md>"
 user-invocable: false
 model: opus
+effort: high
 ---
 
 # /spec-plan - Planning Phase
