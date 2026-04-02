@@ -107,6 +107,10 @@ interface PluginHooks {
     input: { sessionID: string },
     output: { context: string[]; prompt?: string },
   ) => Promise<void>;
+  "experimental.chat.system.transform"?: (
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
+  ) => Promise<void>;
   event?: (input: {
     event: {
       type: string;
@@ -522,11 +526,10 @@ export const SentinalPlugin: Plugin = async ({
               const response = await client.session.messages({
                 path: { id: sessionId! },
               });
-              const messages = (
-                (response as unknown as { data?: unknown })?.data ??
+              const messages = ((response as unknown as { data?: unknown })
+                ?.data ??
                 response ??
-                []
-              ) as SessionMessage[];
+                []) as SessionMessage[];
               if (Array.isArray(messages)) {
                 const usage = aggregateTokenUsage(messages);
                 const warning = getContextWarning(usage);
@@ -674,12 +677,9 @@ export const SentinalPlugin: Plugin = async ({
           (t: { status: string }) => t.status === "complete",
         ).length;
         const remaining = total - completed;
-        const percent =
-          total > 0 ? Math.round((completed / total) * 100) : 0;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
         const currentTask =
-          tasks.find(
-            (t: { status: string }) => t.status === "in-progress",
-          ) ??
+          tasks.find((t: { status: string }) => t.status === "in-progress") ??
           tasks.find((t: { status: string }) => t.status === "pending") ??
           null;
 
@@ -703,6 +703,73 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (memoryContext) output.context.push(memoryContext);
+    },
+
+    "experimental.chat.system.transform": async (_input, output) => {
+      try {
+        // Discover output shape — log keys for debugging on first call
+        const keys = Object.keys(output);
+        log(`system.transform output keys: [${keys.join(", ")}]`);
+        const systemArr = (output.system ?? output.context) as
+          | string[]
+          | undefined;
+        if (!Array.isArray(systemArr)) {
+          log(
+            `system.transform: no usable array in output — skipping injection`,
+          );
+          return;
+        }
+
+        // Inject active spec context
+        const active = findActivePlan(projectRoot);
+        if (active) {
+          const { spec, filePath } = active;
+          const total = spec.tasks.length;
+          const done = spec.tasks.filter(
+            (t) => t.status === "complete",
+          ).length;
+          const current =
+            spec.tasks.find((t) => t.status === "in-progress")?.title ??
+            spec.tasks.find((t) => t.status === "pending")?.title ??
+            "none";
+          systemArr.push(
+            `[Sentinal] Active plan: ${filePath} | Status: ${spec.status} | Task: ${current} | Progress: ${done}/${total}`,
+          );
+        }
+
+        // Inject model routing hints if non-default
+        if (sidecar) {
+          try {
+            const routing = await sidecar.getModelRouting();
+            const defaults = {
+              planning: "opus",
+              implementation: "sonnet",
+              verification: "sonnet",
+              plan_reviewer: "sonnet",
+              spec_reviewer: "sonnet",
+            };
+            const isNonDefault = (
+              Object.keys(defaults) as Array<keyof typeof defaults>
+            ).some(
+              (k) => routing[k] !== defaults[k],
+            );
+            if (isNonDefault) {
+              const parts = Object.entries(routing)
+                .map(([k, v]) => `${k}=${v}`)
+                .join(", ");
+              systemArr.push(
+                `[Sentinal] Model routing: ${parts}. Use the specified model when invoking spec skills.`,
+              );
+            }
+          } catch {
+            // Sidecar unavailable for model routing — skip
+          }
+        }
+      } catch (e) {
+        log(
+          `system.transform failed: ${e instanceof Error ? e.message : e}`,
+        );
+      }
     },
 
     event: async ({ event }) => {

@@ -185,6 +185,18 @@ export class SidecarClient {
     return this.get("/session/active");
   }
 
+  // ─── Config ────────────────────────────────────────────────────────────
+
+  async getModelRouting(): Promise<{
+    planning: string;
+    implementation: string;
+    verification: string;
+    plan_reviewer: string;
+    spec_reviewer: string;
+  }> {
+    return this.get("/config/model-routing");
+  }
+
   // ─── TDD State ─────────────────────────────────────────────────────────
 
   async getTddState(
