@@ -1,3 +1,15 @@
+# [1.26.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.25.0...v1.26.0) (2026-04-03)
+
+
+### Bug Fixes
+
+* add sentinal: namespace prefix to all Skill() calls in Claude Code commands ([3624a70](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3624a70f311772ca8fadb73d58d8ecbfc77c9282))
+
+
+### Features
+
+* adopt Claude Code latest features — rate_limits fix, effort, agent maxTurns, conditional hooks ([e61ca4d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e61ca4d93c760b8b995b4a3e0c27655e0eafc2ff))
+
 # [1.25.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.24.0...v1.25.0) (2026-04-02)
 
 
