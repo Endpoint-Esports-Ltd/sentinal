@@ -533,7 +533,7 @@ Skills are appropriate for: multi-step workflows, tool integrations, reusable sc
 
 1. Identify candidates from exploration: repeated workflows, complex tool usage, bundled scripts
 2. AskUserQuestion (multiSelect): which to create
-3. For each: invoke `Skill(skill="learn")` if available — otherwise create `.sentinal/skills/{slug}-{name}/SKILL.md` (identical content) directly with frontmatter (`name`, `description`, optionally `user-invocable: true`)
+3. For each: invoke `Skill(skill="sentinal:learn")` if available — otherwise create `.sentinal/skills/{slug}-{name}/SKILL.md` (identical content) directly with frontmatter (`name`, `description`, optionally `user-invocable: true`)
 4. Verify: skill directory exists, SKILL.md has proper frontmatter
 
 ## Phase 11: Cross-Check

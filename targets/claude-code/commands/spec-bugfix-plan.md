@@ -12,7 +12,7 @@ effort: high
 
 **Input:** Bug description (new) or plan path (continue unapproved)
 **Output:** Approved bugfix plan at `docs/plans/YYYY-MM-DD-<slug>.md` with `Type: Bugfix`
-**Next:** On approval → `Skill(skill='spec-implement', args='<plan-path>')`
+**Next:** On approval → `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
 
 ---
 
@@ -274,7 +274,7 @@ Type: Bugfix
 
 ## Step 1.5: Get User Approval
 
-**⛔ If `SENTINAL_PLAN_APPROVAL_ENABLED` is `"false"` (from Step 0),** skip this step: set `Approved: Yes` in the plan file automatically and immediately invoke `Skill(skill='spec-implement', args='<plan-path>')`. No AskUserQuestion.
+**⛔ If `SENTINAL_PLAN_APPROVAL_ENABLED` is `"false"` (from Step 0),** skip this step: set `Approved: Yes` in the plan file automatically and immediately invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`. No AskUserQuestion.
 
 **When `SENTINAL_PLAN_APPROVAL_ENABLED` is NOT `"false"`:**
 
@@ -284,7 +284,7 @@ Type: Bugfix
    ```
 1. Summarize: symptom → root cause → fix approach → task structure
 2. AskUserQuestion: "Yes, proceed" | "No, let me edit"
-3. **Yes:** Set `Approved: Yes`, invoke `Skill(skill='spec-implement', args='<plan-path>')`
+3. **Yes:** Set `Approved: Yes`, invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
    **No:** User edits, re-read, ask again. **Other feedback:** Incorporate, re-ask.
 
 ---

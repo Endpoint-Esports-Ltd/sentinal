@@ -12,7 +12,7 @@ effort: high
 
 **Input:** Task description (new) or plan path (continue unapproved)
 **Output:** Approved plan at `docs/plans/YYYY-MM-DD-<slug>.md`
-**Next:** On approval → `Skill(skill='spec-implement', args='<plan-path>')`
+**Next:** On approval → `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
 
 ---
 
@@ -385,13 +385,13 @@ Then Read the file once. Fix findings: must_fix → should_fix immediately.
 
 ### Step 1.8: Get User Approval
 
-**⛔ If `SENTINAL_PLAN_APPROVAL_ENABLED` is `"false"`,** skip: set `Approved: Yes` automatically and invoke `Skill(skill='spec-implement', args='<plan-path>')`.
+**⛔ If `SENTINAL_PLAN_APPROVAL_ENABLED` is `"false"`,** skip: set `Approved: Yes` automatically and invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`.
 
 **When enabled:**
 
 1. Summarize: goal, key tasks, approach
 2. AskUserQuestion: "Yes, proceed" or "No, I need to make changes"
-3. **If "Yes":** Set `Approved: Yes`, invoke `Skill(skill='spec-implement', args='<plan-path>')`
+3. **If "Yes":** Set `Approved: Yes`, invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
 4. **If "No":** Tell user to edit plan, wait for "ready", re-read, ask again
 
 ARGUMENTS: $ARGUMENTS

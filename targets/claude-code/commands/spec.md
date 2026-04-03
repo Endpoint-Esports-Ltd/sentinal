@@ -18,7 +18,7 @@ model: sonnet
 ## Workflow
 
 ```
-/spec → Detect type → Feature: Skill('spec-plan')       → Plan → Implement → Verify
+/spec → Detect type → Feature: Skill('sentinal:spec-plan')       → Plan → Implement → Verify
                     → Bugfix:  Skill('spec-bugfix-plan') → Investigate → Plan → Implement → Verify
 ```
 
@@ -82,9 +82,9 @@ ELSE:
 
 ### 0.1.3 Invoke Skill and STOP
 
-- **Bugfix:** `Skill(skill='spec-bugfix-plan', args='<task_description> --worktree=yes|no')`
-- **Feature:** `Skill(skill='spec-plan', args='<task_description> --worktree=yes|no')`
-- **Master:** `Skill(skill='spec-master-plan', args='<task_description> --worktree=yes|no')`
+- **Bugfix:** `Skill(skill='sentinal:spec-bugfix-plan', args='<task_description> --worktree=yes|no')`
+- **Feature:** `Skill(skill='sentinal:spec-plan', args='<task_description> --worktree=yes|no')`
+- **Master:** `Skill(skill='sentinal:spec-master-plan', args='<task_description> --worktree=yes|no')`
 
 ## 0.2 Status-Based Dispatch (existing plans)
 

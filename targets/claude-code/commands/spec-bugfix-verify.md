@@ -128,6 +128,6 @@ Bugfix verified — regression test passes, full suite green, Behavior Contract 
 sentinal register-plan "<plan_path>" "PENDING" 2>/dev/null || true
 ```
 
-Invoke `Skill(skill='spec-implement', args='<plan-path>')`.
+Invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`.
 
 ARGUMENTS: $ARGUMENTS

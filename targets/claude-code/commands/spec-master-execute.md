@@ -145,7 +145,7 @@ When ALL waves are complete (all child plans VERIFIED):
 
 1. Set master plan `Status: COMPLETE`
 2. Use `spec_register` MCP tool with `status: "COMPLETE"`
-3. **Chain to verification:** Load `Skill(skill='spec-verify', args='<master-plan-path>')`
+3. **Chain to verification:** Load `Skill(skill='sentinal:spec-verify', args='<master-plan-path>')`
 
 The verification phase for master plans checks:
 - All child plans are VERIFIED

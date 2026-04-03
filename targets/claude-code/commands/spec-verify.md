@@ -137,7 +137,7 @@ Skip unless the plan has a Feature Inventory section.
 2. Verify each feature exists in new code
 3. Run new code and verify same behavior
 
-**If features are MISSING:** Add tasks with `[MISSING]` prefix, set `Status: PENDING`, increment `Iterations`, register status change, invoke `Skill(skill='spec-implement', args='<plan-path>')`.
+**If features are MISSING:** Add tasks with `[MISSING]` prefix, set `Status: PENDING`, increment `Iterations`, register status change, invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`.
 
 ### Step 3.4: Collect Review Results
 
@@ -428,6 +428,6 @@ If any fails: fix on base branch, re-run, commit fix separately (e.g., `fix: res
    ```markdown
    | Gap | Type | Severity | Affected Files | Fix Description |
    ```
-5. Invoke `Skill(skill='spec-implement', args='<plan-path>')`
+5. Invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
 
 ARGUMENTS: $ARGUMENTS

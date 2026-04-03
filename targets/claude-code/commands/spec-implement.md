@@ -221,8 +221,8 @@ FOR each wave (1, 2, 3, ...):
 **⛔ MANDATORY — Chain to verification phase. Do NOT stop or summarize. Do NOT wait for user input.**
 
 5. Read the plan's `Type:` field and immediately load the appropriate verification skill:
-   - **Bugfix:** `Skill(skill='spec-bugfix-verify', args='<plan-path>')`
-   - **Feature (or absent):** `Skill(skill='spec-verify', args='<plan-path>')`
+   - **Bugfix:** `Skill(skill='sentinal:spec-bugfix-verify', args='<plan-path>')`
+   - **Feature (or absent):** `Skill(skill='sentinal:spec-verify', args='<plan-path>')`
 
    This means calling `mcp_skill` with the skill name, then executing the loaded skill instructions against the plan path. Implementation is NOT complete until verification has run.
 

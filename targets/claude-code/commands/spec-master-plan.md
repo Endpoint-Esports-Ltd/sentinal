@@ -11,7 +11,7 @@ effort: high
 
 **Input:** Task description (new master plan)
 **Output:** Approved master plan + child plan stubs at `docs/plans/`
-**Next:** On approval → `Skill(skill='spec-master-execute', args='<plan-path>')`
+**Next:** On approval → `Skill(skill='sentinal:spec-master-execute', args='<plan-path>')`
 
 ---
 
@@ -190,6 +190,6 @@ Launch plan-reviewer (when enabled) for the master plan.
 
 ## Step 1.8: Get User Approval
 
-On approval: Set `Approved: Yes`, invoke `Skill(skill='spec-master-execute', args='<plan-path>')`
+On approval: Set `Approved: Yes`, invoke `Skill(skill='sentinal:spec-master-execute', args='<plan-path>')`
 
 ARGUMENTS: $ARGUMENTS
