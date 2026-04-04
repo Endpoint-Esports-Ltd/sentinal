@@ -1,3 +1,10 @@
+## [1.26.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.0...v1.26.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* write hook deny/block reason to stderr for Claude Code exit code 2 ([32bbcd5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32bbcd5bf037c58cad572f1045cef244f0a01e7f))
+
 # [1.26.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.25.0...v1.26.0) (2026-04-03)
 
 
