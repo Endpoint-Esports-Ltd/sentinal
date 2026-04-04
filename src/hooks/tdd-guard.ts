@@ -16,7 +16,7 @@
 import {
   deny,
   readStdin,
-  output,
+  denyExit,
   type DenyOutput,
 } from "../utils/hook-output.js";
 import { readTddState } from "../memory/tdd-state.js";
@@ -93,8 +93,7 @@ async function main(): Promise<void> {
 
   const result = processTddGuard({ toolName, filePath, cwd: input.cwd });
   if (result) {
-    output(result);
-    process.exit(2);
+    denyExit(result.reason);
   }
 }
 

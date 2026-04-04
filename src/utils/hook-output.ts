@@ -58,3 +58,15 @@ export async function readStdin(): Promise<HookInput> {
 export function output(data: DenyOutput | HintOutput | BlockOutput): void {
   process.stdout.write(JSON.stringify(data));
 }
+
+/**
+ * Write deny/block reason to stderr, JSON to stdout, and exit with code 2.
+ * Claude Code's hook protocol expects exit 2 denials to have the reason on stderr.
+ */
+export function denyExit(reason: string): never {
+  process.stderr.write(reason);
+  process.stdout.write(
+    JSON.stringify({ permissionDecision: "deny", reason }),
+  );
+  process.exit(2);
+}

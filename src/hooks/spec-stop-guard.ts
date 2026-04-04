@@ -1,4 +1,4 @@
-import { readStdin, block, output } from "../utils/hook-output.js";
+import { readStdin, denyExit } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 import { findActivePlan, shouldBlockStop } from "../spec/detect.js";
 
@@ -8,8 +8,7 @@ async function main(): Promise<void> {
   const active = findActivePlan(gitRoot ?? input.cwd);
   const reason = shouldBlockStop(active?.spec.status ?? null);
   if (reason) {
-    output(block(reason));
-    process.exit(2);
+    denyExit(reason);
   }
 }
 if (import.meta.main) {

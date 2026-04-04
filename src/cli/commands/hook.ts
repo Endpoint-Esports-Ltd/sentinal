@@ -5,7 +5,7 @@
  */
 
 import type { Command } from "commander";
-import { readStdin, output } from "../../utils/hook-output.js";
+import { readStdin, output, denyExit } from "../../utils/hook-output.js";
 import { SidecarClient } from "../../sidecar/client.js";
 import { autoStartSidecar } from "../../sidecar/lifecycle.js";
 
@@ -30,8 +30,7 @@ async function runTddGuard(): Promise<void> {
     cwd: input.cwd,
   });
   if (result) {
-    output(result);
-    process.exit(2);
+    denyExit(result.reason);
   }
 }
 
@@ -288,8 +287,7 @@ async function runSpecStopGuard(): Promise<void> {
   const active = findActivePlan(gitRoot ?? input.cwd);
   const reason = shouldBlockStop(active?.spec.status ?? null);
   if (reason) {
-    output(blockFn(reason));
-    process.exit(2);
+    denyExit(reason);
   }
 }
 
@@ -402,13 +400,13 @@ async function runToolRedirect(): Promise<void> {
     (input.tool_input as Record<string, unknown>) ?? {},
   );
   if (result) {
-    output(result);
     if (
       "permissionDecision" in result &&
       result.permissionDecision === "deny"
     ) {
-      process.exit(2);
+      denyExit(result.reason);
     }
+    output(result);
   }
 }
 
