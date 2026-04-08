@@ -355,7 +355,7 @@ rm -f "$OUTPUT_PATH"
 
 ```
 Task(
-  subagent_type="sentinal:plan-reviewer",
+  subagent_type="plan-reviewer",
   run_in_background=true,
   prompt="""
   **Plan file:** <plan-path>

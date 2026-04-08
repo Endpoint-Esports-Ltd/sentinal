@@ -14,7 +14,7 @@ description: Spec verification phase - tests, execution, code review, E2E
 
 ## ⛔ KEY CONSTRAINTS
 
-1. **Run code review when enabled** — Step 3.1 launches `spec-reviewer` via `Task(subagent_type="sentinal:spec-reviewer")` when `SENTINAL_SPEC_REVIEWER_ENABLED` is not `"false"` (read in Step 0). To disable, use Console Settings → Reviewers → Code Review toggle.
+1. **Run code review when enabled** — Step 3.1 launches `spec-reviewer` via `Task(subagent_type="spec-reviewer")` when `SENTINAL_SPEC_REVIEWER_ENABLED` is not `"false"` (read in Step 0). To disable, use Console Settings → Reviewers → Code Review toggle.
 2. **NO stopping** — Everything automatic. Never ask "Should I fix these?"
 3. **Fix ALL findings** — must_fix AND should_fix. No permission needed.
 4. **Code changes finish BEFORE runtime testing** — Phase A then Phase B.
@@ -97,7 +97,7 @@ rm -f "$OUTPUT_PATH"
 
 ```
 Task(
-  subagent_type="sentinal:spec-reviewer",
+  subagent_type="spec-reviewer",
   run_in_background=true,
   prompt="""
   **Plan file:** <plan-path>
