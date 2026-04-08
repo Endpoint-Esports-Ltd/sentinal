@@ -1,7 +1,7 @@
 # playwright-cli Install Documentation Fix Plan
 
 Created: 2026-04-08
-Status: IN_PROGRESS
+Status: COMPLETE
 Approved: Yes
 Iterations: 0
 Worktree: Yes
@@ -84,10 +84,19 @@ Type: Bugfix
 
 ## Progress
 
-- [ ] Task 1: Fix (docs + installer + tests)
-- [ ] Task 2: Verify
+- [x] Task 1: Fix (docs + installer + tests)
+- [x] Task 2: Verify
 
-**Tasks:** 2 | **Done:** 0 | **Left:** 2
+**Tasks:** 2 | **Done:** 2 | **Left:** 0
+
+## Verification Results
+
+- **Full test suite:** 1137/1137 passing (1132 + 3 new `checkPlaywrightCli` + 2 pre-existing in install.test.ts that I wasn't counting before)
+- **Type check:** `tsc --noEmit` — 0 errors
+- **Rule parity:** `diff targets/claude-code/rules/playwright-cli.md targets/opencode/rules/playwright-cli.md` → identical
+- **Embed consistency:** `bun run embed-assets` → only timestamp changes (content stable)
+- **Impact analysis:** LOW risk, 0 unexpected changes
+- **Install CLI sanity:** `sentinal install --help` responds correctly
 
 ## Tasks
 
