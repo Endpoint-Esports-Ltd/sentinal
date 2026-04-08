@@ -1,3 +1,16 @@
+# [1.27.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.1...v1.27.0) (2026-04-08)
+
+
+### Bug Fixes
+
+* **opencode:** remove leaked sentinal: namespace prefix from reviewer references ([3852d11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3852d1165735ce81f82a9c71dc5b932ee640a069))
+* **spec:** document playwright-cli install and add soft prereq check ([30085da](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/30085da6fae1ec5c6a090beeda8584cb0f76daac))
+
+
+### Features
+
+* **file-length:** exempt auto-generated files from line-count limits ([f0468f8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f0468f860aba20e3b74eaa8d6300075f25a5414b))
+
 ## [1.26.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.0...v1.26.1) (2026-04-04)
 
 
