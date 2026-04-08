@@ -439,7 +439,7 @@ export const SentinalPlugin: Plugin = async ({
             const content = readFileSync(filePath, "utf-8");
             const lineCount = content.split("\n").length;
 
-            const lengthResult = checkFileLength(filePath, lineCount);
+            const lengthResult = checkFileLength(filePath, lineCount, content);
             if (lengthResult) {
               issues.push(lengthResult.message);
               if (lengthResult.severity === "block") shouldBlock = true;

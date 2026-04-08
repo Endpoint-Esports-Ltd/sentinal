@@ -33,16 +33,27 @@ version: 1.0.0
 |------|------------------|---------------|------------|
 | **OpenCode plugin** | ~1-5ms | In-process (same Node.js runtime) | Single SidecarClient, closure-captured |
 | **MCP tool** (both platforms) | ~5-20ms | Long-running child process (stdio) | Single SidecarClient at startup |
-| **Claude Code hook** | ~50-200ms | NEW child process per event | New SidecarClient.connect() each time |
+| **Claude Code hook** | ~60-95ms (measured) | NEW child process per event | New SidecarClient.connect() each time |
 
-### Claude Code Hook Overhead Breakdown
+### Claude Code Hook Overhead Breakdown (hyperfine-measured 2026-04-08, macOS arm64)
 
-- Process spawn: ~30-80ms (Bun compiled binary cold start)
-- CLI/Commander init: ~10-30ms
-- Dynamic import: ~2-5ms
-- SidecarClient.connect(): ~5-15ms (existsSync + health probe)
-- Event buffer file I/O: ~5-10ms
-- Actual sidecar request: ~2-5ms
+Baseline `sentinal --version` = **52ms** (CLI cold start). Real hooks add ~5-40ms on top:
+
+| Hook | Mean ± σ |
+|------|----------|
+| `tdd-guard` | 60.5 ± 4.8 ms |
+| `session-start` | 65.4 ± 2.7 ms |
+| `pre-edit-guide` | 66.7 ± 1.0 ms |
+| `memory-restore` | 72.5 ± 3.7 ms |
+| `prompt-context` | 80.4 ± 9.2 ms |
+| `pre-compact` | 95.4 ± 7.7 ms |
+
+**Breakdown:**
+- Bun runtime (`bun --version`): ~2ms
+- CLI init (commander, dynamic imports, module resolution): ~50ms
+- Hook-specific work (stdin read, sidecar probe, logic): ~8-45ms
+
+**Key finding:** The CLI init dominates. `pre-edit-guide` takes 68.5ms with sidecar COLD (respawned before every run) vs 66.7ms WARM — the difference is within noise. To make hooks faster, shrink the CLI dispatcher, not the sidecar round-trip.
 
 ### Key Architectural Differences
 

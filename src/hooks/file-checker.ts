@@ -30,7 +30,7 @@ export async function processFileCheck(
   try {
     const content = readFileSync(filePath, "utf-8");
     const lineCount = content.split("\n").length;
-    const lengthResult = checkFileLength(filePath, lineCount);
+    const lengthResult = checkFileLength(filePath, lineCount, content);
     if (lengthResult) messages.push(lengthResult.message);
 
     // NestJS checks (TS only)
