@@ -1,9 +1,9 @@
 /**
- * Install Command Tests — Deep Merge
+ * Install Command Tests — Deep Merge + Prereq Helpers
  */
 
-import { describe, it, expect } from "bun:test";
-import { deepMergeAdditive } from "./install.js";
+import { describe, it, expect, spyOn, afterEach, mock } from "bun:test";
+import { deepMergeAdditive, checkPlaywrightCli } from "./install.js";
 
 // ─── deepMergeAdditive tests ─────────────────────────────────────────────────
 
@@ -76,5 +76,64 @@ describe("deepMergeAdditive", () => {
     const result = deepMergeAdditive(target, source);
     // target has object, source has scalar — target wins
     expect(result.edit).toEqual({ "*": "ask", custom: "allow" });
+  });
+});
+
+// ─── checkPlaywrightCli tests ────────────────────────────────────────────────
+//
+// `playwright-cli` is an OPTIONAL dependency needed for /spec UI verification.
+// The helper must emit a soft info hint (not an error) and never exit the
+// process. The correct npm package is `@playwright/cli` (scoped), NOT the
+// deprecated bare `playwright-cli` package. The hint must reference the
+// correct package.
+
+describe("checkPlaywrightCli", () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
+  it("prints [OK] line when playwright-cli is present and does not print the install hint", () => {
+    const logged: string[] = [];
+    spyOn(console, "log").mockImplementation((msg: string) => {
+      logged.push(msg);
+    });
+
+    // Inject a stub that reports the binary as found
+    checkPlaywrightCli(() => true);
+
+    const combined = logged.join("\n");
+    expect(combined).toContain("playwright-cli");
+    expect(combined).toContain("[OK]");
+    expect(combined).not.toContain("npm install");
+    expect(combined).not.toContain("[i]");
+  });
+
+  it("prints [i] info line AND install hint pointing at @playwright/cli when playwright-cli is missing", () => {
+    const logged: string[] = [];
+    spyOn(console, "log").mockImplementation((msg: string) => {
+      logged.push(msg);
+    });
+
+    // Inject a stub that reports the binary as missing
+    checkPlaywrightCli(() => false);
+
+    const combined = logged.join("\n");
+    expect(combined).toContain("[i]");
+    expect(combined).toContain("playwright-cli not found");
+    expect(combined).toContain("optional");
+    // Must point at the SCOPED package — bare `playwright-cli` is deprecated
+    expect(combined).toContain("npm install -g @playwright/cli@latest");
+  });
+
+  it("does not call process.exit under any circumstance (soft warning only)", () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error(
+        "process.exit was called — checkPlaywrightCli must never exit",
+      );
+    }) as unknown as (code?: number | undefined) => never);
+
+    expect(() => checkPlaywrightCli(() => false)).not.toThrow();
+    expect(() => checkPlaywrightCli(() => true)).not.toThrow();
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });

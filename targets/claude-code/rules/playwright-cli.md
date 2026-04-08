@@ -2,6 +2,23 @@
 
 **MANDATORY for E2E testing of any app with a UI.** API tests verify backend; playwright-cli verifies what the user sees.
 
+### Installation
+
+```bash
+npm install -g @playwright/cli@latest
+```
+
+**⛔ Install the scoped `@playwright/cli` package, NOT the bare `playwright-cli` package.** The bare `playwright-cli` on npm is a **deprecated legacy stub** (marked "Deprecated, use @playwright/cli instead"). The scoped `@playwright/cli` is Microsoft's current tool — it ships a binary named `playwright-cli` with the `open`, `snapshot`, `click <ref>`, `-s=<session>` interface documented below.
+
+Verify the install:
+
+```bash
+playwright-cli --version     # should print a version like 0.1.6 or newer
+playwright-cli --help        # header should read "run playwright mcp commands from terminal"
+```
+
+If `playwright-cli: command not found` after install, ensure your global npm `bin` directory (`npm config get prefix`/bin or `~/.npm-global/bin`) is on `$PATH`.
+
 ### Browser Selection
 
 **Use Firefox or Brave — NOT Chrome.** Chrome is not installed on this machine.

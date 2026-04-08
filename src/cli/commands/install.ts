@@ -80,6 +80,45 @@ import {
   EMBEDDED_CC_RULES,
 } from "../embedded-assets.js";
 
+// ─── Optional prerequisite helpers ──────────────────────────────────────────
+
+/**
+ * Soft check for `playwright-cli` — an OPTIONAL dependency needed for
+ * /spec UI verification. Prints a status line and, if missing, an install
+ * hint pointing at the correct scoped package (`@playwright/cli`).
+ *
+ * This helper intentionally NEVER calls `process.exit()` — it is a soft
+ * warning. Most installs do not require browser automation, and hard-failing
+ * the install flow on a missing optional dep would be bad UX.
+ *
+ * The bare `playwright-cli` package on npm is a deprecated legacy stub
+ * (`playwright-cli@0.262.0`, marked "Deprecated, use @playwright/cli
+ * instead"). The correct package is the scoped `@playwright/cli@latest`,
+ * which ships a binary named `playwright-cli`.
+ *
+ * The `check` parameter is injected for testability — callers pass `() =>
+ * true`/`() => false` stubs in unit tests. Production callers rely on the
+ * default `commandExists` lookup against `$PATH`.
+ */
+export function checkPlaywrightCli(
+  check: (cmd: string) => boolean = commandExists,
+): void {
+  if (check("playwright-cli")) {
+    ok("[OK] playwright-cli found (optional)");
+    return;
+  }
+  info(
+    "[i] playwright-cli not found (optional, needed for /spec UI verification)",
+  );
+  console.log("  Install: npm install -g @playwright/cli@latest");
+  console.log(
+    "  Note: the scoped `@playwright/cli` package is the correct one —",
+  );
+  console.log(
+    "        bare `playwright-cli` on npm is a deprecated legacy stub.",
+  );
+}
+
 // ─── Register command ───────────────────────────────────────────────────────
 
 export function registerInstallCommand(program: Command): void {
@@ -249,6 +288,9 @@ export async function installClaudeCode(): Promise<void> {
   }
   ok("[OK] sentinal binary on PATH");
 
+  // Optional: check for playwright-cli (needed for /spec UI verification)
+  checkPlaywrightCli();
+
   // ── Remove previous installation ──
 
   const pluginList = run(["claude", "plugin", "list"]);
@@ -324,7 +366,11 @@ export async function installClaudeCode(): Promise<void> {
     const routingStore = new MemoryStore();
     const routing = resolveModelRouting(routingStore);
     routingStore.close();
-    const isNonDefault = (Object.keys(DEFAULT_MODEL_ROUTING) as Array<keyof typeof DEFAULT_MODEL_ROUTING>).some(k => routing[k] !== DEFAULT_MODEL_ROUTING[k]);
+    const isNonDefault = (
+      Object.keys(DEFAULT_MODEL_ROUTING) as Array<
+        keyof typeof DEFAULT_MODEL_ROUTING
+      >
+    ).some((k) => routing[k] !== DEFAULT_MODEL_ROUTING[k]);
     const { patched } = applyModelRouting([pluginDir], routing);
     if (isNonDefault && patched.length > 0) {
       info(`Applied model routing to ${patched.length} skill files`);
@@ -373,9 +419,7 @@ export async function installClaudeCode(): Promise<void> {
   if (configureStatusline()) {
     ok("[OK] Statusline configured (sentinal statusline)");
   } else {
-    note(
-      "Statusline skipped — another statusline plugin is active.",
-    );
+    note("Statusline skipped — another statusline plugin is active.");
   }
 
   // ── Done ──
@@ -536,6 +580,9 @@ export async function installOpenCode(
     process.exit(1);
   }
   ok("  Node.js found");
+
+  // Optional: check for playwright-cli (needed for /spec UI verification)
+  checkPlaywrightCli();
   console.log("");
 
   // ── Determine target directories ──
