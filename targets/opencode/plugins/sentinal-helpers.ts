@@ -5,6 +5,83 @@
  * main plugin file under the 600-line limit.
  */
 
+import { existsSync, accessSync, constants } from "node:fs";
+
+// ─── Project Root Resolution ──────────────────────────────────────────────────
+
+export interface ResolveProjectRootResult {
+  root: string | null;
+  reason?: string;
+}
+
+/**
+ * Resolve a safe, writable project root from OpenCode plugin context values.
+ *
+ * OpenCode can pass `/` (filesystem root) as `worktree` or `directory` when
+ * launched in a non-git directory. This function tries candidates in priority
+ * order (worktree → directory → cwd) and returns the first one that:
+ *   - is not the filesystem root (`/`, `\`, or a bare drive letter like `C:\`)
+ *   - exists on disk
+ *   - is writable by the current user
+ *
+ * Returns `{ root: null, reason }` when no valid candidate is found, allowing
+ * the caller to skip per-project `.sentinal/` writes gracefully.
+ *
+ * The `opts` parameter allows injecting fake filesystem deps in unit tests.
+ */
+export function resolveProjectRoot(
+  worktree: string | undefined,
+  directory: string | undefined,
+  opts?: {
+    cwd?: () => string;
+    exists?: (p: string) => boolean;
+    isWritable?: (p: string) => boolean;
+  },
+): ResolveProjectRootResult {
+  const getCwd = opts?.cwd ?? (() => process.cwd());
+  const checkExists = opts?.exists ?? existsSync;
+  const checkWritable =
+    opts?.isWritable ??
+    ((p: string) => {
+      try {
+        accessSync(p, constants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+  // Build deduplicated candidate list in priority order
+  const candidates: string[] = [];
+  for (const c of [worktree, directory, getCwd()]) {
+    if (typeof c === "string" && c.length > 0 && !candidates.includes(c)) {
+      candidates.push(c);
+    }
+  }
+
+  for (const candidate of candidates) {
+    // Reject filesystem root — can't safely create .sentinal there
+    if (
+      candidate === "/" ||
+      candidate === "\\" ||
+      /^[A-Z]:[\\/]?$/i.test(candidate)
+    ) {
+      continue;
+    }
+    if (!checkExists(candidate)) continue;
+    if (!checkWritable(candidate)) continue;
+    return { root: candidate };
+  }
+
+  return {
+    root: null,
+    reason:
+      candidates.length === 0
+        ? "No project root candidates provided (worktree, directory, and cwd all empty)"
+        : `No writable project root found. Tried: ${candidates.join(", ")}`,
+  };
+}
+
 // ─── Tool Redirect Hints ──────────────────────────────────────────────────────
 
 const VAGUE_GREP_INDICATORS = [

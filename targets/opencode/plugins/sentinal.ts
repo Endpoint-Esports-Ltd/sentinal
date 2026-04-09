@@ -129,6 +129,7 @@ import {
   getPreEditGuide,
   checkSessionConflict,
   transitionTddState,
+  resolveProjectRoot,
 } from "./sentinal-helpers.js";
 
 interface CompactState {
@@ -282,7 +283,12 @@ export const SentinalPlugin: Plugin = async ({
   directory,
   worktree,
 }) => {
-  const projectRoot = worktree || directory;
+  const { root: projectRoot, reason: projectRootReason } = resolveProjectRoot(
+    worktree,
+    directory,
+  );
+  // projectRootForSidecar: sidecar tolerates "" as "session-scoped, no persistence"
+  const projectRootForSidecar = projectRoot ?? "";
 
   const eventBuffer = new EventBuffer(20);
   let sidecar: SidecarClient | null = null;
@@ -352,7 +358,7 @@ export const SentinalPlugin: Plugin = async ({
     if (sidecar) {
       await sidecar.createSession({
         id: sessionId,
-        projectPath: projectRoot,
+        projectPath: projectRootForSidecar,
         assistant: "opencode",
       });
       log(`Eager session created: ${sessionId} (sidecar)`);
@@ -361,11 +367,26 @@ export const SentinalPlugin: Plugin = async ({
     log(`Eager session insert failed: ${e instanceof Error ? e.message : e}`);
   }
 
+  // Warn once when no writable project root was found — per-project state skipped
+  if (projectRoot === null) {
+    try {
+      await client.app.log({
+        body: {
+          service: "sentinal",
+          level: "warn",
+          message: `[Sentinal] Per-project state disabled: ${projectRootReason}. Session will work, but compact-state and event-buffer will not persist.`,
+        },
+      });
+    } catch {
+      /* log unavailable */
+    }
+  }
+
   await client.app.log({
     body: {
       service: "sentinal",
       level: "info",
-      message: `Sentinal initialized for: ${projectRoot}`,
+      message: `Sentinal initialized for: ${projectRoot ?? "(no project root)"}`,
     },
   });
 
@@ -381,7 +402,7 @@ export const SentinalPlugin: Plugin = async ({
           sidecar,
           tool,
           filePath,
-          projectRoot,
+          projectRootForSidecar,
         );
         if (guardMsg) throw new Error(guardMsg);
       }
@@ -402,7 +423,7 @@ export const SentinalPlugin: Plugin = async ({
 
       // Pre-edit guidance: inject file-specific observations
       if (sidecar && typeof filePath === "string") {
-        const guide = await getPreEditGuide(sidecar, filePath, projectRoot);
+        const guide = await getPreEditGuide(sidecar, filePath, projectRootForSidecar);
         if (guide)
           await client.app.log({
             body: { service: "sentinal", level: "info", message: guide },
@@ -451,7 +472,7 @@ export const SentinalPlugin: Plugin = async ({
               if (r.severity === "error") shouldBlock = true;
             }
 
-            const frameworks = detectFramework(projectRoot);
+            const frameworks = detectFramework(projectRootForSidecar);
             if (frameworks.includes("angular") && isAngularFile(filePath)) {
               if (
                 content.includes("@Component") &&
@@ -605,7 +626,7 @@ export const SentinalPlugin: Plugin = async ({
             ) {
               const obsPayload = {
                 sessionId,
-                projectPath: projectRoot,
+                projectPath: projectRootForSidecar,
                 type: decision.type,
                 title: decision.title,
                 content: decision.content,
@@ -637,34 +658,36 @@ export const SentinalPlugin: Plugin = async ({
     },
 
     "experimental.session.compacting": async (input, output) => {
-      const active = findActivePlan(projectRoot);
+      const active = findActivePlan(projectRootForSidecar);
       const activePlan = active?.filePath ?? null;
       const planStatus = active?.spec.status ?? null;
 
       let memoryContext: string | null = null;
-      const sq = buildSemanticQuery(projectRoot);
+      const sq = buildSemanticQuery(projectRootForSidecar);
       try {
         if (sidecar) {
-          if (active) await sidecar.syncSpec(active.filePath, projectRoot);
-          const restored = await sidecar.restoreContext(projectRoot, sq);
+          if (active) await sidecar.syncSpec(active.filePath, projectRootForSidecar);
+          const restored = await sidecar.restoreContext(projectRootForSidecar, sq);
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
       } catch (e) {
         log(`compaction sidecar failed: ${e instanceof Error ? e.message : e}`);
       }
 
-      const stateDir = join(projectRoot, ".sentinal");
-      mkdirSync(stateDir, { recursive: true });
-      const state: CompactState = {
-        activePlan,
-        memoryContext,
-        timestamp: new Date().toISOString(),
-        cwd: projectRoot,
-      };
-      writeFileSync(
-        join(stateDir, "compact-state.json"),
-        JSON.stringify(state, null, 2),
-      );
+      if (projectRoot) {
+        const stateDir = join(projectRoot, ".sentinal");
+        mkdirSync(stateDir, { recursive: true });
+        const state: CompactState = {
+          activePlan,
+          memoryContext,
+          timestamp: new Date().toISOString(),
+          cwd: projectRoot,
+        };
+        writeFileSync(
+          join(stateDir, "compact-state.json"),
+          JSON.stringify(state, null, 2),
+        );
+      }
 
       if (activePlan && active) {
         // Build enriched spec context with current task and progress.
@@ -721,7 +744,7 @@ export const SentinalPlugin: Plugin = async ({
         }
 
         // Inject active spec context
-        const active = findActivePlan(projectRoot);
+        const active = findActivePlan(projectRootForSidecar);
         if (active) {
           const { spec, filePath } = active;
           const total = spec.tasks.length;
@@ -794,7 +817,7 @@ export const SentinalPlugin: Plugin = async ({
             }
             await sidecar.createSession({
               id: sessionId,
-              projectPath: projectRoot,
+              projectPath: projectRootForSidecar,
               assistant: "opencode",
             });
           }
@@ -826,7 +849,7 @@ export const SentinalPlugin: Plugin = async ({
         // if the first compaction happens before the sidecar is fully ready.
         try {
           if (sidecar) {
-            const restored = await sidecar.restoreContext(projectRoot);
+            const restored = await sidecar.restoreContext(projectRootForSidecar);
             if (restored.hasMemory && restored.markdown) {
               await client.app.log({
                 body: {
@@ -835,20 +858,22 @@ export const SentinalPlugin: Plugin = async ({
                   message: restored.markdown,
                 },
               });
-              // Persist for compaction handler pickup
-              const stDir = join(projectRoot, ".sentinal");
-              mkdirSync(stDir, { recursive: true });
-              const activePlanInfo = findActivePlan(projectRoot);
-              const compactState: CompactState = {
-                activePlan: activePlanInfo?.filePath ?? null,
-                memoryContext: restored.markdown,
-                timestamp: new Date().toISOString(),
-                cwd: projectRoot,
-              };
-              writeFileSync(
-                join(stDir, "compact-state.json"),
-                JSON.stringify(compactState, null, 2),
-              );
+              // Persist for compaction handler pickup (skip if no project root)
+              if (projectRoot) {
+                const stDir = join(projectRoot, ".sentinal");
+                mkdirSync(stDir, { recursive: true });
+                const activePlanInfo = findActivePlan(projectRootForSidecar);
+                const compactState: CompactState = {
+                  activePlan: activePlanInfo?.filePath ?? null,
+                  memoryContext: restored.markdown,
+                  timestamp: new Date().toISOString(),
+                  cwd: projectRoot,
+                };
+                writeFileSync(
+                  join(stDir, "compact-state.json"),
+                  JSON.stringify(compactState, null, 2),
+                );
+              }
             }
           }
         } catch (e) {
@@ -860,7 +885,7 @@ export const SentinalPlugin: Plugin = async ({
           const conflictMsg = await checkSessionConflict(
             sidecar,
             sessionId,
-            projectRoot,
+            projectRootForSidecar,
           );
           if (conflictMsg)
             await client.app.log({
@@ -872,9 +897,11 @@ export const SentinalPlugin: Plugin = async ({
             });
         }
 
-        // Restore spec plan state from previous compaction
-        const stateFile = join(projectRoot, ".sentinal", "compact-state.json");
-        if (existsSync(stateFile)) {
+        // Restore spec plan state from previous compaction (skip if no project root)
+        const stateFile = projectRoot
+          ? join(projectRoot, ".sentinal", "compact-state.json")
+          : null;
+        if (stateFile && existsSync(stateFile)) {
           try {
             const state: CompactState = JSON.parse(
               readFileSync(stateFile, "utf-8"),
@@ -919,7 +946,7 @@ export const SentinalPlugin: Plugin = async ({
             try {
               await sidecar.createSession({
                 id: sessionId,
-                projectPath: projectRoot,
+                projectPath: projectRootForSidecar,
                 assistant: "opencode",
               });
             } catch (e) {
@@ -947,16 +974,18 @@ export const SentinalPlugin: Plugin = async ({
             log(`endSession failed: ${e instanceof Error ? e.message : e}`);
           }
         }
-        const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
-        try {
-          if (existsSync(bufferPath)) unlinkSync(bufferPath);
-        } catch {
-          /* non-fatal */
+        if (projectRoot) {
+          const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
+          try {
+            if (existsSync(bufferPath)) unlinkSync(bufferPath);
+          } catch {
+            /* non-fatal */
+          }
         }
       }
 
       if (event.type === "session.idle") {
-        const active = findActivePlan(projectRoot);
+        const active = findActivePlan(projectRootForSidecar);
         const reason = shouldBlockStop(active?.spec.status ?? null);
         if (reason) {
           await client.app.log({
