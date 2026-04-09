@@ -26,15 +26,17 @@
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | A new hook, checker, MCP tool, CLI command    | `src/<domain>/` (shared) + wire into both targets                                                                     |
 | A standard Sentinal ships to users            | `targets/claude-code/rules/` AND `targets/opencode/rules/` (keep in sync)                                             |
-| A slash command Sentinal ships                | `templates/commands/` then regenerate via `scripts/generate-commands.js` — do NOT hand-edit `targets/*/commands/*.md` |
+| A slash command Sentinal ships                | Edit `targets/claude-code/commands/<name>.md` directly. For OpenCode: user-facing commands go in `targets/opencode/commands/`; spec sub-phases go in `targets/opencode/skills/<name>/SKILL.md` (see OpenCode architecture note below). |
 | A rule for developing sentinal itself         | `.sentinal/rules/sentinal-<topic>.md`                                                                                 |
 | A skill for developing sentinal               | `.sentinal/skills/sentinal-<name>/SKILL.md`                                                                           |
 | An installer asset or Claude plugin manifest  | `targets/claude-code/.claude-plugin/` or `targets/claude-code/settings.json`                                          |
 | Sidecar state, runtime persistence            | `.sentinal/` (gitignored where appropriate)                                                                           |
 
-## Commands come from templates
+## Commands are edited directly — there is no generator
 
-`targets/claude-code/commands/*.md` and `targets/opencode/commands/*.md` are **generated** from `templates/commands/*.md` by `scripts/generate-commands.js`. Edit the template, then regenerate — hand-editing the generated files will be overwritten.
+`targets/claude-code/commands/*.md` and `targets/opencode/commands/*.md` are the **canonical source**. Edit them directly. `scripts/generate-commands.js` and `templates/commands/` have been deleted — they were dead code whose stale content actively caused bugs.
+
+**OpenCode command vs skill distinction:** In OpenCode, `/spec`, `/sync`, and `/learn` are user-invocable commands (`targets/opencode/commands/`). The spec sub-phases (`spec-plan`, `spec-implement`, etc.) are skills (`targets/opencode/skills/`) invoked programmatically by the `/spec` dispatcher — not slash commands the user types. This is intentional architecture (see `docs/plans/2026-03-10-opencode-agents-skills.md`). Do not add command files for spec sub-phases to `targets/opencode/commands/`.
 
 ## Quick sanity check before editing
 

@@ -37,13 +37,13 @@ src/
 
 ## Coding Standards
 
-This project uses Sentinal for quality enforcement. See `.opencode/rules/` for detailed standards:
+This project uses Sentinal for quality enforcement. See `.sentinal/rules/` for detailed standards:
 
-- **TypeScript** — `.opencode/rules/standards-typescript.md`
-- **Angular** — `.opencode/rules/standards-angular.md`
-- **NestJS** — `.opencode/rules/standards-nestjs.md`
-- **Frontend** — `.opencode/rules/standards-frontend.md`
-- **Backend** — `.opencode/rules/standards-backend.md`
+- **TypeScript** — `.sentinal/rules/standards-typescript.md`
+- **Angular** — `.sentinal/rules/standards-angular.md`
+- **NestJS** — `.sentinal/rules/standards-nestjs.md`
+- **Frontend** — `.sentinal/rules/standards-frontend.md`
+- **Backend** — `.sentinal/rules/standards-backend.md`
 
 ## Sentinal Workflow
 

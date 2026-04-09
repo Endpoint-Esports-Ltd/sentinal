@@ -83,7 +83,7 @@ TODO: Add project description.
 
 ## Sentinal Quality Enforcement
 
-This project uses Sentinal for quality enforcement. See \`.opencode/rules/\` for coding standards.
+This project uses Sentinal for quality enforcement. See \`.sentinal/rules/\` for coding standards.
 
 ## Commands
 
@@ -94,5 +94,5 @@ This project uses Sentinal for quality enforcement. See \`.opencode/rules/\` for
 export const AGENTS_MD_APPEND = `
 ## Sentinal Quality Enforcement
 
-This project uses Sentinal for quality enforcement. See \`.opencode/rules/\` for coding standards.
+This project uses Sentinal for quality enforcement. See \`.sentinal/rules/\` for coding standards.
 `;
