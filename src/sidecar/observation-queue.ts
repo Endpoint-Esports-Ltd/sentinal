@@ -54,8 +54,13 @@ function readQueue(): QueuedObservation[] {
 function writeQueue(entries: QueuedObservation[]): void {
   const queuePath = getQueuePath();
   const dir = dirname(queuePath);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(queuePath, JSON.stringify(entries), "utf-8");
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(queuePath, JSON.stringify(entries), "utf-8");
+  } catch {
+    // Best-effort: silently drop if the queue directory is not writable
+    // (e.g. HOME=/ causes dir to be "/.sentinal" which is read-only).
+  }
 }
 
 export const ObservationQueue = {

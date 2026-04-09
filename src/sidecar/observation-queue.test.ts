@@ -243,4 +243,26 @@ describe("ObservationQueue", () => {
     expect(result.failed).toBe(0);
     expect(result.remaining).toBe(0);
   });
+
+  // ─── Filesystem-root guard ────────────────────────────────────────────
+
+  it("should not throw when queue path is under filesystem root (HOME=/)", () => {
+    // Simulate HOME=/ by redirecting getQueuePath to return a root-relative path.
+    // writeQueue previously called mkdirSync("/.sentinal") which throws EACCES.
+    spyOn(queueModule, "getQueuePath").mockReturnValue(
+      "/.sentinal/observation-queue.json",
+    );
+
+    // Must not throw even though /.sentinal is not writable
+    expect(() => ObservationQueue.enqueue(makePayload())).not.toThrow();
+  });
+
+  it("should not throw in drain when queue path is under filesystem root", async () => {
+    spyOn(queueModule, "getQueuePath").mockReturnValue(
+      "/.sentinal/observation-queue.json",
+    );
+
+    // drain calls writeQueue on the failed list — must not throw
+    await expect(ObservationQueue.drain(async () => {})).resolves.toBeDefined();
+  });
 });
