@@ -1,3 +1,10 @@
+## [1.27.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.1...v1.27.2) (2026-04-09)
+
+
+### Bug Fixes
+
+* **opencode:** catch EACCES in ObservationQueue.writeQueue when HOME=/ ([2fc8e08](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2fc8e08227afb0f3e02ee2d1efb732f220f2a9e7))
+
 ## [1.27.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.0...v1.27.1) (2026-04-09)
 
 
