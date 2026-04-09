@@ -1,3 +1,11 @@
+## [1.27.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.0...v1.27.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* **opencode:** guard against filesystem-root projectRoot in non-git dirs ([d1b3f29](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d1b3f29248c6073b0bd59605f3336efb948d8a50))
+* replace stale .opencode/ and .claude/ path refs with .sentinal/ ([a0f453a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a0f453a8fc87a6547f6fe154bd9f9c3482aac754))
+
 # [1.27.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.1...v1.27.0) (2026-04-08)
 
 
