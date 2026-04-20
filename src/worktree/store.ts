@@ -114,6 +114,13 @@ export class WorktreeStore {
     }
   }
 
+  /** Update the spec_id for a worktree (deferred FK linkage). */
+  updateSpecId(id: string, specId: string): void {
+    this.db
+      .prepare("UPDATE worktrees SET spec_id = ? WHERE id = ?")
+      .run(specId, id);
+  }
+
   /** Delete a worktree record. Returns true if a row was deleted. */
   delete(id: string): boolean {
     const exists = this.db

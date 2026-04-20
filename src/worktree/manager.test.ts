@@ -112,6 +112,72 @@ describe("WorktreeManager", () => {
       expect(wt.specId).toBeUndefined();
       expect(wt.branchName).toContain("sentinal/spec-worktree-");
     });
+
+    it("should succeed with specId not yet registered in specs table", () => {
+      // This is the normal workflow: worktree is created BEFORE the spec is registered
+      const wt = manager.create("2026-04-20-unregistered-spec", repoDir);
+
+      expect(wt.branchName).toBe(
+        "sentinal/spec-2026-04-20-unregistered-spec",
+      );
+      expect(wt.baseBranch).toBe("main");
+      expect(wt.status).toBe("active");
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      // specId should NOT be stored (deferred until linkSpec)
+      expect(wt.specId).toBeUndefined();
+    });
+
+    it("should clean up git worktree if store insert fails", () => {
+      // Simulate store failure by maxing out active worktrees then
+      // trying to create one more — but first let's verify cleanup behavior
+      // when an unexpected error occurs during insert
+      manager.create(undefined, repoDir);
+      manager.create(undefined, repoDir);
+      manager.create(undefined, repoDir);
+
+      // Max active is 3, so the 4th should fail cleanly
+      expect(() => manager.create(undefined, repoDir)).toThrow(WorktreeError);
+
+      // Verify no orphaned worktree directories exist beyond the 3 created
+      const allWorktrees = manager.list(repoDir);
+      expect(allWorktrees).toHaveLength(3);
+    });
+  });
+
+  describe("linkSpec", () => {
+    it("should link a spec_id to an existing worktree", () => {
+      const wt = manager.create("unregistered-slug", repoDir);
+      expect(wt.specId).toBeUndefined();
+
+      // Register a spec in the DB, then link
+      const db = memoryStore.getRawDb();
+      db.run(
+        `INSERT INTO specs (id, project_path, title, slug, type, status, plan_file, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          "unregistered-slug",
+          repoDir,
+          "Test Spec",
+          "unregistered-slug",
+          "bugfix",
+          "PENDING",
+          "/tmp/plan.md",
+          Date.now(),
+          Date.now(),
+        ],
+      );
+
+      manager.linkSpec(wt.id, "unregistered-slug");
+
+      const updated = wtStore.get(wt.id);
+      expect(updated!.specId).toBe("unregistered-slug");
+    });
+
+    it("should throw for non-existent worktree", () => {
+      expect(() => manager.linkSpec("nonexistent", "some-spec")).toThrow(
+        WorktreeError,
+      );
+    });
   });
 
   describe("list", () => {

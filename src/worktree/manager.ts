@@ -92,18 +92,41 @@ export class WorktreeManager {
       repoRoot,
     );
 
-    // Record in SQLite
-    return this.store.insert({
-      id,
-      specId: specId ?? undefined,
-      projectPath: repoRoot,
-      worktreePath,
-      branchName,
-      baseBranch: base,
-      baseCommit,
-      status: "active",
-      createdAt: Date.now(),
-    });
+    // Record in SQLite — always insert with spec_id=NULL to avoid FK constraint
+    // failures when the spec hasn't been registered yet (normal workflow ordering).
+    // Use linkSpec() after spec registration to set the spec_id.
+    try {
+      return this.store.insert({
+        id,
+        specId: undefined,
+        projectPath: repoRoot,
+        worktreePath,
+        branchName,
+        baseBranch: base,
+        baseCommit,
+        status: "active",
+        createdAt: Date.now(),
+      });
+    } catch (err) {
+      // Cleanup: remove the git worktree if DB insert fails
+      gitExec(["worktree", "remove", "--force", worktreePath], repoRoot);
+      throw err;
+    }
+  }
+
+  /**
+   * Link a spec ID to an existing worktree.
+   * Call this after registering the spec via spec_register to satisfy the FK constraint.
+   */
+  linkSpec(worktreeId: string, specId: string): void {
+    const wt = this.store.get(worktreeId);
+    if (!wt) {
+      throw new WorktreeError(
+        `Worktree ${worktreeId} not found`,
+        "NOT_FOUND",
+      );
+    }
+    this.store.updateSpecId(worktreeId, specId);
   }
 
   /** List worktrees, optionally filtered by project. */

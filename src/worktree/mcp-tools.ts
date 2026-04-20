@@ -118,6 +118,7 @@ function registerWorktreeCreateTool(
         const lines = [
           `## Created Worktree`,
           "",
+          `- **ID:** ${wt.id}`,
           `- **Path:** ${wt.worktreePath}`,
           `- **Branch:** ${wt.branchName}`,
           `- **Base Branch:** ${wt.baseBranch}`,
