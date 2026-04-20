@@ -119,7 +119,15 @@ Task(
 Run all mechanical checks in sequence. Fix any failures before proceeding.
 
 1. **Full test suite** — `bun test` / `npx jest` / `npx vitest run`. Fix failures immediately.
-2. **TypeScript compiler** — `npx tsc --noEmit`. Zero errors required. Use `check_diagnostics` MCP tool for spec-filtered diagnostics with delta tracking — shows only plan-relevant errors in detail and reports NEW/FIXED delta. If MCP unavailable, run `npx tsc --noEmit` directly.
+2. **TypeScript compiler** — Run a **full project tsc** as the pre-commit gate. Zero errors required.
+
+   ```bash
+   npx tsc --noEmit
+   # or for bun projects:
+   bunx tsc --noEmit
+   ```
+
+   ⛔ Do **not** rely solely on `check_diagnostics` / `quality_report` for this gate — those tools use an incremental tsc cache (`.tsbuildinfo` in `~/.sentinal/tsbuildinfo/`) and an LSP client limited to ~10 open files, which can miss cross-file type errors in files you did not touch. Optionally run `check_diagnostics` MCP tool **after** the full run to see NEW/FIXED delta for spec-relevant files.
 3. **Linter** — `npx eslint .`. Errors are blockers, warnings acceptable.
 4. **Angular build (if applicable):** `npx ng build`. Zero errors.
 5. **NestJS build (if applicable):** `npx nest build`. Zero errors.

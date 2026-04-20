@@ -41,9 +41,16 @@ Run all tests. Fix any failures immediately. Re-run until green.
 
 ## Step 3.3: Quality Checks
 
-**Preferred:** Use `quality_report` MCP tool for combined tsc + eslint + prettier. Use `check_diagnostics` for spec-filtered TypeScript diagnostics with delta tracking.
+1. **TypeScript compiler** — Run a **full project tsc** as the pre-commit gate. Zero new errors.
 
-1. **TypeScript compiler** — `check_diagnostics` MCP tool (or `npx tsc --noEmit` as fallback). Zero new errors.
+   ```bash
+   npx tsc --noEmit
+   # or for bun projects:
+   bunx tsc --noEmit
+   ```
+
+   ⛔ Do **not** rely solely on `check_diagnostics` / `quality_report` for this gate — those tools use an incremental tsc cache (`.tsbuildinfo` in `~/.sentinal/tsbuildinfo/`) and an LSP client limited to ~10 open files, which can miss cross-file type errors in files the fix did not touch. Optionally run `check_diagnostics` MCP tool **after** the full run to see NEW/FIXED delta for spec-relevant files.
+
 2. **Linter** — `quality_report` with `checks: ["eslint"]` (or `npx eslint .` as fallback). Errors are blockers, fix immediately.
 3. **Angular build (if applicable):** `npx ng build`
 4. **NestJS build (if applicable):** `npx nest build`
