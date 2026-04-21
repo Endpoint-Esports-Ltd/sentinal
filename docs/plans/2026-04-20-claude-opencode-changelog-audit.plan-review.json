@@ -1,0 +1,70 @@
+{
+  "review_summary": "Master plan is well-structured with sensible wave dependencies and covers all stated user requirements (all-time audit, HIGH-fit items, HTTP hooks, workspace adaptor). However, it contains a critical factual error about the current sentinal.ts line count and file-length cap, Phase 5's workspace adaptor viability is unverified, and several child stubs lack the concreteness required for direct handoff to spec-plan.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Incorrect sentinal.ts line count and file-length cap reference",
+      "description": "Master plan line 49 and Phase 3 both state 'targets/opencode/plugins/sentinal.ts, ~912 lines — near the 1000-line cap'. Verification: the file is actually 1008 lines as of this review — already OVER the stated 1000-line cap, not 'near' it. More importantly, Sentinal's own documented file-length rule (.sentinal/rules/sentinal-testing.md) is 'Warn at 400 lines, block at 600 lines'. The plan's '1000-line cap' appears invented. Goal Verification Truth #5 ('sentinal.ts stays under 1000 lines after all phases') would be trivially violated today. This undermines the Phase 3 extraction strategy premise.",
+      "suggested_fix": "(1) Update the baseline to '1008 lines (already over Sentinal's 600-line block threshold; grandfathered but must not grow further)'. (2) Change Goal Verification Truth #5 from 'under 1000 lines' to 'net line count decreases OR new handlers add zero lines to sentinal.ts via pure import-and-register'. (3) Phase 3 should include an explicit sub-task to extract EXISTING handlers (not just new ones) to reduce the file, since adding even thin registrations to a 1008-line file pushes further past the 600 block-limit. (4) Decide explicitly whether the 600-line rule applies to this file (grandfather exemption?) and document it in sentinal-testing.md or the plan."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "HTTP hooks Claude Code feature is not verified to exist",
+      "description": "Phase 4 depends entirely on Claude Code's `type: \"http\"` hook entry format (referenced as 'v2.1.63'). The Assumptions section acknowledges this as 'supported by changelog entry for v2.1.63' but no verification link or payload-shape confirmation is cited. If the feature doesn't exist, doesn't accept JSON-over-HTTP, or requires a different format, Phase 4 (the biggest architectural change, ~1 week) collapses. The user explicitly requested HTTP hooks be included — they need this verified BEFORE committing 4 weeks of work that depend on it.",
+      "suggested_fix": "Add an explicit 'Phase 4 Spike (Day 1)' task: verify Claude Code HTTP hook support by (a) reading the v2.1.63 changelog entry, (b) writing a trivial 'echo hook' that returns `{\"continue\": true}` via HTTP and confirming Claude Code invokes it, (c) documenting the exact payload shape. Gate the rest of Phase 4 on the spike's success, with a fallback plan (stay on subprocess + investigate keep-alive warm workers) if HTTP hooks don't exist as described."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Phase 5 Section A has escape hatch but no decision criteria",
+      "description": "Phase 5 says 'If the workspace adaptor API is not viable in 1 day, descope Section A entirely'. User clarifications explicitly said 'OpenCode workspace adaptor: included as required'. This contradicts the descope escape hatch — if the user said 'required', a spike failure shouldn't silently remove it. The criteria for declaring the API 'not viable' are undefined (missing docs? runtime errors? no SDK surface?). Risk: team spends 1 day, hits friction, descopes, user's 'required' item is dropped.",
+      "suggested_fix": "Tighten Section A: (1) Define explicit 'not viable' criteria (e.g., 'no plugin API surface exists for adaptor registration AND OpenCode team confirms it is not exposed'). (2) If the spike fails, the plan should escalate back to the user for a re-clarification, not silently descope. (3) Add an alternative implementation path: if native adaptor API is absent, implement as a pseudo-adaptor via existing `/spec` command + `worktree_create` MCP tool integration (degraded but functional)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Dual-target parity claimed but mapping table missing for Phase 2 hooks",
+      "description": "Phase 2 stub states 'All hooks must have dual-target parity: if OpenCode has an equivalent event, add the mapping'. Master plan Pre-Mortem #3 flags 'Dual-target drift' as a risk. However, NO phase lists the specific mapping: e.g., is `StopFailure` equivalent to OpenCode `session.error`? Does `CwdChanged` map to anything in OpenCode? `FileChanged`? The user asked whether CC-only hooks like StopFailure are 'correctly handled' — the plan does not answer. Per `.sentinal/rules/sentinal-dual-target.md`, every new hook needs a mapping row.",
+      "suggested_fix": "Add a concrete mapping table to the master plan and/or Phase 2 stub: | Claude Code hook | OpenCode equivalent | Action |. Rows like: `StopFailure` → `session.error` (if exists) OR 'no equivalent, CC-only' with explicit rationale; `ConfigChange` → file-watcher in OpenCode plugin; `CwdChanged` → no direct equivalent (note and move on); etc. Make explicit which are CC-only by design. This becomes a verification artifact."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Phase 3 and Phase 4 child stubs too thin for direct spec-plan handoff",
+      "description": "User asked whether child stubs are concrete enough for spec-plan. Phases 1 and 2 list items crisply enough. However: Phase 3 (28 lines) lists 5 bullet items where 4 are one-liners — no file paths for new OpenCode handlers beyond 'compaction-autocontinue.ts', no signature for the native tool metadata return, no decision doc template for the `authorize` evaluation. Phase 4 (36 lines) covers the biggest architectural shift but doesn't specify: the exact HTTP payload contract, how hook output (exit 2 / stderr) maps to HTTP status codes, how long-running hooks (tdd-tracker is async:true, 30s timeout) are handled, or whether OpenCode plugin handlers also migrate. Spec-plan will have to do substantial re-exploration.",
+      "suggested_fix": "Before handing off: (1) Phase 3 — add concrete file list (src/opencode/native-tool-example.ts, src/opencode/authorize-spike.md), define the exemplar native tool's metadata shape in one code fence, and write a one-paragraph brief for the authorize decision doc's scope. (2) Phase 4 — add an 'HTTP Contract' section specifying request body (HookInput JSON), response body (HookOutput JSON), status code semantics (200 = allow/hint, 403 = deny, 500 = fallback), and timeout behavior. Clarify explicitly whether OpenCode plugin handlers are in scope (probably no — they're already in-process)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Pre-Mortem missing: async hook + HTTP interaction, CI/semantic-release impact, port-file race",
+      "description": "Pre-Mortem covers 5 failure modes but misses these concrete ones: (a) Some hooks (tdd-tracker, memory-observer, context-monitor) are `async: true` in hooks.json — they can't block but CAN return additionalContext. HTTP conversion semantics for async hooks are unspecified. (b) Phase 1 adds `claude plugin validate` to CI — if validation rules have tightened since last run, existing plugin metadata may fail validation on an unrelated commit. (c) Phase 4's port-file scheme: the sidecar picks a port on startup, Claude Code's hooks.json is read once at session start. Race: Claude Code loads hooks.json BEFORE sidecar has written port-file → hooks point at a stale/wrong port. (d) Phase 5 `permissionDecision: \"defer\"` behavior is described but there's no mitigation for 'defer in CI with no resume-capable runner' — headless CI can't resume.",
+      "suggested_fix": "Add 4 Pre-Mortem entries covering: (a) async HTTP hook semantics — confirm via spike whether HTTP hooks support the async: true model at all; if not, leave async hooks on subprocess. (b) CI regression from plugin-validate — scope the CI addition to `validate --warn-only` initially, upgrade to fail-on-error in a follow-up. (c) Port-file ordering — use the well-known Unix socket path (not port) in hooks.json; or have the hook wrapper auto-start the sidecar synchronously at first invocation. (d) Defer-in-CI — document that `defer` only activates in interactive mode, with a test covering both."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Phase 4 benchmark target (≤30ms) lacks baseline measurement",
+      "description": "Phase 4 Goal Verification Truth #7: 'Hyperfine benchmark after Phase 4: PreToolUse hook latency median < 30ms (currently ~150-250ms)'. The 150-250ms baseline is cited to `.sentinal/rules/sentinal-devtools.md` but is a rough estimate from a different context (Claude Code hook invocations generally). There is no actual hyperfine baseline recorded FOR SENTINAL'S hooks specifically. Without a measured baseline, '50% reduction' is not verifiable — the post-refactor number could be 30ms but if baseline was actually 40ms there's no win.",
+      "suggested_fix": "Add a 'Phase 4 pre-work' task: run hyperfine against current tdd-guard/pre-edit-guide/file-checker/tool-redirect hooks BEFORE starting the refactor. Record medians and stddev in the phase plan. Then the success criterion becomes 'post-refactor median ≤ 0.5 × measured baseline' rather than a hard 30ms target. Include cold-sidecar case in the benchmark matrix."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Phase 3 plugin 'authorize' API evaluation may be YAGNI",
+      "description": "Phase 3 includes 'Plugin `authorize` API evaluation — decide whether Sentinal's optional cloud-sync memory path should adopt OpenCode's auth flow'. Sentinal does not currently have a cloud-sync memory path (grep-verified: memory is local SQLite + sqlite-vec). Evaluating auth for a feature that doesn't exist is pure speculation. The user's request was 'features that improve Sentinal' — a decision doc for a hypothetical future feature isn't an improvement.",
+      "suggested_fix": "Either (a) drop the `authorize` evaluation from Phase 3 and note it as 'future work if cloud-sync memory is ever built', or (b) replace with a more immediate adoption (e.g., using `authorize` for MCP tool access to `memory_save` in shared-memory mode). Given user said '~3-4 weeks for all HIGH items' and this is marked as 'no required implementation this phase', dropping it buys budget for the spikes recommended above."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "No explicit acceptance pass for 'HIGH-fit' items consolidation",
+      "description": "The audit summary claims 21 HIGH items. The phase breakdown lists items by name, but there is no single consolidated table mapping 'HIGH item N from audit' → 'addressed in phase X, task Y'. Risk: after implementation, a user asking 'did you adopt HIGH item #17' has to reverse-engineer the mapping. User's clarification was 'All HIGH-fit items implemented' — this is a literal requirement that deserves a traceable artifact.",
+      "suggested_fix": "Add a 'HIGH-Item Traceability' table to the master plan listing each of the 21 HIGH items with columns: ID | Name | Source (CC/OC) | Phase | Status. Populate it from the audit deliverables (the prior audit plans in docs/plans/2026-04-02-*). This becomes the primary acceptance artifact — the plan is 'complete' when all 21 rows are Status=DONE."
+    }
+  ]
+}
