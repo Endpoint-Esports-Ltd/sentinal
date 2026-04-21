@@ -1,0 +1,117 @@
+{
+  "pass_summary": "All 13 tasks are implemented with high compliance — every planned artifact is present and non-stub. Two issues worth addressing: a silent-drop bug in prompt-context.ts (sessionTitle without context is swallowed), and an indentation defect introduced into file-length.test.ts.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "partial",
+  "truths_verified": 13,
+  "truths_total": 14,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "sessionTitle silently dropped when context is null but spec is active",
+      "description": "In src/hooks/prompt-context.ts main(), the output dispatch is: `if (context && sessionTitle)` → emit both, `else if (context)` → emit context only. There is no branch for `sessionTitle && !context`, which can happen when a PENDING/IN_PROGRESS spec exists but `buildSpecContext()` returns null (e.g., findActivePlan diverges in edge cases, or the plan has no tasks). The sessionTitle is silently dropped in that case. The plan spec (Task 3 DoD) states 'Hook output contains hookSpecificOutput when active spec exists' — this case violates that contract.",
+      "suggested_fix": "Add an `else if (sessionTitle)` branch in src/hooks/prompt-context.ts main(): `else if (sessionTitle) { output({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: '', sessionTitle } }); }`. Also add a test case: ACTIVE_PLAN with no tasks → buildSpecContext returns null → buildSessionTitle returns 'spec:...' → output still includes sessionTitle."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "Indentation defect in file-length.test.ts closes outer describe block prematurely",
+      "description": "The diff for src/utils/file-length.test.ts shows the existing 'should work without content arg' test was dedented out of its parent describe block (closing brace moved), and the PATH_EXEMPTIONS describe() is appended followed by a bare closing `});` — meaning there is an extra dangling closing brace. This is a structural parse error that may cause the test suite to fail or produce misleading output. The original indentation used 4 spaces inside the outer describe; the replacement uses 2 spaces and closes the outer `describe` prematurely.",
+      "suggested_fix": "Re-examine src/utils/file-length.test.ts around the 'should work without content arg' test and the PATH_EXEMPTIONS describe block. Restore correct nesting: the 'should work without content arg' test should close its parent describe with a matching `});`, then PATH_EXEMPTIONS is a sibling describe at the same indentation level, with the outer describe file closed only once at the very end."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "buildSessionTitle test missing IN_PROGRESS case",
+      "description": "The plan's Task 3 DoD requires 'Unit test covers all 3 states: active spec, no spec, verified spec' — the tests cover PENDING (active), empty dir (no spec), and VERIFIED. However, the SESSION_TITLE_STATUSES set includes both PENDING and IN_PROGRESS. The IN_PROGRESS case is defined as valid but untested in buildSessionTitle tests. An IN_PROGRESS spec with the correct status should return a sessionTitle; this path goes untested.",
+      "suggested_fix": "Add a fourth test to the buildSessionTitle describe block: write IN_PROGRESS_PLAN (already defined as a fixture at line 60 of prompt-context.test.ts) and assert buildSessionTitle returns 'spec:2026-03-17-in-progress'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "getDbPath() calls mkdirSync before accessSync — side effect on failure path",
+      "description": "In src/memory/config.ts getDbPath(), the code calls mkdirSync(pluginData, { recursive: true }) THEN accessSync(pluginData, W_OK). If mkdirSync succeeds but the directory ends up not writable (e.g., created by root, or a race condition), the directory is created on disk even though the function will fall back to the default path. This is a minor side effect: a partially-created plugin data dir left behind when the env var points to a non-writable location.",
+      "suggested_fix": "Check writability before creating: first try accessSync on pluginData. If it throws (doesn't exist), try mkdirSync, then re-check with accessSync. This avoids creating dirs that will never be used. Alternatively, document the current behavior as intentional (pre-create the dir and rely on the accessSync to catch truly unwritable cases)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Task 7 divergence doc: verify claim references no version number",
+      "description": "The sentinal-opencode-rules.md file states 'OpenCode does NOT support paths: frontmatter' and references '2026-04-21 (OpenCode docs review)' as the verification date, but does not cite a specific OpenCode version number. The plan's Task 7 pre-check description mentions 'as of v1.3.x' should appear in the docs. Without a version anchor, it's harder to know when to revisit this determination if OpenCode adds paths: support in the future.",
+      "suggested_fix": "Add the specific OpenCode version that was checked (e.g., 'as of OpenCode v1.3.x') to the 'Last verified' line or the first paragraph of sentinal-opencode-rules.md, so future reviewers know when to re-evaluate."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/cli/commands/statusline.ts contains git_worktree reference in an extract* function",
+      "status": "verified",
+      "evidence": "extractWorktree() function added at line 122 referencing sessionJson.workspace.git_worktree; workspaceBranch field added to StatuslineInput interface and consumed in formatStatusline()"
+    },
+    {
+      "truth": "targets/claude-code/settings.json contains 'refreshInterval': key",
+      "status": "verified",
+      "evidence": "Diff shows statusLine: { refreshInterval: 30 } added at top level of settings.json; target-assets.test.ts asserts refreshInterval === 30"
+    },
+    {
+      "truth": "targets/claude-code/settings.json env block contains CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS",
+      "status": "verified",
+      "evidence": "Diff shows env.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: '10000' added; test asserts the value"
+    },
+    {
+      "truth": "targets/claude-code/settings.json contains 'plansDirectory': key",
+      "status": "verified",
+      "evidence": "Diff shows plansDirectory: 'docs/plans' added at top level; test asserts value === 'docs/plans'"
+    },
+    {
+      "truth": "targets/claude-code/hooks/hooks.json contains 'once': true on memory-restore AND session-start entries (two matches)",
+      "status": "verified",
+      "evidence": "hooks.json shows once: true on the outer hook group objects for both memory-restore (lines 16-24) and session-start (lines 25-34). Placement is on the outer object (not inside the hooks array), which is correct per Claude Code hook schema. Tests assert both entries have once: true and that post-compact-restore does NOT."
+    },
+    {
+      "truth": "src/hooks/prompt-context.ts outputs hookSpecificOutput.sessionTitle when active spec exists",
+      "status": "verified",
+      "evidence": "buildSessionTitle() added; main() emits hookSpecificOutput.sessionTitle when context && sessionTitle. NOTE: the case where sessionTitle is set but context is null silently drops the sessionTitle — see issue #1."
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-plan.md + spec-master-plan.md frontmatter contains effort: xhigh",
+      "status": "verified",
+      "evidence": "Diff shows effort: high → effort: xhigh in both files; no other frontmatter or body changes"
+    },
+    {
+      "truth": "src/memory/config.ts reads process.env.CLAUDE_PLUGIN_DATA",
+      "status": "verified",
+      "evidence": "getDbPath() function added in src/memory/config.ts at line 31, reading process.env.CLAUDE_PLUGIN_DATA with writable fallback; 3 tests cover env var unset, set+writable, set+unwritable"
+    },
+    {
+      "truth": "All 5 OpenCode standards-*.md files contain paths: frontmatter",
+      "status": "failed",
+      "evidence": "Task 7 took the 7c path: OpenCode does not support paths: frontmatter (verified from docs). The 5 OpenCode standards files were NOT modified. Instead, .sentinal/rules/sentinal-opencode-rules.md was created documenting the divergence. The plan explicitly marks this as the correct outcome for the 7c path — Truth #9 is superseded by the 7c divergence note."
+    },
+    {
+      "truth": "package.json scripts block contains validate:plugin",
+      "status": "verified",
+      "evidence": "Diff shows validate:plugin script added: 'claude plugin validate targets/claude-code 2>&1 | tee /tmp/sentinal-plugin-validate.log || true'"
+    },
+    {
+      "truth": "targets/claude-code/agents/research.md frontmatter contains isolation: worktree AND memory: project",
+      "status": "verified",
+      "evidence": "Diff shows both isolation: worktree and memory: project added to agents/research.md frontmatter; no other changes"
+    },
+    {
+      "truth": "src/utils/file-length.ts contains PATH_EXEMPTIONS array with sentinal.ts entry",
+      "status": "verified",
+      "evidence": "PATH_EXEMPTIONS constant added with 'targets/opencode/plugins/sentinal.ts'; checkFileLength() early-returns null for matching paths using endsWith(); unit tests verify both relative and absolute path forms"
+    },
+    {
+      "truth": ".sentinal/rules/sentinal-testing.md contains explicit exemption paragraph for sentinal.ts",
+      "status": "verified",
+      "evidence": "Lines 83-92 of sentinal-testing.md contain the exemption section referencing PATH_EXEMPTIONS constant and explaining the OpenCode platform constraint rationale"
+    },
+    {
+      "truth": "User-facing docs reference --dangerously-skip-permissions, MDM, --agent, --sanitize, .sentinal/ gitignore",
+      "status": "verified",
+      "evidence": "docs/changelog-adoptions-phase1.md contains all 5 topics as distinct H2 sections with substantive prose (no stubs/TODOs); grep confirms all 5 terms present"
+    }
+  ]
+}

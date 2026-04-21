@@ -9,6 +9,12 @@ const TEST_PATTERNS = [
   /\.test\.js$/,
 ];
 
+// Files exempt from length checks due to platform constraints.
+// The OpenCode plugin must be a single file — its size is not actionable.
+const PATH_EXEMPTIONS: ReadonlyArray<string> = [
+  "targets/opencode/plugins/sentinal.ts",
+];
+
 // Markers that identify an auto-generated file. Case-insensitive.
 // Only the first GENERATED_HEADER_SCAN_BYTES of the file are scanned to
 // avoid false positives from legitimate code that mentions these phrases.
@@ -41,6 +47,10 @@ export function checkFileLength(
   lineCount: number,
   content?: string,
 ): FileLengthResult | null {
+  if (PATH_EXEMPTIONS.some((exempt) => filePath.endsWith(exempt))) {
+    return null;
+  }
+
   if (TEST_PATTERNS.some((p) => p.test(filePath))) {
     return null;
   }

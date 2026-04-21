@@ -78,7 +78,7 @@ export function doStuff() {
       expect(result!.severity).toBe("block");
     });
 
-    it("should only scan the first 500 characters for the marker", () => {
+      it("should only scan the first 500 characters for the marker", () => {
       // Marker appears after 500 chars — should NOT be exempt
       const padding = "x".repeat(600);
       const content = `// Regular file
@@ -96,4 +96,28 @@ export const x = 1;`;
       expect(result!.severity).toBe("block");
     });
   });
+
+describe("PATH_EXEMPTIONS", () => {
+  it("should return null for the OpenCode plugin sentinal.ts (relative path)", () => {
+    const result = checkFileLength(
+      "targets/opencode/plugins/sentinal.ts",
+      1200,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("should return null for the OpenCode plugin sentinal.ts (absolute path)", () => {
+    const result = checkFileLength(
+      "/absolute/path/targets/opencode/plugins/sentinal.ts",
+      1200,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("should still block other files over the limit", () => {
+    const result = checkFileLength("src/some-other-file.ts", 1200);
+    expect(result).not.toBeNull();
+    expect(result!.severity).toBe("block");
+  });
+});
 });

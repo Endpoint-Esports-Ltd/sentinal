@@ -44,7 +44,8 @@
     "install:opencode": "bun src/cli/index.ts install opencode",
     "cli": "bun src/cli/index.ts",
     "memory": "bun src/memory/cli.ts",
-    "mcp": "bun src/mcp/server.ts"
+    "mcp": "bun src/mcp/server.ts",
+    "validate:plugin": "claude plugin validate targets/claude-code 2>&1 | tee /tmp/sentinal-plugin-validate.log || true"
   },
   "type": "module",
   "dependencies": {

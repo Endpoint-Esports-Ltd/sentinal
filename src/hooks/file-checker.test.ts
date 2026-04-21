@@ -71,4 +71,39 @@ describe("file-checker hook", () => {
       expect(result!).toContain("soft limit");
     });
   });
+
+  describe("PATH_EXEMPTIONS integration", () => {
+    let tmpDir: string;
+
+    beforeAll(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), "sentinal-fc-exemptions-"));
+    });
+
+    afterAll(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should not produce a block/warn for targets/opencode/plugins/sentinal.ts even when very long", async () => {
+      // Replicate the plugin path structure inside a temp dir
+      const pluginDir = join(
+        tmpDir,
+        "targets",
+        "opencode",
+        "plugins",
+      );
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(pluginDir, { recursive: true });
+      const filePath = join(pluginDir, "sentinal.ts");
+      // Write 1200 lines of regular TS code (no generated marker)
+      const body = "export const x = 1;\n".repeat(1200);
+      writeFileSync(filePath, body);
+
+      const result = await processFileCheck(filePath, tmpDir);
+      // The file-length check must NOT produce an "exceeds" message for this path
+      if (result) {
+        expect(result).not.toContain("limit");
+        expect(result).not.toContain("soft limit");
+      }
+    });
+  });
 });

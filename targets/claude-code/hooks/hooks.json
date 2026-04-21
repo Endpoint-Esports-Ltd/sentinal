@@ -13,6 +13,7 @@
         ]
       },
       {
+        "once": true,
         "hooks": [
           {
             "type": "command",
@@ -22,6 +23,7 @@
         ]
       },
       {
+        "once": true,
         "hooks": [
           {
             "type": "command",

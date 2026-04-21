@@ -7,6 +7,7 @@ import {
   buildProgressBar,
   detectPlanTier,
   extractRateLimits,
+  extractWorktree,
   isStatuslineActive,
 } from "./statusline.js";
 
@@ -171,6 +172,50 @@ describe("isStatuslineActive", () => {
   });
 });
 
+describe("extractWorktree", () => {
+  it("should return branch when git_worktree is present", () => {
+    const result = extractWorktree({
+      workspace: {
+        git_worktree: {
+          name: "my-worktree",
+          path: "/path/to/worktree",
+          branch: "feature/foo",
+          originalRepoDir: "/path/to/repo",
+        },
+      },
+    });
+    expect(result).toEqual({ branch: "feature/foo" });
+  });
+
+  it("should return null when workspace is absent", () => {
+    expect(extractWorktree({})).toBeNull();
+  });
+
+  it("should return null when git_worktree is absent", () => {
+    expect(extractWorktree({ workspace: {} })).toBeNull();
+  });
+
+  it("should return null when branch is a non-string", () => {
+    expect(
+      extractWorktree({
+        workspace: {
+          git_worktree: { branch: 42 },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("should return null when branch is an empty string", () => {
+    expect(
+      extractWorktree({
+        workspace: {
+          git_worktree: { branch: "" },
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("formatStatusline", () => {
   it("should format with all sections", () => {
     const result = formatStatusline({
@@ -224,5 +269,32 @@ describe("formatStatusline", () => {
     expect(result).toContain("⏱");
     expect(result).toContain("Plan: Max 5x");
     expect(result).toContain("🧠");
+  });
+
+  it("should include worktree branch when workspaceBranch is set", () => {
+    const result = formatStatusline({
+      sessionPct: 10,
+      sessionDuration: "1h",
+      modelUsage: [],
+      weeklyResetCountdown: "5d",
+      planTier: "Max 5x",
+      contextPct: 20,
+      workspaceBranch: "feature/foo",
+    });
+
+    expect(result).toContain("📁 feature/foo");
+  });
+
+  it("should not include worktree section when workspaceBranch is undefined", () => {
+    const result = formatStatusline({
+      sessionPct: 10,
+      sessionDuration: "1h",
+      modelUsage: [],
+      weeklyResetCountdown: "5d",
+      planTier: "Max 5x",
+      contextPct: 20,
+    });
+
+    expect(result).not.toContain("📁");
   });
 });

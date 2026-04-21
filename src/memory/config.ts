@@ -15,9 +15,42 @@
  */
 
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, accessSync, mkdirSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { DB_CONSTANTS } from "./types.js";
+
+// ─── Database Path ────────────────────────────────────────────────────────────
+
+/**
+ * Get the path to the memory database file.
+ *
+ * Priority:
+ * 1. `${CLAUDE_PLUGIN_DATA}/sentinal.db` if the env var is set and the directory is writable
+ * 2. `~/.sentinal/memory.db` (default)
+ */
+export function getDbPath(): string {
+  const pluginData = process.env.CLAUDE_PLUGIN_DATA;
+  if (pluginData) {
+    const dbPath = join(pluginData, "sentinal.db");
+    try {
+      // Only create the directory if it doesn't already exist.
+      // Check writability after creation attempt — if creation fails
+      // (e.g. path is under a read-only root), the catch falls through.
+      if (!existsSync(pluginData)) {
+        mkdirSync(pluginData, { recursive: true });
+      }
+      accessSync(pluginData, constants.W_OK);
+      return dbPath;
+    } catch {
+      // Fall through to default
+    }
+  }
+  const dir = join(homedir(), DB_CONSTANTS.DB_DIR);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return join(dir, DB_CONSTANTS.DB_NAME);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

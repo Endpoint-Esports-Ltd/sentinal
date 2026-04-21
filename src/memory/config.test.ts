@@ -5,12 +5,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import {
   loadConfig,
   isMemoryEnabled,
   clearConfigCache,
   getConfigPath,
+  getDbPath,
 } from "./config.js";
 
 // We can't easily mock homedir(), so we test the merging/parsing logic
@@ -72,5 +73,34 @@ describe("config file parsing", () => {
     const path = getConfigPath();
     expect(path).toEndWith("config.json");
     expect(path).toContain(".sentinal");
+  });
+});
+
+describe("getDbPath", () => {
+  afterEach(() => {
+    delete process.env.CLAUDE_PLUGIN_DATA;
+  });
+
+  it("should return default path when CLAUDE_PLUGIN_DATA is not set", () => {
+    delete process.env.CLAUDE_PLUGIN_DATA;
+    const dbPath = getDbPath();
+    expect(dbPath).toEndWith("memory.db");
+    expect(dbPath).toContain(".sentinal");
+  });
+
+  it("should return plugin data path when CLAUDE_PLUGIN_DATA is set to a writable dir", () => {
+    const tmpDir = join(tmpdir(), `sentinal-test-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    process.env.CLAUDE_PLUGIN_DATA = tmpDir;
+    const dbPath = getDbPath();
+    expect(dbPath).toBe(join(tmpDir, "sentinal.db"));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should fall back to default path when CLAUDE_PLUGIN_DATA is not writable", () => {
+    process.env.CLAUDE_PLUGIN_DATA = "/root/no-access";
+    const dbPath = getDbPath();
+    expect(dbPath).toEndWith("memory.db");
+    expect(dbPath).toContain(".sentinal");
   });
 });

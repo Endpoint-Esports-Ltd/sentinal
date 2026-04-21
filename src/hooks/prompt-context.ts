@@ -13,9 +13,22 @@
  */
 
 import { readStdin, hint, output } from "../utils/hook-output.js";
+import type { HintOutput } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 import { findActivePlan } from "../spec/detect.js";
 import type { Spec, SpecTask } from "../spec/types.js";
+
+/** Extended hook output that may include sessionTitle and/or additionalContext. */
+interface HintWithSessionTitle {
+  hookSpecificOutput: {
+    hookEventName: string;
+    additionalContext?: string;
+    sessionTitle?: string;
+  };
+}
+
+/** Statuses that count as "active" for session title purposes. */
+const SESSION_TITLE_STATUSES = new Set(["PENDING", "IN_PROGRESS"]);
 
 /**
  * Build a markdown context block with active spec state.
@@ -70,6 +83,24 @@ export function buildSpecContext(searchDir: string): string | null {
   return lines.join("\n");
 }
 
+/**
+ * Build a sessionTitle string for the active spec, if one exists.
+ * Returns `"spec:<slug>"` when a PENDING or IN_PROGRESS spec is active,
+ * or `null` if no qualifying spec is found.
+ *
+ * Truncated to 80 chars: prefix "spec:" (5 chars) + up to 75 slug chars.
+ *
+ * Exported for testing.
+ */
+export function buildSessionTitle(searchDir: string): string | null {
+  const active = findActivePlan(searchDir);
+  if (!active) return null;
+  if (!SESSION_TITLE_STATUSES.has(active.spec.status)) return null;
+
+  const slug = active.spec.id.slice(0, 75);
+  return `spec:${slug}`;
+}
+
 export async function main(): Promise<void> {
   try {
     const input = await readStdin();
@@ -77,8 +108,28 @@ export async function main(): Promise<void> {
     const searchDir = gitRoot ?? input.cwd;
 
     const context = buildSpecContext(searchDir);
-    if (context) {
+    const sessionTitle = buildSessionTitle(searchDir);
+
+    if (context && sessionTitle) {
+      const out: HintWithSessionTitle = {
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: context,
+          sessionTitle,
+        },
+      };
+      output(out as HintOutput);
+    } else if (context) {
       output(hint("UserPromptSubmit", context));
+    } else if (sessionTitle) {
+      // Active spec found (sessionTitle set) but no context available — still set title
+      const out: HintWithSessionTitle = {
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          sessionTitle,
+        },
+      };
+      output(out as HintOutput);
     }
   } catch {
     // Non-fatal — context injection is supplementary

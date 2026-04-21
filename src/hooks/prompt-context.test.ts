@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
-import { buildSpecContext } from "./prompt-context.js";
+import { buildSpecContext, buildSessionTitle } from "./prompt-context.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -202,5 +202,52 @@ describe("buildSpecContext", () => {
     const result = buildSpecContext(tmpDir);
     // Not null because parser defaults PENDING (active) — just verify no crash
     expect(typeof result).toBe("string");
+  });
+});
+
+// ─── buildSessionTitle Tests ──────────────────────────────────────────────────
+
+describe("buildSessionTitle", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it("should return spec:<slug> when active PENDING spec exists", () => {
+    writePlan(tmpDir, "2026-04-20-my-feature.md", ACTIVE_PLAN);
+    const result = buildSessionTitle(tmpDir);
+
+    expect(result).toBe("spec:2026-04-20-my-feature");
+  });
+
+  it("should return null when no active spec exists (empty store)", () => {
+    // No plans written — empty docs/plans dir
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+
+    const result = buildSessionTitle(tmpDir);
+
+    expect(result).toBeNull();
+  });
+
+  it("should return spec:<slug> when active IN_PROGRESS spec exists", () => {
+    writePlan(tmpDir, "2026-04-20-in-progress.md", IN_PROGRESS_PLAN);
+    const result = buildSessionTitle(tmpDir);
+
+    expect(result).toBe("spec:2026-04-20-in-progress");
+  });
+
+  it("should return null when only a VERIFIED spec exists", () => {
+    writePlan(tmpDir, "2026-04-20-verified-spec.md", VERIFIED_PLAN);
+    const result = buildSessionTitle(tmpDir);
+
+    expect(result).toBeNull();
   });
 });

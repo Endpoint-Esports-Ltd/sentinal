@@ -78,6 +78,19 @@ Sentinal eats its own dog food. When editing `src/**/*.ts`:
 - Exempt: test files, generated files.
 - If a file grows past 400 lines, split it by cohesion (one concept per file). See how `src/sidecar/` is organized into `routes.ts`, `quality-routes.ts`, `tdd-routes.ts`, etc.
 
+### File-Length Exemption: `targets/opencode/plugins/sentinal.ts`
+
+`targets/opencode/plugins/sentinal.ts` is **exempt from file-length limits** (currently ~1008 lines).
+
+**Rationale:** OpenCode's plugin format requires all hook handlers and helpers to be colocated in a single plugin file. This is a platform constraint, not a code smell — splitting the file would require a bundling step that conflicts with OpenCode's native TypeScript plugin loader.
+
+**What this means in practice:**
+- The file will not trigger block/warn from the file-checker hook.
+- This exemption is enforced by the `PATH_EXEMPTIONS` constant in `src/utils/file-length.ts`.
+- The DRY principle still applies: shared logic used by both Claude Code hooks AND the OpenCode plugin should be extracted to `src/opencode/*.ts` for testability and reuse. But **line count alone** is not a reason to refactor this file.
+
+**Enforced by:** `PATH_EXEMPTIONS` in `src/utils/file-length.ts` — any path ending with `targets/opencode/plugins/sentinal.ts` returns `null` from `checkFileLength()`.
+
 ## Running a Single Test
 
 ```bash

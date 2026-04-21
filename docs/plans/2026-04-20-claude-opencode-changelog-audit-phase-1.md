@@ -1,8 +1,8 @@
 # Phase 1: UX + Settings Polish
 
 Created: 2026-04-20
-Status: PENDING
-Approved: No
+Status: VERIFIED
+Approved: Yes
 Iterations: 0
 Worktree: No
 Type: Feature
@@ -196,21 +196,21 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ## Progress Tracking
 
-- [ ] Task 1: Statusline `workspace.git_worktree` (Wave 1)
-- [ ] Task 2: settings.json additions — refreshInterval + plansDirectory + SESSIONEND_HOOKS timeout (Wave 1)
-- [ ] Task 3: UserPromptSubmit sessionTitle injection (Wave 1)
-- [ ] Task 4: hooks.json `once: true` on memory-restore + session-start (Wave 1)
-- [ ] Task 5: effort: xhigh on spec-plan + spec-master-plan (Wave 1)
-- [ ] Task 6: `${CLAUDE_PLUGIN_DATA}` env var support in memory config (Wave 1)
-- [ ] Task 7: OpenCode rules `paths:` frontmatter parity (Wave 1)
-- [ ] Task 8: `claude plugin validate` in package.json scripts (warn-only) (Wave 1)
-- [ ] Task 9: research agent — isolation: worktree + memory: project (Wave 1)
-- [ ] Task 10: File-length PATH_EXEMPTIONS in src/utils/file-length.ts (Wave 1)
-- [ ] Task 11: `.sentinal/rules/sentinal-testing.md` exemption doc (Wave 1)
-- [ ] Task 12: User-facing docs for OpenCode CLI flags + MDM + gitignore (Wave 1)
-- [ ] Task 13: Embed-assets regen + full verification (Wave 2 — sequential final)
+- [x] Task 1: Statusline `workspace.git_worktree` (Wave 1)
+- [x] Task 2: settings.json additions — refreshInterval + plansDirectory + SESSIONEND_HOOKS timeout (Wave 1)
+- [x] Task 3: UserPromptSubmit sessionTitle injection (Wave 1)
+- [x] Task 4: hooks.json `once: true` on memory-restore + session-start (Wave 1)
+- [x] Task 5: effort: xhigh on spec-plan + spec-master-plan (Wave 1)
+- [x] Task 6: `${CLAUDE_PLUGIN_DATA}` env var support in memory config (Wave 1)
+- [x] Task 7: OpenCode rules `paths:` frontmatter parity (Wave 1) — 7c path: divergence doc created
+- [x] Task 8: `claude plugin validate` in package.json scripts (warn-only) (Wave 1)
+- [x] Task 9: research agent — isolation: worktree + memory: project (Wave 1)
+- [x] Task 10: File-length PATH_EXEMPTIONS in src/utils/file-length.ts (Wave 1)
+- [x] Task 11: `.sentinal/rules/sentinal-testing.md` exemption doc (Wave 1)
+- [x] Task 12: User-facing docs for OpenCode CLI flags + MDM + gitignore (Wave 1)
+- [x] Task 13: Embed-assets regen + full verification (Wave 2 — sequential final)
 
-**Total Tasks:** 13 | **Completed:** 0 | **Remaining:** 13
+**Total Tasks:** 13 | **Completed:** 13 | **Remaining:** 0
 
 ## Implementation Tasks
 

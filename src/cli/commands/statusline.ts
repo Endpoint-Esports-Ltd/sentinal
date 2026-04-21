@@ -32,6 +32,7 @@ export interface StatuslineInput {
   weeklyResetCountdown: string;
   planTier: string;
   contextPct: number;
+  workspaceBranch?: string;
 }
 
 // --- Public API ---
@@ -119,6 +120,34 @@ export function extractRateLimits(
 }
 
 /**
+ * Extract worktree branch from Claude Code's session JSON.
+ * Claude Code sends: { workspace: { git_worktree: { name, path, branch, originalRepoDir } } }
+ * Returns { branch } if present and non-empty; null otherwise.
+ */
+export function extractWorktree(
+  sessionJson: Record<string, unknown>,
+): { branch: string } | null {
+  try {
+    const workspace = sessionJson.workspace as
+      | Record<string, unknown>
+      | undefined;
+    if (!workspace) return null;
+
+    const gitWorktree = workspace.git_worktree as
+      | Record<string, unknown>
+      | undefined;
+    if (!gitWorktree) return null;
+
+    const branch = gitWorktree.branch;
+    if (typeof branch !== "string" || branch === "") return null;
+
+    return { branch };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build a progress bar string.
  */
 export function buildProgressBar(percent: number, width = 5): string {
@@ -154,6 +183,11 @@ export function formatStatusline(input: StatuslineInput): string {
 
   // Context section
   parts.push(`🧠 ${ctxBar} ${input.contextPct}%`);
+
+  // Worktree section
+  if (input.workspaceBranch) {
+    parts.push(`📁 ${input.workspaceBranch}`);
+  }
 
   return parts.join(" | ");
 }
@@ -225,6 +259,9 @@ export function registerStatuslineCommand(program: Command): void {
           // Fallback: detect without config
           planTier = detectPlanTier(null, contextWindowSize);
         }
+
+        // Extract worktree branch from session JSON
+        const worktree = extractWorktree(sessionJson);
 
         // Try to use Claude Code's rate_limit data (accurate server-side data)
         const rateLimits = extractRateLimits(sessionJson);
@@ -310,6 +347,7 @@ export function registerStatuslineCommand(program: Command): void {
           weeklyResetCountdown: formatResetCountdown(displayModelsResetIn),
           planTier: planTier === "max_20x" ? "Max 20x" : "Max 5x",
           contextPct,
+          workspaceBranch: worktree?.branch,
         });
 
         process.stdout.write(line);

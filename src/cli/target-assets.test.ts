@@ -113,6 +113,56 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  describe("targets/claude-code/settings.json — required config keys", () => {
+    const settingsPath = join(CLAUDE_DIR, "settings.json");
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+
+    it("statusLine.refreshInterval === 30", () => {
+      expect(settings.statusLine?.refreshInterval).toBe(30);
+    });
+
+    it("plansDirectory === 'docs/plans'", () => {
+      expect(settings.plansDirectory).toBe("docs/plans");
+    });
+
+    it("env.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS === '10000'", () => {
+      expect(settings.env?.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS).toBe("10000");
+    });
+  });
+
+  describe("targets/claude-code/hooks/hooks.json — once:true on session-init hooks", () => {
+    const hooksPath = join(CLAUDE_DIR, "hooks", "hooks.json");
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf-8"));
+    const sessionStartHooks = hooks.hooks?.SessionStart ?? [];
+
+    it("memory-restore SessionStart entry has once: true", () => {
+      const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
+        (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
+          (i.command as string)?.includes("memory-restore"),
+        ),
+      );
+      expect(entry?.once).toBe(true);
+    });
+
+    it("session-start SessionStart entry has once: true", () => {
+      const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
+        (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
+          (i.command as string)?.includes("session-start"),
+        ),
+      );
+      expect(entry?.once).toBe(true);
+    });
+
+    it("post-compact-restore SessionStart entry does NOT have once: true", () => {
+      const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
+        (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
+          (i.command as string)?.includes("post-compact-restore"),
+        ),
+      );
+      expect(entry?.once).toBeUndefined();
+    });
+  });
+
   describe("targets/claude-code/ — must KEEP Claude Code namespace prefixes (preservation guard)", () => {
     it("Claude Code rules/task-and-workflow.md still references 'sentinal:plan-reviewer' and 'sentinal:spec-reviewer'", () => {
       const file = join(

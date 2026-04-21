@@ -5,6 +5,8 @@ tools: Read, Grep, Glob
 model: sonnet
 maxTurns: 30
 permissionMode: plan
+isolation: worktree
+memory: project
 mcpServers:
   - context7:
       type: stdio
