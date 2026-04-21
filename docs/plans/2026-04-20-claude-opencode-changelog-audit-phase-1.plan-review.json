@@ -1,0 +1,42 @@
+{
+  "review_summary": "Phase 1 accurately picks up the correct subset of master-plan HIGH items (CC-8, CC-11/12/13/14, OC-5 docs-only) and every referenced file exists. Task granularity is appropriate with one explicit consolidation (Tasks 2+5+6 of the 14 items into Task 2). Two should_fix issues: Task 10's DoD doesn't verify the file-checker hook call-path (Pre-Mortem #3 was identified but not wired into DoD), and Task 13's verification lacks the manual smoke tests called out in its own Key Decisions. Task 7's OpenCode paths-parity verification escape path is present but buried in prose rather than a formal sub-task step.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 10 DoD does not verify the file-checker call path (Pre-Mortem #3 mitigation missing)",
+      "description": "The plan's own Pre-Mortem #3 identifies the risk: 'File-length allowlist is bypassed by the hook call path. Trigger: checkFileLength() respects allowlist but the hook (file-checker) computes length before calling it.' The mitigation is stated as 'grep file-checker.ts for countLines(/readFileSync and ensure allowlist gate runs first.' However, Task 10's Definition of Done only tests checkFileLength() in isolation (\"Test case for sentinal.ts at 1200 lines returns null\") — it never verifies that file-checker.ts actually routes through checkFileLength() before doing any independent length computation. If a separate code path in file-checker.ts already blocks the file before checkFileLength() is reached, the allowlist becomes dead code and sentinal.ts remains blocked.",
+      "suggested_fix": "Add to Task 10 DoD: (1) 'Grep src/hooks/file-checker.ts for direct length computation (countLines, readFileSync + split newline) and confirm it delegates to checkFileLength() or consults PATH_EXEMPTIONS before blocking.' (2) Add an integration test: feed a HookInput for targets/opencode/plugins/sentinal.ts through the file-checker hook directly and assert no block/warn output is produced."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 13 DoD omits the manual smoke tests referenced in its own Key Decisions",
+      "description": "Task 13's Key Decisions explicitly states: 'Manual sanity: fresh install in a test project, verify statusline shows new field, hooks still fire, settings load.' However, the Definition of Done checklist only covers `bun run embed-assets`, `bun test`, `bunx tsc --noEmit`, `bun run build:all`. The Pre-Mortem items #1 (OpenCode paths parity) and #2 (sessionTitle actually displays in UI) both require live-session verification to de-risk — neither is captured in a checkable DoD bullet. Without the smoke tests in DoD, Task 13 can be marked complete with feature regressions (e.g., embedded-assets built but statusline format silently broken at runtime).",
+      "suggested_fix": "Add to Task 13 DoD: (1) 'Install Phase 1 build into a dev Claude Code project (`bun run install:claude-code`) and open a fresh session; confirm statusline shows `📁 <branch>` when a worktree is active.' (2) 'In the same dev session, submit a prompt while a spec is active (any PENDING/IN_PROGRESS plan) and confirm sessionTitle displays as `spec:<slug>`.' (3) 'Run `bun run validate:plugin` and paste output — confirm it exits 0 per warn-only contract.' (4) 'Open any .ts file matching an OpenCode paths: pattern and confirm the rule loads (or document the divergence per Task 7 escape path).'"
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 7 verification-first escape path is buried in prose — should be a formal sub-step",
+      "description": "Task 7 Key Decisions says: 'Verify first (sub-task): confirm OpenCode parses paths: the same way by testing one file first in a dev project. If OpenCode ignores or rejects, narrow task scope to add a .sentinal/rules/sentinal-opencode-rules.md dev note and skip the other 4.' This is the correct mitigation for Assumption #4 (explicitly marked NEEDS VERIFICATION) and Pre-Mortem #1, but it is formatted as a parenthetical. An implementer executing this Wave-1 task in parallel is likely to edit all 5 files first, then discover the divergence. The DoD line 'Dev project test confirms OpenCode respects the frontmatter (or documents the divergence)' is ambiguous about whether the test must precede or follow the edits.",
+      "suggested_fix": "Restructure Task 7 into explicit sequential steps: Step 7a: 'Add `paths:` frontmatter to ONE file (standards-typescript.md) only. Install to a dev OpenCode project and confirm the rule loads for a matching .ts path and is suppressed for a non-matching path.' Step 7b (if 7a passes): 'Propagate to the remaining 4 files.' Step 7c (if 7a fails): 'Revert standards-typescript.md edit. Create .sentinal/rules/sentinal-opencode-rules.md documenting the divergence and scope of Task 7 is complete.' Make this ordering the DoD, not prose."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Assumption #4 (OpenCode paths: parity) could be cheaply verified before Wave 1 starts",
+      "description": "Assumption #4 is self-flagged 'NEEDS VERIFICATION' and drives Task 7's entire scope question. A 5-minute grep/read of the OpenCode plugin source (or AGENTS.md loader docs) to confirm whether OpenCode's rule loader actually honors a `paths:` frontmatter key would eliminate the verify-then-revert cycle in Task 7. The rest of Phase 1 is unaffected, but resolving this assumption up front prevents a likely rework loop across 5 files.",
+      "suggested_fix": "Before kicking off Wave 1, add a 5-minute pre-check: `rg 'paths' targets/opencode/plugins/sentinal.ts` and look for a frontmatter-parsing call site. If OpenCode explicitly reads a `paths:` field, Task 7 proceeds at full scope. If not, Task 7 scope narrows to docs-only before any file edits begin."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "Task 13 does not include a rollback checkpoint before embed-assets regen",
+      "description": "Task 13 runs `bun run embed-assets` which mutates `src/cli/embedded-assets.ts` (auto-generated, ~11k lines). If any of Tasks 1-12 introduced a bad frontmatter change or malformed JSON that bun run embed-assets accepts but downstream consumers reject, the giant diff in embedded-assets.ts will make bisect/rollback awkward. Pre-Mortem #4 acknowledges the 'embed-assets rebuild forgotten' risk but does not flag the opposite — embed-assets committed with subtly bad inputs.",
+      "suggested_fix": "Add a pre-embed checkpoint bullet to Task 13 DoD: 'Before running embed-assets, run `jq . targets/claude-code/settings.json`, `jq . targets/claude-code/hooks/hooks.json`, and `bun run validate:plugin` to confirm all target files parse and validate.' If all green, then run embed-assets. This keeps any bisect at the human-edited files rather than the auto-generated blob."
+    }
+  ]
+}
