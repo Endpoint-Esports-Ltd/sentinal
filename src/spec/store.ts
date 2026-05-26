@@ -91,9 +91,15 @@ export class SpecStore {
 
     // Fetch existing spec to detect status transitions and preserve timing
     const existingSpec = this.db
-      .prepare("SELECT status, started_at, completed_at FROM specs WHERE id = ?")
+      .prepare(
+        "SELECT status, started_at, completed_at FROM specs WHERE id = ?",
+      )
       .get(spec.id) as
-      | { status: string; started_at: number | null; completed_at: number | null }
+      | {
+          status: string;
+          started_at: number | null;
+          completed_at: number | null;
+        }
       | undefined;
 
     const oldStatus = existingSpec?.status ?? null;
@@ -102,10 +108,18 @@ export class SpecStore {
     let startedAt: number | null = existingSpec?.started_at ?? null;
     let completedAt: number | null = existingSpec?.completed_at ?? null;
 
-    if (spec.status === "IN_PROGRESS" && oldStatus !== "IN_PROGRESS" && !startedAt) {
+    if (
+      spec.status === "IN_PROGRESS" &&
+      oldStatus !== "IN_PROGRESS" &&
+      !startedAt
+    ) {
       startedAt = now;
     }
-    if (spec.status === "VERIFIED" && oldStatus !== "VERIFIED" && !completedAt) {
+    if (
+      spec.status === "VERIFIED" &&
+      oldStatus !== "VERIFIED" &&
+      !completedAt
+    ) {
       completedAt = now;
     }
 
@@ -193,9 +207,7 @@ export class SpecStore {
   }
 
   /** Get spec-level timing data. */
-  getSpecTiming(
-    specId: string,
-  ): {
+  getSpecTiming(specId: string): {
     title: string;
     status: string;
     startedAt: number | null;
@@ -205,12 +217,14 @@ export class SpecStore {
       .prepare(
         "SELECT title, status, started_at, completed_at FROM specs WHERE id = ?",
       )
-      .get(specId) as {
-      title: string;
-      status: string;
-      started_at: number | null;
-      completed_at: number | null;
-    } | undefined;
+      .get(specId) as
+      | {
+          title: string;
+          status: string;
+          started_at: number | null;
+          completed_at: number | null;
+        }
+      | undefined;
     if (!row) return null;
     return {
       title: row.title,
@@ -221,9 +235,7 @@ export class SpecStore {
   }
 
   /** Get task-level timing data. */
-  getTaskTiming(
-    specId: string,
-  ): Array<{
+  getTaskTiming(specId: string): Array<{
     position: number;
     title: string;
     status: string;

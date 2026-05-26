@@ -106,11 +106,11 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 
 **When you discover something unexpected during implementation, follow these rules:**
 
-| Deviation | Action | Examples |
-|-----------|--------|---------|
-| **Auto-fix (no permission)** | Fix inline, note in plan | Wrong types, broken imports, missing error handling, missing validation, logic bugs caused by current task |
-| **Ask user** | STOP, describe the issue, wait for decision | New DB tables, switching libraries, changing API contracts, architectural changes, scope expansion |
-| **Out of scope** | Note in plan `## Deferred Issues`, continue | Pre-existing bugs, issues in files not touched by this plan, performance issues unrelated to current task |
+| Deviation                    | Action                                      | Examples                                                                                                   |
+| ---------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Auto-fix (no permission)** | Fix inline, note in plan                    | Wrong types, broken imports, missing error handling, missing validation, logic bugs caused by current task |
+| **Ask user**                 | STOP, describe the issue, wait for decision | New DB tables, switching libraries, changing API contracts, architectural changes, scope expansion         |
+| **Out of scope**             | Note in plan `## Deferred Issues`, continue | Pre-existing bugs, issues in files not touched by this plan, performance issues unrelated to current task  |
 
 **Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. Document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task.
 

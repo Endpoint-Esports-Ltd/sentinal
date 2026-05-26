@@ -117,9 +117,7 @@ describe("WorktreeManager", () => {
       // This is the normal workflow: worktree is created BEFORE the spec is registered
       const wt = manager.create("2026-04-20-unregistered-spec", repoDir);
 
-      expect(wt.branchName).toBe(
-        "sentinal/spec-2026-04-20-unregistered-spec",
-      );
+      expect(wt.branchName).toBe("sentinal/spec-2026-04-20-unregistered-spec");
       expect(wt.baseBranch).toBe("main");
       expect(wt.status).toBe("active");
       expect(existsSync(wt.worktreePath)).toBe(true);

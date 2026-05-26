@@ -56,6 +56,7 @@ The cleanest approach: when exiting with code 2, write the human-readable reason
 
 **Objective:** Add stderr output for all deny/block paths that use exit code 2.
 **Files:**
+
 - `src/utils/hook-output.ts` — add `denyStderr(reason: string)` that writes to `process.stderr`
 - `src/cli/commands/hook.ts` — update all 3 exit(2) sites to write reason to stderr
 - `src/hooks/tdd-guard.ts` — update exit(2) site

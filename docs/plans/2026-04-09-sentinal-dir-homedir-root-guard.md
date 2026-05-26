@@ -14,21 +14,27 @@ Type: Bugfix
 **Trigger:** OpenCode is launched in an environment where `HOME=/` is set (or `HOME` is unset/empty, causing `os.homedir()` to return `/`). This is reproducible with `HOME=/ node -e "require('os').homedir()"` → `/`.
 
 **Root Cause:** `targets/opencode/plugins/sentinal.ts:144`:
+
 ```ts
 const SENTINAL_DIR = join(homedir(), ".sentinal");
 ```
+
 `SENTINAL_DIR` is computed **once at module load time** using `homedir()`. When `HOME=/`, `homedir()` returns `/`, making `SENTINAL_DIR = "/.sentinal"`. Every subsequent call to `log()` hits:
+
 ```ts
 if (!existsSync(SENTINAL_DIR)) mkdirSync(SENTINAL_DIR, { recursive: true });
 ```
+
 — which attempts `mkdir /.sentinal` and fails with `EACCES`. This is separate from the `projectRoot` bug fixed in `d1b3f29` and was not covered by that fix.
 
 **Affected sites in `sentinal.ts`:**
+
 - Line 144: `SENTINAL_DIR = join(homedir(), ".sentinal")` — root constant computed at load time
 - Line 150: `mkdirSync(SENTINAL_DIR, ...)` — inside `log()`, called constantly (unguarded)
 - Lines 160, 172, 183, 314: `join(SENTINAL_DIR, ...)` — `autoStartProcess`, `stopProcess`, config reads — all produce bad paths but most have `existsSync` guards that silently bail; the `mkdirSync` in `log()` is the one that throws
 
 **Also affected** (same root, same module):
+
 - `src/sidecar/observation-queue.ts:18`: `QUEUE_DIR = join(homedir(), ".sentinal")` — same pattern, but the `writeQueue` call (`mkdirSync(dir, ...)`) only runs when there are queued observations to write, so it's a lower-priority site. The plugin calls `ObservationQueue.enqueue()` which only triggers `writeQueue` under load.
 
 ## Investigation
@@ -64,6 +70,7 @@ The `log()` mkdirSync IS caught. So line 1792 is NOT `log()`.
 ### Re-investigation: what IS at line 1792?
 
 The crash is at column 7 — `mkdirSync` call beginning. Our local bundle has `mkdirSync` at:
+
 - Line 1297: `ObservationQueue.writeQueue` — inside `src/sidecar/observation-queue.ts` — NOT inside a try/catch in the plugin
 - Line 1454: `log()` function — inside try/catch (swallowed)
 - Line 1838: `if (projectRoot) { mkdirSync(stateDir)... }` — guarded ✓
@@ -74,14 +81,16 @@ The CI-built Linux x64 bundle line numbers differ from our local macOS build. Bu
 ### Root cause (revised, high confidence)
 
 **`src/sidecar/observation-queue.ts:57`**:
+
 ```ts
 function writeQueue(entries: ObservationPayload[]): void {
   const queuePath = getQueuePath();
   const dir = dirname(queuePath);
-  mkdirSync(dir, { recursive: true });   // ← UNGUARDED, no try/catch
+  mkdirSync(dir, { recursive: true }); // ← UNGUARDED, no try/catch
   writeFileSync(queuePath, JSON.stringify(entries), "utf-8");
 }
 ```
+
 `getQueuePath()` returns `join(QUEUE_DIR, QUEUE_FILE)` where `QUEUE_DIR = join(homedir(), ".sentinal")`. When `HOME=/`, `QUEUE_DIR = "/.sentinal"` and `dir = "/.sentinal"` → `mkdirSync("/.sentinal")` → EACCES, uncaught.
 
 `writeQueue` is called from `ObservationQueue.enqueue()`, which is called from the plugin's `tool.execute.after` handler when `analyzeEvent` returns a high-confidence observation. This runs after every tool call — the first tool call in the session after the `session.created` event triggers observation capture and hits `writeQueue`.
@@ -101,6 +110,7 @@ function writeQueue(entries: ObservationPayload[]): void {
 **Condition C:** `HOME=/` (or otherwise unset/invalid), causing `homedir()` to return `/`, so `QUEUE_DIR = "/.sentinal"`.
 
 **Property P:**
+
 1. `ObservationQueue.writeQueue` catches the `EACCES` from `mkdirSync("/.sentinal")` and returns without writing.
 2. The plugin's `tool.execute.after` handler continues normally — observation is silently dropped (same as the existing `ObservationQueue` cap behaviour for overflow).
 3. No uncaught error propagates to OpenCode.
@@ -108,6 +118,7 @@ function writeQueue(entries: ObservationPayload[]): void {
 ### Preservation Property (!C => unchanged)
 
 **When `HOME` is valid** (normal case):
+
 1. `writeQueue` behaves exactly as before — `mkdirSync` succeeds, queue file is written.
 2. All `ObservationQueue` methods work identically.
 3. Full test suite passes.
@@ -115,6 +126,7 @@ function writeQueue(entries: ObservationPayload[]): void {
 ## Fix Approach
 
 **Files:** 1
+
 - `src/sidecar/observation-queue.ts` — wrap `mkdirSync` + `writeFileSync` in `writeQueue` in try/catch
 
 **Strategy:** Wrap the `mkdirSync` + `writeFileSync` block in `writeQueue` in a try/catch that swallows EACCES (and any other fs error). The queue is a best-effort persistence layer — losing an observation is safer than crashing the plugin. The existing `readQueue` already has a try/catch for its `readFileSync`. `writeQueue` should match.
@@ -136,10 +148,12 @@ function writeQueue(entries: ObservationPayload[]): void {
 **Objective:** Wrap `writeQueue` in try/catch, add QUEUE_DIR root guard, add regression test.
 
 **Files:**
+
 - `src/sidecar/observation-queue.ts` (modify)
 - `src/sidecar/observation-queue.test.ts` (modify — add regression test)
 
 **TDD:**
+
 1. **RED:** In `observation-queue.test.ts`, add a test that stubs `getQueuePath` to return `"/.sentinal/observations.json"` (or equivalent invalid path), calls `ObservationQueue.enqueue(payload, log)`, and asserts it does NOT throw.
 
    Run: `bun test src/sidecar/observation-queue.test.ts` — MUST FAIL (unguarded mkdirSync throws).
@@ -151,6 +165,7 @@ function writeQueue(entries: ObservationPayload[]): void {
    Run tests — MUST PASS.
 
 **Verify:**
+
 ```bash
 bun test src/sidecar/observation-queue.test.ts
 bun run build:opencode
@@ -161,6 +176,7 @@ bun run build:opencode
 **Objective:** Full suite + tsc + opencode build.
 
 **Verify:**
+
 ```bash
 bun test
 bun run build:opencode

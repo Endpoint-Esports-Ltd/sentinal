@@ -57,7 +57,10 @@ async function main(): Promise<void> {
     (input.tool_input as Record<string, unknown>) ?? {},
   );
   if (result) {
-    if ("permissionDecision" in result && result.permissionDecision === "deny") {
+    if (
+      "permissionDecision" in result &&
+      result.permissionDecision === "deny"
+    ) {
       denyExit(result.reason);
     }
     output(result);

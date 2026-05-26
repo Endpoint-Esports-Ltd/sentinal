@@ -126,7 +126,9 @@ describe("target asset namespace parity", () => {
     });
 
     it("env.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS === '10000'", () => {
-      expect(settings.env?.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS).toBe("10000");
+      expect(settings.env?.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS).toBe(
+        "10000",
+      );
     });
   });
 
@@ -165,11 +167,7 @@ describe("target asset namespace parity", () => {
 
   describe("targets/claude-code/ — must KEEP Claude Code namespace prefixes (preservation guard)", () => {
     it("Claude Code rules/task-and-workflow.md still references 'sentinal:plan-reviewer' and 'sentinal:spec-reviewer'", () => {
-      const file = join(
-        CLAUDE_DIR,
-        "rules",
-        "task-and-workflow.md",
-      );
+      const file = join(CLAUDE_DIR, "rules", "task-and-workflow.md");
       const content = readFileSync(file, "utf-8");
       // These are correct under Claude Code — the plugin system namespaces
       // all plugin-supplied sub-agents as `sentinal:<name>`. If either of

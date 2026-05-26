@@ -20,201 +20,172 @@
 
 ## [1.27.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.1...v1.27.2) (2026-04-09)
 
-
 ### Bug Fixes
 
-* **opencode:** catch EACCES in ObservationQueue.writeQueue when HOME=/ ([2fc8e08](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2fc8e08227afb0f3e02ee2d1efb732f220f2a9e7))
+- **opencode:** catch EACCES in ObservationQueue.writeQueue when HOME=/ ([2fc8e08](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2fc8e08227afb0f3e02ee2d1efb732f220f2a9e7))
 
 ## [1.27.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.0...v1.27.1) (2026-04-09)
 
-
 ### Bug Fixes
 
-* **opencode:** guard against filesystem-root projectRoot in non-git dirs ([d1b3f29](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d1b3f29248c6073b0bd59605f3336efb948d8a50))
-* replace stale .opencode/ and .claude/ path refs with .sentinal/ ([a0f453a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a0f453a8fc87a6547f6fe154bd9f9c3482aac754))
+- **opencode:** guard against filesystem-root projectRoot in non-git dirs ([d1b3f29](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d1b3f29248c6073b0bd59605f3336efb948d8a50))
+- replace stale .opencode/ and .claude/ path refs with .sentinal/ ([a0f453a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a0f453a8fc87a6547f6fe154bd9f9c3482aac754))
 
 # [1.27.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.1...v1.27.0) (2026-04-08)
 
-
 ### Bug Fixes
 
-* **opencode:** remove leaked sentinal: namespace prefix from reviewer references ([3852d11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3852d1165735ce81f82a9c71dc5b932ee640a069))
-* **spec:** document playwright-cli install and add soft prereq check ([30085da](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/30085da6fae1ec5c6a090beeda8584cb0f76daac))
-
+- **opencode:** remove leaked sentinal: namespace prefix from reviewer references ([3852d11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3852d1165735ce81f82a9c71dc5b932ee640a069))
+- **spec:** document playwright-cli install and add soft prereq check ([30085da](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/30085da6fae1ec5c6a090beeda8584cb0f76daac))
 
 ### Features
 
-* **file-length:** exempt auto-generated files from line-count limits ([f0468f8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f0468f860aba20e3b74eaa8d6300075f25a5414b))
+- **file-length:** exempt auto-generated files from line-count limits ([f0468f8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f0468f860aba20e3b74eaa8d6300075f25a5414b))
 
 ## [1.26.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.26.0...v1.26.1) (2026-04-04)
 
-
 ### Bug Fixes
 
-* write hook deny/block reason to stderr for Claude Code exit code 2 ([32bbcd5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32bbcd5bf037c58cad572f1045cef244f0a01e7f))
+- write hook deny/block reason to stderr for Claude Code exit code 2 ([32bbcd5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32bbcd5bf037c58cad572f1045cef244f0a01e7f))
 
 # [1.26.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.25.0...v1.26.0) (2026-04-03)
 
-
 ### Bug Fixes
 
-* add sentinal: namespace prefix to all Skill() calls in Claude Code commands ([3624a70](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3624a70f311772ca8fadb73d58d8ecbfc77c9282))
-
+- add sentinal: namespace prefix to all Skill() calls in Claude Code commands ([3624a70](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3624a70f311772ca8fadb73d58d8ecbfc77c9282))
 
 ### Features
 
-* adopt Claude Code latest features — rate_limits fix, effort, agent maxTurns, conditional hooks ([e61ca4d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e61ca4d93c760b8b995b4a3e0c27655e0eafc2ff))
+- adopt Claude Code latest features — rate_limits fix, effort, agent maxTurns, conditional hooks ([e61ca4d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e61ca4d93c760b8b995b4a3e0c27655e0eafc2ff))
 
 # [1.25.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.24.0...v1.25.0) (2026-04-02)
 
-
 ### Features
 
-* add OpenCode system prompt injection via experimental.chat.system.transform ([2f24ab7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2f24ab783d3e37b4a237f5be4b4679f13a2de5f3))
+- add OpenCode system prompt injection via experimental.chat.system.transform ([2f24ab7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2f24ab783d3e37b4a237f5be4b4679f13a2de5f3))
 
 # [1.24.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.23.0...v1.24.0) (2026-03-26)
 
-
 ### Features
 
-* wire model routing config to Claude Code skill frontmatter ([35df380](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/35df380af4041a09bfb3cd233a92cb3d6836ddd0))
+- wire model routing config to Claude Code skill frontmatter ([35df380](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/35df380af4041a09bfb3cd233a92cb3d6836ddd0))
 
 # [1.23.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.22.0...v1.23.0) (2026-03-26)
 
-
 ### Features
 
-* detect competing statusline plugins and yield gracefully ([bb32a57](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bb32a578236b0dc90e608b59f39a43840dca59c0))
+- detect competing statusline plugins and yield gracefully ([bb32a57](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bb32a578236b0dc90e608b59f39a43840dca59c0))
 
 # [1.22.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.3...v1.22.0) (2026-03-23)
 
-
 ### Features
 
-* add project memory ([c561c63](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c561c63a4a2e2e172ac6efecea057c3516faca7c))
+- add project memory ([c561c63](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c561c63a4a2e2e172ac6efecea057c3516faca7c))
 
 ## [1.21.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.2...v1.21.3) (2026-03-21)
 
-
 ### Bug Fixes
 
-* handle duplicate session insert on resume without error ([c18df8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c18df8d830d7068e578d71e67d72dec3c88bc8ef))
+- handle duplicate session insert on resume without error ([c18df8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c18df8d830d7068e578d71e67d72dec3c88bc8ef))
 
 ## [1.21.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.1...v1.21.2) (2026-03-20)
 
-
 ### Bug Fixes
 
-* use Claude Code's rate_limit data for accurate statusline usage ([8431135](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/8431135beff8b3a2fcf4cfb67d580537dbdfd302))
+- use Claude Code's rate_limit data for accurate statusline usage ([8431135](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/8431135beff8b3a2fcf4cfb67d580537dbdfd302))
 
 ## [1.21.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.21.0...v1.21.1) (2026-03-19)
 
-
 ### Bug Fixes
 
-* auto-detect plan tier from Claude Code session context window size ([33cfa17](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/33cfa179b9bd1651a636de97a52e9c9d12e8ac8a))
+- auto-detect plan tier from Claude Code session context window size ([33cfa17](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/33cfa179b9bd1651a636de97a52e9c9d12e8ac8a))
 
 # [1.21.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.2...v1.21.0) (2026-03-19)
 
-
 ### Bug Fixes
 
-* stop hook no longer blocks on PENDING plans ([66d7bff](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/66d7bffcd2f859f500bc1120dd0d3df260f97d51))
-
+- stop hook no longer blocks on PENDING plans ([66d7bff](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/66d7bffcd2f859f500bc1120dd0d3df260f97d51))
 
 ### Features
 
-* add execution wave grouping and parallel task implementation to spec workflow ([685403b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/685403b374cada82d437e9b3d69e0e5a4777d2f9))
+- add execution wave grouping and parallel task implementation to spec workflow ([685403b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/685403b374cada82d437e9b3d69e0e5a4777d2f9))
 
 ## [1.20.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.1...v1.20.2) (2026-03-18)
 
-
 ### Bug Fixes
 
-* add timeout and progress indicator to sentinal update downloads ([405d23e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/405d23ed683ad1c26fcf587e3659ab8d081af818))
+- add timeout and progress indicator to sentinal update downloads ([405d23e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/405d23ed683ad1c26fcf587e3659ab8d081af818))
 
 ## [1.20.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.20.0...v1.20.1) (2026-03-18)
 
-
 ### Bug Fixes
 
-* dashboard stale version, empty memories, and missing fragment routes ([1c603cc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1c603cc9465f8bbb480306e66e1e9549b7623170))
+- dashboard stale version, empty memories, and missing fragment routes ([1c603cc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1c603cc9465f8bbb480306e66e1e9549b7623170))
 
 # [1.20.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.2...v1.20.0) (2026-03-18)
 
-
 ### Features
 
-* add /quick command, /pause with resume detection, and spec_metrics ([5c6f8bd](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5c6f8bdbef718940e341758333e8c8c9b67ceb14))
+- add /quick command, /pause with resume detection, and spec_metrics ([5c6f8bd](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5c6f8bdbef718940e341758333e8c8c9b67ceb14))
 
 ## [1.19.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.1...v1.19.2) (2026-03-18)
 
-
 ### Bug Fixes
 
-* add verification action prompt for COMPLETE plans in prompt-context ([a027382](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a027382b4ee956d7fa2d3c6bf7e7ac0ff90cc980))
+- add verification action prompt for COMPLETE plans in prompt-context ([a027382](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a027382b4ee956d7fa2d3c6bf7e7ac0ff90cc980))
 
 ## [1.19.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.19.0...v1.19.1) (2026-03-18)
 
-
 ### Bug Fixes
 
-* resolve cross-platform parity issues and stale references from audit ([0314c8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0314c8d0c31761e91a059d3717d3cf4953ab5eff))
+- resolve cross-platform parity issues and stale references from audit ([0314c8d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0314c8d0c31761e91a059d3717d3cf4953ab5eff))
 
 # [1.19.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.18.0...v1.19.0) (2026-03-18)
 
-
 ### Features
 
-* add GSD-inspired quality guards and compound spec_init MCP tool ([f9ca385](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f9ca3852469ef5e562e6256f323a9925fe683ea5))
+- add GSD-inspired quality guards and compound spec_init MCP tool ([f9ca385](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f9ca3852469ef5e562e6256f323a9925fe683ea5))
 
 # [1.18.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.17.0...v1.18.0) (2026-03-18)
 
-
 ### Features
 
-* add IN_PROGRESS status lifecycle and master plans with wave execution ([bac3009](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bac30097701f076f00b724d0703b264ae3ac36ee))
+- add IN_PROGRESS status lifecycle and master plans with wave execution ([bac3009](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bac30097701f076f00b724d0703b264ae3ac36ee))
 
 # [1.17.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.16.0...v1.17.0) (2026-03-17)
 
-
 ### Bug Fixes
 
-* add per-test timeouts to quality-check tests for CI reliability ([0fd2ec7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0fd2ec7549a143592b937733de1b629ad05ba110))
-* use dynamic timestamps in getUsageSummary tests to avoid rolling window expiry ([309e81b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/309e81b7043667a2258cf07f042c4808edb337f0))
-
+- add per-test timeouts to quality-check tests for CI reliability ([0fd2ec7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/0fd2ec7549a143592b937733de1b629ad05ba110))
+- use dynamic timestamps in getUsageSummary tests to avoid rolling window expiry ([309e81b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/309e81b7043667a2258cf07f042c4808edb337f0))
 
 ### Features
 
-* async hooks, subagent-scoped MCP, and prompt context injection ([80c7f11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/80c7f11b73e3ae9153e30d6347a84ff6a886fb8f))
+- async hooks, subagent-scoped MCP, and prompt context injection ([80c7f11](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/80c7f11b73e3ae9153e30d6347a84ff6a886fb8f))
 
 # [1.16.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.15.0...v1.16.0) (2026-03-16)
 
-
 ### Features
 
-* make all quality checks on-demand instead of per-edit ([de2a53d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/de2a53d296391f8cb272a3e0906fe651d62e934f))
+- make all quality checks on-demand instead of per-edit ([de2a53d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/de2a53d296391f8cb272a3e0906fe651d62e934f))
 
 # [1.15.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.1...v1.15.0) (2026-03-16)
 
-
 ### Features
 
-* push out a release ([2484ee2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2484ee27dce45c54f808d3ab5772302bbdd2eb09))
+- push out a release ([2484ee2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2484ee27dce45c54f808d3ab5772302bbdd2eb09))
 
 ## [1.14.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.14.0...v1.14.1) (2026-03-16)
 
-
 ### Bug Fixes
 
-* return JSON errors from sidecar and prefer local tool binaries ([32e2f6e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32e2f6e843f8d72a100628bfcd2598272a1f8651))
+- return JSON errors from sidecar and prefer local tool binaries ([32e2f6e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/32e2f6e843f8d72a100628bfcd2598272a1f8651))
 
 # [1.14.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.13.0...v1.14.0) (2026-03-16)
 
-
 ### Features
 
-* replace idle timeout with session-aware sidecar lifecycle ([92e9b3e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/92e9b3eb1e22190eb7280e994aa8526716a3f76d))
+- replace idle timeout with session-aware sidecar lifecycle ([92e9b3e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/92e9b3eb1e22190eb7280e994aa8526716a3f76d))
 
 # [1.13.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.12.0...v1.13.0) (2026-03-16)
 

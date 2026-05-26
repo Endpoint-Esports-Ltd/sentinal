@@ -68,11 +68,12 @@ git add -A && git commit -m "wip: pause at Task [N] of [plan-title]" --no-verify
 ### Step 5: Confirm
 
 Report to user:
+
 ```
 Paused: [plan title]
   Position: Task [N] of [total]
   Handoff: .sentinal/continue-here.md
-  
+
   To resume: start a new session and run /spec
   The dispatcher will detect the handoff file and offer to resume.
 ```

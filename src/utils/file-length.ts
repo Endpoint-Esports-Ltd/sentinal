@@ -39,7 +39,9 @@ export interface FileLengthResult {
  */
 function isGeneratedFile(content: string): boolean {
   const header = content.slice(0, GENERATED_HEADER_SCAN_BYTES).toUpperCase();
-  return GENERATED_MARKERS.some((marker) => header.includes(marker.toUpperCase()));
+  return GENERATED_MARKERS.some((marker) =>
+    header.includes(marker.toUpperCase()),
+  );
 }
 
 export function checkFileLength(

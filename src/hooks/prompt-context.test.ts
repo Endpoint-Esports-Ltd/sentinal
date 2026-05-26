@@ -14,11 +14,7 @@ import { buildSpecContext, buildSessionTitle } from "./prompt-context.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function writePlan(
-  dir: string,
-  filename: string,
-  content: string,
-): string {
+function writePlan(dir: string, filename: string, content: string): string {
   const plansDir = join(dir, "docs", "plans");
   mkdirSync(plansDir, { recursive: true });
   const filePath = join(plansDir, filename);

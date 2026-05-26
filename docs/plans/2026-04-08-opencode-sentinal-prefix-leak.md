@@ -18,7 +18,7 @@ Type: Bugfix
 1. `targets/opencode/rules/task-and-workflow.md:67` — ``| `sentinal:plan-reviewer` |`` in the subagent_type column of the reviewers table
 2. `targets/opencode/rules/task-and-workflow.md:68` — ``| `sentinal:spec-reviewer` |`` in the same table
 3. `targets/opencode/skills/spec-plan/SKILL.md:358` — `subagent_type="sentinal:plan-reviewer",` in the Step 1.7 Task() launch snippet
-4. `targets/opencode/skills/spec-verify/SKILL.md:17` — ``Task(subagent_type="sentinal:spec-reviewer")`` in the KEY CONSTRAINTS section
+4. `targets/opencode/skills/spec-verify/SKILL.md:17` — `Task(subagent_type="sentinal:spec-reviewer")` in the KEY CONSTRAINTS section
 5. `targets/opencode/skills/spec-verify/SKILL.md:100` — `subagent_type="sentinal:spec-reviewer",` in the Step 3.1 Task() launch snippet
 
 All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market research feature parity") via mass mirroring of Claude Code text into OpenCode files without scrubbing the plugin-namespace prefix.
@@ -26,7 +26,7 @@ All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market
 ## Investigation
 
 - **Architectural context:** Claude Code installs Sentinal as a plugin via `claude plugin install sentinal@sentinal-marketplace`, and its plugin system automatically namespaces everything the plugin supplies as `sentinal:<name>` — hence `sentinal:plan-reviewer`, `/sentinal:spec`, `sentinal:spec-implement` etc. are correct under Claude Code. OpenCode installs the plugin as a flat set of files in `~/.config/opencode/{agents,skills,commands,rules,plugins}/` with no namespacing; the filename (e.g., `plan-reviewer.md`) is the identifier.
-- **Prior bugfix parallel:** `docs/plans/2026-04-03-skill-routing-bugfix.md` (VERIFIED) fixed the exact inverse of this bug — `Skill()` calls in `targets/claude-code/commands/*.md` were using bare names and needed the `sentinal:` prefix added. That plan's own Investigation section explicitly states *"OpenCode NOT affected: OpenCode skills use directory-based names ... bare names are correct for OpenCode"* — confirming the architectural split, but that prior fix did not audit the inverse direction (prefix present where it shouldn't be).
+- **Prior bugfix parallel:** `docs/plans/2026-04-03-skill-routing-bugfix.md` (VERIFIED) fixed the exact inverse of this bug — `Skill()` calls in `targets/claude-code/commands/*.md` were using bare names and needed the `sentinal:` prefix added. That plan's own Investigation section explicitly states _"OpenCode NOT affected: OpenCode skills use directory-based names ... bare names are correct for OpenCode"_ — confirming the architectural split, but that prior fix did not audit the inverse direction (prefix present where it shouldn't be).
 - **Git blame:** All 5 strings (`sentinal:plan-reviewer`, `sentinal:spec-reviewer` across the 3 OpenCode files) first appeared in `999cc5f` (2026-03-11). The commit description mentions "Mirror all changes to OpenCode targets" — this is precisely the mirroring step that leaked the Claude-specific prefix.
 - **Working example in OpenCode tree:** `targets/opencode/skills/spec-implement/SKILL.md:18,136` uses `Task(subagent_type="general")` — bare name, no prefix. This is the pattern `plan-reviewer` / `spec-reviewer` invocations should follow, since they're registered in `targets/opencode/agents/` with no `name:` field in frontmatter (filename is the identifier).
 - **OpenCode agent file inspection:** `targets/opencode/agents/plan-reviewer.md` and `spec-reviewer.md` have YAML frontmatter with `description`, `mode: subagent`, `tools`, and `permission` fields — but **no `name:` field**. OpenCode's convention is that the filename (minus `.md`) is the agent identifier.
@@ -39,6 +39,7 @@ All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market
 
 **When condition C holds:** A user runs `/spec <task>` under OpenCode with `$SENTINAL_PLAN_REVIEWER_ENABLED` or `$SENTINAL_SPEC_REVIEWER_ENABLED` not set to `"false"` (i.e., review is enabled).
 **Property P must hold:**
+
 1. The rule file `targets/opencode/rules/task-and-workflow.md` has a `subagent_type` column showing bare `` `plan-reviewer` `` and `` `spec-reviewer` `` (no `sentinal:` prefix) for the two reviewer rows.
 2. The skill files `targets/opencode/skills/spec-plan/SKILL.md` and `targets/opencode/skills/spec-verify/SKILL.md` contain `Task(subagent_type="plan-reviewer")` / `Task(subagent_type="spec-reviewer")` — bare names, no prefix.
 3. A structural regression test (`src/cli/target-assets.test.ts`) scans every `.md` file under `targets/opencode/` and asserts that NONE contain the strings `sentinal:plan-reviewer` or `sentinal:spec-reviewer`.
@@ -47,6 +48,7 @@ All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market
 ### Preservation Property (¬C ⇒ unchanged)
 
 **When condition C does NOT hold** (Claude Code side, or non-reviewer `sentinal:` usages):
+
 1. **All 5 Claude Code occurrences** of `sentinal:plan-reviewer` / `sentinal:spec-reviewer` in `targets/claude-code/` remain unchanged — Claude Code requires the prefix.
 2. **All other legitimate `sentinal:` uses** stay unchanged:
    - `src/cli/commands/install.ts:432` — user-facing Claude Code slash command names (`/sentinal:spec, /sentinal:sync, /sentinal:learn`)
@@ -61,13 +63,13 @@ All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market
 
 **Files to modify:**
 
-| File | Change |
-|---|---|
-| `targets/opencode/rules/task-and-workflow.md` | Lines 67-68: `` `sentinal:plan-reviewer` `` → `` `plan-reviewer` ``, `` `sentinal:spec-reviewer` `` → `` `spec-reviewer` `` |
-| `targets/opencode/skills/spec-plan/SKILL.md` | Line 358: `subagent_type="sentinal:plan-reviewer"` → `subagent_type="plan-reviewer"` |
-| `targets/opencode/skills/spec-verify/SKILL.md` | Lines 17, 100: `sentinal:spec-reviewer` → `spec-reviewer` (both occurrences) |
-| `src/cli/target-assets.test.ts` (new) | Structural regression test — reads every `.md` under `targets/opencode/` and asserts `sentinal:plan-reviewer` / `sentinal:spec-reviewer` are absent |
-| `src/cli/embedded-assets.ts` | **Auto-regenerated** via `bun run embed-assets` — not hand-edited |
+| File                                           | Change                                                                                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `targets/opencode/rules/task-and-workflow.md`  | Lines 67-68: `` `sentinal:plan-reviewer` `` → `` `plan-reviewer` ``, `` `sentinal:spec-reviewer` `` → `` `spec-reviewer` ``                         |
+| `targets/opencode/skills/spec-plan/SKILL.md`   | Line 358: `subagent_type="sentinal:plan-reviewer"` → `subagent_type="plan-reviewer"`                                                                |
+| `targets/opencode/skills/spec-verify/SKILL.md` | Lines 17, 100: `sentinal:spec-reviewer` → `spec-reviewer` (both occurrences)                                                                        |
+| `src/cli/target-assets.test.ts` (new)          | Structural regression test — reads every `.md` under `targets/opencode/` and asserts `sentinal:plan-reviewer` / `sentinal:spec-reviewer` are absent |
+| `src/cli/embedded-assets.ts`                   | **Auto-regenerated** via `bun run embed-assets` — not hand-edited                                                                                   |
 
 **Strategy:**
 
@@ -116,6 +118,7 @@ The tests have no mocking — they read the real asset files from disk. Pattern 
 **Objective:** Write RED regression test, apply 5 string replacements in 3 OpenCode files, run GREEN, regenerate embedded-assets, confirm Claude Code parity untouched.
 
 **Files:**
+
 - `src/cli/target-assets.test.ts` (new, regression guard)
 - `targets/opencode/rules/task-and-workflow.md`
 - `targets/opencode/skills/spec-plan/SKILL.md`
@@ -123,6 +126,7 @@ The tests have no mocking — they read the real asset files from disk. Pattern 
 - `src/cli/embedded-assets.ts` (regenerated, not hand-edited)
 
 **TDD:**
+
 1. Create `src/cli/target-assets.test.ts` with the 2 (or 3) regression tests walking `targets/opencode/` recursively. Do NOT edit any other file yet.
 2. Run `bun test src/cli/target-assets.test.ts` — confirm 2 tests FAIL (RED). Capture the failing output to confirm each test correctly reports the offending files.
 3. Set TDD state RED_CONFIRMED for all 3 OpenCode files being edited.
@@ -139,6 +143,7 @@ The tests have no mocking — they read the real asset files from disk. Pattern 
 9. Verify the count drop: `rg -c 'sentinal:(plan|spec)-reviewer' src/cli/embedded-assets.ts` should show 5 matches (Claude Code half only), down from 10.
 
 **Verify:**
+
 ```bash
 bun test src/cli/target-assets.test.ts --verbose
 rg -n 'sentinal:(plan|spec)-reviewer' targets/opencode/    # must be empty
@@ -152,6 +157,7 @@ bunx tsc --noEmit
 **Objective:** Full test suite, type check, impact analysis, rule integrity spot-check.
 
 **Verify:**
+
 ```bash
 # Full test suite — no regressions in the 1137+ baseline
 bun test

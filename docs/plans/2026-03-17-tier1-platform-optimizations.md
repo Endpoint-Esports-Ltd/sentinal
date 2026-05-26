@@ -97,21 +97,21 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Async hook output lost on crash | Low | Low | tdd-tracker and memory-observer already swallow errors; data persists in SQLite via sidecar |
-| Subagent can't find MCP tools after scoping | Medium | High | Keep `sentinal` MCP server in main `.mcp.json`; test that subagents see external tools; fallback: keep one external server in main context |
-| UserPromptSubmit fires too often (every prompt) | Low | Low | Context injection function is fast (~5ms: read compact-state.json + format string). Guard with `findActivePlan()` — returns null quickly if no active plan |
-| OpenCode agent tool wildcards don't work as expected | Medium | Medium | Test with a single server first. Fallback: document the gap, implement Claude Code only |
-| Embedded assets out of sync after changes | Low | Medium | Task 7 explicitly runs `bun run embed-assets` and verifies output |
-| UserPromptSubmit additionalContext silently dropped | Low | Medium | Fallback: existing SessionStart memory-restore hook provides baseline context. Manual verification step in Task 5 DoD |
-| Subagent mcpServers frontmatter untested in this codebase | Medium | High | Verification-first step in Task 3: test single server before full migration. Abort and document if fails |
+| Risk                                                      | Likelihood | Impact | Mitigation                                                                                                                                                 |
+| --------------------------------------------------------- | ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Async hook output lost on crash                           | Low        | Low    | tdd-tracker and memory-observer already swallow errors; data persists in SQLite via sidecar                                                                |
+| Subagent can't find MCP tools after scoping               | Medium     | High   | Keep `sentinal` MCP server in main `.mcp.json`; test that subagents see external tools; fallback: keep one external server in main context                 |
+| UserPromptSubmit fires too often (every prompt)           | Low        | Low    | Context injection function is fast (~5ms: read compact-state.json + format string). Guard with `findActivePlan()` — returns null quickly if no active plan |
+| OpenCode agent tool wildcards don't work as expected      | Medium     | Medium | Test with a single server first. Fallback: document the gap, implement Claude Code only                                                                    |
+| Embedded assets out of sync after changes                 | Low        | Medium | Task 7 explicitly runs `bun run embed-assets` and verifies output                                                                                          |
+| UserPromptSubmit additionalContext silently dropped       | Low        | Medium | Fallback: existing SessionStart memory-restore hook provides baseline context. Manual verification step in Task 5 DoD                                      |
+| Subagent mcpServers frontmatter untested in this codebase | Medium     | High   | Verification-first step in Task 3: test single server before full migration. Abort and document if fails                                                   |
 
 ## Pre-Mortem
 
 _Assume this plan failed. Most likely internal reasons:_
 
-1. **Async hooks break TDD workflow** (Tasks 1-2) → Trigger: `tdd-tracker` async delivery is too slow, causing `tdd-guard` to see stale state on next edit. Observable: user can edit implementation file without RED_CONFIRMED state showing in time. Mitigated: tdd-tracker writes to SQLite synchronously within the hook process — it's the *process exit wait* that's removed, not the DB write. The SQLite write completes before the hook exits.
+1. **Async hooks break TDD workflow** (Tasks 1-2) → Trigger: `tdd-tracker` async delivery is too slow, causing `tdd-guard` to see stale state on next edit. Observable: user can edit implementation file without RED_CONFIRMED state showing in time. Mitigated: tdd-tracker writes to SQLite synchronously within the hook process — it's the _process exit wait_ that's removed, not the DB write. The SQLite write completes before the hook exits.
 
 2. **OpenCode MCP scoping doesn't work** (Task 4) → Trigger: OpenCode's `tools` agent config doesn't support MCP wildcard patterns, or subagents inherit parent tool restrictions. Observable: external MCP tools disappear entirely (even in subagents) or remain visible in main context. Mitigated: test with a single server; document gap if unsupported.
 
@@ -131,15 +131,15 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Artifacts
 
-| Truth | Supporting Artifact |
-|-------|-------------------|
-| 1 | Modified `targets/claude-code/hooks/hooks.json` with `"async": true` on 3 hooks |
-| 2 | Modified `.mcp.json` (external servers removed) + subagent frontmatter (servers added) + new `research.md` subagent |
-| 3 | New `UserPromptSubmit` hook in `hooks.json` + new `src/hooks/prompt-context.ts` |
-| 4 | Modified `targets/opencode/plugins/sentinal.ts` compaction handler |
-| 5 | Modified `targets/opencode/plugins/sentinal.ts` session.created handler |
-| 6 | `bun test` output |
-| 7 | `bun run embed-assets` + rebuild |
+| Truth | Supporting Artifact                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------- |
+| 1     | Modified `targets/claude-code/hooks/hooks.json` with `"async": true` on 3 hooks                                     |
+| 2     | Modified `.mcp.json` (external servers removed) + subagent frontmatter (servers added) + new `research.md` subagent |
+| 3     | New `UserPromptSubmit` hook in `hooks.json` + new `src/hooks/prompt-context.ts`                                     |
+| 4     | Modified `targets/opencode/plugins/sentinal.ts` compaction handler                                                  |
+| 5     | Modified `targets/opencode/plugins/sentinal.ts` session.created handler                                             |
+| 6     | `bun test` output                                                                                                   |
+| 7     | `bun run embed-assets` + rebuild                                                                                    |
 
 ### Key Links
 
@@ -190,7 +190,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Verify:**
 
-- `node -e "JSON.parse(require('fs').readFileSync('targets/claude-code/hooks/hooks.json','utf8')); console.log('valid')"` 
+- `node -e "JSON.parse(require('fs').readFileSync('targets/claude-code/hooks/hooks.json','utf8')); console.log('valid')"`
 
 ---
 

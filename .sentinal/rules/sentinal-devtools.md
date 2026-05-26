@@ -30,7 +30,7 @@ vexor index --path . --mode auto \
 
 Why these exclusions: `embedded-assets.ts` is an auto-generated 11k-line file (would dominate search noise); `CHANGELOG.md` is semantic-release output (99 chunks of version history); `sentinal.js` + `.d.ts` + `.map` are compiled outputs of `sentinal.ts`; `targets/opencode/tests/fixtures/` are NestJS test fixtures, not sentinal source.
 
-**⚠️ Use `**/` glob prefix, not bare paths.** `--exclude-pattern 'src/foo.ts'` silently fails to match. `--exclude-pattern '**/foo.ts'` works. This is a vexor quirk — confirmed 2026-04-08.
+**⚠️ Use `**/`glob prefix, not bare paths.**`--exclude-pattern 'src/foo.ts'`silently fails to match.`--exclude-pattern '\*\*/foo.ts'` works. This is a vexor quirk — confirmed 2026-04-08.
 
 > Note: Sentinal ships a separate rule (`targets/*/rules/research-tools.md`) instructing **end users** to install vexor. That rule is for user projects; this rule covers the dev experience of working on sentinal itself (where the index is pre-built and follows the exclusions above).
 
@@ -40,13 +40,13 @@ Vexor's local embedding backend only exposes `cuda=True/False`. `onnxruntime` sh
 
 ### When to use it over `rg`
 
-| Need                                                | Tool                                    |
-| --------------------------------------------------- | --------------------------------------- |
-| **Find code by what it does** (intent, concept)     | `vexor search "..."`                    |
-| **Find exact string/regex** (identifier, API name)  | `rg`                                    |
-| **Follow an import graph**                          | `rg` + LSP `references` tool            |
-| **Discover where a feature lives** in an unfamiliar area | `vexor search` then `rg` to pin down |
-| **Plan a refactor** across ~100+ files              | `vexor search` to find all candidates   |
+| Need                                                     | Tool                                  |
+| -------------------------------------------------------- | ------------------------------------- |
+| **Find code by what it does** (intent, concept)          | `vexor search "..."`                  |
+| **Find exact string/regex** (identifier, API name)       | `rg`                                  |
+| **Follow an import graph**                               | `rg` + LSP `references` tool          |
+| **Discover where a feature lives** in an unfamiliar area | `vexor search` then `rg` to pin down  |
+| **Plan a refactor** across ~100+ files                   | `vexor search` to find all candidates |
 
 **Rule of thumb:** if you can write the exact token, use `rg`. If you'd have to guess five variants, use `vexor`.
 

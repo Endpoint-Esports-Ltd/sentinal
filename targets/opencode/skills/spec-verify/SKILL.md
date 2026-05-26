@@ -128,6 +128,7 @@ Run all mechanical checks in sequence. Fix any failures before proceeding.
    ```
 
    ⛔ Do **not** rely solely on `check_diagnostics` / `quality_report` for this gate — those tools use an incremental tsc cache (`.tsbuildinfo` in `~/.sentinal/tsbuildinfo/`) and an LSP client limited to ~10 open files, which can miss cross-file type errors in files you did not touch. Optionally run `check_diagnostics` MCP tool **after** the full run to see NEW/FIXED delta for spec-relevant files.
+
 3. **Linter** — `npx eslint .`. Errors are blockers, warnings acceptable.
 4. **Angular build (if applicable):** `npx ng build`. Zero errors.
 5. **NestJS build (if applicable):** `npx nest build`. Zero errors.
@@ -252,11 +253,11 @@ If any criterion unmet: fix inline if possible, or add task and loop back.
 
 For each artifact listed in the plan's `## Goal Verification > Artifacts` section, verify three levels:
 
-| Level | Check | How |
-|-------|-------|-----|
-| **1. Exists** | File is present on disk | `ls <path>` or Read tool |
-| **2. Substantive** | File is NOT a stub | Read file, check for stub patterns (below) |
-| **3. Wired** | File is imported/used by other files | `grep -r "import.*<filename>" src/` or Grep tool |
+| Level              | Check                                | How                                              |
+| ------------------ | ------------------------------------ | ------------------------------------------------ |
+| **1. Exists**      | File is present on disk              | `ls <path>` or Read tool                         |
+| **2. Substantive** | File is NOT a stub                   | Read file, check for stub patterns (below)       |
+| **3. Wired**       | File is imported/used by other files | `grep -r "import.*<filename>" src/` or Grep tool |
 
 **Stub patterns to flag (file is likely incomplete):**
 

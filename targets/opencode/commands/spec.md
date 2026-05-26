@@ -13,15 +13,15 @@ argument-hint: "<task description>" or "<path/to/plan.md>"
 
 ## Workflow
 
-| Phase                 | Skill                  | When                       |
-| --------------------- | ---------------------- | -------------------------- |
-| Feature Planning      | `spec-plan`            | New feature task           |
-| Bugfix Planning       | `spec-bugfix-plan`     | Bug/crash/regression       |
-| Master Planning       | `spec-master-plan`     | Multi-phase project        |
-| Implementation        | `spec-implement`       | Plan approved              |
-| Master Execution      | `spec-master-execute`  | Master plan approved       |
-| Feature Verification  | `spec-verify`          | Feature complete           |
-| Bugfix Verification   | `spec-bugfix-verify`   | Bugfix complete            |
+| Phase                | Skill                 | When                 |
+| -------------------- | --------------------- | -------------------- |
+| Feature Planning     | `spec-plan`           | New feature task     |
+| Bugfix Planning      | `spec-bugfix-plan`    | Bug/crash/regression |
+| Master Planning      | `spec-master-plan`    | Multi-phase project  |
+| Implementation       | `spec-implement`      | Plan approved        |
+| Master Execution     | `spec-master-execute` | Master plan approved |
+| Feature Verification | `spec-verify`         | Feature complete     |
+| Bugfix Verification  | `spec-bugfix-verify`  | Bugfix complete      |
 
 ---
 
@@ -34,6 +34,7 @@ ls .sentinal/continue-here.md 2>/dev/null
 ```
 
 If the file exists:
+
 1. Read it — extract `Plan:`, `Current Task:`, `Created:` fields
 2. Calculate age: if >24 hours, warn "Paused work is from [date] — context may be stale"
 3. Show: "Found paused work: [plan path] at [current task]"

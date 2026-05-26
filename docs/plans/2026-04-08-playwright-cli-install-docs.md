@@ -36,6 +36,7 @@ Type: Bugfix
 
 **When condition C holds:** A user runs `sentinal install claude` or `sentinal install opencode` on a machine without `playwright-cli` on PATH.
 **Property P must hold:**
+
 1. The installer prints an informational line: `[i] playwright-cli not found (optional, needed for /spec UI verification)` followed by `  Install: npm install -g @playwright/cli@latest`
 2. The installer **continues** — does NOT exit with error code, because `playwright-cli` is optional
 3. The `playwright-cli.md` rule files (both targets) have an **Installation** section at the top showing `npm install -g @playwright/cli@latest` and explicitly warning that the bare `playwright-cli` package on npm is deprecated.
@@ -43,6 +44,7 @@ Type: Bugfix
 ### Preservation Property (¬C ⇒ unchanged)
 
 **When condition C does NOT hold** (playwright-cli is already on PATH, OR the user is not running `sentinal install`):
+
 1. Installer behavior for all other prereqs (`claude`, `opencode`, `bun`, `node`, `sentinal`) is byte-identical to before.
 2. Existing users with `playwright-cli` already installed see a simple `[OK] playwright-cli found (optional)` line and nothing else changes.
 3. All other documentation in `targets/*/rules/` that references the `playwright-cli` binary (testing.md, verification.md, spec-verify.md, etc.) remains unchanged — only the dedicated `playwright-cli.md` files grow an Installation section.
@@ -51,13 +53,13 @@ Type: Bugfix
 
 **Files to modify:**
 
-| File | Change |
-|---|---|
-| `targets/claude-code/rules/playwright-cli.md` | Add `## Installation` section at top with `npm install -g @playwright/cli@latest`, warning about deprecated bare package |
-| `targets/opencode/rules/playwright-cli.md` | Identical content to Claude Code target (dual-target sync) |
-| `src/cli/commands/install.ts` | Add `checkPlaywrightCli()` helper + call it from both `installClaudeCode()` and `installOpenCode()` prereq blocks as a soft info hint (not a hard fail) |
-| `src/cli/commands/install.test.ts` | Add RED tests for the helper's output with/without binary present |
-| `src/cli/embedded-assets.ts` | **Auto-regenerated** via `bun run embed-assets` — not hand-edited |
+| File                                          | Change                                                                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `targets/claude-code/rules/playwright-cli.md` | Add `## Installation` section at top with `npm install -g @playwright/cli@latest`, warning about deprecated bare package                                |
+| `targets/opencode/rules/playwright-cli.md`    | Identical content to Claude Code target (dual-target sync)                                                                                              |
+| `src/cli/commands/install.ts`                 | Add `checkPlaywrightCli()` helper + call it from both `installClaudeCode()` and `installOpenCode()` prereq blocks as a soft info hint (not a hard fail) |
+| `src/cli/commands/install.test.ts`            | Add RED tests for the helper's output with/without binary present                                                                                       |
+| `src/cli/embedded-assets.ts`                  | **Auto-regenerated** via `bun run embed-assets` — not hand-edited                                                                                       |
 
 **Strategy:**
 
@@ -105,6 +107,7 @@ Type: Bugfix
 **Objective:** Add Installation section to both `playwright-cli.md` rule files, add `checkPlaywrightCli()` soft-check to installer, write regression tests, regenerate embedded-assets.
 
 **Files:**
+
 - `targets/claude-code/rules/playwright-cli.md`
 - `targets/opencode/rules/playwright-cli.md`
 - `src/cli/commands/install.ts`
@@ -112,6 +115,7 @@ Type: Bugfix
 - `src/cli/embedded-assets.ts` (regenerated, not hand-edited)
 
 **TDD:**
+
 1. Read `install.test.ts` to understand the existing test pattern (mocking strategy for `commandExists`)
 2. Write 2 failing tests for `checkPlaywrightCli()` — one for found, one for missing
 3. Run `bun test src/cli/commands/install.test.ts` — verify the new tests FAIL
@@ -125,6 +129,7 @@ Type: Bugfix
 11. Verify `embedded-assets.ts` contains the new Installation section text: `rg 'npm install -g @playwright/cli' src/cli/embedded-assets.ts`
 
 **Verify:**
+
 ```bash
 bun test src/cli/commands/install.test.ts --verbose
 bunx tsc --noEmit
@@ -136,6 +141,7 @@ rg "npm install -g @playwright/cli" targets/claude-code/rules/playwright-cli.md 
 **Objective:** Full test suite, type check, rule consistency, embedded-assets regeneration check.
 
 **Verify:**
+
 ```bash
 # Full test suite (includes the new install.test.ts cases)
 bun test

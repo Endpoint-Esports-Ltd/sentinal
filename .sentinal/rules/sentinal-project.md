@@ -63,21 +63,21 @@ bin/sentinal.sh            # CLI shim
 
 ## Development Commands
 
-| Task                             | Command                                          |
-| -------------------------------- | ------------------------------------------------ |
-| Install deps                     | `bun install`                                    |
-| Run all tests                    | `bun test`                                       |
-| Watch tests                      | `bun test:watch`                                 |
-| Run single test file             | `bun test src/path/to/file.test.ts`              |
-| Build Claude Code hooks          | `bun run build:claude` (→ `targets/claude-code/hooks/dist/`) |
-| Build OpenCode plugin            | `bun run build:opencode` (→ `targets/opencode/dist/sentinal.mjs`) |
-| Build both targets               | `bun run build:all`                              |
-| Build CLI binary                 | `bun run build:cli` (→ `dist/sentinal`)          |
-| Install to Claude Code           | `bun run install:claude-code`                    |
-| Install to OpenCode              | `bun run install:opencode`                       |
-| Deploy plugin to ~/.config       | `bun run deploy:opencode`                        |
-| Run MCP server (stdio)           | `bun run mcp`                                    |
-| Memory CLI                       | `bun run memory`                                 |
+| Task                       | Command                                                           |
+| -------------------------- | ----------------------------------------------------------------- |
+| Install deps               | `bun install`                                                     |
+| Run all tests              | `bun test`                                                        |
+| Watch tests                | `bun test:watch`                                                  |
+| Run single test file       | `bun test src/path/to/file.test.ts`                               |
+| Build Claude Code hooks    | `bun run build:claude` (→ `targets/claude-code/hooks/dist/`)      |
+| Build OpenCode plugin      | `bun run build:opencode` (→ `targets/opencode/dist/sentinal.mjs`) |
+| Build both targets         | `bun run build:all`                                               |
+| Build CLI binary           | `bun run build:cli` (→ `dist/sentinal`)                           |
+| Install to Claude Code     | `bun run install:claude-code`                                     |
+| Install to OpenCode        | `bun run install:opencode`                                        |
+| Deploy plugin to ~/.config | `bun run deploy:opencode`                                         |
+| Run MCP server (stdio)     | `bun run mcp`                                                     |
+| Memory CLI                 | `bun run memory`                                                  |
 
 ## Architecture Notes
 

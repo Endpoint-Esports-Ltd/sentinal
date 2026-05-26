@@ -15,7 +15,13 @@
  */
 
 import { join } from "node:path";
-import { existsSync, readFileSync, accessSync, mkdirSync, constants } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  accessSync,
+  mkdirSync,
+  constants,
+} from "node:fs";
 import { homedir } from "node:os";
 import { DB_CONSTANTS } from "./types.js";
 

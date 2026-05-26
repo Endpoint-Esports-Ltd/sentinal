@@ -10,15 +10,15 @@ If you're adding a checker, hook helper, MCP tool, memory feature, or CLI comman
 
 ## Platform Differences Cheat Sheet
 
-| Feature           | Claude Code                                               | OpenCode                                                  |
-| ----------------- | --------------------------------------------------------- | --------------------------------------------------------- |
-| Extension type    | Compiled hook scripts (Bun → JS)                          | Native TypeScript plugin (Bun runs `.ts` directly)        |
-| Event names       | `SessionStart`, `PreToolUse`, `PostToolUse`, `PreCompact` | `tool.execute.before/after`, `session.created`, `session.idle` |
-| Tool block        | Exit code 2 + stderr                                      | `throw new Error("message")`                              |
-| Formatters        | Must invoke Prettier/ESLint explicitly in hooks           | Built-in — OpenCode runs them automatically               |
-| Context injection | Write to `.sentinal/compact-state.json`                   | Direct `output.context.push()` on `session.compacting`    |
+| Feature           | Claude Code                                               | OpenCode                                                                          |
+| ----------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Extension type    | Compiled hook scripts (Bun → JS)                          | Native TypeScript plugin (Bun runs `.ts` directly)                                |
+| Event names       | `SessionStart`, `PreToolUse`, `PostToolUse`, `PreCompact` | `tool.execute.before/after`, `session.created`, `session.idle`                    |
+| Tool block        | Exit code 2 + stderr                                      | `throw new Error("message")`                                                      |
+| Formatters        | Must invoke Prettier/ESLint explicitly in hooks           | Built-in — OpenCode runs them automatically                                       |
+| Context injection | Write to `.sentinal/compact-state.json`                   | Direct `output.context.push()` on `session.compacting`                            |
 | Tool name seen    | Exact Claude Code name (`Write`, `Edit`, `Bash`)          | OpenCode lowercase names (`write`, `edit`, `bash`); MCP tools use their full name |
-| Subagent MCP      | Per-subagent `mcpServers` frontmatter supported           | NOT supported — MCP scoping is global                     |
+| Subagent MCP      | Per-subagent `mcpServers` frontmatter supported           | NOT supported — MCP scoping is global                                             |
 
 ## "Does this change need to touch both targets?" Decision Tree
 

@@ -101,17 +101,13 @@ export function extractRateLimits(
     | undefined;
   if (!rateLimits) return null;
 
-  const fiveHour = rateLimits.five_hour as
-    | Record<string, unknown>
-    | undefined;
+  const fiveHour = rateLimits.five_hour as Record<string, unknown> | undefined;
   if (!fiveHour) return null;
 
   const sessionRaw = fiveHour.used_percentage;
   if (typeof sessionRaw !== "number") return null;
 
-  const sevenDay = rateLimits.seven_day as
-    | Record<string, unknown>
-    | undefined;
+  const sevenDay = rateLimits.seven_day as Record<string, unknown> | undefined;
   const weeklyRaw = sevenDay?.used_percentage;
   const weeklyPct =
     typeof weeklyRaw === "number" ? Math.round(weeklyRaw) : undefined;

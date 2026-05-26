@@ -29,21 +29,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
 
 const VERIFY_SKILL_FILES = [
-  join(
-    REPO_ROOT,
-    "targets",
-    "claude-code",
-    "commands",
-    "spec-verify.md",
-  ),
-  join(
-    REPO_ROOT,
-    "targets",
-    "opencode",
-    "skills",
-    "spec-verify",
-    "SKILL.md",
-  ),
+  join(REPO_ROOT, "targets", "claude-code", "commands", "spec-verify.md"),
+  join(REPO_ROOT, "targets", "opencode", "skills", "spec-verify", "SKILL.md"),
   join(
     REPO_ROOT,
     "targets",

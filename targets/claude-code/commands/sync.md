@@ -72,7 +72,7 @@ Use unique names (not `plan`, `implement`, `verify`, `standards-*`) for custom s
 
 | Directory Level                | `paths` Frontmatter | Loaded When                    |
 | ------------------------------ | ------------------- | ------------------------------ |
-| Root (`.sentinal/rules/*.md`)    | Optional            | Every session (keep lean)      |
+| Root (`.sentinal/rules/*.md`)  | Optional            | Every session (keep lean)      |
 | Product (`{product}/*.md`)     | Recommended         | Files matching product paths   |
 | Team (`{product}/{team}/*.md`) | **MANDATORY**       | Files matching team paths only |
 
@@ -228,7 +228,7 @@ For each rule file and CLAUDE.md found in Phase 1, evaluate:
 | **Skills candidates**   | Multi-step workflows in rules better as skills (on demand vs every session)               | Info     |
 | **Structure**           | Dense paragraphs without headers/bullets, poor scanability                                | Warning  |
 | **Stale references**    | References to files, commands, or tools that no longer exist                              | Error    |
-| **CLAUDE.md overlap**   | Content duplicated between CLAUDE.md and `.sentinal/rules/` files                           | Warning  |
+| **CLAUDE.md overlap**   | Content duplicated between CLAUDE.md and `.sentinal/rules/` files                         | Warning  |
 
 **How to check for stale references:**
 
@@ -285,7 +285,7 @@ For each selected improvement: read target file → apply specific fix → show 
 2. Check `vexor --version` — if available, use Vexor for semantic exploration (Step 4.2). If not installed, use Grep/Glob/Read in Step 4.3.
 3. **Directory structure:** `tree -L 3 -I 'node_modules|.git|dist|build|.next|coverage|.cache'`
 4. **Technologies:** Check `package.json`, `tsconfig.json`, `angular.json` (or use `project_context` output from step 1)
-4. **Source documents:** Find and read canonical docs — `docs/`, `**/ARCHITECTURE.md`, `**/CONTRIBUTING.md`. These are the source of truth for generated rules.
+5. **Source documents:** Find and read canonical docs — `docs/`, `**/ARCHITECTURE.md`, `**/CONTRIBUTING.md`. These are the source of truth for generated rules.
 
 ### Step 4.2: Semantic Exploration with Vexor — OPTIONAL
 

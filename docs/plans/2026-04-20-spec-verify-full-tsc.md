@@ -72,12 +72,12 @@ Task 2 of the bugfix plan I just completed (`docs/plans/2026-04-20-worktree-crea
 
 **Files (all dual-target):**
 
-| File | Change |
-|------|--------|
-| `targets/claude-code/commands/spec-verify.md` | Step 3.2: split tsc check into (a) `check_diagnostics` for delta + (b) mandatory `npx tsc --noEmit` full run |
-| `targets/opencode/skills/spec-verify/SKILL.md` | Same change as above |
-| `targets/claude-code/commands/spec-bugfix-verify.md` | Step 3.3: replace "check_diagnostics (or `npx tsc --noEmit` as fallback)" with mandatory full tsc + optional check_diagnostics for delta context |
-| `targets/opencode/skills/spec-bugfix-verify/SKILL.md` | Same change as above |
+| File                                                  | Change                                                                                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `targets/claude-code/commands/spec-verify.md`         | Step 3.2: split tsc check into (a) `check_diagnostics` for delta + (b) mandatory `npx tsc --noEmit` full run                                     |
+| `targets/opencode/skills/spec-verify/SKILL.md`        | Same change as above                                                                                                                             |
+| `targets/claude-code/commands/spec-bugfix-verify.md`  | Step 3.3: replace "check_diagnostics (or `npx tsc --noEmit` as fallback)" with mandatory full tsc + optional check_diagnostics for delta context |
+| `targets/opencode/skills/spec-bugfix-verify/SKILL.md` | Same change as above                                                                                                                             |
 
 **Why not change the MCP tool?** `quality_report` / `check_diagnostics` are designed to be fast for the inner loop. Forcing them to non-incremental breaks that use case. The right abstraction is: fast during development, thorough at commit.
 
@@ -89,7 +89,7 @@ Task 2 of the bugfix plan I just completed (`docs/plans/2026-04-20-worktree-crea
 
 - [x] Task 1: Fix (update verification skills in both targets)
 - [x] Task 2: Verify (tests + ensure skills are consistent)
-  **Tasks:** 2 | **Done:** 2 | **Left:** 0
+      **Tasks:** 2 | **Done:** 2 | **Left:** 0
 
 ## Tasks
 
@@ -98,6 +98,7 @@ Task 2 of the bugfix plan I just completed (`docs/plans/2026-04-20-worktree-crea
 **Objective:** Update the 4 verification skill files to mandate a full `npx tsc --noEmit` run as a pre-commit gate.
 
 **Files:**
+
 - `targets/claude-code/commands/spec-verify.md` — Step 3.2 item #2 (tsc check)
 - `targets/opencode/skills/spec-verify/SKILL.md` — Step 3.2 item #2 (tsc check)
 - `targets/claude-code/commands/spec-bugfix-verify.md` — Step 3.3 item #1 (tsc check)
@@ -106,22 +107,27 @@ Task 2 of the bugfix plan I just completed (`docs/plans/2026-04-20-worktree-crea
 **Change pattern (apply to all four files):**
 
 Replace:
+
 ```markdown
 **TypeScript compiler** — `check_diagnostics` MCP tool (or `npx tsc --noEmit` as fallback). Zero [new ]errors.
 ```
 
 With:
-```markdown
+
+````markdown
 **TypeScript compiler** — Run a **full project tsc** to catch errors in files not touched by this change. This is critical because `quality_report`/`check_diagnostics` use an incremental cache and LSP (limited to ~10 open files) which can miss cross-file type errors.
 
-   Required command:
-   ```bash
-   npx tsc --noEmit
-   # or for bun projects:
-   bunx tsc --noEmit
-   ```
+Required command:
 
-   Zero errors required. Optionally, run `check_diagnostics` MCP tool AFTER to see NEW/FIXED delta for the active spec's files.
+```bash
+npx tsc --noEmit
+# or for bun projects:
+bunx tsc --noEmit
+```
+````
+
+Zero errors required. Optionally, run `check_diagnostics` MCP tool AFTER to see NEW/FIXED delta for the active spec's files.
+
 ```
 
 **TDD approach (instructions files, no test framework):**
@@ -141,3 +147,4 @@ With:
 - `bun test` — nothing broken
 - `npx tsc --noEmit` — clean (self-demonstrating the fix, since this is what we're mandating)
 - Diff check: the 4 verification files should all reference the full tsc command consistently
+```

@@ -39,7 +39,11 @@ export function parsePlanContent(content: string, filePath: string): Spec {
   const status = normalizeStatus(meta.status);
   const typeLower = meta.type?.toLowerCase();
   const type = (
-    typeLower === "bugfix" ? "bugfix" : typeLower === "master" ? "master" : "feature"
+    typeLower === "bugfix"
+      ? "bugfix"
+      : typeLower === "master"
+        ? "master"
+        : "feature"
   ) as SpecType;
   const approved =
     meta.approved?.toLowerCase() === "yes" || status === "APPROVED";

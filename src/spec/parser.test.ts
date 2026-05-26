@@ -377,17 +377,26 @@ Component diagram here.
 `;
 
   it("should parse Type: Master correctly", () => {
-    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    const spec = parsePlanContent(
+      masterContent,
+      "/plans/2026-03-18-big-feature.md",
+    );
     expect(spec.type).toBe("master");
   });
 
   it("should be valid with zero tasks", () => {
-    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    const spec = parsePlanContent(
+      masterContent,
+      "/plans/2026-03-18-big-feature.md",
+    );
     expect(spec.tasks).toHaveLength(0);
   });
 
   it("should preserve approved status", () => {
-    const spec = parsePlanContent(masterContent, "/plans/2026-03-18-big-feature.md");
+    const spec = parsePlanContent(
+      masterContent,
+      "/plans/2026-03-18-big-feature.md",
+    );
     expect(spec.approved).toBe(true);
   });
 });
@@ -413,12 +422,18 @@ Implement the user model.
 `;
 
   it("should parse Parent field", () => {
-    const spec = parsePlanContent(childContent, "/plans/2026-03-18-user-model.md");
+    const spec = parsePlanContent(
+      childContent,
+      "/plans/2026-03-18-user-model.md",
+    );
     expect(spec.parent).toBe("big-feature");
   });
 
   it("should parse Wave field as number", () => {
-    const spec = parsePlanContent(childContent, "/plans/2026-03-18-user-model.md");
+    const spec = parsePlanContent(
+      childContent,
+      "/plans/2026-03-18-user-model.md",
+    );
     expect(spec.wave).toBe(1);
   });
 

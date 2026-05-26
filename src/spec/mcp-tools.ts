@@ -156,68 +156,62 @@ function registerSpecWaitFileTool(server: McpServer): void {
       const targetDir = dirname(file_path);
       const targetName = basename(file_path);
 
-      return new Promise<ReturnType<typeof mcpText>>(
-        (resolve) => {
-          let watcher: ReturnType<typeof watch> | null = null;
-          let pollInterval: ReturnType<typeof setInterval> | null = null;
-          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-          let resolved = false;
+      return new Promise<ReturnType<typeof mcpText>>((resolve) => {
+        let watcher: ReturnType<typeof watch> | null = null;
+        let pollInterval: ReturnType<typeof setInterval> | null = null;
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let resolved = false;
 
-          const cleanup = () => {
-            if (resolved) return;
-            resolved = true;
-            if (watcher) {
-              try {
-                watcher.close();
-              } catch {}
-            }
-            if (pollInterval) clearInterval(pollInterval);
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-          };
-
-          const onFound = () => {
-            cleanup();
-            resolve(mcpText(`READY: ${file_path}`));
-          };
-
-          const onTimeout = () => {
-            cleanup();
-            resolve(
-              mcpText(
-                `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s`,
-              ),
-            );
-          };
-
-          // fs.watch on parent directory
-          try {
-            watcher = watch(targetDir, (event, filename) => {
-              if (
-                !resolved &&
-                filename === targetName &&
-                existsSync(file_path)
-              ) {
-                onFound();
-              }
-            });
-            watcher.on("error", () => {
-              // Watcher failed — poll fallback handles it
-            });
-          } catch {
-            // Directory doesn't exist or watch not supported — poll handles it
+        const cleanup = () => {
+          if (resolved) return;
+          resolved = true;
+          if (watcher) {
+            try {
+              watcher.close();
+            } catch {}
           }
+          if (pollInterval) clearInterval(pollInterval);
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        };
 
-          // Poll fallback every 2 seconds
-          pollInterval = setInterval(() => {
-            if (!resolved && existsSync(file_path)) {
+        const onFound = () => {
+          cleanup();
+          resolve(mcpText(`READY: ${file_path}`));
+        };
+
+        const onTimeout = () => {
+          cleanup();
+          resolve(
+            mcpText(
+              `TIMEOUT: ${file_path} not found after ${timeout_seconds ?? 300}s`,
+            ),
+          );
+        };
+
+        // fs.watch on parent directory
+        try {
+          watcher = watch(targetDir, (event, filename) => {
+            if (!resolved && filename === targetName && existsSync(file_path)) {
               onFound();
             }
-          }, 2000);
+          });
+          watcher.on("error", () => {
+            // Watcher failed — poll fallback handles it
+          });
+        } catch {
+          // Directory doesn't exist or watch not supported — poll handles it
+        }
 
-          // Timeout
-          timeoutHandle = setTimeout(onTimeout, timeoutMs);
-        },
-      );
+        // Poll fallback every 2 seconds
+        pollInterval = setInterval(() => {
+          if (!resolved && existsSync(file_path)) {
+            onFound();
+          }
+        }, 2000);
+
+        // Timeout
+        timeoutHandle = setTimeout(onTimeout, timeoutMs);
+      });
     },
   );
 }
@@ -483,9 +477,7 @@ function registerSpecInitTool(
     "spec_init",
     "Get all workflow context in a single call: active plan state, config toggles, current task, and remaining work. Use at the start of any spec workflow to avoid multiple file reads.",
     {
-      project: z
-        .string()
-        .describe("Project path to check for active specs"),
+      project: z.string().describe("Project path to check for active specs"),
     },
     async ({ project }) => {
       const lines: string[] = ["## Spec Workflow Context", ""];
@@ -517,9 +509,7 @@ function registerSpecInitTool(
       const { filePath, spec } = active;
       const tasks: SpecTask[] = spec.tasks;
       const totalTasks = tasks.length;
-      const doneTasks = tasks.filter(
-        (t) => t.status === "complete",
-      ).length;
+      const doneTasks = tasks.filter((t) => t.status === "complete").length;
       const percent =
         totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
@@ -551,16 +541,12 @@ function registerSpecInitTool(
       }
 
       // --- Remaining Tasks ---
-      const remainingTasks = tasks.filter(
-        (t) => t.status !== "complete",
-      );
+      const remainingTasks = tasks.filter((t) => t.status !== "complete");
       if (remainingTasks.length > 0) {
         lines.push("### Remaining Tasks", "");
         for (const task of remainingTasks) {
           const marker = task.status === "in-progress" ? "[~]" : "[ ]";
-          lines.push(
-            `- ${marker} Task ${task.position}: ${task.title}`,
-          );
+          lines.push(`- ${marker} Task ${task.position}: ${task.title}`);
         }
         lines.push("");
       }
@@ -605,10 +591,7 @@ function registerSpecMetricsTool(
         return mcpText(`Spec not found: ${targetId}`);
       }
 
-      const lines: string[] = [
-        `## Spec Metrics: ${rawSpec.title}`,
-        "",
-      ];
+      const lines: string[] = [`## Spec Metrics: ${rawSpec.title}`, ""];
 
       // Plan timing
       if (rawSpec.startedAt) {
@@ -621,8 +604,7 @@ function registerSpecMetricsTool(
           const durationMin = Math.round(durationMs / 60000);
           const hours = Math.floor(durationMin / 60);
           const mins = durationMin % 60;
-          const durationStr =
-            hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+          const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
           lines.push(`- **Completed:** ${endDate}`);
           lines.push(`- **Duration:** ${durationStr}`);
         } else {
@@ -663,9 +645,7 @@ function registerSpecMetricsTool(
               `| ${task.position}: ${task.title} | ${task.status} | ${durMin}m |`,
             );
           } else if (task.startedAt) {
-            const elapsed = Math.round(
-              (Date.now() - task.startedAt) / 60000,
-            );
+            const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
             lines.push(
               `| ${task.position}: ${task.title} | ${task.status} | ${elapsed}m (in progress) |`,
             );

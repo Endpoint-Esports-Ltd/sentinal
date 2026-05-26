@@ -14,6 +14,7 @@ Type: Bugfix
 **Trigger:** Calling `worktree_create` with a `plan_slug` that hasn't been registered in the `specs` table via `spec_register` yet. This is the normal workflow — the spec plan skills (spec-plan, spec-bugfix-plan) create the worktree (Step 1.1.2) BEFORE writing the plan header (Step 1.1.5) and registering the spec (Step 1.1.6).
 
 **Root Cause:** `src/worktree/manager.ts:90-96` — Two operations execute sequentially without transactional safety:
+
 1. Line 90-93: `gitExecOrThrow()` creates the git worktree on disk (succeeds, side-effect committed)
 2. Line 96-106: `this.store.insert()` attempts SQLite INSERT with `spec_id` referencing `specs(id)` FK
 3. If the spec isn't registered yet, the FK constraint at `src/memory/migrations.ts:273` (`spec_id TEXT REFERENCES specs(id)`) fires and the INSERT fails
@@ -51,6 +52,7 @@ The string "Sentinal sidecar issue - fallback to git directly" does not exist an
 ### Workflow ordering creates the race
 
 The spec plan skills instruct (Step 1.1):
+
 1. Step 1.1.2: Create worktree (`worktree_create` MCP tool) ← `spec_id` not in DB yet
 2. Step 1.1.5: Write plan file header
 3. Step 1.1.6: Register spec (`spec_register` MCP tool) ← `spec_id` enters DB here
@@ -75,11 +77,11 @@ Existing behavior preserved — worktree created and linked to spec.
 
 **Files:**
 
-| File | Change |
-|------|--------|
-| `src/worktree/manager.ts` | In `create()`: always insert with `specId = undefined` (→ NULL). Store the specId on the returned Worktree object but don't persist it until linkage. Add `linkSpec(worktreeId, specId)` method. Add try/catch around `store.insert()` with git worktree cleanup on failure. |
-| `src/worktree/store.ts` | Add `updateSpecId(id, specId)` method. |
-| `src/worktree/mcp-tools.ts` | Add return of the worktree ID in `worktree_create` response so callers can link later. |
+| File                        | Change                                                                                                                                                                                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/worktree/manager.ts`   | In `create()`: always insert with `specId = undefined` (→ NULL). Store the specId on the returned Worktree object but don't persist it until linkage. Add `linkSpec(worktreeId, specId)` method. Add try/catch around `store.insert()` with git worktree cleanup on failure. |
+| `src/worktree/store.ts`     | Add `updateSpecId(id, specId)` method.                                                                                                                                                                                                                                       |
+| `src/worktree/mcp-tools.ts` | Add return of the worktree ID in `worktree_create` response so callers can link later.                                                                                                                                                                                       |
 
 **Why not remove the FK constraint?** Removing FKs in SQLite requires table recreation (new migration). The FK is useful for data integrity when the spec exists. The fix is to defer linkage, not remove the constraint.
 
@@ -89,7 +91,7 @@ Existing behavior preserved — worktree created and linked to spec.
 
 - [x] Task 1: Fix (regression test + implement)
 - [x] Task 2: Verify
-  **Tasks:** 2 | **Done:** 2 | **Left:** 0
+      **Tasks:** 2 | **Done:** 2 | **Left:** 0
 
 ## Tasks
 
@@ -98,12 +100,14 @@ Existing behavior preserved — worktree created and linked to spec.
 **Objective:** Write regression test for FK failure → implement fix → verify all PASS
 
 **Files:**
+
 - `src/worktree/manager.test.ts` — add test: create with unregistered specId succeeds
 - `src/worktree/manager.ts` — defer spec_id, add linkSpec(), add cleanup on insert failure
 - `src/worktree/store.ts` — add updateSpecId() method
 - `src/worktree/mcp-tools.ts` — include worktree ID in create response
 
 **TDD:**
+
 1. Write test in `manager.test.ts`: call `manager.create("nonexistent-spec", ...)` → should succeed, return Worktree with specId undefined
 2. Write test: call `manager.create(...)` then `manager.linkSpec(id, specId)` after registering spec → specId should be set
 3. Verify tests FAIL (RED)

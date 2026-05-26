@@ -18,12 +18,14 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Remove ALL quality check calls (tsc, eslint, prettier) from per-edit hooks
 - Keep instant structural checks: file length, companion test, NestJS patterns
 - Update rules/skills/AGENTS.md to instruct on-demand `quality_report` usage
 - Remove subprocess fallbacks (runTypeScriptChecks, npx tsc --noEmit)
 
 ### Out of Scope
+
 - Timer-based debounce (decided against — fully on-demand)
 - Hook consolidation (Finding 6 — separate spec)
 - Context token optimizations (Findings 2, 3, 5 — separate spec)
@@ -51,11 +53,11 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| AI forgets to run quality checks | Medium | Medium | Rules + skills explicitly instruct. spec-implement step 9 is mandatory. |
-| Unformatted code committed | Low | Low | `quality_report` formats on-demand. Pre-commit hooks can catch this. |
-| Type errors accumulate | Low | Medium | `check_diagnostics` is fast (incremental). Called after each file. |
+| Risk                             | Likelihood | Impact | Mitigation                                                              |
+| -------------------------------- | ---------- | ------ | ----------------------------------------------------------------------- |
+| AI forgets to run quality checks | Medium     | Medium | Rules + skills explicitly instruct. spec-implement step 9 is mandatory. |
+| Unformatted code committed       | Low        | Low    | `quality_report` formats on-demand. Pre-commit hooks can catch this.    |
+| Type errors accumulate           | Low        | Medium | `check_diagnostics` is fast (incremental). Called after each file.      |
 
 ## Pre-Mortem
 
@@ -65,6 +67,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `file-checker.ts` makes NO sidecar quality check calls and NO subprocess quality calls
 2. OpenCode plugin's `tool.execute.after` makes NO sidecar quality check calls and NO subprocess quality calls
 3. Both still perform instant structural checks (file length, companion test, NestJS/Angular patterns)
@@ -73,6 +76,7 @@ Type: Feature
 6. All existing tests pass
 
 ### Artifacts
+
 - `src/hooks/file-checker.ts` — quality checks removed, structural checks retained
 - `targets/opencode/plugins/sentinal.ts` — quality checks removed, structural checks retained
 - `targets/*/rules/verification.md` — updated instruction
@@ -81,6 +85,7 @@ Type: Feature
 - `~/.config/Claude/AGENTS.md` — updated Quality Enforcement
 
 ### Key Links
+
 - file-checker.ts: structural checks only (no sidecar dependency for per-edit)
 - OpenCode plugin: structural checks only (no sidecar dependency for per-edit)
 - quality_report MCP tool: on-demand quality checks (unchanged)
@@ -91,7 +96,7 @@ Type: Feature
 - [x] Task 1: Remove quality checks from Claude Code file-checker hook
 - [x] Task 2: Remove quality checks from OpenCode plugin per-edit handler
 - [x] Task 3: Update rules, skills, and AGENTS.md for on-demand quality checks
-**Total Tasks:** 3 | **Completed:** 3 | **Remaining:** 0
+      **Total Tasks:** 3 | **Completed:** 3 | **Remaining:** 0
 
 ## Implementation Tasks
 
@@ -102,10 +107,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/hooks/file-checker.ts`
 - Test: `src/hooks/file-checker.test.ts`
 
 **Key Decisions / Notes:**
+
 - Remove the entire sidecar quality check block (lines 62-91): the `SidecarClient.connect()` call, `client.qualityCheck()`, and all result handling for tsc/eslint/prettier.
 - Remove the entire fallback block (lines 93-101): `runTypeScriptChecks()` call and its result handling.
 - Keep lines 35-59: file length check, NestJS pattern check, companion test check.
@@ -114,12 +121,14 @@ Type: Feature
 - The function signature and return type stay the same — it still returns `string | null` with any structural issues found.
 
 **Definition of Done:**
+
 - [ ] `processFileCheck()` does NOT call sidecar or spawn quality subprocesses
 - [ ] `processFileCheck()` still checks file length, NestJS patterns, companion tests, Angular patterns
 - [ ] Existing tests pass (updated to reflect removal of quality check assertions)
 - [ ] Zero TypeScript errors
 
 **Verify:**
+
 - `bun test src/hooks/file-checker.test.ts`
 
 ### Task 2: Remove Quality Checks from OpenCode Plugin Per-Edit Handler
@@ -129,9 +138,11 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts` (lines 514-554 in `tool.execute.after`)
 
 **Key Decisions / Notes:**
+
 - Remove the sidecar quality check block (lines 514-554): the `sidecar.qualityCheck()` call, all result handling for tsc/eslint/prettier, and the `npx tsc --noEmit` fallback.
 - Keep the structural checks above it (lines 459-512): file length, NestJS patterns, Angular patterns, companion test check.
 - Keep the issue reporting (lines 556-568): `client.app.log()` for structural issues and the `shouldBlock` throw.
@@ -139,6 +150,7 @@ Type: Feature
 - Remove unused imports if any (`$` template tag from bun if only used for tsc fallback).
 
 **Definition of Done:**
+
 - [ ] OpenCode plugin `tool.execute.after` does NOT call sidecar quality checks
 - [ ] OpenCode plugin `tool.execute.after` does NOT run `npx tsc --noEmit`
 - [ ] Plugin still checks file length, NestJS/Angular patterns, companion tests
@@ -146,6 +158,7 @@ Type: Feature
 - [ ] Grep confirms no quality check calls in tool.execute.after block
 
 **Verify:**
+
 - `bun run embed-assets`
 - Grep: no `qualityCheck` or `tsc --noEmit` in the tool.execute.after section
 
@@ -156,6 +169,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `targets/claude-code/rules/verification.md`
 - Modify: `targets/opencode/rules/verification.md`
 - Modify: `targets/claude-code/rules/development-practices.md`
@@ -165,12 +179,14 @@ Type: Feature
 - Modify: `~/.config/Claude/AGENTS.md` (Quality Enforcement section)
 
 **Key Decisions / Notes:**
+
 - In `verification.md` — update the "Sentinal Quality Tools" section: "Quality checks (tsc, eslint, prettier) do NOT run automatically on every edit. Sentinal only performs instant structural checks (file length, companion tests) per edit. You MUST call `quality_report` MCP tool after finishing edits to each file to run tsc + eslint + prettier."
 - In `development-practices.md` — update the "Diagnostics" line: "Quality checks are on-demand. Call `quality_report` after completing changes to each file. Call `check_diagnostics` for TypeScript-only checks."
 - In `spec-implement` (both targets) — update step 2.3 item 9: "**Run quality checks** — `quality_report` MCP tool. Quality checks do NOT run automatically on edit. You MUST call this after completing edits to each file. Zero errors required."
 - In AGENTS.md — update Quality Enforcement: "**Quality checks (tsc, eslint, prettier):** On-demand only via `quality_report` MCP tool. NOT automatic on every edit. Only instant structural checks (file length, companion tests) run per edit."
 
 **Definition of Done:**
+
 - [ ] verification.md (both targets) explicitly states all quality checks are on-demand
 - [ ] development-practices.md (both targets) explicitly states all quality checks are on-demand
 - [ ] spec-implement skill/command (both targets) has updated step 2.3 item 9
@@ -178,4 +194,5 @@ Type: Feature
 - [ ] Language is clear, actionable, and uses strong directive ("MUST")
 
 **Verify:**
+
 - Read the updated files and confirm clarity

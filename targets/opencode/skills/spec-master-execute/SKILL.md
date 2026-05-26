@@ -35,11 +35,11 @@ argument-hint: "<path/to/master-plan.md>"
 The `## Phases` section uses a table format:
 
 ```markdown
-| Phase | Wave | Title | Objective | Dependencies |
-|-------|------|-------|-----------|-------------|
-| 1 | 1 | Data Models | Core database schema | None |
-| 2 | 1 | Auth System | JWT auth + sessions | None |
-| 3 | 2 | API Layer | REST endpoints | Phases 1, 2 |
+| Phase | Wave | Title       | Objective            | Dependencies |
+| ----- | ---- | ----------- | -------------------- | ------------ |
+| 1     | 1    | Data Models | Core database schema | None         |
+| 2     | 1    | Auth System | JWT auth + sessions  | None         |
+| 3     | 2    | API Layer   | REST endpoints       | Phases 1, 2  |
 ```
 
 Map phase numbers to child plan files: `docs/plans/YYYY-MM-DD-<master-slug>-phase-N.md`
@@ -63,6 +63,7 @@ For each child plan:
 3. **Not a stub:** If child plan only has `> Awaiting detailed planning...`, it needs planning first
 
 **If any child plan is a stub (no tasks):**
+
 - Report: "Phase N needs planning. Run `/spec <child-plan.md>` to plan it first."
 - Ask user: "Plan all stub phases now?" → If yes, sequentially invoke `spec-plan` for each stub
 - Do NOT proceed to wave execution until all child plans have tasks
@@ -94,16 +95,16 @@ Task(
   subagent_type="general",
   prompt="""
   Execute the spec workflow for this child plan.
-  
+
   **Plan file:** <child-plan-path>
   **Master plan:** <master-plan-path>
-  
+
   1. Read the plan file
   2. If Status is PENDING + Approved: Yes → run /spec <child-plan-path> (implements + verifies)
   3. If Status is IN_PROGRESS → resume /spec <child-plan-path>
   4. If Status is COMPLETE → run verification only
   5. If Status is VERIFIED → report done, no work needed
-  
+
   The child plan should end at Status: VERIFIED when all tasks pass verification.
   Report the final status when done.
   """
@@ -146,6 +147,7 @@ When ALL waves are complete (all child plans VERIFIED):
 3. **Chain to verification:** Load `Skill(skill='spec-verify', args='<master-plan-path>')`
 
 The verification phase for master plans checks:
+
 - All child plans are VERIFIED
 - No regression between phases (integration check)
 - Overall goal is achieved

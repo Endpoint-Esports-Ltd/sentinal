@@ -18,6 +18,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - `--quick` flag on `/spec` dispatcher (both platforms) — skips plan reviewer, approval, spec reviewer
 - `/quick` command runs spec workflow with plan reviewer, approval, and spec reviewer disabled
 - `/pause` command (both platforms) — writes `.sentinal/continue-here.md` with exact next action, context, blockers
@@ -28,6 +29,7 @@ Type: Feature
 - New `spec_metrics` MCP tool for velocity and duration data
 
 ### Out of Scope
+
 - `/resume` as a separate command (resume is handled by detecting continue-here.md in the dispatcher)
 - Full GSD discussion/research flags (Sentinal already has exploration in spec-plan)
 - Performance dashboards or visualizations
@@ -70,11 +72,11 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Quick mode produces bad plans | Medium | Medium | Keep TDD and automated checks — only skip human/reviewer steps |
-| Pause handoff file goes stale | Low | Low | Include timestamp; resume should warn if >24h old |
-| Metrics overhead on every spec_register | Low | Low | One extra SELECT + INSERT per status change — negligible |
+| Risk                                    | Likelihood | Impact | Mitigation                                                     |
+| --------------------------------------- | ---------- | ------ | -------------------------------------------------------------- |
+| Quick mode produces bad plans           | Medium     | Medium | Keep TDD and automated checks — only skip human/reviewer steps |
+| Pause handoff file goes stale           | Low        | Low    | Include timestamp; resume should warn if >24h old              |
+| Metrics overhead on every spec_register | Low        | Low    | One extra SELECT + INSERT per status change — negligible       |
 
 ## Pre-Mortem
 
@@ -85,6 +87,7 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `/quick <task>` sets SENTINAL_PLAN_REVIEWER_ENABLED=false, SENTINAL_PLAN_APPROVAL_ENABLED=false, SENTINAL_SPEC_REVIEWER_ENABLED=false before loading the planning skill
 2. `/pause` creates `.sentinal/continue-here.md` with plan path, current task, next action, and timestamp
 3. The spec dispatcher detects `.sentinal/continue-here.md` and offers to resume before starting new work
@@ -93,20 +96,22 @@ Type: Feature
 6. `spec_metrics` MCP tool returns plan duration and per-task timing data
 
 ### Artifacts
-| Artifact | Provides | Exports |
-|----------|----------|---------|
-| `targets/*/commands/quick.md` | Quick command | `/quick` standalone command |
-| `targets/*/commands/pause.md` | Pause command | `/pause` skill |
-| `src/spec/mcp-tools.ts` | Metrics tool | `spec_metrics` MCP tool |
-| `src/memory/migrations.ts` | V10 migration | `started_at`/`completed_at` on specs |
+
+| Artifact                      | Provides      | Exports                              |
+| ----------------------------- | ------------- | ------------------------------------ |
+| `targets/*/commands/quick.md` | Quick command | `/quick` standalone command          |
+| `targets/*/commands/pause.md` | Pause command | `/pause` skill                       |
+| `src/spec/mcp-tools.ts`       | Metrics tool  | `spec_metrics` MCP tool              |
+| `src/memory/migrations.ts`    | V10 migration | `started_at`/`completed_at` on specs |
 
 ### Key Links
-| From | To | Via | Pattern |
-|------|----|-----|---------|
-| spec.md dispatcher | spec_init | toggle reading | spec_init |
-| spec.md dispatcher | continue-here.md | resume detection | \.sentinal/continue-here |
-| syncFromPlanFile | logSpecEvent | phase_change logging | logSpecEvent.*phase_change |
-| spec_metrics | SpecStore | timing query | started_at.*completed_at |
+
+| From               | To               | Via                  | Pattern                     |
+| ------------------ | ---------------- | -------------------- | --------------------------- |
+| spec.md dispatcher | spec_init        | toggle reading       | spec_init                   |
+| spec.md dispatcher | continue-here.md | resume detection     | \.sentinal/continue-here    |
+| syncFromPlanFile   | logSpecEvent     | phase_change logging | logSpecEvent.\*phase_change |
+| spec_metrics       | SpecStore        | timing query         | started_at.\*completed_at   |
 
 ## Progress Tracking
 
@@ -129,10 +134,12 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `targets/claude-code/commands/quick.md`
 - Create: `targets/opencode/commands/quick.md`
 
 **Key Decisions / Notes:**
+
 - `/quick <task>` is a thin wrapper that:
   1. Sets env vars: `SENTINAL_PLAN_REVIEWER_ENABLED=false`, `SENTINAL_PLAN_APPROVAL_ENABLED=false`, `SENTINAL_SPEC_REVIEWER_ENABLED=false`
   2. Detects type (feature vs bugfix) using the same heuristics as the spec dispatcher
@@ -143,6 +150,7 @@ Type: Feature
 - Follow the same frontmatter pattern as other commands (description, argument-hint)
 
 **Definition of Done:**
+
 - [ ] Both command files created with identical content
 - [ ] /quick sets the three env vars to "false"
 - [ ] Type detection (feature/bugfix) works
@@ -159,10 +167,12 @@ Type: Feature
 **Dependencies:** Task 1
 
 **Files:**
+
 - Modify: `targets/opencode/skills/spec-plan/SKILL.md`
 - Modify: `targets/claude-code/commands/spec-plan.md`
 
 **Key Decisions / Notes:**
+
 - The skills already handle disabled toggles (Step 0 reads config, conditional sections skip when "false")
 - Only change needed: add a note in Step 0 that when all three toggles are false (quick mode), the planning phase should use a lighter plan template:
   - Skip Risks, Pre-Mortem, and Context for Implementer sections (the full plan template is overkill for small tasks)
@@ -170,6 +180,7 @@ Type: Feature
 - No changes needed to spec-implement or spec-verify — they already respect the toggles
 
 **Definition of Done:**
+
 - [ ] Both spec-plan files have quick mode conciseness guidance
 - [ ] Both files identical in content
 - [ ] No changes to spec-implement or spec-verify needed
@@ -185,35 +196,43 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `targets/claude-code/commands/pause.md`
 - Create: `targets/opencode/commands/pause.md`
 
 **Key Decisions / Notes:**
+
 - The command reads the active plan (via `spec_init`), identifies the current task, and writes a handoff file
 - Handoff file format (following GSD pattern):
+
   ```markdown
   # Continue Here
-  
+
   Created: [timestamp]
   Plan: [plan file path]
   Status: [current status]
   Current Task: [task N: title]
-  
+
   ## Next Action
+
   [Exact next step — e.g., "Write test for Task 3", "Run spec-verify"]
-  
+
   ## Context
+
   [Key decisions, files being modified, errors being debugged]
-  
+
   ## Blockers
+
   [Any blockers or open questions]
   ```
+
 - After writing the file, commit as WIP: `git add -A && git commit -m "wip: pause at Task N"`
 - File location: `.sentinal/continue-here.md`
 - Verify `.sentinal/.gitignore` allows this file — add `!continue-here.md` exception if needed
 - The command should ask the user for "Next Action" and "Blockers" context via AskUserQuestion
 
 **Definition of Done:**
+
 - [ ] Both command files created with identical content
 - [ ] Handoff file includes plan path, current task, next action, context, blockers, timestamp
 - [ ] WIP commit created after writing handoff file
@@ -229,10 +248,12 @@ Type: Feature
 **Dependencies:** Task 3
 
 **Files:**
+
 - Modify: `targets/opencode/commands/spec.md`
 - Modify: `targets/claude-code/commands/spec.md`
 
 **Key Decisions / Notes:**
+
 - Add at the very beginning of Section 0.1 (before type detection):
   ```
   IF .sentinal/continue-here.md exists:
@@ -246,6 +267,7 @@ Type: Feature
 - Delete continue-here.md after either choice (it's consumed)
 
 **Definition of Done:**
+
 - [ ] Both dispatchers check for continue-here.md before type detection
 - [ ] Resume shows plan title, current task, and age
 - [ ] Stale warning for >24h old handoff files
@@ -262,6 +284,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/memory/migrations.ts` — V10 migration
 - Modify: `src/memory/types.ts` — SCHEMA_VERSION bump
 - Modify: `src/spec/store.ts` — syncFromPlanFile event logging + timing
@@ -270,6 +293,7 @@ Type: Feature
 - Test: `src/spec/store.test.ts` — phase change event test (if exists)
 
 **Key Decisions / Notes:**
+
 - V10 adds `started_at INTEGER` and `completed_at INTEGER` to `specs` table
 - Guard with table existence check (same pattern as V9)
 - **CRITICAL: Fix syncFromPlanFile upsert pattern** — the current `INSERT OR REPLACE` on `specs` destroys any columns not in the INSERT list (it deletes + re-inserts). Change to `INSERT...ON CONFLICT(id) DO UPDATE` with `COALESCE` to preserve timing columns:
@@ -290,6 +314,7 @@ Type: Feature
 - Update SCHEMA_VERSION to 10
 
 **Definition of Done:**
+
 - [ ] V10 migration adds started_at/completed_at to specs
 - [ ] SCHEMA_VERSION is 10
 - [ ] specs upsert uses ON CONFLICT DO UPDATE preserving started_at/completed_at
@@ -311,31 +336,36 @@ Type: Feature
 **Dependencies:** Task 5
 
 **Files:**
+
 - Modify: `src/spec/mcp-tools.ts` — new spec_metrics tool + enhance spec_status
 - Test: `src/spec/mcp-tools.test.ts` — spec_metrics tests
 
 **Key Decisions / Notes:**
+
 - `spec_metrics` parameters: `project` (required), `spec_id` (optional — defaults to active spec)
 - Output format:
+
   ```
   ## Spec Metrics: [title]
-  
+
   ### Plan Timing
   - Started: [date] | Completed: [date] | Duration: [Xh Ym]
-  
+
   ### Task Timing
   | Task | Started | Completed | Duration |
   |------|---------|-----------|----------|
   | 1: Setup | 10:00 | 10:15 | 15m |
   | 2: Implement | 10:16 | 11:02 | 46m |
-  
+
   ### Summary
   - Total tasks: N | Average: Xm | Longest: Task Y (Zm)
   ```
+
 - For `spec_status`: append task timing when `started_at`/`completed_at` are available
 - Retrieve data via SpecStore (existing `getCurrentSpec` + new timing query)
 
 **Definition of Done:**
+
 - [ ] spec_metrics tool registered and returns timing data
 - [ ] spec_status shows task timing when available
 - [ ] Tests cover: plan with timing, plan without timing, no active plan
@@ -350,9 +380,11 @@ Type: Feature
 **Dependencies:** Tasks 1-6
 
 **Files:**
+
 - Regenerate: `src/cli/embedded-assets.ts`
 
 **Definition of Done:**
+
 - [ ] `bun run embed-assets` completes
 - [ ] `bun run build:cli` completes
 - [ ] `bun test` passes (0 failures)

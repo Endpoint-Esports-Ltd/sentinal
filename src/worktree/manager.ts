@@ -121,10 +121,7 @@ export class WorktreeManager {
   linkSpec(worktreeId: string, specId: string): void {
     const wt = this.store.get(worktreeId);
     if (!wt) {
-      throw new WorktreeError(
-        `Worktree ${worktreeId} not found`,
-        "NOT_FOUND",
-      );
+      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
     }
     this.store.updateSpecId(worktreeId, specId);
   }

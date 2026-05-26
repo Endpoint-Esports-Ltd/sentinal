@@ -18,12 +18,14 @@ Type: Bugfix
 ## Scope
 
 ### In Scope
+
 - Sidecar `Bun.serve` error handler returning JSON instead of HTML
 - Try/catch in `handleSetTddState` for clearer SQLite constraint error messages
 - `getRunner()` upgraded to check `node_modules/.bin/` for local eslint/prettier before using bunx/npx
 - Tests for both fixes
 
 ### Out of Scope
+
 - Adding eslint/prettier as sentinal devDependencies (these are target-project tools)
 - Refactoring quality-routes.ts to reduce line count
 - Changing `detectPackageManager` detection logic
@@ -49,10 +51,10 @@ Type: Bugfix
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Bun.serve `error` handler signature changes | Low | Low | Handler is documented in Bun docs, simple signature |
-| Local binary detection breaks on Windows | Low | Low | sentinal targets macOS/Linux only |
+| Risk                                        | Likelihood | Impact | Mitigation                                          |
+| ------------------------------------------- | ---------- | ------ | --------------------------------------------------- |
+| Bun.serve `error` handler signature changes | Low        | Low    | Handler is documented in Bun docs, simple signature |
+| Local binary detection breaks on Windows    | Low        | Low    | sentinal targets macOS/Linux only                   |
 
 ## Pre-Mortem
 
@@ -62,12 +64,14 @@ Type: Bugfix
 ## Goal Verification
 
 ### Truths
+
 1. A POST to `/tdd-state` with an invalid `specId` returns `{"ok": false, "error": "..."}` with status 500
 2. Any uncaught error in the sidecar fetch handler returns JSON, not HTML
 3. ESLint quality check uses local `node_modules/.bin/eslint` when available
 4. When no local binary exists, falls back to `bunx`/`npx` as before
 
 ### Artifacts
+
 - `src/sidecar/server.ts` — Bun.serve error handler
 - `src/sidecar/routes.ts` — try/catch in handleSetTddState
 - `src/sidecar/quality-routes.ts` — improved getRunner with local binary detection
@@ -75,6 +79,7 @@ Type: Bugfix
 - `src/sidecar/quality-routes.test.ts` — tests for getRunner
 
 ### Key Links
+
 - `Bun.serve` error handler -> `fetchHandler` -> `handleSidecarRequest`
 - `getRunner()` -> `runEslint()` / `runPrettier()`
 
@@ -82,7 +87,7 @@ Type: Bugfix
 
 - [x] Task 1: Sidecar error handler & TDD route try/catch
 - [x] Task 2: Local binary resolution for eslint/prettier
-**Total Tasks:** 2 | **Completed:** 2 | **Remaining:** 0
+      **Total Tasks:** 2 | **Completed:** 2 | **Remaining:** 0
 
 ## Implementation Tasks
 
@@ -93,16 +98,19 @@ Type: Bugfix
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/sidecar/server.ts` (add `error` handler to both `Bun.serve` calls)
 - Modify: `src/sidecar/routes.ts` (wrap `store.setTddState()` in try/catch)
 - Test: `src/sidecar/server.test.ts`
 
 **Key Decisions / Notes:**
+
 - Add `error(err)` handler to all `Bun.serve` calls in `startSidecar()` (lines 277, 279, 293). Handler returns `Response.json({ ok: false, error: message }, { status: 500 })`.
 - In `handleSetTddState` (routes.ts:237-245), wrap the `ctx.store.setTddState()` call in try/catch. Catch SQLite FOREIGN KEY errors and return `fail("FOREIGN KEY constraint failed: spec_id does not exist", 400)`.
 - Pattern to follow: `handleCreateSession` at routes.ts:158-178 which catches UNIQUE constraint.
 
 **Definition of Done:**
+
 - [ ] `Bun.serve` calls include `error` handler returning JSON
 - [ ] POST `/tdd-state` with invalid specId returns `{"ok": false, "error": "..."}` as JSON
 - [ ] All existing tests still pass
@@ -110,6 +118,7 @@ Type: Bugfix
 - [ ] Bun.serve error handler verified as defense-in-depth (may not be independently testable since fetch handler has its own try/catch)
 
 **Verify:**
+
 - `bun test src/sidecar/server.test.ts`
 
 ### Task 2: Local Binary Resolution for ESLint/Prettier
@@ -119,10 +128,12 @@ Type: Bugfix
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/sidecar/quality-routes.ts` (upgrade `getRunner()` to `getToolCommand()`)
 - Test: `src/sidecar/quality-routes.test.ts`
 
 **Key Decisions / Notes:**
+
 - Replace `getRunner(projectPath)` with `getToolCommand(projectPath, toolName)` that returns the full command prefix. Resolution order:
   1. Check `join(projectPath, 'node_modules', '.bin', toolName)` — if exists, return it directly (no bunx/npx wrapper)
   2. Fall back to `bunx <toolName>` or `npx <toolName>` based on package manager
@@ -131,6 +142,7 @@ Type: Bugfix
 - `runTsc` at line 172 also uses `getRunner()` — update it to use `getToolCommand(projectPath, 'tsc')` with the same spread pattern for the `cmd` array.
 
 **Definition of Done:**
+
 - [ ] `getToolCommand()` checks local binary first, falls back to bunx/npx
 - [ ] ESLint and Prettier runners use new resolution
 - [ ] Test verifying local binary is preferred when it exists
@@ -138,4 +150,5 @@ Type: Bugfix
 - [ ] All existing tests still pass
 
 **Verify:**
+
 - `bun test src/sidecar/quality-routes.test.ts`

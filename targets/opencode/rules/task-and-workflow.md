@@ -62,10 +62,10 @@ Tasks are scoped per session via `CLAUDE_CODE_TASK_LIST_ID`. Memory is shared ac
 
 ### /spec Verification Agents
 
-| Phase                                       | Agent (background) | `subagent_type`  |
-| ------------------------------------------- | ------------------ | ---------------- |
-| `spec-plan` Step 1.7 (all features)         | plan-reviewer      | `plan-reviewer`  |
-| `spec-verify` Step 3.1, 3.4 (features only) | spec-reviewer      | `spec-reviewer`  |
+| Phase                                       | Agent (background) | `subagent_type` |
+| ------------------------------------------- | ------------------ | --------------- |
+| `spec-plan` Step 1.7 (all features)         | plan-reviewer      | `plan-reviewer` |
+| `spec-verify` Step 3.1, 3.4 (features only) | spec-reviewer      | `spec-reviewer` |
 
 **Plan-reviewer runs by default** for all feature specs when `$SENTINAL_PLAN_REVIEWER_ENABLED` is not `"false"`.
 **Spec-reviewer runs by default** during verification when `$SENTINAL_SPEC_REVIEWER_ENABLED` is not `"false"`.
@@ -103,6 +103,7 @@ Use `run_in_background=true` only for long-running processes (dev servers, watch
 **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
 
 **Fallback:**
+
 ```bash
 sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true
 ```

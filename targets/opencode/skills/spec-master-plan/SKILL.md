@@ -63,6 +63,7 @@ Type: Master
 ## Step 1.3: Exploration
 
 Explore the codebase systematically to understand:
+
 - Existing architecture and patterns
 - Dependencies between components
 - Areas that can be worked on in parallel
@@ -74,6 +75,7 @@ Explore the codebase systematically to understand:
 Present wave ordering options with trade-offs. Use `AskUserQuestion`.
 
 Key decisions:
+
 - How to split work into phases
 - Which phases can run in parallel (same wave)
 - Which phases must be sequential (different waves)
@@ -84,16 +86,20 @@ Key decisions:
 ## Step 1.5: Master Plan Structure
 
 ### Goal Section
+
 State the overarching objective in 1-3 sentences.
 
 ### Architecture Section
+
 Use **Mermaid diagrams** (rendered by GitHub) to show:
+
 - Component relationships
 - Data flow
 - System boundaries
 - Phase dependencies
 
 Example:
+
 ````markdown
 ```mermaid
 graph TD
@@ -105,9 +111,11 @@ graph TD
 ````
 
 ### Context Section
+
 Domain knowledge, constraints, and key decisions that apply across ALL phases. This is the shared context every child plan needs.
 
 ### Waves Section
+
 Explain wave ordering and dependency rationale:
 
 ```markdown
@@ -119,20 +127,22 @@ Explain wave ordering and dependency rationale:
 ```
 
 ### Phases Section
+
 Table listing each child plan. Each child plan should include an `## Execution Waves` section to enable parallel task execution within that phase.
 
 ```markdown
 ## Phases
 
-| Phase | Wave | Title | Objective | Dependencies |
-|-------|------|-------|-----------|-------------|
-| 1 | 1 | Data Models | Core database schema | None |
-| 2 | 1 | Auth System | JWT auth + sessions | None |
-| 3 | 2 | API Layer | REST endpoints | Phases 1, 2 |
-| 4 | 3 | Frontend | User-facing UI | Phase 3 |
+| Phase | Wave | Title       | Objective            | Dependencies |
+| ----- | ---- | ----------- | -------------------- | ------------ |
+| 1     | 1    | Data Models | Core database schema | None         |
+| 2     | 1    | Auth System | JWT auth + sessions  | None         |
+| 3     | 2    | API Layer   | REST endpoints       | Phases 1, 2  |
+| 4     | 3    | Frontend    | User-facing UI       | Phase 3      |
 ```
 
 ### Progress Tracking
+
 Checkboxes per phase (not per task):
 
 ```markdown
@@ -175,6 +185,7 @@ Wave: [wave-number]
 ```
 
 Child plans start as PENDING + Approved: No. They can be:
+
 - Planned individually via `/spec <child-plan.md>` (routes to spec-plan)
 - Planned with full tasks inline if scope is clear enough
 

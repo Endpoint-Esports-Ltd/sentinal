@@ -2,7 +2,7 @@
 
 The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **26 tools across 6 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
-> **Note:** Sentinal *also* ships global MCP server configurations for `context7`, `web-search`, `grep-mcp`, and `web-fetch` — those are installed once into the user's Claude Code / OpenCode config by the installer and are NOT documented here.
+> **Note:** Sentinal _also_ ships global MCP server configurations for `context7`, `web-search`, `grep-mcp`, and `web-fetch` — those are installed once into the user's Claude Code / OpenCode config by the installer and are NOT documented here.
 
 ## Invocation
 
@@ -12,9 +12,9 @@ The only MCP server this repo configures at the project level is **`sentinal`** 
   "mcpServers": {
     "sentinal": {
       "command": "sentinal",
-      "args": ["mcp-server"]
-    }
-  }
+      "args": ["mcp-server"],
+    },
+  },
 }
 ```
 
@@ -24,59 +24,59 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 
 ### Memory Domain (`src/memory/mcp-tools.ts`) — 6 tools
 
-| Tool              | Purpose                                                                     |
-| ----------------- | --------------------------------------------------------------------------- |
-| `memory_search`   | Semantic + keyword search over SQLite-vec vector store                      |
-| `memory_timeline` | Chronological context around an anchor observation                          |
-| `memory_get`      | Fetch full observation details by ID                                        |
-| `memory_save`     | Save a decision/discovery/error/fix/pattern observation                     |
-| `memory_maintain` | Maintenance ops (prune, reindex)                                            |
-| `memory_stats`    | Database statistics (observation counts, project breakdown)                 |
+| Tool              | Purpose                                                     |
+| ----------------- | ----------------------------------------------------------- |
+| `memory_search`   | Semantic + keyword search over SQLite-vec vector store      |
+| `memory_timeline` | Chronological context around an anchor observation          |
+| `memory_get`      | Fetch full observation details by ID                        |
+| `memory_save`     | Save a decision/discovery/error/fix/pattern observation     |
+| `memory_maintain` | Maintenance ops (prune, reindex)                            |
+| `memory_stats`    | Database statistics (observation counts, project breakdown) |
 
 ### Spec Workflow Domain (`src/spec/mcp-tools.ts`) — 9 tools
 
-| Tool               | Purpose                                             |
-| ------------------ | --------------------------------------------------- |
-| `spec_init`        | Get all workflow context in one call                |
-| `spec_status`      | Current active plan, progress, remaining tasks      |
-| `spec_register`    | Register/update a plan in the SQLite index          |
-| `spec_plan_parse`  | Parse a plan .md file into structured metadata      |
-| `spec_config`      | Read `SENTINAL_*` env config snapshot               |
-| `spec_events`      | Recent lifecycle events for a spec                  |
-| `spec_metrics`     | Per-task timing + plan duration                     |
-| `spec_notify`      | Create a dashboard notification                     |
-| `spec_wait_file`   | Block until a reviewer-output file appears          |
+| Tool              | Purpose                                        |
+| ----------------- | ---------------------------------------------- |
+| `spec_init`       | Get all workflow context in one call           |
+| `spec_status`     | Current active plan, progress, remaining tasks |
+| `spec_register`   | Register/update a plan in the SQLite index     |
+| `spec_plan_parse` | Parse a plan .md file into structured metadata |
+| `spec_config`     | Read `SENTINAL_*` env config snapshot          |
+| `spec_events`     | Recent lifecycle events for a spec             |
+| `spec_metrics`    | Per-task timing + plan duration                |
+| `spec_notify`     | Create a dashboard notification                |
+| `spec_wait_file`  | Block until a reviewer-output file appears     |
 
 ### TDD Domain (`src/tdd/mcp-tools.ts`) — 3 tools
 
-| Tool             | Purpose                                        |
-| ---------------- | ---------------------------------------------- |
-| `tdd_status`     | Read TDD cycle state (per file or all active) |
-| `tdd_set_state`  | Transition state: IDLE/TEST_WRITTEN/RED/GREEN |
-| `tdd_clear`      | Clear state for a file or entire spec         |
+| Tool            | Purpose                                       |
+| --------------- | --------------------------------------------- |
+| `tdd_status`    | Read TDD cycle state (per file or all active) |
+| `tdd_set_state` | Transition state: IDLE/TEST_WRITTEN/RED/GREEN |
+| `tdd_clear`     | Clear state for a file or entire spec         |
 
 ### Worktree Domain (`src/worktree/mcp-tools.ts`) — 4 tools
 
-| Tool               | Purpose                                        |
-| ------------------ | ---------------------------------------------- |
-| `worktree_detect`  | Find worktree for a plan slug                  |
-| `worktree_create`  | Create a git worktree for a plan               |
-| `worktree_diff`    | Summarize file changes, insertions, deletions  |
-| `worktree_sync`    | Squash-merge worktree back to base (destructive)|
+| Tool              | Purpose                                          |
+| ----------------- | ------------------------------------------------ |
+| `worktree_detect` | Find worktree for a plan slug                    |
+| `worktree_create` | Create a git worktree for a plan                 |
+| `worktree_diff`   | Summarize file changes, insertions, deletions    |
+| `worktree_sync`   | Squash-merge worktree back to base (destructive) |
 
 ### Analysis Domain (`src/analysis/mcp-tools.ts`) — 3 tools
 
-| Tool                | Purpose                                                                     |
-| ------------------- | --------------------------------------------------------------------------- |
-| `check_diagnostics` | Filtered TypeScript diagnostics with NEW/FIXED delta tracking               |
-| `impact_analysis`   | Expected vs unexpected changes, file-length violations, LOW/MED/HIGH risk   |
-| `quality_report`    | Run tsc/eslint/prettier via sidecar `/quality-check` endpoint               |
+| Tool                | Purpose                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `check_diagnostics` | Filtered TypeScript diagnostics with NEW/FIXED delta tracking             |
+| `impact_analysis`   | Expected vs unexpected changes, file-length violations, LOW/MED/HIGH risk |
+| `quality_report`    | Run tsc/eslint/prettier via sidecar `/quality-check` endpoint             |
 
 ### Project Domain (`src/project/mcp-tools.ts`) — 1 tool
 
-| Tool              | Purpose                                                            |
-| ----------------- | ------------------------------------------------------------------ |
-| `project_context` | Tech stack, directory layout, key commands, conventions (cached)   |
+| Tool              | Purpose                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| `project_context` | Tech stack, directory layout, key commands, conventions (cached) |
 
 ## Design Rules
 

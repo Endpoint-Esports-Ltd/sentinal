@@ -12,6 +12,7 @@ Type: Bugfix
 **Symptom:** Running `/sync`, `/learn`, or other `/spec` workflow commands inside an OpenCode (or Claude Code) session results in skill and rule files being created under `.opencode/skills/` and `.opencode/rules/` (and occasionally `.claude/skills/` / `.claude/rules/`) instead of the canonical `.sentinal/skills/` and `.sentinal/rules/`.
 
 **Trigger:**
+
 - Running `/learn` in any project where the installer's `.opencode/skills → ../.sentinal/skills` symlink is absent or broken → writes land in a real `.opencode/skills/<name>/SKILL.md`.
 - Running `/sync` in any project → the stale `templates/commands/sync.md` instructs the agent to read/write `.claude/rules/project.md`.
 - Fresh `sentinal install` in any user project → `targets/opencode/AGENTS.md` and `src/cli/commands/install-constants.ts` inject `.opencode/rules/standards-*.md` references into the user's AGENTS.md.
@@ -21,13 +22,13 @@ Type: Bugfix
 
 **Diff analysis (post-investigation):**
 
-| Pair | Lines diff | What differs |
-| ---- | ---------- | ------------ |
-| `learn.md` CC vs OC | 3 | Frontmatter only (`user-invocable`, `model`) |
-| `sync.md` CC vs OC | 7 | Frontmatter + one skill name (`sentinal:learn` → `learn`) |
-| `spec.md` CC vs OC | 87 | Prose, model table, tool-constraint wording — non-trivial |
-| `pause.md`, `quick.md` | 0 | Identical |
-| `spec-plan`, `spec-bugfix-plan`, `spec-implement`, `spec-verify`, `spec-bugfix-verify`, `spec-master-plan`, `spec-master-execute` | N/A | **Intentionally absent** from opencode commands — live in `targets/opencode/skills/` instead |
+| Pair                                                                                                                              | Lines diff | What differs                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
+| `learn.md` CC vs OC                                                                                                               | 3          | Frontmatter only (`user-invocable`, `model`)                                                 |
+| `sync.md` CC vs OC                                                                                                                | 7          | Frontmatter + one skill name (`sentinal:learn` → `learn`)                                    |
+| `spec.md` CC vs OC                                                                                                                | 87         | Prose, model table, tool-constraint wording — non-trivial                                    |
+| `pause.md`, `quick.md`                                                                                                            | 0          | Identical                                                                                    |
+| `spec-plan`, `spec-bugfix-plan`, `spec-implement`, `spec-verify`, `spec-bugfix-verify`, `spec-master-plan`, `spec-master-execute` | N/A        | **Intentionally absent** from opencode commands — live in `targets/opencode/skills/` instead |
 
 The only systematic per-target variation is frontmatter (`user-invocable: true`, `model: opus/sonnet`). The remaining bodies are either identical or diverged through independent hand-editing. A Mustache/Handlebars generator would add pipeline complexity for near-zero return. **Decision: delete `scripts/generate-commands.js` and `templates/commands/`, keep target files as the source of truth. Do NOT create opencode command equivalents for the spec sub-phases — they are deliberately skills.**
 
@@ -35,15 +36,15 @@ The only systematic per-target variation is frontmatter (`user-invocable: true`,
 
 The no-leak test must therefore also scan `targets/opencode/skills/*/SKILL.md` for forbidden substrings.
 
-| # | File                                                    | Lines       | Leak |
-| - | ------------------------------------------------------- | ----------- | ---- |
-| 1 | `templates/commands/learn.md`                           | 38-40       | "Create the skill in BOTH `.claude/skills/<name>/SKILL.md` AND `.opencode/skills/<name>/SKILL.md`" |
-| 2 | `templates/commands/sync.md`                            | 11, 17      | "Read existing rules in `.claude/rules/`" / "Generate `.claude/rules/project.md`" |
-| 3 | `targets/opencode/AGENTS.md`                            | 40-46       | References `.opencode/rules/standards-*.md` as shipped user template |
-| 4 | `src/cli/commands/install-constants.ts`                 | 86, 97      | `AGENTS_MD_LOCAL_TEMPLATE` and `AGENTS_MD_APPEND` inject `.opencode/rules/` into user AGENTS.md |
-| 5 | `targets/claude-code/rules/team-sharing.md`             | 23, 25, 33  | Docs show `.claude/rules/<name>.md` / `.claude/skills/<name>/SKILL.md` as sharing layout |
-| 6 | `targets/opencode/rules/team-sharing.md`                | 23, 25, 33  | Same as #5 |
-| 7 | `scripts/generate-commands.js` + `templates/commands/*` | N/A         | Generator overwrites correct targets with stale template content on next run |
+| #   | File                                                    | Lines      | Leak                                                                                               |
+| --- | ------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| 1   | `templates/commands/learn.md`                           | 38-40      | "Create the skill in BOTH `.claude/skills/<name>/SKILL.md` AND `.opencode/skills/<name>/SKILL.md`" |
+| 2   | `templates/commands/sync.md`                            | 11, 17     | "Read existing rules in `.claude/rules/`" / "Generate `.claude/rules/project.md`"                  |
+| 3   | `targets/opencode/AGENTS.md`                            | 40-46      | References `.opencode/rules/standards-*.md` as shipped user template                               |
+| 4   | `src/cli/commands/install-constants.ts`                 | 86, 97     | `AGENTS_MD_LOCAL_TEMPLATE` and `AGENTS_MD_APPEND` inject `.opencode/rules/` into user AGENTS.md    |
+| 5   | `targets/claude-code/rules/team-sharing.md`             | 23, 25, 33 | Docs show `.claude/rules/<name>.md` / `.claude/skills/<name>/SKILL.md` as sharing layout           |
+| 6   | `targets/opencode/rules/team-sharing.md`                | 23, 25, 33 | Same as #5                                                                                         |
+| 7   | `scripts/generate-commands.js` + `templates/commands/*` | N/A        | Generator overwrites correct targets with stale template content on next run                       |
 
 Secondary chain: `src/cli/embedded-assets.ts` (auto-generated by `scripts/embed-assets.mjs`) contains bundled copies of everything above and must be re-embedded after the fix.
 
@@ -54,20 +55,23 @@ Secondary chain: `src/cli/embedded-assets.ts` (auto-generated by `scripts/embed-
 1. User sees `.opencode/skills/<slug>-<name>/SKILL.md` created after `/learn` → the instruction to write there must come from somewhere the agent loads.
 2. OpenCode loads slash commands from `~/.config/opencode/command/` (shipped via `targets/opencode/commands/`) — sentinal's CURRENT `targets/opencode/commands/learn.md` is CORRECT (references `.sentinal/skills/{slug}-{name}/SKILL.md`, line 45, 67, 163).
 3. But `templates/commands/learn.md:38-40` — the source template — still says `.claude/skills/` and `.opencode/skills/`. Running the generator would re-introduce the bug.
-4. Additionally, the user's issue says "previous session" investigated this — likely saw `.opencode/skills/*` artifacts from a prior `/learn` run that happened *before* the target files were hand-fixed (git blame on `targets/opencode/commands/learn.md` shows 18 Mar 15:27 last edit).
+4. Additionally, the user's issue says "previous session" investigated this — likely saw `.opencode/skills/*` artifacts from a prior `/learn` run that happened _before_ the target files were hand-fixed (git blame on `targets/opencode/commands/learn.md` shows 18 Mar 15:27 last edit).
 5. For `/sync`: `templates/commands/sync.md` is a 27-line stub with hardcoded `.claude/rules/` — any project where the user runs `sentinal install` after running the generator gets the broken version.
 
 ### Working example for comparison
 
 `targets/opencode/commands/sync.md:38-44` (the hand-edited correct version):
+
 ```md
 ### Output Locations
+
 **Custom rules** in `.sentinal/rules/`: `{slug}-project.md` (tech stack, structure), `{slug}-mcp-servers.md` (custom MCP servers), `{slug}-{pattern-name}.md` (tribal knowledge).
 **Custom skills** in `.sentinal/skills/`: `{slug}-{name}/SKILL.md`.
 Both are read by Claude Code and OpenCode via symlinks and config (set up by `sentinal install`).
 ```
 
 And `src/cli/commands/install.ts:804-807` confirms OpenCode reads rules by adding `.sentinal/rules/*.md` to the `instructions` array in `opencode.json`:
+
 ```ts
 const instructions = (config.instructions as string[]) ?? [];
 if (!instructions.includes(".sentinal/rules/*.md")) {
@@ -96,6 +100,7 @@ And `install.ts:930-934` creates the symlink pairs, including `.opencode/skills 
 ### Preservation Property (!C => unchanged)
 
 **When condition C does NOT hold:**
+
 1. The legacy-migration blocks in `targets/{claude-code,opencode}/commands/sync.md:156-173` and `:205-207` continue to detect and migrate `.claude/rules/`, `.claude/skills/`, `.opencode/rules/`, `.opencode/skills/` as before — unchanged.
 2. `src/project/context.ts:56` `RULES_GLOBS` continues to read legacy paths for backward compat — unchanged.
 3. `src/cli/commands/install.ts:893-977` `setupProjectSymlinks()` continues to create `.claude/rules`, `.claude/skills`, `.opencode/skills` symlinks pointing at `.sentinal/` — unchanged.
@@ -113,6 +118,7 @@ The `scripts/generate-commands.js` script and `templates/commands/` directory ar
 **OpenCode architecture is correct and unchanged:** `/spec`, `/sync`, `/learn` are the three user-invocable commands. The spec sub-phases are skills (`targets/opencode/skills/`), not commands. No new command files are needed.
 
 **Delete:**
+
 - `scripts/generate-commands.js`
 - `templates/commands/` (entire directory — 8 stale stub files)
 
@@ -132,8 +138,8 @@ Create a `no-leak` test that scans known source-of-truth files for FORBIDDEN sub
 
 ```ts
 const FORBIDDEN = [
-  ".opencode/skills/{",           // template telling agent where to WRITE <name>
-  ".opencode/rules/standards-",   // shipped user standards paths
+  ".opencode/skills/{", // template telling agent where to WRITE <name>
+  ".opencode/rules/standards-", // shipped user standards paths
   ".opencode/rules/{",
   ".claude/skills/{",
   ".claude/rules/{",
@@ -145,6 +151,7 @@ const FORBIDDEN = [
 The legacy-detection shell block in `targets/*/commands/sync.md:156-173` uses `".claude/rules"` and `".opencode/rules"` without `/{` or `/<name>` suffixes → does not match any FORBIDDEN substring → legitimately clean. Verified by hand.
 
 **Test files:**
+
 1. **`src/cli/commands/no-leak.test.ts`** — reads every `targets/*/commands/*.md`, every `targets/opencode/skills/*/SKILL.md`, every `targets/*/AGENTS.md`, every `targets/*/rules/team-sharing.md`, and asserts none contain FORBIDDEN substrings. Also asserts `templates/commands/` directory does NOT exist (generator deleted).
 2. **`src/cli/commands/install-constants.test.ts`** — imports `AGENTS_MD_LOCAL_TEMPLATE` and `AGENTS_MD_APPEND` and asserts they do NOT contain `.opencode/rules/`.
 
@@ -162,10 +169,12 @@ The legacy-detection shell block in `targets/*/commands/sync.md:156-173` uses `"
 **Objective:** Add regression tests that FAIL on current code, proving the bug and forming a permanent guardrail.
 
 **Files (create):**
+
 - `src/cli/commands/no-leak.test.ts` — scans `targets/*/commands/*.md`, `targets/*/AGENTS.md`, `targets/*/rules/team-sharing.md` for FORBIDDEN substrings; also asserts `templates/commands/` does not exist
 - `src/cli/commands/install-constants.test.ts` — imports `AGENTS_MD_LOCAL_TEMPLATE` and `AGENTS_MD_APPEND` constants and asserts no `.opencode/rules/` present
 
 **TDD:**
+
 1. Write `no-leak.test.ts` — run: MUST FAIL (at least on `targets/opencode/AGENTS.md`, both `team-sharing.md`, and `templates/commands/` existing).
 2. Write `install-constants.test.ts` — run: MUST FAIL (both constants contain `.opencode/rules/`).
 
@@ -195,9 +204,11 @@ The legacy-detection shell block in `targets/*/commands/sync.md:156-173` uses `"
 7. **Re-embed assets:** Run `bun run scripts/embed-assets.mjs` (check `package.json` for exact script name). Verify `git diff src/cli/embedded-assets.ts` reflects the fixes.
 
 **Verify (after all fixes):**
+
 ```bash
 bun test src/cli/commands/no-leak.test.ts src/cli/commands/install-constants.test.ts
 ```
+
 Both PASS. Also check: `ls templates/commands/ 2>&1` should say "No such file or directory".
 
 ### Task 3: Verify
@@ -205,6 +216,7 @@ Both PASS. Also check: `ls templates/commands/ 2>&1` should say "No such file or
 **Objective:** Full regression suite + quality checks + manual install smoke test.
 
 **Verify:**
+
 ```bash
 bun test                    # full suite — no regressions
 npx tsc --noEmit            # type check
@@ -212,12 +224,14 @@ bun run build:all           # both targets still build cleanly
 ```
 
 **Manual smoke test:** Run `sentinal install` in a disposable directory (`/tmp/sentinal-smoke`) and verify:
+
 - `AGENTS.md` mentions `.sentinal/rules/` (not `.opencode/rules/`)
 - `.opencode/skills` is a symlink to `../.sentinal/skills` (not a real dir)
 - No real `.opencode/rules` directory exists
 - `opencode.json` contains `"instructions": [".sentinal/rules/*.md"]`
 
 **No-generator check:** Confirm `scripts/generate-commands.js` and `templates/commands/` are gone:
+
 ```bash
 ls scripts/generate-commands.js 2>&1    # must say "No such file"
 ls templates/commands/ 2>&1             # must say "No such file or directory"

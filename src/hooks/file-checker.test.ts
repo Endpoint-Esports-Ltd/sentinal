@@ -85,12 +85,7 @@ describe("file-checker hook", () => {
 
     it("should not produce a block/warn for targets/opencode/plugins/sentinal.ts even when very long", async () => {
       // Replicate the plugin path structure inside a temp dir
-      const pluginDir = join(
-        tmpDir,
-        "targets",
-        "opencode",
-        "plugins",
-      );
+      const pluginDir = join(tmpDir, "targets", "opencode", "plugins");
       const { mkdirSync } = await import("node:fs");
       mkdirSync(pluginDir, { recursive: true });
       const filePath = join(pluginDir, "sentinal.ts");

@@ -45,17 +45,17 @@ Type: Bugfix
 
 **Affected call sites (18 total):**
 
-| File | Bare Names Used |
-|---|---|
-| `targets/claude-code/commands/spec.md` | `spec-plan`, `spec-bugfix-plan`, `spec-master-plan` |
-| `targets/claude-code/commands/spec-plan.md` | `spec-implement` (×3) |
-| `targets/claude-code/commands/spec-bugfix-plan.md` | `spec-implement` (×3) |
-| `targets/claude-code/commands/spec-implement.md` | `spec-bugfix-verify`, `spec-verify` |
-| `targets/claude-code/commands/spec-verify.md` | `spec-implement` (×2) |
-| `targets/claude-code/commands/spec-bugfix-verify.md` | `spec-implement` |
-| `targets/claude-code/commands/spec-master-plan.md` | `spec-master-execute` (×2) |
-| `targets/claude-code/commands/spec-master-execute.md` | `spec-verify` |
-| `targets/claude-code/commands/sync.md` | `learn` |
+| File                                                  | Bare Names Used                                     |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| `targets/claude-code/commands/spec.md`                | `spec-plan`, `spec-bugfix-plan`, `spec-master-plan` |
+| `targets/claude-code/commands/spec-plan.md`           | `spec-implement` (×3)                               |
+| `targets/claude-code/commands/spec-bugfix-plan.md`    | `spec-implement` (×3)                               |
+| `targets/claude-code/commands/spec-implement.md`      | `spec-bugfix-verify`, `spec-verify`                 |
+| `targets/claude-code/commands/spec-verify.md`         | `spec-implement` (×2)                               |
+| `targets/claude-code/commands/spec-bugfix-verify.md`  | `spec-implement`                                    |
+| `targets/claude-code/commands/spec-master-plan.md`    | `spec-master-execute` (×2)                          |
+| `targets/claude-code/commands/spec-master-execute.md` | `spec-verify`                                       |
+| `targets/claude-code/commands/sync.md`                | `learn`                                             |
 
 ## Progress
 
@@ -70,6 +70,7 @@ Type: Bugfix
 
 **Objective:** Update all 18 `Skill(skill='<bare-name>')` references in Claude Code command files to use `Skill(skill='sentinal:<name>')`.
 **Files:**
+
 - `targets/claude-code/commands/spec.md`
 - `targets/claude-code/commands/spec-plan.md`
 - `targets/claude-code/commands/spec-bugfix-plan.md`

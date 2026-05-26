@@ -4,11 +4,11 @@
 
 ## The Three Locations
 
-| Directory        | Purpose                                             | Who reads it                                |
-| ---------------- | --------------------------------------------------- | ------------------------------------------- |
-| `src/`           | Shared TypeScript source — the product logic        | Both targets import from here               |
-| `targets/`       | **Shipped artifacts** — what users install          | Users' Claude Code / OpenCode installations |
-| `.sentinal/`     | Repo-local dev state + rules for developing sentinal | Claude Code / OpenCode when editing sentinal |
+| Directory    | Purpose                                              | Who reads it                                 |
+| ------------ | ---------------------------------------------------- | -------------------------------------------- |
+| `src/`       | Shared TypeScript source — the product logic         | Both targets import from here                |
+| `targets/`   | **Shipped artifacts** — what users install           | Users' Claude Code / OpenCode installations  |
+| `.sentinal/` | Repo-local dev state + rules for developing sentinal | Claude Code / OpenCode when editing sentinal |
 
 ## `targets/*/rules/` are NOT your rules
 
@@ -22,15 +22,15 @@
 
 ## Where to put new work
 
-| I'm adding / changing ...                    | Go here                                                                                                               |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| A new hook, checker, MCP tool, CLI command    | `src/<domain>/` (shared) + wire into both targets                                                                     |
-| A standard Sentinal ships to users            | `targets/claude-code/rules/` AND `targets/opencode/rules/` (keep in sync)                                             |
-| A slash command Sentinal ships                | Edit `targets/claude-code/commands/<name>.md` directly. For OpenCode: user-facing commands go in `targets/opencode/commands/`; spec sub-phases go in `targets/opencode/skills/<name>/SKILL.md` (see OpenCode architecture note below). |
-| A rule for developing sentinal itself         | `.sentinal/rules/sentinal-<topic>.md`                                                                                 |
-| A skill for developing sentinal               | `.sentinal/skills/sentinal-<name>/SKILL.md`                                                                           |
-| An installer asset or Claude plugin manifest  | `targets/claude-code/.claude-plugin/` or `targets/claude-code/settings.json`                                          |
-| Sidecar state, runtime persistence            | `.sentinal/` (gitignored where appropriate)                                                                           |
+| I'm adding / changing ...                    | Go here                                                                                                                                                                                                                                |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A new hook, checker, MCP tool, CLI command   | `src/<domain>/` (shared) + wire into both targets                                                                                                                                                                                      |
+| A standard Sentinal ships to users           | `targets/claude-code/rules/` AND `targets/opencode/rules/` (keep in sync)                                                                                                                                                              |
+| A slash command Sentinal ships               | Edit `targets/claude-code/commands/<name>.md` directly. For OpenCode: user-facing commands go in `targets/opencode/commands/`; spec sub-phases go in `targets/opencode/skills/<name>/SKILL.md` (see OpenCode architecture note below). |
+| A rule for developing sentinal itself        | `.sentinal/rules/sentinal-<topic>.md`                                                                                                                                                                                                  |
+| A skill for developing sentinal              | `.sentinal/skills/sentinal-<name>/SKILL.md`                                                                                                                                                                                            |
+| An installer asset or Claude plugin manifest | `targets/claude-code/.claude-plugin/` or `targets/claude-code/settings.json`                                                                                                                                                           |
+| Sidecar state, runtime persistence           | `.sentinal/` (gitignored where appropriate)                                                                                                                                                                                            |
 
 ## Commands are edited directly — there is no generator
 

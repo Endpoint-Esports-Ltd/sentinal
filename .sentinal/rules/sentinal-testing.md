@@ -34,18 +34,14 @@ Bun's default test timeout is **5 seconds**. Tests that spawn long-running subpr
 **Always pass an explicit timeout as the 3rd argument to `it()`** when a test spawns subprocesses:
 
 ```ts
-it(
-  "runs tsc check",
-  async () => {
-    const r = await post(base, "/quality-check", {
-      projectPath,
-      checks: ["tsc"],
-      timeout: 60000, // subprocess timeout
-    });
-    expect(r.ok).toBe(true);
-  },
-  60_000, // bun:test timeout MUST match subprocess timeout
-);
+it("runs tsc check", async () => {
+  const r = await post(base, "/quality-check", {
+    projectPath,
+    checks: ["tsc"],
+    timeout: 60000, // subprocess timeout
+  });
+  expect(r.ok).toBe(true);
+}, 60_000); // bun:test timeout MUST match subprocess timeout
 ```
 
 See `.sentinal/skills/sentinal-test-timing/SKILL.md` for the full pattern (including the rolling-window date bug).
@@ -85,6 +81,7 @@ Sentinal eats its own dog food. When editing `src/**/*.ts`:
 **Rationale:** OpenCode's plugin format requires all hook handlers and helpers to be colocated in a single plugin file. This is a platform constraint, not a code smell — splitting the file would require a bundling step that conflicts with OpenCode's native TypeScript plugin loader.
 
 **What this means in practice:**
+
 - The file will not trigger block/warn from the file-checker hook.
 - This exemption is enforced by the `PATH_EXEMPTIONS` constant in `src/utils/file-length.ts`.
 - The DRY principle still applies: shared logic used by both Claude Code hooks AND the OpenCode plugin should be extracted to `src/opencode/*.ts` for testability and reuse. But **line count alone** is not a reason to refactor this file.

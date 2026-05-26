@@ -39,6 +39,7 @@ echo "QUESTIONS=$SENTINAL_PLAN_QUESTIONS_ENABLED REVIEWER=$SENTINAL_PLAN_REVIEWE
 Reference these values throughout: Steps 1.2/1.3b/1.4 (questions), 1.7 (reviewer), 1.8 (approval).
 
 **Quick mode detection:** If `plan_reviewer_enabled`, `approval_enabled`, AND `spec_reviewer_enabled` are ALL `"false"`, this is a quick task (invoked via `/quick`). Use a lighter plan template in Step 1.6:
+
 - Skip `## Risks and Mitigations`, `## Pre-Mortem`, `## Context for Implementer` sections
 - Keep `## Summary`, `## Scope`, `## Goal Verification`, `## Implementation Tasks`
 - Exploration and questions still run normally
@@ -205,6 +206,7 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 5. **Update Progress Tracking** to show wave assignments: `- [ ] Task 1: [summary] (Wave 1)`
 
 **Rules:**
+
 - If all tasks are in Wave 1 (no dependencies, no shared files), that's fine — maximum parallelism.
 - If wave analysis is unclear, default to sequential: each task in its own wave.
 - Single-task waves are normal and expected.
@@ -221,6 +223,7 @@ After creating tasks, derive **structured, verifiable** criteria for the `## Goa
    - ❌ `Authentication works correctly` (vague — not falsifiable)
 
 3. **List Artifacts** — each with `path`, `provides`, and `exports`:
+
    ```
    | Artifact | Provides | Exports |
    |----------|----------|---------|
@@ -314,17 +317,20 @@ _Assume this plan failed. Most likely internal reasons:_
 ## Goal Verification
 
 ### Truths
+
 1. [grep-verifiable or curl-testable statement]
 2. [grep-verifiable or curl-testable statement]
 
 ### Artifacts
-| Artifact | Provides | Exports |
-|----------|----------|---------|
+
+| Artifact          | Provides           | Exports              |
+| ----------------- | ------------------ | -------------------- |
 | [exact file path] | [what it delivers] | [public API/exports] |
 
 ### Key Links
-| From | To | Via | Pattern |
-|------|----|-----|---------|
+
+| From          | To       | Via               | Pattern        |
+| ------------- | -------- | ----------------- | -------------- |
 | [source file] | [target] | [connection type] | [grep pattern] |
 
 ## Progress Tracking

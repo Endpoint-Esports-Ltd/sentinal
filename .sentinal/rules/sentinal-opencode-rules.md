@@ -19,6 +19,7 @@ Claude Code rules at `targets/claude-code/rules/standards-{angular,nestjs,typesc
 all use this feature.
 
 **OpenCode does NOT support `paths:` frontmatter.** OpenCode's rule system is based on:
+
 1. `AGENTS.md` files (project-local + global at `~/.config/opencode/AGENTS.md`)
 2. The `instructions:` glob list in `opencode.json` — all matched files are loaded globally
 
@@ -30,11 +31,13 @@ every session unconditionally. This means Angular-specific rules show up in pure
 This is an OpenCode platform limitation, not a Sentinal bug.
 
 **Workaround options (not currently implemented):**
+
 - Gate rule content with prose like "Only follow these rules when working on Angular components"
 - Use the `opencode.json` `instructions:` field with narrower globs (but globs still load globally)
 - Wait for OpenCode to add native `paths:` support
 
 **Cross-reference:**
+
 - Claude Code rules with `paths:` → `targets/claude-code/rules/standards-*.md`
 - OpenCode equivalents (no `paths:`) → `targets/opencode/rules/standards-*.md`
 - Audit tracking → `docs/plans/2026-04-20-claude-opencode-changelog-audit.md` (CC-item OC-goal-verification Truth #9, now superseded by 7c path)

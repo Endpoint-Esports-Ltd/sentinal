@@ -54,18 +54,14 @@ it("should run tsc check", async () => {
 });
 
 // GOOD — test timeout matches subprocess timeout
-it(
-  "should run tsc check",
-  async () => {
-    const r = await post(base, "/quality-check", {
-      projectPath,
-      checks: ["tsc"],
-      timeout: 60000,
-    });
-    expect(r.ok).toBe(true);
-  },
-  60_000, // bun:test timeout matches
-);
+it("should run tsc check", async () => {
+  const r = await post(base, "/quality-check", {
+    projectPath,
+    checks: ["tsc"],
+    timeout: 60000,
+  });
+  expect(r.ok).toBe(true);
+}, 60_000); // bun:test timeout matches
 ```
 
 **Detection:** Tests calling endpoints that spawn subprocesses without a third argument to `it()`. Look for `Bun.spawn`, `runWithTimeout`, or `child_process.exec` in the endpoint code.

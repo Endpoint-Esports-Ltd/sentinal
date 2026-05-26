@@ -406,46 +406,38 @@ describe("SidecarClient.qualityCheck", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it(
-    "should return structured quality check results",
-    async () => {
-      const client = await SidecarClient.connect();
-      expect(client).not.toBeNull();
+  it("should return structured quality check results", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
 
-      const projectPath = join(import.meta.dir, "../..");
-      const result = await client!.qualityCheck({
-        projectPath,
-        checks: ["tsc"],
-        timeout: 60000,
-      });
+    const projectPath = join(import.meta.dir, "../..");
+    const result = await client!.qualityCheck({
+      projectPath,
+      checks: ["tsc"],
+      timeout: 60000,
+    });
 
-      expect(result.tsc).toBeDefined();
-      expect(typeof result.tsc!.ok).toBe("boolean");
-      expect(typeof result.tsc!.durationMs).toBe("number");
-      expect(Array.isArray(result.tsc!.errors)).toBe(true);
-    },
-    60_000,
-  );
+    expect(result.tsc).toBeDefined();
+    expect(typeof result.tsc!.ok).toBe("boolean");
+    expect(typeof result.tsc!.durationMs).toBe("number");
+    expect(Array.isArray(result.tsc!.errors)).toBe(true);
+  }, 60_000);
 
-  it(
-    "should support single-file mode",
-    async () => {
-      const client = await SidecarClient.connect();
-      expect(client).not.toBeNull();
+  it("should support single-file mode", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
 
-      const projectPath = join(import.meta.dir, "../..");
-      const result = await client!.qualityCheck({
-        projectPath,
-        filePath: join(import.meta.dir, "client.ts"),
-        checks: ["prettier"],
-        timeout: 30000,
-      });
+    const projectPath = join(import.meta.dir, "../..");
+    const result = await client!.qualityCheck({
+      projectPath,
+      filePath: join(import.meta.dir, "client.ts"),
+      checks: ["prettier"],
+      timeout: 30000,
+    });
 
-      expect(result.prettier).toBeDefined();
-      expect(typeof result.prettier!.ok).toBe("boolean");
-    },
-    30_000,
-  );
+    expect(result.prettier).toBeDefined();
+    expect(typeof result.prettier!.ok).toBe("boolean");
+  }, 30_000);
 });
 
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────

@@ -35,7 +35,10 @@ describe("config-routes", () => {
     });
     const res = await handleConfigRequest(req, makeCtx(store));
     expect(res).not.toBeNull();
-    const body = (await res!.json()) as { ok: boolean; data: typeof DEFAULT_MODEL_ROUTING };
+    const body = (await res!.json()) as {
+      ok: boolean;
+      data: typeof DEFAULT_MODEL_ROUTING;
+    };
     expect(body.ok).toBe(true);
     expect(body.data).toEqual(DEFAULT_MODEL_ROUTING);
   });
@@ -46,7 +49,9 @@ describe("config-routes", () => {
       method: "GET",
     });
     const res = await handleConfigRequest(req, makeCtx(store));
-    const body = (await res!.json()) as { data: { planning: string; implementation: string } };
+    const body = (await res!.json()) as {
+      data: { planning: string; implementation: string };
+    };
     expect(body.data.planning).toBe("haiku");
     expect(body.data.implementation).toBe("sonnet");
   });

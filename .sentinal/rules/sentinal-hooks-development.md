@@ -4,10 +4,10 @@ Rules for writing and modifying hooks. Skim this before touching `src/hooks/` or
 
 ## Two Hook Systems, One Shared Core
 
-| Target      | Location                                | Entry mechanism                                                     |
-| ----------- | --------------------------------------- | ------------------------------------------------------------------- |
-| Claude Code | `src/hooks/*.ts` → compiled via `build:claude` | `sentinal hook <scope> <name>` CLI dispatcher (see `hooks.json`)    |
-| OpenCode    | `targets/opencode/plugins/sentinal.ts`  | Plugin event handlers (`tool.execute.before/after`, `session.*`)    |
+| Target      | Location                                       | Entry mechanism                                                  |
+| ----------- | ---------------------------------------------- | ---------------------------------------------------------------- |
+| Claude Code | `src/hooks/*.ts` → compiled via `build:claude` | `sentinal hook <scope> <name>` CLI dispatcher (see `hooks.json`) |
+| OpenCode    | `targets/opencode/plugins/sentinal.ts`         | Plugin event handlers (`tool.execute.before/after`, `session.*`) |
 
 Hooks that work on both platforms live under `sentinal hook shared <name>`. Claude-only hooks live under `sentinal hook claude <name>`. OpenCode's plugin handler imports the same logic from `src/`.
 
@@ -53,22 +53,22 @@ process.exit(2);
 
 ## Hook Pipeline (from `targets/claude-code/hooks.json`)
 
-| Event             | Matcher                          | Hook                 | Async |
-| ----------------- | -------------------------------- | -------------------- | ----- |
-| `SessionStart`    | `compact`                        | post-compact-restore | no    |
-| `SessionStart`    | (any)                            | memory-restore       | no    |
-| `SessionStart`    | (any)                            | session-start        | no    |
-| `PreToolUse`      | `Write\|Edit\|MultiEdit`         | tdd-guard            | no    |
-| `PreToolUse`      | `Write\|Edit\|MultiEdit`         | pre-edit-guide       | no    |
-| `PreToolUse`      | `Bash\|WebSearch\|WebFetch\|...` | tool-redirect        | no    |
-| `PostToolUse`     | `...\|Bash`                      | tdd-tracker          | **yes** |
-| `PostToolUse`     | `Write\|Edit\|MultiEdit` + `if`  | file-checker         | no    |
-| `PostToolUse`     | `...\|Bash`                      | memory-observer      | **yes** |
-| `PostToolUse`     | `Read\|...\|Glob`                | context-monitor      | **yes** |
-| `UserPromptSubmit`| (any)                            | prompt-context       | no    |
-| `PreCompact`      | (any)                            | pre-compact          | no    |
-| `Stop`            | (any)                            | spec-stop-guard      | no    |
-| `SessionEnd`      | (any)                            | session-end          | no    |
+| Event              | Matcher                          | Hook                 | Async   |
+| ------------------ | -------------------------------- | -------------------- | ------- |
+| `SessionStart`     | `compact`                        | post-compact-restore | no      |
+| `SessionStart`     | (any)                            | memory-restore       | no      |
+| `SessionStart`     | (any)                            | session-start        | no      |
+| `PreToolUse`       | `Write\|Edit\|MultiEdit`         | tdd-guard            | no      |
+| `PreToolUse`       | `Write\|Edit\|MultiEdit`         | pre-edit-guide       | no      |
+| `PreToolUse`       | `Bash\|WebSearch\|WebFetch\|...` | tool-redirect        | no      |
+| `PostToolUse`      | `...\|Bash`                      | tdd-tracker          | **yes** |
+| `PostToolUse`      | `Write\|Edit\|MultiEdit` + `if`  | file-checker         | no      |
+| `PostToolUse`      | `...\|Bash`                      | memory-observer      | **yes** |
+| `PostToolUse`      | `Read\|...\|Glob`                | context-monitor      | **yes** |
+| `UserPromptSubmit` | (any)                            | prompt-context       | no      |
+| `PreCompact`       | (any)                            | pre-compact          | no      |
+| `Stop`             | (any)                            | spec-stop-guard      | no      |
+| `SessionEnd`       | (any)                            | session-end          | no      |
 
 ### ⛔ Gotchas
 
@@ -79,13 +79,13 @@ process.exit(2);
 
 ## OpenCode Plugin Handler Mapping
 
-| Claude Code hook     | OpenCode equivalent                         |
-| -------------------- | ------------------------------------------- |
-| `PreToolUse` matcher | `tool.execute.before` + tool name check     |
-| `PostToolUse`        | `tool.execute.after`                        |
-| `SessionStart`       | `session.created`                           |
-| `Stop`               | `session.idle`                              |
-| `PreCompact`         | `experimental.session.compacting`           |
+| Claude Code hook     | OpenCode equivalent                                               |
+| -------------------- | ----------------------------------------------------------------- |
+| `PreToolUse` matcher | `tool.execute.before` + tool name check                           |
+| `PostToolUse`        | `tool.execute.after`                                              |
+| `SessionStart`       | `session.created`                                                 |
+| `Stop`               | `session.idle`                                                    |
+| `PreCompact`         | `experimental.session.compacting`                                 |
 | `UserPromptSubmit`   | No direct equivalent — use `session.compacting` context injection |
 
 **Tool names differ:** Claude Code sees `Write`, `Edit`, `Bash`. OpenCode sees lowercase `write`, `edit`, `bash`. MCP tools keep their full name (e.g. `sentinal_memory_search`). Any tool-name filter must match both conventions — use helpers in `src/hooks/` where available.

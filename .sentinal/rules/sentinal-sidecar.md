@@ -4,12 +4,12 @@ The sidecar is a **long-lived background HTTP server** that holds a warm `Memory
 
 ## Why It Exists
 
-| Without sidecar                                           | With sidecar                      |
-| --------------------------------------------------------- | --------------------------------- |
-| Every hook spawns → opens SQLite → loads sqlite-vec → ... | Hooks reuse a warm Unix socket    |
-| ~100-300ms per hook                                       | ~5-15ms per hook                  |
-| `@xenova/transformers` model reloaded per invocation      | Model stays resident              |
-| No LSP state                                              | LSP client persists across edits  |
+| Without sidecar                                           | With sidecar                     |
+| --------------------------------------------------------- | -------------------------------- |
+| Every hook spawns → opens SQLite → loads sqlite-vec → ... | Hooks reuse a warm Unix socket   |
+| ~100-300ms per hook                                       | ~5-15ms per hook                 |
+| `@xenova/transformers` model reloaded per invocation      | Model stays resident             |
+| No LSP state                                              | LSP client persists across edits |
 
 ## Transport
 
@@ -61,18 +61,18 @@ const status = await client.specStatus(projectPath);
 
 ## Available Routes (partial)
 
-| Route                          | Method | Purpose                                     |
-| ------------------------------ | ------ | ------------------------------------------- |
-| `/health`                      | GET    | Liveness probe                              |
-| `/ping`                        | GET    | Fast no-op                                  |
-| `/session`                     | POST   | Create session record                       |
-| `/session/:id/end`             | POST   | End session                                 |
-| `/tdd-state`                   | GET/POST | Read/update TDD cycle state                 |
-| `/observation`                 | POST   | Enqueue memory observation                  |
-| `/context`                     | GET    | Memory context for session                  |
-| `/notification`                | POST   | Create notification                         |
-| `/quality-check`               | POST   | Run tsc/eslint/prettier (subprocess)        |
-| `/project-context`             | GET    | Project metadata + conventions              |
+| Route              | Method   | Purpose                              |
+| ------------------ | -------- | ------------------------------------ |
+| `/health`          | GET      | Liveness probe                       |
+| `/ping`            | GET      | Fast no-op                           |
+| `/session`         | POST     | Create session record                |
+| `/session/:id/end` | POST     | End session                          |
+| `/tdd-state`       | GET/POST | Read/update TDD cycle state          |
+| `/observation`     | POST     | Enqueue memory observation           |
+| `/context`         | GET      | Memory context for session           |
+| `/notification`    | POST     | Create notification                  |
+| `/quality-check`   | POST     | Run tsc/eslint/prettier (subprocess) |
+| `/project-context` | GET      | Project metadata + conventions       |
 
 Full list: see `src/sidecar/routes.ts`, `quality-routes.ts`, `project-routes.ts`, `config-routes.ts`, `tdd-routes.ts`.
 

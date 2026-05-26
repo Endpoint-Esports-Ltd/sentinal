@@ -103,6 +103,7 @@ Use `run_in_background=true` only for long-running processes (dev servers, watch
 **Preferred:** Use `spec_register` MCP tool with `plan_path` and optional `status` parameters.
 
 **Fallback:**
+
 ```bash
 sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true
 ```

@@ -22,15 +22,15 @@ model: sonnet
                     → Bugfix:  Skill('spec-bugfix-plan') → Investigate → Plan → Implement → Verify
 ```
 
-| Phase                 | Skill                  | Model  |
-| --------------------- | ---------------------- | ------ |
-| Feature Planning      | `spec-plan`            | Opus   |
-| Bugfix Planning       | `spec-bugfix-plan`     | Opus   |
-| Master Planning       | `spec-master-plan`     | Opus   |
-| Implementation        | `spec-implement`       | Sonnet |
-| Master Execution      | `spec-master-execute`  | Sonnet |
-| Feature Verification  | `spec-verify`          | Sonnet |
-| Bugfix Verification   | `spec-bugfix-verify`   | Sonnet |
+| Phase                | Skill                 | Model  |
+| -------------------- | --------------------- | ------ |
+| Feature Planning     | `spec-plan`           | Opus   |
+| Bugfix Planning      | `spec-bugfix-plan`    | Opus   |
+| Master Planning      | `spec-master-plan`    | Opus   |
+| Implementation       | `spec-implement`      | Sonnet |
+| Master Execution     | `spec-master-execute` | Sonnet |
+| Feature Verification | `spec-verify`         | Sonnet |
+| Bugfix Verification  | `spec-bugfix-verify`  | Sonnet |
 
 ---
 
@@ -43,6 +43,7 @@ ls .sentinal/continue-here.md 2>/dev/null
 ```
 
 If the file exists:
+
 1. Read it — extract `Plan:`, `Current Task:`, `Created:` fields
 2. Calculate age: if >24 hours, warn "Paused work is from [date] — context may be stale"
 3. Show: "Found paused work: [plan path] at [current task]"

@@ -246,14 +246,11 @@ describe("model-routing", () => {
         join(testDir, "commands", "spec-plan.md"),
         "---\nmodel: opus\n---\n",
       );
-      writeFileSync(
-        join(dir2, "spec-plan.md"),
-        "---\nmodel: opus\n---\n",
-      );
-      const result = applyModelRouting(
-        [testDir, join(testDir, "dir2")],
-        { ...DEFAULT_MODEL_ROUTING, planning: "haiku" },
-      );
+      writeFileSync(join(dir2, "spec-plan.md"), "---\nmodel: opus\n---\n");
+      const result = applyModelRouting([testDir, join(testDir, "dir2")], {
+        ...DEFAULT_MODEL_ROUTING,
+        planning: "haiku",
+      });
       expect(result.patched.length).toBe(2);
     });
 
@@ -267,10 +264,7 @@ describe("model-routing", () => {
   });
 
   describe("findInstalledPluginDirs", () => {
-    const testBase = join(
-      tmpdir(),
-      `sentinal-find-dirs-test-${process.pid}`,
-    );
+    const testBase = join(tmpdir(), `sentinal-find-dirs-test-${process.pid}`);
 
     afterEach(() => {
       rmSync(testBase, { recursive: true, force: true });

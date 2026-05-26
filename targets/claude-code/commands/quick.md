@@ -35,6 +35,7 @@ export SENTINAL_SPEC_REVIEWER_ENABLED=false
 - **Feature:** Load skill `spec-plan` with `<task_description> --worktree=no`
 
 The planning skill will read the toggles via `spec_init` and automatically:
+
 - Skip the plan reviewer (Step 1.7)
 - Skip approval (Step 1.8) — auto-approves and chains to implementation
 - Skip the spec reviewer in verification

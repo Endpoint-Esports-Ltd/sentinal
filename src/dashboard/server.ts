@@ -113,7 +113,9 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
       const typeParam = url.searchParams.get("type") ?? undefined;
       const page = parseInt(url.searchParams.get("page") ?? "1", 10);
       const offset = (page - 1) * 20;
-      const filterType = typeParam as import("../memory/types.js").ObservationType | undefined;
+      const filterType = typeParam as
+        | import("../memory/types.js").ObservationType
+        | undefined;
       const observations = q
         ? ctx.store.searchFTS(q, {
             limit: 20,

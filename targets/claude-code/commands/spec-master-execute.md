@@ -36,11 +36,11 @@ model: sonnet
 The `## Phases` section uses a table format:
 
 ```markdown
-| Phase | Wave | Title | Objective | Dependencies |
-|-------|------|-------|-----------|-------------|
-| 1 | 1 | Data Models | Core database schema | None |
-| 2 | 1 | Auth System | JWT auth + sessions | None |
-| 3 | 2 | API Layer | REST endpoints | Phases 1, 2 |
+| Phase | Wave | Title       | Objective            | Dependencies |
+| ----- | ---- | ----------- | -------------------- | ------------ |
+| 1     | 1    | Data Models | Core database schema | None         |
+| 2     | 1    | Auth System | JWT auth + sessions  | None         |
+| 3     | 2    | API Layer   | REST endpoints       | Phases 1, 2  |
 ```
 
 Map phase numbers to child plan files: `docs/plans/YYYY-MM-DD-<master-slug>-phase-N.md`
@@ -64,6 +64,7 @@ For each child plan:
 3. **Not a stub:** If child plan only has `> Awaiting detailed planning...`, it needs planning first
 
 **If any child plan is a stub (no tasks):**
+
 - Report: "Phase N needs planning. Run `/spec <child-plan.md>` to plan it first."
 - Ask user: "Plan all stub phases now?" → If yes, sequentially invoke `spec-plan` for each stub
 - Do NOT proceed to wave execution until all child plans have tasks
@@ -148,6 +149,7 @@ When ALL waves are complete (all child plans VERIFIED):
 3. **Chain to verification:** Load `Skill(skill='sentinal:spec-verify', args='<master-plan-path>')`
 
 The verification phase for master plans checks:
+
 - All child plans are VERIFIED
 - No regression between phases (integration check)
 - Overall goal is achieved

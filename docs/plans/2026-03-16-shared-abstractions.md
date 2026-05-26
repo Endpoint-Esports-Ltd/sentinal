@@ -18,12 +18,14 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Extract sidecar response helpers (`json`, `ok`, `fail`, `readBody`) into shared module
 - Extract MCP tool text/error response helpers into shared module
 - Extract test setup helpers (`makeTmpDir`, `captureTools`) into shared module
 - Update all consuming files to import from shared modules
 
 ### Out of Scope
+
 - P2 abstractions (TDD guard/tracker decision logic, pre-edit formatting, OpenCode plugin)
 - Shared `McpToolsDeps` interface (deferred — each module's deps are subtly different)
 - CLI `withStore()` wrapper
@@ -51,10 +53,10 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Circular imports from shared modules | Low | Medium | Place helpers in leaf modules with no upstream deps |
-| Subtle behavioral differences in "identical" code | Low | Low | Verify each replacement compiles and tests pass |
+| Risk                                              | Likelihood | Impact | Mitigation                                          |
+| ------------------------------------------------- | ---------- | ------ | --------------------------------------------------- |
+| Circular imports from shared modules              | Low        | Medium | Place helpers in leaf modules with no upstream deps |
+| Subtle behavioral differences in "identical" code | Low        | Low    | Verify each replacement compiles and tests pass     |
 
 ## Pre-Mortem
 
@@ -64,17 +66,20 @@ Type: Feature
 ## Goal Verification
 
 ### Truths
+
 1. `json()`, `ok()`, `fail()`, `readBody()` exist in exactly one location (`src/sidecar/response.ts`)
 2. No MCP tool file contains `{ type: "text" as const, text: ... }` boilerplate — all use `mcpText()` helper
 3. No test file contains a local `makeTmpDir()` or `captureTools()` function
 4. All 1061+ existing tests pass
 
 ### Artifacts
+
 - `src/sidecar/response.ts` — sidecar response helpers
 - `src/mcp/helpers.ts` — MCP text/error helpers
 - `src/test-helpers.ts` — test setup helpers
 
 ### Key Links
+
 - `response.ts` <- `routes.ts`, `quality-routes.ts`, `project-routes.ts`, `tdd-routes.ts`
 - `mcp/helpers.ts` <- `tdd/mcp-tools.ts`, `spec/mcp-tools.ts`, `worktree/mcp-tools.ts`, `analysis/mcp-tools.ts`
 - `test-helpers.ts` <- 19 test files (makeTmpDir) + 4 test files (captureTools)
@@ -84,7 +89,7 @@ Type: Feature
 - [x] Task 1: Extract sidecar response helpers
 - [x] Task 2: Extract MCP text/error helpers
 - [x] Task 3: Extract test setup helpers
-**Total Tasks:** 3 | **Completed:** 3 | **Remaining:** 0
+      **Total Tasks:** 3 | **Completed:** 3 | **Remaining:** 0
 
 ## Implementation Tasks
 
@@ -95,6 +100,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/sidecar/response.ts`
 - Modify: `src/sidecar/routes.ts` (remove local helpers, add import)
 - Modify: `src/sidecar/quality-routes.ts` (remove local helpers, add import)
@@ -102,6 +108,7 @@ Type: Feature
 - Modify: `src/sidecar/tdd-routes.ts` (replace inline Response.json with ok/fail)
 
 **Key Decisions / Notes:**
+
 - Export: `json()`, `ok()`, `fail()`, `readBody()`
 - `project-routes.ts` uses `Response.json({ ok: true, data: ... })` — replace with `ok(data)` and `fail(msg, status)`
 - `tdd-routes.ts` uses `Response.json({ ok: true, data: result })` — replace with `ok(result)` and `fail(msg, status)`
@@ -109,6 +116,7 @@ Type: Feature
 - `server.ts` uses `Response.json()` only in the `errorHandler` (defense-in-depth for Bun.serve) — this is intentionally excluded since it runs outside the normal route handler context
 
 **Definition of Done:**
+
 - [ ] `src/sidecar/response.ts` exists with all 4 helpers exported
 - [ ] No local `json()`/`ok()`/`fail()`/`readBody()` in any route file
 - [ ] All sidecar route files import from `./response.js`
@@ -116,6 +124,7 @@ Type: Feature
 - [ ] Zero TypeScript errors
 
 **Verify:**
+
 - `bun test src/sidecar/`
 
 ### Task 2: Extract MCP Text/Error Helpers
@@ -125,6 +134,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/mcp/helpers.ts`
 - Modify: `src/tdd/mcp-tools.ts` (12 replacements)
 - Modify: `src/spec/mcp-tools.ts` (14 replacements)
@@ -134,6 +144,7 @@ Type: Feature
 - Test: existing tests in each module
 
 **Key Decisions / Notes:**
+
 - `mcpText(text: string)` returns `{ content: [{ type: "text" as const, text }] }`
 - `mcpError(prefix: string, err: unknown)` extracts message and returns `mcpText(\`${prefix}: ${msg}\`)`
 - Replace all `return { content: [{ type: "text" as const, text: ... }] }` with `return mcpText(...)`
@@ -141,12 +152,14 @@ Type: Feature
 - Include `memory/mcp-tools.ts` — replacing inline boilerplate with imports will reduce its line count significantly (currently 506 lines)
 
 **Definition of Done:**
+
 - [ ] `src/mcp/helpers.ts` exists with `mcpText()` and `mcpError()` exported
 - [ ] No MCP tool file contains inline `{ type: "text" as const, text: ... }` boilerplate
 - [ ] `bun test src/tdd/ src/spec/ src/worktree/ src/analysis/ src/memory/mcp-tools.test.ts` passes
 - [ ] Zero TypeScript errors
 
 **Verify:**
+
 - `bun test src/tdd/mcp-tools.test.ts src/spec/mcp-tools.test.ts src/worktree/mcp-tools.test.ts src/analysis/mcp-tools.test.ts src/memory/mcp-tools.test.ts`
 
 ### Task 3: Extract Test Setup Helpers
@@ -156,6 +169,7 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Create: `src/test-helpers.ts`
 - Modify: 19 test files containing `makeTmpDir()` (see list below)
 - Modify: 4 test files containing `captureTools()` (tdd, spec, worktree, analysis mcp-tools.test.ts)
@@ -164,11 +178,13 @@ Type: Feature
 `src/git/utils.test.ts`, `src/tdd/mcp-tools.test.ts`, `src/mcp/server.test.ts`, `src/sidecar/lifecycle.test.ts`, `src/analysis/mcp-tools.test.ts`, `src/dashboard/lifecycle.test.ts`, `src/worktree/mcp-tools.test.ts`, `src/spec/mcp-tools.test.ts`, `src/worktree/manager.test.ts`, `src/spec/store.test.ts`, `src/sidecar/server.test.ts`, `src/worktree/store.test.ts`, `src/memory/migrations.test.ts`, `src/sidecar/client.test.ts`, `src/hooks/memory-observer.test.ts`, `src/hooks/tdd-tracker.test.ts`, `src/hooks/tdd-guard.test.ts`, `src/cli/commands/worktree.test.ts`, `src/cli/commands/uninstall.test.ts`
 
 **Key Decisions / Notes:**
+
 - `makeTmpDir(prefix = "sentinal-test")` — accepts optional prefix, returns `join(tmpdir(), \`${prefix}-${Date.now()}-${random}\`)`. Callers can pass their module name or use the default.
 - `captureTools` is generic over the deps type: `captureTools<D>(registerFn: (server: McpServer, deps: D) => void, deps: D): Map<string, ToolHandler>`. Each call site passes its module-specific deps type and register function. Check the worktree variant which may take `(store: MemoryStore)` directly rather than a deps object — if so, wrap with an inline adapter.
 - Each test file removal: delete the local function, add `import { makeTmpDir } from "../test-helpers.js"` (adjust relative path), keep all other code identical.
 
 **Definition of Done:**
+
 - [ ] `src/test-helpers.ts` exists with `makeTmpDir()` and `captureTools()` exported
 - [ ] No test file contains a local `makeTmpDir()` function
 - [ ] No MCP test file contains a local `captureTools()` function
@@ -176,4 +192,5 @@ Type: Feature
 - [ ] Zero TypeScript errors
 
 **Verify:**
+
 - `bun test`

@@ -19,36 +19,37 @@ version: 1.0.0
 
 ## Decision Matrix
 
-| Need | Best Path | Why |
-|------|-----------|-----|
-| **React to tool calls** (intercept/block/hint) | Claude Code hook / OpenCode `tool.execute.before`/`after` | Only hooks can intercept before execution |
-| **On-demand sidecar query** (user or AI initiated) | MCP tool | ~5-20ms, long-lived connection, no process spawn |
-| **Side-effect after tool call** (logging, tracking) | OpenCode plugin async phase / Claude Code async hook | Fire-and-forget, non-blocking |
-| **Session lifecycle** (start, end, compaction) | Claude Code hook / OpenCode `event` handler | Platform-specific lifecycle events |
-| **Context injection** (every prompt or compaction) | Claude Code `UserPromptSubmit` hook / OpenCode `session.compacting` | Platform-specific injection APIs |
+| Need                                                | Best Path                                                           | Why                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------ |
+| **React to tool calls** (intercept/block/hint)      | Claude Code hook / OpenCode `tool.execute.before`/`after`           | Only hooks can intercept before execution        |
+| **On-demand sidecar query** (user or AI initiated)  | MCP tool                                                            | ~5-20ms, long-lived connection, no process spawn |
+| **Side-effect after tool call** (logging, tracking) | OpenCode plugin async phase / Claude Code async hook                | Fire-and-forget, non-blocking                    |
+| **Session lifecycle** (start, end, compaction)      | Claude Code hook / OpenCode `event` handler                         | Platform-specific lifecycle events               |
+| **Context injection** (every prompt or compaction)  | Claude Code `UserPromptSubmit` hook / OpenCode `session.compacting` | Platform-specific injection APIs                 |
 
 ## Performance by Path
 
-| Path | Per-Call Overhead | Process Model | Connection |
-|------|------------------|---------------|------------|
-| **OpenCode plugin** | ~1-5ms | In-process (same Node.js runtime) | Single SidecarClient, closure-captured |
-| **MCP tool** (both platforms) | ~5-20ms | Long-running child process (stdio) | Single SidecarClient at startup |
-| **Claude Code hook** | ~60-95ms (measured) | NEW child process per event | New SidecarClient.connect() each time |
+| Path                          | Per-Call Overhead   | Process Model                      | Connection                             |
+| ----------------------------- | ------------------- | ---------------------------------- | -------------------------------------- |
+| **OpenCode plugin**           | ~1-5ms              | In-process (same Node.js runtime)  | Single SidecarClient, closure-captured |
+| **MCP tool** (both platforms) | ~5-20ms             | Long-running child process (stdio) | Single SidecarClient at startup        |
+| **Claude Code hook**          | ~60-95ms (measured) | NEW child process per event        | New SidecarClient.connect() each time  |
 
 ### Claude Code Hook Overhead Breakdown (hyperfine-measured 2026-04-08, macOS arm64)
 
 Baseline `sentinal --version` = **52ms** (CLI cold start). Real hooks add ~5-40ms on top:
 
-| Hook | Mean ± σ |
-|------|----------|
-| `tdd-guard` | 60.5 ± 4.8 ms |
-| `session-start` | 65.4 ± 2.7 ms |
+| Hook             | Mean ± σ      |
+| ---------------- | ------------- |
+| `tdd-guard`      | 60.5 ± 4.8 ms |
+| `session-start`  | 65.4 ± 2.7 ms |
 | `pre-edit-guide` | 66.7 ± 1.0 ms |
 | `memory-restore` | 72.5 ± 3.7 ms |
 | `prompt-context` | 80.4 ± 9.2 ms |
-| `pre-compact` | 95.4 ± 7.7 ms |
+| `pre-compact`    | 95.4 ± 7.7 ms |
 
 **Breakdown:**
+
 - Bun runtime (`bun --version`): ~2ms
 - CLI init (commander, dynamic imports, module resolution): ~50ms
 - Hook-specific work (stdin read, sidecar probe, logic): ~8-45ms
@@ -57,13 +58,13 @@ Baseline `sentinal --version` = **52ms** (CLI cold start). Real hooks add ~5-40m
 
 ### Key Architectural Differences
 
-| Aspect | OpenCode Plugin | Claude Code Hooks |
-|--------|----------------|-------------------|
-| Execution | In-process function call | Shell command -> new process |
-| State | Closure variables persist across calls | Serialized to disk per invocation |
-| Sidecar client | Created once, reused via closure | Fresh connect() per hook |
-| Event buffer | In-memory, never touches disk | File-backed `event-buffer.json` |
-| Compaction | Direct `output.context.push()` | File-mediated via `compact-state.json` |
+| Aspect         | OpenCode Plugin                        | Claude Code Hooks                      |
+| -------------- | -------------------------------------- | -------------------------------------- |
+| Execution      | In-process function call               | Shell command -> new process           |
+| State          | Closure variables persist across calls | Serialized to disk per invocation      |
+| Sidecar client | Created once, reused via closure       | Fresh connect() per hook               |
+| Event buffer   | In-memory, never touches disk          | File-backed `event-buffer.json`        |
+| Compaction     | Direct `output.context.push()`         | File-mediated via `compact-state.json` |
 
 ## Gotchas
 

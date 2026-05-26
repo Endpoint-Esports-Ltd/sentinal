@@ -111,7 +111,11 @@ describe("spec_register MCP tool", () => {
   });
 
   it("should block VERIFIED when current status is IN_PROGRESS", async () => {
-    const planFile = makePlanFile(tmpDir, "2026-01-01-skip-verify", "IN_PROGRESS");
+    const planFile = makePlanFile(
+      tmpDir,
+      "2026-01-01-skip-verify",
+      "IN_PROGRESS",
+    );
     const handler = tools.get("spec_register")!;
 
     const result = await handler({
@@ -652,10 +656,12 @@ describe("spec_metrics MCP tool", () => {
     specStore.syncFromPlanFile(planFile, tmpDir, "test-session");
 
     // Manually set timing on the spec
-    store.getRawDb().run(
-      "UPDATE specs SET started_at = ? WHERE id = ?",
-      [Date.now() - 3600000, "2026-03-18-test"],
-    );
+    store
+      .getRawDb()
+      .run("UPDATE specs SET started_at = ? WHERE id = ?", [
+        Date.now() - 3600000,
+        "2026-03-18-test",
+      ]);
 
     const handler = tools.get("spec_metrics")!;
     const result = await handler({ project: tmpDir });
@@ -672,10 +678,12 @@ describe("spec_metrics MCP tool", () => {
 
     // Set task timing
     const now = Date.now();
-    store.getRawDb().run(
-      "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
-      [now - 900000, now - 300000, "2026-03-18-test"],
-    );
+    store
+      .getRawDb()
+      .run(
+        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
+        [now - 900000, now - 300000, "2026-03-18-test"],
+      );
 
     const handler = tools.get("spec_metrics")!;
     const result = await handler({ project: tmpDir });

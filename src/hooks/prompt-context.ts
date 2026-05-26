@@ -74,10 +74,7 @@ export function buildSpecContext(searchDir: string): string | null {
       `**Action Required:** Plan is COMPLETE but not VERIFIED. Run \`/spec ${filePath}\` to start verification.`,
     );
   } else {
-    lines.push(
-      "",
-      `Resume with \`/spec ${filePath}\` if needed.`,
-    );
+    lines.push("", `Resume with \`/spec ${filePath}\` if needed.`);
   }
 
   return lines.join("\n");

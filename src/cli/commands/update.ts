@@ -290,7 +290,9 @@ export async function downloadAndInstall(
 
       const percent = Math.floor((downloaded / totalSize) * 100);
       if (percent !== lastPercent && percent % 10 === 0) {
-        process.stdout.write(`\r  ${percent}% (${formatBytes(downloaded)} / ${formatBytes(totalSize)})`);
+        process.stdout.write(
+          `\r  ${percent}% (${formatBytes(downloaded)} / ${formatBytes(totalSize)})`,
+        );
         lastPercent = percent;
       }
     }

@@ -61,7 +61,9 @@ function registerTddStatusTool(
         if (file_path) {
           if (client) {
             const result = await client.getTddState(file_path);
-            return mcpText(`**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})`);
+            return mcpText(
+              `**${file_path}:** ${result.state} (active spec: ${result.hasActiveSpec})`,
+            );
           }
           const tdd = store!.getTddState(file_path);
           const state = tdd?.state ?? "IDLE";
@@ -163,7 +165,9 @@ function registerTddClearTool(
     async ({ file_path, spec_id }) => {
       try {
         if (!file_path && !spec_id) {
-          return mcpText("Error: Provide file_path or spec_id (at least one required).");
+          return mcpText(
+            "Error: Provide file_path or spec_id (at least one required).",
+          );
         }
 
         if (file_path) {

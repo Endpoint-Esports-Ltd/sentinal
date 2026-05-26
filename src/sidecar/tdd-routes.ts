@@ -70,9 +70,7 @@ export async function handleTddTransitionRequest(
     const { action, specId } = body;
 
     if (action !== "confirm_red" && action !== "confirm_green") {
-      return fail(
-        "Invalid action. Must be 'confirm_red' or 'confirm_green'.",
-      );
+      return fail("Invalid action. Must be 'confirm_red' or 'confirm_green'.");
     }
 
     const result = bulkTddTransition(ctx.store, action, specId);

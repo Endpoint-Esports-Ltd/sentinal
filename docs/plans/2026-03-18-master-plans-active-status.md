@@ -99,12 +99,12 @@ Type: Feature
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Multiple active plans confuse findActivePlan | Medium | High | Master plans take precedence; child plans are found via parent link, not independent scan |
-| Subagent spawning fails mid-wave | Low | Medium | Wave execution is resumable — skip child plans already at VERIFIED status |
-| IN_PROGRESS breaks existing plan workflows | Low | Low | IN_PROGRESS was already in ACTIVE_STATUSES; only new code sets it |
-| Master plan format too rigid | Medium | Medium | Keep it minimal — just phases section with wave assignments, no complex YAML frontmatter |
+| Risk                                         | Likelihood | Impact | Mitigation                                                                                |
+| -------------------------------------------- | ---------- | ------ | ----------------------------------------------------------------------------------------- |
+| Multiple active plans confuse findActivePlan | Medium     | High   | Master plans take precedence; child plans are found via parent link, not independent scan |
+| Subagent spawning fails mid-wave             | Low        | Medium | Wave execution is resumable — skip child plans already at VERIFIED status                 |
+| IN_PROGRESS breaks existing plan workflows   | Low        | Low    | IN_PROGRESS was already in ACTIVE_STATUSES; only new code sets it                         |
+| Master plan format too rigid                 | Medium     | Medium | Keep it minimal — just phases section with wave assignments, no complex YAML frontmatter  |
 
 ## Pre-Mortem
 
@@ -131,15 +131,15 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Artifacts
 
-| Truth | Supporting Artifact |
-|-------|-------------------|
-| 1 | Modified `spec-implement` skill (both targets) |
-| 2 | Modified `spec.md` dispatcher (both targets) |
-| 3 | `src/spec/detect.ts` — `shouldBlockStop()` unchanged for IN_PROGRESS |
-| 4 | Modified `src/hooks/prompt-context.ts` — shows current status |
-| 5 | New `spec-master-plan` skill (both targets) |
-| 6 | Modified parser — `Parent:`, `Wave:` fields; new `spec-master-execute` skill |
-| 7-8 | New `spec-master-execute` skill with wave-sequential, phase-parallel logic |
+| Truth | Supporting Artifact                                                          |
+| ----- | ---------------------------------------------------------------------------- |
+| 1     | Modified `spec-implement` skill (both targets)                               |
+| 2     | Modified `spec.md` dispatcher (both targets)                                 |
+| 3     | `src/spec/detect.ts` — `shouldBlockStop()` unchanged for IN_PROGRESS         |
+| 4     | Modified `src/hooks/prompt-context.ts` — shows current status                |
+| 5     | New `spec-master-plan` skill (both targets)                                  |
+| 6     | Modified parser — `Parent:`, `Wave:` fields; new `spec-master-execute` skill |
+| 7-8   | New `spec-master-execute` skill with wave-sequential, phase-parallel logic   |
 
 ### Key Links
 
@@ -282,9 +282,12 @@ _Assume this plan failed. Most likely internal reasons:_
 - In `types.ts`: add `"master"` to the `SPEC_TYPES` const array: `export const SPEC_TYPES = ["feature", "bugfix", "master"] as const`. The `SpecType` type is derived from this array via `(typeof SPEC_TYPES)[number]`, so it updates automatically. The `SpecSchema` Zod enum also derives from this array.
 - In `parser.ts` line ~40: update type normalization:
   ```typescript
-  const type = meta.type?.toLowerCase() === "bugfix" ? "bugfix"
-    : meta.type?.toLowerCase() === "master" ? "master"
-    : "feature";
+  const type =
+    meta.type?.toLowerCase() === "bugfix"
+      ? "bugfix"
+      : meta.type?.toLowerCase() === "master"
+        ? "master"
+        : "feature";
   ```
 - Modify `findActivePlan()` in `detect.ts` to prioritize `Type: Master` plans when multiple active plans exist. Scan all active plans; if a master is found, return it. Otherwise return the most recent child. Add a unit test with master + child plans both active.
 - Add parser tests for `Type: Master` plans
@@ -452,9 +455,9 @@ _Assume this plan failed. Most likely internal reasons:_
   4. For each wave (sequential):
      a. Filter to child plans not yet VERIFIED
      b. For each child plan in the wave, spawn a subagent:
-        ```
-        Task(subagent_type="general", prompt="Execute /spec <child-plan-path>")
-        ```
+     ```
+     Task(subagent_type="general", prompt="Execute /spec <child-plan-path>")
+     ```
      c. Wait for all subagents in the wave to complete
      d. Check each child plan's status — if any failed, report and ask user how to proceed
      e. Update master plan progress checkboxes

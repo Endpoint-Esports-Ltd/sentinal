@@ -16,6 +16,7 @@ Type: Feature
 ## Scope
 
 ### In Scope
+
 - Analysis paralysis guard in spec-implement (5+ consecutive reads without writes)
 - Fix attempt limit in spec-implement (3 auto-fix attempts per task max)
 - Deviation rules in spec-implement (auto-fix vs ask-user decision framework)
@@ -24,6 +25,7 @@ Type: Feature
 - New `spec_init` MCP tool returning combined workflow context
 
 ### Out of Scope
+
 - Quick mode, pause/resume, parallel research, model routing, config system
 
 ## Progress Tracking
@@ -43,10 +45,12 @@ Type: Feature
 **Objective:** Add analysis paralysis guard (5+ reads without writes), fix attempt limit (3 per task), and deviation rules (auto-fix vs ask) to the spec-implement skill.
 
 **Files:**
+
 - Modify: `targets/opencode/skills/spec-implement/SKILL.md`
 - Modify: `targets/claude-code/commands/spec-implement.md`
 
 **Key Decisions / Notes:**
+
 - Add after Step 2.3 item 6 (TDD Flow) as new items in the TDD loop
 - Analysis paralysis guard: "If you have made 5+ consecutive Read/Grep/Glob/Search calls without any Write/Edit/Bash command, STOP. State in one sentence why you haven't written anything yet. If blocked, report the blocker and move to next task."
 - Fix attempt limit: "After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. Document the remaining issue in the plan, mark task as blocked, and continue to the next task."
@@ -64,10 +68,12 @@ Type: Feature
 **Objective:** Add three-level artifact verification (Exists → Substantive → Wired) and stub detection patterns to the spec-verify skill.
 
 **Files:**
+
 - Modify: `targets/opencode/skills/spec-verify/SKILL.md`
 - Modify: `targets/claude-code/commands/spec-verify.md`
 
 **Key Decisions / Notes:**
+
 - Add to Step 3.8 (Per-Task DoD Audit) or as a new Step 3.8a
 - Three-level check:
   1. **Exists:** File is present on disk
@@ -91,10 +97,12 @@ Type: Feature
 **Objective:** Update the spec-plan template to use structured, verifiable must_haves instead of free-text Goal Verification.
 
 **Files:**
+
 - Modify: `targets/opencode/skills/spec-plan/SKILL.md`
 - Modify: `targets/claude-code/commands/spec-plan.md`
 
 **Key Decisions / Notes:**
+
 - Enhance the existing `## Goal Verification` section in the plan template (Step 1.6)
 - Truths: each must be **grep-verifiable** or **curl-testable** — not vague prose
   - Good: "GET /api/users returns 200 with JSON array"
@@ -117,31 +125,35 @@ Type: Feature
 **Dependencies:** None
 
 **Files:**
+
 - Modify: `src/spec/mcp-tools.ts`
 - Modify: `src/spec/mcp-tools.test.ts`
 
 **Key Decisions / Notes:**
+
 - Combines output from: `spec_status` (active plan + tasks) + `spec_config` (toggles) + `findActivePlan()` (filesystem detection)
 - Returns a single markdown response with all sections
 - Parameters: `project` (required)
 - Output format:
+
   ```
   ## Spec Workflow Context
-  
+
   ### Active Plan
   - Title, Status, Type, Approved, Progress %, Current Task
   - Plan File path
-  
+
   ### Configuration
   - All SENTINAL_* toggles
-  
+
   ### Current Task
   - Task N: Title (status)
   - Definition of Done items
-  
+
   ### Remaining Tasks
   - List of pending/in-progress tasks
   ```
+
 - Fast path: if no active plan, return just config section
 - This replaces the need to call spec_status + spec_config + spec_plan_parse separately
 
@@ -154,6 +166,7 @@ Type: Feature
 **Dependencies:** Tasks 1-4
 
 **Files:**
+
 - Regenerate: `src/cli/embedded-assets.ts`
 
 **Verify:** `bun run embed-assets && bun run build:cli && bun test`

@@ -4,14 +4,14 @@
 
 Sentinal provides these MCP tools for direct memory operations:
 
-| Tool | Purpose |
-|------|---------|
-| `memory_save` | Save observations (decisions, discoveries, errors, fixes, patterns) |
-| `memory_search` | Semantic + keyword search across observations |
-| `memory_get` | Retrieve full observation details by ID |
-| `memory_timeline` | Chronological context around an observation |
-| `memory_stats` | Database statistics (totals, breakdowns by type/project) |
-| `memory_share` | Promote observations to shared `.sentinal/project-memory.json` (committable) |
+| Tool              | Purpose                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `memory_save`     | Save observations (decisions, discoveries, errors, fixes, patterns)          |
+| `memory_search`   | Semantic + keyword search across observations                                |
+| `memory_get`      | Retrieve full observation details by ID                                      |
+| `memory_timeline` | Chronological context around an observation                                  |
+| `memory_stats`    | Database statistics (totals, breakdowns by type/project)                     |
+| `memory_share`    | Promote observations to shared `.sentinal/project-memory.json` (committable) |
 
 **Use `memory_save` proactively** for decisions, discoveries, error patterns, and fixes worth preserving across sessions. Use `memory_search` before starting work to check for relevant past context.
 
