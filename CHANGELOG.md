@@ -1,3 +1,15 @@
+# [1.28.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.3...v1.28.0) (2026-05-26)
+
+
+### Bug Fixes
+
+* **worktree:** add abandon/cleanup MCP tools and self-healing detect ([d46f249](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d46f2492da167fd65a1ab7a636f64ca6690dc7b2))
+
+
+### Features
+
+* **ux:** adopt 13 Claude Code + OpenCode changelog improvements (Phase 1) ([a4d3e38](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a4d3e38f2facb449cd64503b2b6c8e6a56636ff1))
+
 ## [1.27.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.2...v1.27.3) (2026-04-20)
 
 
