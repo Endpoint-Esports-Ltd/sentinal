@@ -44,6 +44,9 @@ import {
 } from "../../../src/memory/capture.js";
 import type { ToolEvent } from "../../../src/memory/capture.js";
 import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
+import { processInstructionsLoaded } from "../../../src/hooks/instructions-loaded.js";
+import { processPostCompact } from "../../../src/hooks/post-compact.js";
+import { processTaskCreated } from "../../../src/hooks/task-created.js";
 import { buildSemanticQuery } from "../../../src/memory/restore.js";
 import {
   aggregateTokenUsage,
@@ -423,7 +426,11 @@ export const SentinalPlugin: Plugin = async ({
 
       // Pre-edit guidance: inject file-specific observations
       if (sidecar && typeof filePath === "string") {
-        const guide = await getPreEditGuide(sidecar, filePath, projectRootForSidecar);
+        const guide = await getPreEditGuide(
+          sidecar,
+          filePath,
+          projectRootForSidecar,
+        );
         if (guide)
           await client.app.log({
             body: { service: "sentinal", level: "info", message: guide },
@@ -666,8 +673,12 @@ export const SentinalPlugin: Plugin = async ({
       const sq = buildSemanticQuery(projectRootForSidecar);
       try {
         if (sidecar) {
-          if (active) await sidecar.syncSpec(active.filePath, projectRootForSidecar);
-          const restored = await sidecar.restoreContext(projectRootForSidecar, sq);
+          if (active)
+            await sidecar.syncSpec(active.filePath, projectRootForSidecar);
+          const restored = await sidecar.restoreContext(
+            projectRootForSidecar,
+            sq,
+          );
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
       } catch (e) {
@@ -687,6 +698,15 @@ export const SentinalPlugin: Plugin = async ({
           join(stateDir, "compact-state.json"),
           JSON.stringify(state, null, 2),
         );
+
+        // OC parity: PostCompact — verify compact state and inject context
+        void processPostCompact({
+          session_id: sessionId ?? "",
+          transcript_path: "",
+          cwd: projectRoot,
+          permission_mode: "default",
+          hook_event_name: "PostCompact",
+        }).catch(() => {/* non-fatal */});
       }
 
       if (activePlan && active) {
@@ -748,9 +768,7 @@ export const SentinalPlugin: Plugin = async ({
         if (active) {
           const { spec, filePath } = active;
           const total = spec.tasks.length;
-          const done = spec.tasks.filter(
-            (t) => t.status === "complete",
-          ).length;
+          const done = spec.tasks.filter((t) => t.status === "complete").length;
           const current =
             spec.tasks.find((t) => t.status === "in-progress")?.title ??
             spec.tasks.find((t) => t.status === "pending")?.title ??
@@ -773,9 +791,7 @@ export const SentinalPlugin: Plugin = async ({
             };
             const isNonDefault = (
               Object.keys(defaults) as Array<keyof typeof defaults>
-            ).some(
-              (k) => routing[k] !== defaults[k],
-            );
+            ).some((k) => routing[k] !== defaults[k]);
             if (isNonDefault) {
               const parts = Object.entries(routing)
                 .map(([k, v]) => `${k}=${v}`)
@@ -789,9 +805,7 @@ export const SentinalPlugin: Plugin = async ({
           }
         }
       } catch (e) {
-        log(
-          `system.transform failed: ${e instanceof Error ? e.message : e}`,
-        );
+        log(`system.transform failed: ${e instanceof Error ? e.message : e}`);
       }
     },
 
@@ -849,7 +863,9 @@ export const SentinalPlugin: Plugin = async ({
         // if the first compaction happens before the sidecar is fully ready.
         try {
           if (sidecar) {
-            const restored = await sidecar.restoreContext(projectRootForSidecar);
+            const restored = await sidecar.restoreContext(
+              projectRootForSidecar,
+            );
             if (restored.hasMemory && restored.markdown) {
               await client.app.log({
                 body: {
@@ -895,6 +911,39 @@ export const SentinalPlugin: Plugin = async ({
                 message: conflictMsg,
               },
             });
+        }
+
+        // OC parity: InstructionsLoaded — record CLAUDE.md / AGENTS.md if they exist
+        const instructionsFile = existsSync(join(projectRootForSidecar, "CLAUDE.md"))
+          ? join(projectRootForSidecar, "CLAUDE.md")
+          : existsSync(join(projectRootForSidecar, "AGENTS.md"))
+            ? join(projectRootForSidecar, "AGENTS.md")
+            : null;
+        if (instructionsFile) {
+          void processInstructionsLoaded({
+            session_id: sessionId,
+            transcript_path: "",
+            cwd: projectRootForSidecar,
+            permission_mode: "default",
+            hook_event_name: "InstructionsLoaded",
+            file_path: instructionsFile,
+            memory_type: "Project",
+            load_reason: "session_start",
+          }).catch(() => {/* non-fatal */});
+        }
+
+        // OC parity: TaskCreated — if this appears to be a subagent session, notify dashboard
+        const isSubagent = !!(event.properties?.info?.parentSessionId);
+        if (isSubagent) {
+          void processTaskCreated({
+            session_id: sessionId,
+            transcript_path: "",
+            cwd: projectRootForSidecar,
+            permission_mode: "default",
+            hook_event_name: "TaskCreated",
+            task_id: sessionId,
+            task_subject: event.properties?.info?.title ?? "Subagent task",
+          }).catch(() => {/* non-fatal */});
         }
 
         // Restore spec plan state from previous compaction (skip if no project root)
@@ -975,7 +1024,11 @@ export const SentinalPlugin: Plugin = async ({
           }
         }
         if (projectRoot) {
-          const bufferPath = join(projectRoot, ".sentinal", "event-buffer.json");
+          const bufferPath = join(
+            projectRoot,
+            ".sentinal",
+            "event-buffer.json",
+          );
           try {
             if (existsSync(bufferPath)) unlinkSync(bufferPath);
           } catch {

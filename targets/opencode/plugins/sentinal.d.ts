@@ -10,7 +10,7 @@
  * - TDD enforcement (companion test file checks)
  * - NestJS pattern validation (DTOs, controllers, entities)
  * - Angular 17+ pattern validation (standalone components, control flow)
- * - TypeScript type checking (tsc --noEmit)
+ * - Quality checks (tsc, eslint, prettier) on-demand via quality_report MCP tool
  * - Tool redirection hints (semantic search suggestions)
  * - Context usage monitoring with visual bar
  * - Session state preservation across compaction
@@ -23,82 +23,71 @@
  * pulling in bun:sqlite transitively during bundling.
  */
 interface PluginContext {
-  project: {
-    name: string;
-    path: string;
-  };
-  directory: string;
-  worktree: string;
-  client: {
-    app: {
-      log(options: {
-        body: {
-          service: string;
-          level: string;
-          message: string;
-        };
-      }): Promise<void>;
+    project: {
+        name: string;
+        path: string;
     };
-    session: {
-      messages(options: {
-        path: {
-          id: string;
+    directory: string;
+    worktree: string;
+    client: {
+        app: {
+            log(options: {
+                body: {
+                    service: string;
+                    level: string;
+                    message: string;
+                };
+            }): Promise<void>;
         };
-      }): Promise<unknown>;
+        session: {
+            messages(options: {
+                path: {
+                    id: string;
+                };
+            }): Promise<unknown>;
+        };
     };
-  };
-  $: (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
+    $: (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
 }
 type Plugin = (context: PluginContext) => Promise<PluginHooks>;
 interface ToolDefinition {
-  description: string;
-  args: Record<string, unknown>;
-  execute(
-    args: Record<string, unknown>,
-    context: {
-      directory: string;
-      worktree: string;
-    },
-  ): Promise<string>;
+    description: string;
+    args: Record<string, unknown>;
+    execute(args: Record<string, unknown>, context: {
+        directory: string;
+        worktree: string;
+    }): Promise<string>;
 }
 interface PluginHooks {
-  "tool.execute.before"?: (
-    input: {
-      tool: string;
-    },
-    output: {
-      args: Record<string, unknown>;
-    },
-  ) => Promise<void>;
-  "tool.execute.after"?: (
-    input: {
-      tool: string;
-    },
-    output: {
-      args: Record<string, unknown>;
-    },
-  ) => Promise<void>;
-  "experimental.session.compacting"?: (
-    input: {
-      sessionID: string;
-    },
-    output: {
-      context: string[];
-      prompt?: string;
-    },
-  ) => Promise<void>;
-  event?: (input: {
-    event: {
-      type: string;
-      properties?: {
-        info?: {
-          id?: string;
+    "tool.execute.before"?: (input: {
+        tool: string;
+    }, output: {
+        args: Record<string, unknown>;
+    }) => Promise<void>;
+    "tool.execute.after"?: (input: {
+        tool: string;
+    }, output: {
+        args: Record<string, unknown>;
+    }) => Promise<void>;
+    "experimental.session.compacting"?: (input: {
+        sessionID: string;
+    }, output: {
+        context: string[];
+        prompt?: string;
+    }) => Promise<void>;
+    "experimental.chat.system.transform"?: (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>;
+    event?: (input: {
+        event: {
+            type: string;
+            properties?: {
+                info?: {
+                    id?: string;
+                };
+            };
+            sessionID?: string;
         };
-      };
-      sessionID?: string;
-    };
-  }) => Promise<void>;
-  tool?: Record<string, ToolDefinition>;
+    }) => Promise<void>;
+    tool?: Record<string, ToolDefinition>;
 }
 export declare const SentinalPlugin: Plugin;
 export default SentinalPlugin;
