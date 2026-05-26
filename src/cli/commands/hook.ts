@@ -5,7 +5,7 @@
  */
 
 import type { Command } from "commander";
-import { readStdin, output, denyExit } from "../../utils/hook-output.js";
+import { readStdin, output, hint, denyExit } from "../../utils/hook-output.js";
 import { SidecarClient } from "../../sidecar/client.js";
 import { autoStartSidecar } from "../../sidecar/lifecycle.js";
 
@@ -142,90 +142,11 @@ async function runSessionEnd(): Promise<void> {
 }
 
 async function runMemoryObserver(): Promise<void> {
-  const { isMemoryEnabled } = await import("../../memory/config.js");
-  if (!isMemoryEnabled()) return;
-
-  const { analyzeEvent, EventBuffer, MIN_CAPTURE_CONFIDENCE } =
-    await import("../../memory/capture.js");
-  const { existsSync, readFileSync, writeFileSync, mkdirSync } =
-    await import("node:fs");
-  const { join } = await import("node:path");
-
+  const { processMemoryObserver } = await import(
+    "../../hooks/memory-observer.js"
+  );
   const input = await readStdin();
-  const toolName = input.tool_name ?? "";
-  const toolInput = input.tool_input ?? {};
-  const filePath = extractFilePath(toolInput);
-  // Use tool_response for actual output (esp. Bash results); fall back to tool_input
-  const rawOutput =
-    (input.tool_response?.output as string) ??
-    (toolInput.output as string) ??
-    undefined;
-  const event = {
-    toolName,
-    filePath,
-    success: true,
-    output: rawOutput?.slice(0, 2000),
-    timestamp: Date.now(),
-  };
-
-  // Load persisted event buffer
-  const bufferDir = join(input.cwd, ".sentinal");
-  mkdirSync(bufferDir, { recursive: true });
-  const bufferPath = join(bufferDir, "event-buffer.json");
-  const buffer = new EventBuffer(20);
-  try {
-    if (existsSync(bufferPath)) {
-      const data = JSON.parse(readFileSync(bufferPath, "utf-8"));
-      if (Array.isArray(data)) {
-        for (const e of data) buffer.push(e);
-      }
-    }
-  } catch {
-    /* corrupted buffer */
-  }
-
-  buffer.push(event);
-  const decision = analyzeEvent(event, buffer);
-  writeFileSync(bufferPath, JSON.stringify(buffer.recent(20).reverse()));
-
-  if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE)
-    return;
-
-  const obsPayload = {
-    sessionId: input.session_id,
-    projectPath: input.cwd,
-    type: decision.type,
-    title: decision.title,
-    content: decision.content,
-    filePaths: decision.filePaths,
-    tags: decision.tags,
-    metadata: {
-      source: "auto-capture",
-      confidence: decision.confidence,
-      toolName,
-    },
-  };
-
-  try {
-    const client = await SidecarClient.connect();
-    if (client) {
-      await client.addObservation(obsPayload);
-      return;
-    }
-  } catch {
-    /* fall back */
-  }
-
-  try {
-    const { MemoryStore } = await import("../../memory/store.js");
-    const { MemoryService } = await import("../../memory/service.js");
-    const store = new MemoryStore();
-    const service = new MemoryService(store);
-    service.addObservation({ ...obsPayload, timestamp: Date.now() });
-    service.close();
-  } catch {
-    /* non-fatal */
-  }
+  await processMemoryObserver(input);
 }
 
 async function runMemoryRestore(): Promise<void> {
@@ -277,18 +198,11 @@ async function runMemoryRestore(): Promise<void> {
 }
 
 async function runSpecStopGuard(): Promise<void> {
-  const { block: blockFn } = await import("../../utils/hook-output.js");
-  const { findGitRoot } = await import("../../utils/git.js");
-  const { findActivePlan, shouldBlockStop } =
-    await import("../../spec/detect.js");
+  const { processSpecStopGuard } = await import(
+    "../../hooks/spec-stop-guard.js"
+  );
   const input = await readStdin();
-
-  const gitRoot = await findGitRoot(input.cwd);
-  const active = findActivePlan(gitRoot ?? input.cwd);
-  const reason = shouldBlockStop(active?.spec.status ?? null);
-  if (reason) {
-    denyExit(reason);
-  }
+  await processSpecStopGuard(input);
 }
 
 async function runPreCompact(): Promise<void> {
@@ -481,6 +395,44 @@ async function runPromptContext(): Promise<void> {
   await main();
 }
 
+async function runStopFailure(): Promise<void> {
+  const { processStopFailure } = await import("../../hooks/stop-failure.js");
+  await processStopFailure(await readStdin());
+}
+
+async function runConfigChange(): Promise<void> {
+  const { processConfigChange } = await import("../../hooks/config-change.js");
+  await processConfigChange(await readStdin());
+}
+
+async function runInstructionsLoaded(): Promise<void> {
+  const { processInstructionsLoaded } = await import(
+    "../../hooks/instructions-loaded.js"
+  );
+  await processInstructionsLoaded(await readStdin());
+}
+
+async function runCwdChanged(): Promise<void> {
+  const { processCwdChanged } = await import("../../hooks/cwd-changed.js");
+  await processCwdChanged(await readStdin());
+}
+
+async function runFileChanged(): Promise<void> {
+  const { processFileChanged } = await import("../../hooks/file-changed.js");
+  await processFileChanged(await readStdin());
+}
+
+async function runPostCompact(): Promise<void> {
+  const { processPostCompact } = await import("../../hooks/post-compact.js");
+  const result = await processPostCompact(await readStdin());
+  if (result) output(hint("PostCompact", result));
+}
+
+async function runTaskCreated(): Promise<void> {
+  const { processTaskCreated } = await import("../../hooks/task-created.js");
+  await processTaskCreated(await readStdin());
+}
+
 const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "tdd-guard": runTddGuard,
   "tdd-tracker": runTddTracker,
@@ -493,6 +445,13 @@ const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "post-compact-restore": runPostCompactRestore,
   "pre-edit-guide": runPreEditGuide,
   "prompt-context": runPromptContext,
+  "stop-failure": runStopFailure,
+  "config-change": runConfigChange,
+  "instructions-loaded": runInstructionsLoaded,
+  "cwd-changed": runCwdChanged,
+  "file-changed": runFileChanged,
+  "post-compact": runPostCompact,
+  "task-created": runTaskCreated,
 };
 
 const CLAUDE_HOOKS: Record<string, () => Promise<void>> = {
