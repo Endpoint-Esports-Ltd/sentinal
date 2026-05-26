@@ -23,6 +23,28 @@ export async function handleProjectContextRequest(
   req: Request,
 ): Promise<Response | null> {
   const url = new URL(req.url);
+
+  // POST /project-context/invalidate — clear the cache for a given project
+  if (
+    url.pathname === "/project-context/invalidate" &&
+    req.method === "POST"
+  ) {
+    try {
+      const body = (await req.json()) as { project?: string };
+      if (body.project) {
+        const cacheKey = resolve(body.project);
+        projectContextCache.delete(cacheKey);
+      } else {
+        // No project specified — clear all
+        projectContextCache.clear();
+      }
+    } catch {
+      // Invalid JSON or no body — clear all
+      projectContextCache.clear();
+    }
+    return ok({ ok: true });
+  }
+
   if (url.pathname !== "/project-context" || req.method !== "GET") return null;
 
   const projectPath = url.searchParams.get("project");

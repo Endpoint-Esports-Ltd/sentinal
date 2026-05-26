@@ -279,6 +279,15 @@ export class SidecarClient {
     return this.get(url);
   }
 
+  /**
+   * Invalidate the project-context cache for a specific project path.
+   * Best-effort — never throws. The sidecar will clear the cached context
+   * so the next /project-context request re-analyzes from disk.
+   */
+  async invalidateProjectContext(projectPath: string): Promise<void> {
+    await this.post("/project-context/invalidate", { project: projectPath });
+  }
+
   // ─── Memory Search/Timeline/Get/Stats (MCP delegation) ─────────────────
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
