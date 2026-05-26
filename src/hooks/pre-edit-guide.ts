@@ -21,6 +21,8 @@ import { detectFileConflict } from "../session/conflict.js";
 export interface PreEditInput {
   filePath: string;
   cwd: string;
+  /** Effort level from HookInput.effort.level — controls observation count */
+  effort?: string;
   /** Direct service (for testing / fallback) */
   service?: MemoryService;
   /** Sidecar client (preferred path) */
@@ -88,7 +90,10 @@ export async function processPreEditGuide(
 
   if (relevant.length === 0) return null;
 
-  return formatHint(fileBasename, relevant);
+  const maxHits =
+    input.effort === "low" || input.effort === "medium" ? 3 : 5;
+
+  return formatHint(fileBasename, relevant, maxHits);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -114,16 +119,16 @@ async function searchDirect(
   }
 }
 
-function formatHint(filename: string, hits: SearchHit[]): string {
+function formatHint(filename: string, hits: SearchHit[], maxHits = 5): string {
   const lines = [`[Sentinal] Context for ${filename}:`];
 
-  for (const hit of hits.slice(0, 5)) {
+  for (const hit of hits.slice(0, maxHits)) {
     const date = new Date(hit.timestamp).toISOString().split("T")[0];
     lines.push(`- [${hit.type}] ${date}: ${hit.title}`);
   }
 
-  if (hits.length > 5) {
-    lines.push(`  ... and ${hits.length - 5} more observation(s)`);
+  if (hits.length > maxHits) {
+    lines.push(`  ... and ${hits.length - maxHits} more observation(s)`);
   }
 
   return lines.join("\n");
@@ -153,6 +158,7 @@ async function main(): Promise<void> {
     filePath,
     cwd: input.cwd,
     client,
+    effort: input.effort?.level,
   });
   if (result) output(hint("PreToolUse", result));
 }

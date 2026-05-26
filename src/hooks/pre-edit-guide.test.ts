@@ -155,4 +155,88 @@ describe("processPreEditGuide", () => {
     expect(result).not.toBeNull();
     expect(result).toContain("[Sentinal]");
   });
+
+  it("should show max 3 observations when effort is low", async () => {
+    const filePath = "src/auth/auth.service.ts";
+    for (let i = 1; i <= 6; i++) {
+      service.addObservation(
+        makeObservation({
+          type: "discovery",
+          title: `Observation ${i}`,
+          filePaths: [filePath],
+          timestamp: Date.now() - i * 1000,
+        }),
+      );
+    }
+
+    const result = await processPreEditGuide({
+      filePath,
+      cwd: "/test/project",
+      service,
+      effort: "low",
+    });
+
+    expect(result).not.toBeNull();
+    // Should show exactly 3 observations (low effort → maxHits = 3)
+    const matches = result!.match(/^- /gm);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(3);
+    expect(result).toContain("and 3 more observation(s)");
+  });
+
+  it("should show max 5 observations when effort is xhigh", async () => {
+    const filePath = "src/auth/auth.service.ts";
+    for (let i = 1; i <= 7; i++) {
+      service.addObservation(
+        makeObservation({
+          type: "discovery",
+          title: `Observation ${i}`,
+          filePaths: [filePath],
+          timestamp: Date.now() - i * 1000,
+        }),
+      );
+    }
+
+    const result = await processPreEditGuide({
+      filePath,
+      cwd: "/test/project",
+      service,
+      effort: "xhigh",
+    });
+
+    expect(result).not.toBeNull();
+    // Should show exactly 5 observations (xhigh effort → maxHits = 5)
+    const matches = result!.match(/^- /gm);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(5);
+    expect(result).toContain("and 2 more observation(s)");
+  });
+
+  it("should show max 5 observations when effort is not specified", async () => {
+    const filePath = "src/auth/auth.service.ts";
+    for (let i = 1; i <= 7; i++) {
+      service.addObservation(
+        makeObservation({
+          type: "discovery",
+          title: `Observation ${i}`,
+          filePaths: [filePath],
+          timestamp: Date.now() - i * 1000,
+        }),
+      );
+    }
+
+    const result = await processPreEditGuide({
+      filePath,
+      cwd: "/test/project",
+      service,
+      // no effort field
+    });
+
+    expect(result).not.toBeNull();
+    // Should show exactly 5 observations (default → maxHits = 5)
+    const matches = result!.match(/^- /gm);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(5);
+    expect(result).toContain("and 2 more observation(s)");
+  });
 });
