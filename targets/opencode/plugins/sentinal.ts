@@ -47,6 +47,9 @@ import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
 import { processInstructionsLoaded } from "../../../src/hooks/instructions-loaded.js";
 import { processPostCompact } from "../../../src/hooks/post-compact.js";
 import { processTaskCreated } from "../../../src/hooks/task-created.js";
+import { handleCompactionAutocontinue } from "../../../src/opencode/compaction-autocontinue.js";
+import { buildCompactionContext } from "../../../src/opencode/compaction-context.js";
+import { createTddStatusTool } from "../../../src/opencode/native-tdd-status.js";
 import { buildSemanticQuery } from "../../../src/memory/restore.js";
 import {
   aggregateTokenUsage,
@@ -94,7 +97,7 @@ interface ToolDefinition {
   execute(
     args: Record<string, unknown>,
     context: { directory: string; worktree: string },
-  ): Promise<string>;
+  ): Promise<unknown>;
 }
 
 interface PluginHooks {
@@ -113,6 +116,10 @@ interface PluginHooks {
   "experimental.chat.system.transform"?: (
     input: Record<string, unknown>,
     output: Record<string, unknown>,
+  ) => Promise<void>;
+  "compaction.autocontinue"?: (
+    input: { sessionID: string },
+    output: { continue: boolean; context: string[] },
   ) => Promise<void>;
   event?: (input: {
     event: {
@@ -709,6 +716,8 @@ export const SentinalPlugin: Plugin = async ({
         }).catch(() => {/* non-fatal */});
       }
 
+      // Build spec context string (if active plan)
+      let specContextStr: string | null = null;
       if (activePlan && active) {
         // Build enriched spec context with current task and progress.
         // NOTE: This formatting logic is duplicated from src/hooks/prompt-context.ts
@@ -742,10 +751,28 @@ export const SentinalPlugin: Plugin = async ({
           "",
           `Resume with \`/spec ${activePlan}\` to continue the workflow.`,
         );
-        output.context.push(specLines.join("\n"));
+        specContextStr = specLines.join("\n");
       }
 
-      if (memoryContext) output.context.push(memoryContext);
+      // Read compaction.reserved from user's opencode.json for token-budget sizing
+      let reserved = 10000;
+      if (sidecar) {
+        try {
+          reserved = (
+            await sidecar.getCompactionConfig(projectRootForSidecar)
+          ).reserved;
+        } catch {
+          // Non-fatal — use default
+        }
+      }
+
+      // Inject proportionally sized context (spec prioritized over memory)
+      const budgetedContext = buildCompactionContext({
+        specContext: specContextStr,
+        memoryContext,
+        reservedTokens: reserved,
+      });
+      budgetedContext.forEach((c) => output.context.push(c));
     },
 
     "experimental.chat.system.transform": async (_input, output) => {
@@ -1052,9 +1079,28 @@ export const SentinalPlugin: Plugin = async ({
       }
     },
 
-    // NOTE: sentinal-check tool removed — OpenCode's resolveTools passes plugin
-    // tool args through toJSONSchema() which expects Zod schema instances, not
-    // plain objects. Quality checks are available via the MCP server instead.
+    // ─── compaction.autocontinue ───────────────────────────────────────────
+    // Fires after compaction completes. Pause if TDD is RED; inject spec
+    // resume directive if a spec is active. Experimental — wrap in try/catch.
+    "compaction.autocontinue": async (_input, output) => {
+      try {
+        const result = await handleCompactionAutocontinue(
+          sidecar,
+          projectRootForSidecar,
+        );
+        if (!result.shouldContinue) output.continue = false;
+        result.context.forEach((c) => output.context.push(c));
+      } catch (e) {
+        log(
+          `compaction.autocontinue error: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    },
+
+    // ─── Native tools ──────────────────────────────────────────────────────
+    tool: {
+      sentinal_tdd_status: createTddStatusTool(sidecar),
+    },
   };
 };
 

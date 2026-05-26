@@ -297,6 +297,22 @@ describe("SidecarClient", () => {
     });
     // No error = success (server returns void-ish)
   });
+
+  // ─── Compaction Config ───────────────────────────────────────────────────
+
+  it("should return default reserved tokens when no opencode.json", async () => {
+    const result = await client.getCompactionConfig(tmpDir);
+    expect(result.reserved).toBe(10000);
+  });
+
+  it("should return custom reserved tokens from opencode.json", async () => {
+    writeFileSync(
+      join(tmpDir, "opencode.json"),
+      JSON.stringify({ compaction: { reserved: 5000 } }),
+    );
+    const result = await client.getCompactionConfig(tmpDir);
+    expect(result.reserved).toBe(5000);
+  });
 });
 
 // ─── tryConnect port file self-heal ──────────────────────────────────────

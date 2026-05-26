@@ -154,6 +154,24 @@ The verification phase for master plans checks:
 
 ---
 
+## Unattended Execution
+
+When running sub-phases in headless or CI contexts using `opencode run -p "..."`, append `--dangerously-skip-permissions` to avoid interactive permission prompts blocking the process.
+
+```bash
+# Headless sub-phase dispatch (CI / automated testing only)
+opencode run --dangerously-skip-permissions -p "Execute spec plan: <child-plan-path>"
+```
+
+**Rules:**
+- **Only use in non-interactive contexts** — CI pipelines, automated testing, scheduled runs
+- **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
+- **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
+
+When spawning subagents via `Task()` (the primary pattern), the flag is not needed — subagents inherit the parent's permission context. This flag is only relevant when invoking `opencode run` as a CLI subprocess from scripts or CI.
+
+---
+
 ## Resume Support
 
 When this skill is invoked for a master plan already at IN_PROGRESS:

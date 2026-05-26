@@ -197,6 +197,14 @@ export class SidecarClient {
     return this.get("/config/model-routing");
   }
 
+  async getCompactionConfig(
+    projectPath: string,
+  ): Promise<{ reserved: number }> {
+    return this.get(
+      `/config/compaction?project=${encodeURIComponent(projectPath)}`,
+    );
+  }
+
   // ─── TDD State ─────────────────────────────────────────────────────────
 
   async getTddState(

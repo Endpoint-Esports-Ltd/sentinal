@@ -172,6 +172,18 @@ export interface PluginHooks {
     output: SessionCompactingOutput,
   ) => Promise<void>;
 
+  /** Called when auto-continuation is triggered after compaction */
+  "compaction.autocontinue"?: (
+    input: { sessionID: string },
+    output: { continue: boolean; context: string[] },
+  ) => Promise<void>;
+
+  /** Transform the system prompt (experimental) */
+  "experimental.chat.system.transform"?: (
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
+  ) => Promise<void>;
+
   /** General event handler */
   event?: (input: EventInput) => Promise<void>;
 

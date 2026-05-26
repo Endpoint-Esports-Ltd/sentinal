@@ -56,7 +56,7 @@ interface ToolDefinition {
     execute(args: Record<string, unknown>, context: {
         directory: string;
         worktree: string;
-    }): Promise<string>;
+    }): Promise<unknown>;
 }
 interface PluginHooks {
     "tool.execute.before"?: (input: {
@@ -76,6 +76,12 @@ interface PluginHooks {
         prompt?: string;
     }) => Promise<void>;
     "experimental.chat.system.transform"?: (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>;
+    "compaction.autocontinue"?: (input: {
+        sessionID: string;
+    }, output: {
+        continue: boolean;
+        context: string[];
+    }) => Promise<void>;
     event?: (input: {
         event: {
             type: string;
