@@ -17,6 +17,7 @@ import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";
 import { handleTddTransitionRequest } from "./tdd-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
+import { handleWorktreeRequest } from "./worktree-routes.js";
 import { LspClient } from "./lsp-client.js";
 
 // Re-export path helpers for backward compatibility
@@ -272,6 +273,8 @@ export async function startSidecar(
     if (tddResponse) return tddResponse;
     const configResponse = await handleConfigRequest(req, ctx);
     if (configResponse) return configResponse;
+    const worktreeResponse = await handleWorktreeRequest(req, ctx);
+    if (worktreeResponse) return worktreeResponse;
     return handleSidecarRequest(req, ctx);
   };
 

@@ -3,12 +3,15 @@
  *
  * Registers worktree management tools on an MCP server.
  * Provides:
- *   - worktree_detect: Find worktree by plan slug
+ *   - worktree_detect: Find worktree by plan slug (self-healing: marks stale entries abandoned)
  *   - worktree_create: Create worktree for a plan slug
  *   - worktree_diff: Get diff summary for a worktree
  *   - worktree_sync: Squash-merge a worktree
+ *   - worktree_abandon: Abandon a worktree by slug (remove from disk + mark abandoned)
+ *   - worktree_cleanup: Clean up all stale worktrees whose directories no longer exist
  */
 
+import { existsSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MemoryStore } from "../memory/store.js";
@@ -44,10 +47,12 @@ export function registerWorktreeTools(
   const wtStore = new WorktreeStore(effectiveStore);
   const manager = new WorktreeManager(wtStore, DEFAULT_WORKTREE_CONFIG);
 
-  registerWorktreeDetectTool(server, client, wtStore);
+  registerWorktreeDetectTool(server, client, wtStore, manager);
   registerWorktreeCreateTool(server, manager);
   registerWorktreeDiffTool(server, client, wtStore, manager);
   registerWorktreeSyncTool(server, client, wtStore, manager);
+  registerWorktreeAbandonTool(server, client, wtStore, manager);
+  registerWorktreeCleanupTool(server, client, manager);
 }
 
 // --- worktree_detect ---
@@ -56,10 +61,11 @@ function registerWorktreeDetectTool(
   server: McpServer,
   client: SidecarClient | null,
   wtStore: WorktreeStore,
+  manager: WorktreeManager,
 ): void {
   server.tool(
     "worktree_detect",
-    "Detect an active worktree for a plan slug. Returns path, branch, status, or 'not found'.",
+    "Detect an active worktree for a plan slug. Returns path, branch, status, or 'not found'. Self-healing: if the worktree directory no longer exists on disk, automatically marks it as abandoned.",
     {
       plan_slug: z.string().describe("Plan slug (e.g. '2026-03-12-add-auth')"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
@@ -67,9 +73,19 @@ function registerWorktreeDetectTool(
     async ({ plan_slug, project }) => {
       try {
         const projectPath = project ?? process.cwd();
-        const wt = client
-          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
-          : wtStore.resolveBySlug(plan_slug, projectPath);
+
+        let wt;
+        if (client) {
+          wt = await client.resolveWorktreeBySlug(plan_slug, projectPath);
+        } else {
+          wt = wtStore.resolveBySlug(plan_slug, projectPath);
+          // Self-healing (direct mode only): if the directory no longer exists
+          // on disk, auto-mark as abandoned so future queries don't return it.
+          if (wt && !existsSync(wt.worktreePath)) {
+            wtStore.updateStatus(wt.id, "abandoned");
+            wt = null;
+          }
+        }
 
         if (!wt) {
           return mcpText(`No active worktree found for slug: ${plan_slug}`);
@@ -228,6 +244,83 @@ function registerWorktreeSyncTool(
         );
       } catch (err) {
         return mcpError("Error syncing worktree", err);
+      }
+    },
+  );
+}
+
+// --- worktree_abandon ---
+
+function registerWorktreeAbandonTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  wtStore: WorktreeStore,
+  manager: WorktreeManager,
+): void {
+  server.tool(
+    "worktree_abandon",
+    "Abandon a worktree — remove from disk and mark as abandoned. WARNING: Uncommitted changes will be lost.",
+    {
+      plan_slug: z.string().describe("Plan slug (e.g. '2026-03-12-add-auth')"),
+      project: z.string().optional().describe("Project path (defaults to CWD)"),
+    },
+    async ({ plan_slug, project }) => {
+      try {
+        const projectPath = project ?? process.cwd();
+        const wt = client
+          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
+          : wtStore.resolveBySlug(plan_slug, projectPath);
+
+        if (!wt) {
+          return mcpText(`No active worktree found for slug: ${plan_slug}`);
+        }
+
+        if (client) {
+          await client.abandonWorktree(wt.id);
+        } else {
+          manager.abandon(wt.id);
+        }
+
+        return mcpText(
+          `Worktree abandoned: ${wt.branchName} (was at ${wt.worktreePath})`,
+        );
+      } catch (err) {
+        return mcpError("Error abandoning worktree", err);
+      }
+    },
+  );
+}
+
+// --- worktree_cleanup ---
+
+function registerWorktreeCleanupTool(
+  server: McpServer,
+  client: SidecarClient | null,
+  manager: WorktreeManager,
+): void {
+  server.tool(
+    "worktree_cleanup",
+    "Clean up all stale worktrees whose directories no longer exist on disk. Returns count of cleaned entries.",
+    {
+      project: z.string().optional().describe("Project path (defaults to CWD)"),
+    },
+    async ({ project }) => {
+      try {
+        const projectPath = project ?? process.cwd();
+        let cleaned: number;
+
+        if (client) {
+          const result = await client.cleanupWorktrees(projectPath);
+          cleaned = result.cleaned;
+        } else {
+          cleaned = manager.cleanup();
+        }
+
+        return mcpText(
+          `Cleaned up ${cleaned} stale worktree${cleaned === 1 ? "" : "s"}.`,
+        );
+      } catch (err) {
+        return mcpError("Error cleaning up worktrees", err);
       }
     },
   );

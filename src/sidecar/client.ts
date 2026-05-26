@@ -335,6 +335,14 @@ export class SidecarClient {
     return this.get(`/worktree/resolve?${params}`);
   }
 
+  async abandonWorktree(worktreeId: string): Promise<void> {
+    await this.post("/worktree/abandon", { worktree_id: worktreeId });
+  }
+
+  async cleanupWorktrees(projectPath?: string): Promise<{ cleaned: number }> {
+    return this.post("/worktree/cleanup", { project: projectPath });
+  }
+
   // ─── Notifications ─────────────────────────────────────────────────────
 
   async insertNotification(notif: {

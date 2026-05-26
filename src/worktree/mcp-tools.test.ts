@@ -68,12 +68,14 @@ describe("worktree_detect MCP tool", () => {
   it("should find an existing worktree by slug", async () => {
     // Create a spec and worktree
     createSpec(tmpDir, store, "my-feature");
+    const wtPath = join(tmpDir, ".worktrees", "my-feature");
+    mkdirSync(wtPath, { recursive: true }); // directory must exist for self-healing check
     const wtStore = new WorktreeStore(store);
     wtStore.insert({
       id: "wt-test-1",
       specId: "my-feature",
       projectPath: tmpDir,
-      worktreePath: join(tmpDir, ".worktrees", "my-feature"),
+      worktreePath: wtPath,
       branchName: "spec/my-feature",
       baseBranch: "main",
       baseCommit: "abc123",
@@ -373,5 +375,235 @@ describe("worktree MCP tools (sidecar mode)", () => {
     const result = await handler({ plan_slug: "my-slug", project: "/test" });
     expect(result.content[0].text).toContain("spec/my-slug");
     expect(result.content[0].text).toContain("active");
+  });
+});
+
+// --- worktree_detect self-healing tests ---
+
+describe("worktree_detect — stale worktree self-healing", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let wtStore: WorktreeStore;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    wtStore = new WorktreeStore(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return 'not found' when worktree directory no longer exists on disk", async () => {
+    // Insert a worktree pointing to a path that doesn't exist on disk
+    createSpec(tmpDir, store, "stale-feature");
+    wtStore.insert({
+      id: "wt-stale-1",
+      specId: "stale-feature",
+      projectPath: tmpDir,
+      worktreePath: join(tmpDir, ".worktrees", "stale-feature"), // does not exist
+      branchName: "spec/stale-feature",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const tools = captureTools(registerWorktreeTools, store);
+    const handler = tools.get("worktree_detect")!;
+    const result = await handler({
+      plan_slug: "stale-feature",
+      project: tmpDir,
+    });
+
+    // Should report not found, not the stale entry
+    expect(result.content[0].text).toContain("No active worktree");
+  });
+
+  it("should auto-mark stale worktree as abandoned when directory is missing", async () => {
+    createSpec(tmpDir, store, "stale-auto");
+    wtStore.insert({
+      id: "wt-stale-auto-1",
+      specId: "stale-auto",
+      projectPath: tmpDir,
+      worktreePath: join(tmpDir, ".worktrees", "stale-auto"), // does not exist
+      branchName: "spec/stale-auto",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const tools = captureTools(registerWorktreeTools, store);
+    const handler = tools.get("worktree_detect")!;
+    await handler({ plan_slug: "stale-auto", project: tmpDir });
+
+    // The row should now be abandoned in SQLite
+    const updated = wtStore.get("wt-stale-auto-1");
+    expect(updated?.status).toBe("abandoned");
+  });
+
+  it("should still find a worktree when its directory DOES exist", async () => {
+    createSpec(tmpDir, store, "live-feature");
+    const wtPath = join(tmpDir, ".worktrees", "live-feature");
+    mkdirSync(wtPath, { recursive: true }); // directory exists
+    wtStore.insert({
+      id: "wt-live-1",
+      specId: "live-feature",
+      projectPath: tmpDir,
+      worktreePath: wtPath,
+      branchName: "spec/live-feature",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const tools = captureTools(registerWorktreeTools, store);
+    const handler = tools.get("worktree_detect")!;
+    const result = await handler({
+      plan_slug: "live-feature",
+      project: tmpDir,
+    });
+
+    expect(result.content[0].text).toContain("spec/live-feature");
+    expect(result.content[0].text).toContain("active");
+  });
+});
+
+// --- worktree_abandon tests ---
+
+describe("worktree_abandon MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let wtStore: WorktreeStore;
+  let tools: Map<string, ToolHandler>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    wtStore = new WorktreeStore(store);
+    tools = captureTools(registerWorktreeTools, store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("worktree_abandon")).toBe(true);
+  });
+
+  it("should return error when no worktree found for slug", async () => {
+    const handler = tools.get("worktree_abandon")!;
+    const result = await handler({
+      plan_slug: "nonexistent-plan",
+      project: tmpDir,
+    });
+
+    expect(result.content[0].text).toContain("No active worktree");
+  });
+
+  it("should abandon a worktree and mark it as abandoned in SQLite", async () => {
+    createSpec(tmpDir, store, "abandon-feature");
+    const wtPath = join(tmpDir, ".worktrees", "abandon-feature");
+    mkdirSync(wtPath, { recursive: true });
+    wtStore.insert({
+      id: "wt-abandon-1",
+      specId: "abandon-feature",
+      projectPath: tmpDir,
+      worktreePath: wtPath,
+      branchName: "spec/abandon-feature",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    // Mock manager.abandon to avoid git operations
+    const origAbandon = WorktreeManager.prototype.abandon;
+    WorktreeManager.prototype.abandon = function (worktreeId: string) {
+      // Just update status to abandoned in store (skip git ops)
+      this.store.updateStatus(worktreeId, "abandoned");
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_abandon")!;
+      const result = await handler({
+        plan_slug: "abandon-feature",
+        project: tmpDir,
+      });
+
+      expect(result.content[0].text).toContain("abandoned");
+
+      // Verify SQLite row is now abandoned
+      const updated = wtStore.get("wt-abandon-1");
+      expect(updated?.status).toBe("abandoned");
+    } finally {
+      WorktreeManager.prototype.abandon = origAbandon;
+    }
+  });
+});
+
+// --- worktree_cleanup tests ---
+
+describe("worktree_cleanup MCP tool", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let wtStore: WorktreeStore;
+  let tools: Map<string, ToolHandler>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    wtStore = new WorktreeStore(store);
+    tools = captureTools(registerWorktreeTools, store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should be registered as a tool", () => {
+    expect(tools.has("worktree_cleanup")).toBe(true);
+  });
+
+  it("should return count of 0 when no stale worktrees exist", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return 0;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_cleanup")!;
+      const result = await handler({ project: tmpDir });
+
+      expect(result.content[0].text).toContain("0");
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
+  it("should return count of cleaned worktrees", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return 3;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_cleanup")!;
+      const result = await handler({ project: tmpDir });
+
+      expect(result.content[0].text).toContain("3");
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
   });
 });

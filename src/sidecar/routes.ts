@@ -105,11 +105,6 @@ export async function handleSidecarRequest(
       return handleGetSpecEvents(url, ctx);
     }
 
-    // Worktree — resolve by slug
-    if (path === "/worktree/resolve" && method === "GET") {
-      return handleResolveWorktree(url, ctx);
-    }
-
     // Notifications
     if (path === "/notification" && method === "POST") {
       return handleInsertNotification(req, ctx);
@@ -389,12 +384,4 @@ function handleGetSpecEvents(url: URL, ctx: SidecarContext): Response {
   return ok(events);
 }
 
-// ─── Worktree Resolve ────────────────────────────────────────────────────
 
-function handleResolveWorktree(url: URL, ctx: SidecarContext): Response {
-  const slug = url.searchParams.get("slug");
-  if (!slug) return fail("Missing 'slug' query param");
-  const project = url.searchParams.get("project") ?? undefined;
-  const wt = ctx.wtStore.resolveBySlug(slug, project);
-  return ok(wt);
-}
