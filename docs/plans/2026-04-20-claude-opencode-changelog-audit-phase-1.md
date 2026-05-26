@@ -58,21 +58,21 @@ Wave: 1
 
 ### Key files (and what's in them today)
 
-| File | Current state | What changes |
-|---|---|---|
-| `src/cli/commands/statusline.ts` | 321 lines, parses rate_limits + context_window from session JSON | Add `workspace.git_worktree` field extraction + output |
-| `targets/claude-code/settings.json` | 93 lines, has env + permissions.allow + spinnerTipsOverride | Add `statusLine.refreshInterval`, `plansDirectory`, env var |
-| `targets/claude-code/hooks/hooks.json` | 100+ lines, defines all hooks | Add `once: true` to 2 entries; may touch UserPromptSubmit matcher |
-| `src/hooks/prompt-context.ts` | Existing UserPromptSubmit hook | Add `hookSpecificOutput.sessionTitle` to output when active spec present |
-| `src/utils/file-length.ts` | `TEST_PATTERNS` array, `isGeneratedFile`, `checkFileLength()` | Add `PATH_EXEMPTIONS` array, check in `checkFileLength` |
-| `src/memory/config.ts` / `src/memory/store.ts` | Memory DB path resolution (`getDbPath()`) | Prefer `$CLAUDE_PLUGIN_DATA` over current default when set |
-| `targets/claude-code/agents/research.md` | Existing agent | Add `isolation: worktree` + `memory: project` to frontmatter |
-| `targets/claude-code/commands/spec-plan.md` | Has `effort: high` | Change to `effort: xhigh` (Opus 4.7 fallback: `high`) |
-| `targets/claude-code/commands/spec-master-plan.md` | Has `effort: high` | Change to `effort: xhigh` |
-| `targets/opencode/rules/standards-{angular,backend,frontend,nestjs,typescript}.md` | No `paths:` | Add `paths:` frontmatter mirroring Claude Code targets |
-| `.sentinal/rules/sentinal-testing.md` | Current file-length rules | Add explicit exemption clause for `targets/opencode/plugins/sentinal.ts` |
-| `package.json` | Current scripts | Add `"validate:plugin": "claude plugin validate targets/claude-code || true"` (warn-only) |
-| `AGENTS.md` / `docs/` | User-facing docs | Add snippets for `--dangerously-skip-permissions`, MDM, `--agent`, sanitize, gitignore |
+| File                                                                               | Current state                                                    | What changes                                                                           |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --- | ------------------ |
+| `src/cli/commands/statusline.ts`                                                   | 321 lines, parses rate_limits + context_window from session JSON | Add `workspace.git_worktree` field extraction + output                                 |
+| `targets/claude-code/settings.json`                                                | 93 lines, has env + permissions.allow + spinnerTipsOverride      | Add `statusLine.refreshInterval`, `plansDirectory`, env var                            |
+| `targets/claude-code/hooks/hooks.json`                                             | 100+ lines, defines all hooks                                    | Add `once: true` to 2 entries; may touch UserPromptSubmit matcher                      |
+| `src/hooks/prompt-context.ts`                                                      | Existing UserPromptSubmit hook                                   | Add `hookSpecificOutput.sessionTitle` to output when active spec present               |
+| `src/utils/file-length.ts`                                                         | `TEST_PATTERNS` array, `isGeneratedFile`, `checkFileLength()`    | Add `PATH_EXEMPTIONS` array, check in `checkFileLength`                                |
+| `src/memory/config.ts` / `src/memory/store.ts`                                     | Memory DB path resolution (`getDbPath()`)                        | Prefer `$CLAUDE_PLUGIN_DATA` over current default when set                             |
+| `targets/claude-code/agents/research.md`                                           | Existing agent                                                   | Add `isolation: worktree` + `memory: project` to frontmatter                           |
+| `targets/claude-code/commands/spec-plan.md`                                        | Has `effort: high`                                               | Change to `effort: xhigh` (Opus 4.7 fallback: `high`)                                  |
+| `targets/claude-code/commands/spec-master-plan.md`                                 | Has `effort: high`                                               | Change to `effort: xhigh`                                                              |
+| `targets/opencode/rules/standards-{angular,backend,frontend,nestjs,typescript}.md` | No `paths:`                                                      | Add `paths:` frontmatter mirroring Claude Code targets                                 |
+| `.sentinal/rules/sentinal-testing.md`                                              | Current file-length rules                                        | Add explicit exemption clause for `targets/opencode/plugins/sentinal.ts`               |
+| `package.json`                                                                     | Current scripts                                                  | Add `"validate:plugin": "claude plugin validate targets/claude-code                    |     | true"` (warn-only) |
+| `AGENTS.md` / `docs/`                                                              | User-facing docs                                                 | Add snippets for `--dangerously-skip-permissions`, MDM, `--agent`, sanitize, gitignore |
 
 ### Patterns to follow
 
@@ -92,6 +92,7 @@ Wave: 1
 ### Domain context
 
 Sentinal is a dual-target plugin for Claude Code + OpenCode. All 14 items in this phase map to **shipped artifacts** (`targets/`) or **product behavior** (`src/`). Every change touches exactly one of:
+
 - An end-user-facing file (rules, agents, commands in `targets/**/`)
 - A single source-code function (`statusline.ts`, `file-length.ts`, `memory/config.ts`, `prompt-context.ts`, `hooks.json`)
 - A CI/package.json script
@@ -116,14 +117,14 @@ All 14 items are independently testable, have no cross-dependencies, and can be 
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| OpenCode `paths:` frontmatter format differs from Claude Code | Medium | Low | Task 9 first verifies against one rules file; if broken, scope narrows |
-| Statusline new field breaks existing terminals with narrow width | Low | Low | Append at end of existing format; existing short-circuit on empty `modelUsage` shows the pattern |
-| `${CLAUDE_PLUGIN_DATA}` path doesn't exist or isn't writable | Medium | Medium | Fall back to existing `getDbPath()` if env var missing or path unwritable |
-| `claude plugin validate` is strict and rejects existing frontmatter | Medium | Low | `--warn-only` flag in CI per master plan Pre-Mortem #9 |
-| PATH_EXEMPTIONS allowlist is too permissive | Low | Medium | Absolute-path match only, exact string; no glob |
-| OpenCode plugin line-count rule disagrees with our exemption | Low | Low | Document exemption in `.sentinal/rules/sentinal-testing.md` as authoritative |
+| Risk                                                                | Likelihood | Impact | Mitigation                                                                                       |
+| ------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------ |
+| OpenCode `paths:` frontmatter format differs from Claude Code       | Medium     | Low    | Task 9 first verifies against one rules file; if broken, scope narrows                           |
+| Statusline new field breaks existing terminals with narrow width    | Low        | Low    | Append at end of existing format; existing short-circuit on empty `modelUsage` shows the pattern |
+| `${CLAUDE_PLUGIN_DATA}` path doesn't exist or isn't writable        | Medium     | Medium | Fall back to existing `getDbPath()` if env var missing or path unwritable                        |
+| `claude plugin validate` is strict and rejects existing frontmatter | Medium     | Low    | `--warn-only` flag in CI per master plan Pre-Mortem #9                                           |
+| PATH_EXEMPTIONS allowlist is too permissive                         | Low        | Medium | Absolute-path match only, exact string; no glob                                                  |
+| OpenCode plugin line-count rule disagrees with our exemption        | Low        | Low    | Document exemption in `.sentinal/rules/sentinal-testing.md` as authoritative                     |
 
 ## Pre-Mortem
 
@@ -159,40 +160,40 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Artifacts
 
-| Artifact | Provides | Exports |
-|---|---|---|
-| `src/cli/commands/statusline.ts` (modified) | Statusline with worktree branch surfaced | `formatStatusline()` + `extractWorktree()` helper |
-| `targets/claude-code/settings.json` (modified) | 3 new config keys | N/A (JSON data) |
-| `targets/claude-code/hooks/hooks.json` (modified) | `once: true` on 2 hook entries | N/A (JSON data) |
-| `src/hooks/prompt-context.ts` (modified) | sessionTitle on UserPromptSubmit | `handlePromptContext()` returning HookOutput with hookSpecificOutput.sessionTitle |
-| `src/utils/file-length.ts` (modified) | Path-exemption allowlist | `checkFileLength()` + new `PATH_EXEMPTIONS` constant |
-| `src/memory/config.ts` (modified) | CLAUDE_PLUGIN_DATA env var honored | `getDbPath()` |
-| `src/memory/config.test.ts` (modified) | Unit tests for env var path | Test suite |
-| `src/cli/commands/statusline.test.ts` (modified) | Unit tests for worktree extraction | Test suite |
-| `src/utils/file-length.test.ts` (modified) | Unit tests for PATH_EXEMPTIONS | Test suite |
-| `src/hooks/prompt-context.test.ts` (modified) | Unit test for sessionTitle output | Test suite |
-| `targets/claude-code/commands/spec-plan.md` (modified) | Frontmatter `effort: xhigh` | Skill definition |
-| `targets/claude-code/commands/spec-master-plan.md` (modified) | Frontmatter `effort: xhigh` | Skill definition |
-| `targets/claude-code/agents/research.md` (modified) | Worktree isolation + project memory | Agent definition |
-| `targets/opencode/rules/standards-angular.md` (modified) | `paths:` frontmatter | Rule file |
-| `targets/opencode/rules/standards-backend.md` (modified) | `paths:` frontmatter | Rule file |
-| `targets/opencode/rules/standards-frontend.md` (modified) | `paths:` frontmatter | Rule file |
-| `targets/opencode/rules/standards-nestjs.md` (modified) | `paths:` frontmatter | Rule file |
-| `targets/opencode/rules/standards-typescript.md` (modified) | `paths:` frontmatter | Rule file |
-| `.sentinal/rules/sentinal-testing.md` (modified) | File-length exemption documented | Dev rule |
-| `package.json` (modified) | `validate:plugin` script | N/A (package metadata) |
-| `docs/changelog-adoptions-phase1.md` (new) | User-facing docs snippets | Documentation |
+| Artifact                                                      | Provides                                 | Exports                                                                           |
+| ------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `src/cli/commands/statusline.ts` (modified)                   | Statusline with worktree branch surfaced | `formatStatusline()` + `extractWorktree()` helper                                 |
+| `targets/claude-code/settings.json` (modified)                | 3 new config keys                        | N/A (JSON data)                                                                   |
+| `targets/claude-code/hooks/hooks.json` (modified)             | `once: true` on 2 hook entries           | N/A (JSON data)                                                                   |
+| `src/hooks/prompt-context.ts` (modified)                      | sessionTitle on UserPromptSubmit         | `handlePromptContext()` returning HookOutput with hookSpecificOutput.sessionTitle |
+| `src/utils/file-length.ts` (modified)                         | Path-exemption allowlist                 | `checkFileLength()` + new `PATH_EXEMPTIONS` constant                              |
+| `src/memory/config.ts` (modified)                             | CLAUDE_PLUGIN_DATA env var honored       | `getDbPath()`                                                                     |
+| `src/memory/config.test.ts` (modified)                        | Unit tests for env var path              | Test suite                                                                        |
+| `src/cli/commands/statusline.test.ts` (modified)              | Unit tests for worktree extraction       | Test suite                                                                        |
+| `src/utils/file-length.test.ts` (modified)                    | Unit tests for PATH_EXEMPTIONS           | Test suite                                                                        |
+| `src/hooks/prompt-context.test.ts` (modified)                 | Unit test for sessionTitle output        | Test suite                                                                        |
+| `targets/claude-code/commands/spec-plan.md` (modified)        | Frontmatter `effort: xhigh`              | Skill definition                                                                  |
+| `targets/claude-code/commands/spec-master-plan.md` (modified) | Frontmatter `effort: xhigh`              | Skill definition                                                                  |
+| `targets/claude-code/agents/research.md` (modified)           | Worktree isolation + project memory      | Agent definition                                                                  |
+| `targets/opencode/rules/standards-angular.md` (modified)      | `paths:` frontmatter                     | Rule file                                                                         |
+| `targets/opencode/rules/standards-backend.md` (modified)      | `paths:` frontmatter                     | Rule file                                                                         |
+| `targets/opencode/rules/standards-frontend.md` (modified)     | `paths:` frontmatter                     | Rule file                                                                         |
+| `targets/opencode/rules/standards-nestjs.md` (modified)       | `paths:` frontmatter                     | Rule file                                                                         |
+| `targets/opencode/rules/standards-typescript.md` (modified)   | `paths:` frontmatter                     | Rule file                                                                         |
+| `.sentinal/rules/sentinal-testing.md` (modified)              | File-length exemption documented         | Dev rule                                                                          |
+| `package.json` (modified)                                     | `validate:plugin` script                 | N/A (package metadata)                                                            |
+| `docs/changelog-adoptions-phase1.md` (new)                    | User-facing docs snippets                | Documentation                                                                     |
 
 ### Key Links
 
-| From | To | Via | Pattern |
-|---|---|---|---|
-| `src/cli/commands/statusline.ts` | Claude Code session JSON | reads `session.workspace.git_worktree` | `workspace.*git_worktree` |
-| `src/hooks/prompt-context.ts` | Claude Code hook output contract | `hookSpecificOutput.sessionTitle` | `hookSpecificOutput.*sessionTitle` |
-| `targets/claude-code/hooks/hooks.json` | `sentinal hook shared memory-restore` | `command` field | `memory-restore` |
-| `src/utils/file-length.ts` | `sentinal.ts` exemption | `PATH_EXEMPTIONS` array | `sentinal\.ts` |
-| `targets/claude-code/settings.json` | `docs/plans/` | `plansDirectory` setting value | `"plansDirectory".*docs/plans` |
-| `.sentinal/rules/sentinal-testing.md` | `sentinal.ts` exemption rationale | prose paragraph | `sentinal\.ts.*exempt` |
+| From                                   | To                                    | Via                                    | Pattern                            |
+| -------------------------------------- | ------------------------------------- | -------------------------------------- | ---------------------------------- |
+| `src/cli/commands/statusline.ts`       | Claude Code session JSON              | reads `session.workspace.git_worktree` | `workspace.*git_worktree`          |
+| `src/hooks/prompt-context.ts`          | Claude Code hook output contract      | `hookSpecificOutput.sessionTitle`      | `hookSpecificOutput.*sessionTitle` |
+| `targets/claude-code/hooks/hooks.json` | `sentinal hook shared memory-restore` | `command` field                        | `memory-restore`                   |
+| `src/utils/file-length.ts`             | `sentinal.ts` exemption               | `PATH_EXEMPTIONS` array                | `sentinal\.ts`                     |
+| `targets/claude-code/settings.json`    | `docs/plans/`                         | `plansDirectory` setting value         | `"plansDirectory".*docs/plans`     |
+| `.sentinal/rules/sentinal-testing.md`  | `sentinal.ts` exemption rationale     | prose paragraph                        | `sentinal\.ts.*exempt`             |
 
 ## Progress Tracking
 
@@ -221,10 +222,12 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `src/cli/commands/statusline.ts`
 - Modify: `src/cli/commands/statusline.test.ts`
 
 **Key Decisions / Notes:**
+
 - Input shape from changelog v2.1.97/2.1.98: `session.workspace.git_worktree = { name, path, branch, originalRepoDir }` when active.
 - New helper: `extractWorktree(sessionJson): { branch: string } | null` — returns `null` if field absent or malformed.
 - Format: append `📁 <branch>` to statusline when present. When a worktree is active AND branch differs from `main`, highlight. When no worktree, omit.
@@ -232,6 +235,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - Wrap in try/catch per statusline.ts:316-319 (never fail visibly).
 
 **Definition of Done:**
+
 - [ ] `extractWorktree()` helper added, tested with 3 cases (present, absent, malformed)
 - [ ] `formatStatusline()` appends worktree segment when `workspaceBranch` is set
 - [ ] `registerStatuslineCommand` action reads + passes `workspaceBranch` to formatter
@@ -239,6 +243,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] `bun run build:cli` succeeds
 
 **Verify:**
+
 - `bun test src/cli/commands/statusline.test.ts --verbose`
 - `echo '{"workspace":{"git_worktree":{"branch":"feature/foo"}}}' | bun run src/cli/index.ts statusline` → output contains `📁 feature/foo`
 
@@ -249,22 +254,26 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `targets/claude-code/settings.json`
 - Modify: `src/cli/target-assets.test.ts` (add assertions for new keys)
 
 **Key Decisions / Notes:**
+
 - Add to top-level: `"statusLine": { "refreshInterval": 30 }` (30 seconds — enough for context% drift, cheap to re-run)
 - Add to top-level: `"plansDirectory": "docs/plans"` (aligns Claude's `/plan` with Sentinal's spec layout)
 - Add to `env`: `"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000"` (matches the 10s timeout in hooks.json session-end)
 - Preserve all existing keys (permissions, alwaysThinkingEnabled, respectGitignore, spinnerTipsOverride) byte-for-byte.
 
 **Definition of Done:**
+
 - [ ] JSON parses cleanly
 - [ ] All 3 new keys present at correct paths
 - [ ] Existing keys untouched (diff review)
 - [ ] `src/cli/target-assets.test.ts` asserts on new keys
 
 **Verify:**
+
 - `jq '.statusLine.refreshInterval, .plansDirectory, .env.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS' targets/claude-code/settings.json` → outputs `30`, `"docs/plans"`, `"10000"` respectively
 - `bun test src/cli/target-assets.test.ts`
 
@@ -275,22 +284,26 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `src/hooks/prompt-context.ts`
 - Modify: `src/hooks/prompt-context.test.ts`
 
 **Key Decisions / Notes:**
+
 - Look for active spec via `SpecStore.getCurrentSpec(projectPath)` or `SidecarClient.specStatus()`.
 - Title format: `spec:<spec-slug>` (e.g., `spec:2026-04-20-changelog-audit`). Truncate to 80 chars if needed.
 - Only set when a spec is PENDING or IN_PROGRESS (not VERIFIED — those are done).
 - Always include the existing behavior (the prompt-context additionalContext) — the sessionTitle is purely additive on the same output.
 
 **Definition of Done:**
+
 - [ ] Hook output contains `hookSpecificOutput: { sessionTitle: "spec:..." }` when active spec exists
 - [ ] No `hookSpecificOutput` field when no active spec
 - [ ] Existing additionalContext behavior preserved
 - [ ] Unit test covers all 3 states (active spec, no spec, verified spec)
 
 **Verify:**
+
 - `bun test src/hooks/prompt-context.test.ts --verbose`
 
 ### Task 4: hooks.json `once: true` on session-start handlers
@@ -300,19 +313,23 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `targets/claude-code/hooks/hooks.json`
 - Modify: `src/cli/target-assets.test.ts` (add assertion)
 
 **Key Decisions / Notes:**
+
 - Both hooks currently run on every SessionStart matcher hit — but they do session-init work that should run exactly once. `once: true` is the native semantic (changelog 2.1.0).
 - Does NOT apply to `post-compact-restore` (that one is on SessionStart+compact matcher and legitimately fires per compact event).
 
 **Definition of Done:**
+
 - [ ] `hooks.json` SessionStart entries for `memory-restore` and `session-start` commands have `"once": true`
 - [ ] JSON parses cleanly
 - [ ] Test asserts field presence
 
 **Verify:**
+
 - `jq '.hooks.SessionStart[] | select(.hooks[].command | contains("memory-restore") or contains("session-start")) | .once' targets/claude-code/hooks/hooks.json` → prints `true` twice
 - `bun test src/cli/target-assets.test.ts`
 
@@ -323,20 +340,24 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `targets/claude-code/commands/spec-plan.md`
 - Modify: `targets/claude-code/commands/spec-master-plan.md`
 
 **Key Decisions / Notes:**
+
 - Change `effort: high` → `effort: xhigh` in frontmatter only.
 - Non-Opus-4.7 models fall back to `high` automatically per changelog — no defensive code needed.
 - **Do NOT touch `spec-bugfix-plan.md`** — bugfixes are usually mechanical root-cause tracing; `high` is appropriate.
 
 **Definition of Done:**
+
 - [ ] Both files have `effort: xhigh` in frontmatter
 - [ ] No other frontmatter changes
 - [ ] No body text changes
 
 **Verify:**
+
 - `grep "^effort: xhigh" targets/claude-code/commands/spec-plan.md targets/claude-code/commands/spec-master-plan.md` → 2 matches
 
 ### Task 6: `${CLAUDE_PLUGIN_DATA}` env var support in memory config
@@ -346,21 +367,25 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `src/memory/config.ts` (or wherever `getDbPath()` lives)
 - Modify: `src/memory/config.test.ts`
 
 **Key Decisions / Notes:**
+
 - Check `process.env.CLAUDE_PLUGIN_DATA` first. If set AND path is writable, use `${CLAUDE_PLUGIN_DATA}/sentinal.db`.
 - Fall back to current default (likely `.sentinal/memory.db` in project or `~/.sentinal/memory.db`) if env var absent OR path not writable.
 - Writability check: try `fs.accessSync(path, fs.constants.W_OK)` with fallback on exception.
 - This is OPT-IN via env var; no migration of existing DBs (they stay at their current location until user moves them).
 
 **Definition of Done:**
+
 - [ ] `getDbPath()` prefers `$CLAUDE_PLUGIN_DATA` when set and writable
 - [ ] Falls back to existing path when env var absent or path unwritable
 - [ ] 3 test cases: env var unset, env var set to writable, env var set to unwritable
 
 **Verify:**
+
 - `bun test src/memory/config.test.ts --verbose`
 
 ### Task 7: OpenCode rules `paths:` frontmatter parity
@@ -371,6 +396,7 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `targets/opencode/rules/standards-angular.md`
 - Modify: `targets/opencode/rules/standards-backend.md`
 - Modify: `targets/opencode/rules/standards-frontend.md`
@@ -381,6 +407,7 @@ _Assume this plan failed. Most likely internal reasons:_
 **Sequential sub-steps:**
 
 **7a — 5-minute pre-check (before any edits):**
+
 - Run `rg -i 'paths' targets/opencode/plugins/sentinal.ts` and `rg -i 'frontmatter' targets/opencode/plugins/sentinal.ts`
 - Search OpenCode docs or plugin SDK types (`@opencode-ai/plugin`) for a `paths` rule-loader field
 - **Expected outcome paths:**
@@ -388,12 +415,14 @@ _Assume this plan failed. Most likely internal reasons:_
   - **No evidence found OR explicit docs say "OpenCode rules load globally"** → proceed to 7c (docs-only divergence note)
 
 **7b — Full adoption (only if 7a confirmed):**
+
 - Start with ONE file: `standards-typescript.md`. Copy the `paths:` YAML block exactly from `targets/claude-code/rules/standards-typescript.md`.
 - Install into dev project (`bun run install:opencode`). Open a matching `.ts` file AND a non-matching file (e.g., a `.md`). Confirm rule loads for the match and is suppressed for the non-match.
 - If confirmed: propagate to the remaining 4 files.
 - If NOT confirmed at this stage: revert the typescript.md edit; fall through to 7c.
 
 **7c — Divergence documentation path:**
+
 - Revert any edits made to OpenCode rules
 - Create `.sentinal/rules/sentinal-opencode-rules.md` with:
   - A clear statement: "OpenCode rules do not support `paths:` frontmatter (as of v1.3.x). Claude Code rules DO support it. This is a target-specific divergence."
@@ -401,17 +430,20 @@ _Assume this plan failed. Most likely internal reasons:_
 - Mark Task 7 complete — scope is now the divergence note, not file edits.
 
 **Key Decisions / Notes:**
+
 - Copy `paths:` YAML block exactly from the corresponding `targets/claude-code/rules/standards-*.md` file.
 - Preserve all other frontmatter fields.
 - The 7a pre-check is ~5 minutes and prevents a 5-file revert cycle.
 
 **Definition of Done:**
+
 - [ ] Task 7a pre-check performed and outcome documented in the task's commit message
 - [ ] EITHER: All 5 OpenCode standards files have `paths:` block matching Claude Code counterpart (7b path)
 - [ ] OR: `.sentinal/rules/sentinal-opencode-rules.md` exists documenting the divergence (7c path)
 - [ ] Dev-project test performed (only under 7b) confirms OpenCode respects the frontmatter
 
 **Verify:**
+
 - Under 7b path: `grep -l "^paths:" targets/opencode/rules/standards-*.md | wc -l` → `5`
 - Under 7c path: `grep -l "OpenCode rules do not support.*paths" .sentinal/rules/sentinal-opencode-rules.md` → match
 
@@ -422,18 +454,22 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `package.json`
 
 **Key Decisions / Notes:**
+
 - Add to `scripts`: `"validate:plugin": "claude plugin validate targets/claude-code 2>&1 | tee /tmp/sentinal-plugin-validate.log || true"`.
 - The `|| true` makes it warn-only — it prints validation output but never fails CI.
 - CI job config (`.github/workflows/`) out of scope for this task — can be wired in a follow-up. Just add the script entry.
 
 **Definition of Done:**
+
 - [ ] `validate:plugin` script entry exists in package.json
 - [ ] Running `bun run validate:plugin` executes without failing
 
 **Verify:**
+
 - `jq '.scripts."validate:plugin"' package.json` → prints the command
 - `bun run validate:plugin` → exits 0 (warn-only)
 
@@ -444,20 +480,24 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `targets/claude-code/agents/research.md`
 - (Optional) Modify: `targets/opencode/agents/research.md` if it exists
 
 **Key Decisions / Notes:**
+
 - `isolation: worktree` — research agent is stateless reader; isolating in worktree prevents any accidental writes to main tree. Safe default.
 - `memory: project` — project-scoped memory for research queries. Distinct from Sentinal's memory store; complementary.
 - Preserve existing frontmatter (description, tools, etc.).
 
 **Definition of Done:**
+
 - [ ] `research.md` frontmatter has `isolation: worktree` and `memory: project`
 - [ ] No other frontmatter changes
 - [ ] Agent still loads after reinstall (`sentinal install claude-code`)
 
 **Verify:**
+
 - `grep -E "^(isolation|memory):" targets/claude-code/agents/research.md` → 2 matches
 
 ### Task 10: File-length PATH_EXEMPTIONS
@@ -467,10 +507,12 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `src/utils/file-length.ts`
 - Modify: `src/utils/file-length.test.ts`
 
 **Key Decisions / Notes:**
+
 - Add constant near `TEST_PATTERNS`:
   ```ts
   const PATH_EXEMPTIONS: ReadonlyArray<string> = [
@@ -487,6 +529,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - Test: `sentinal.ts` at 1008 lines returns `null` (no warning, no block).
 
 **Definition of Done:**
+
 - [ ] `PATH_EXEMPTIONS` constant added
 - [ ] `checkFileLength()` early-returns for exempt paths (before test + generated checks is fine)
 - [ ] Test case for `sentinal.ts` at 1200 lines returns `null`
@@ -495,6 +538,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] **Integration test:** feed a synthetic HookInput for `targets/opencode/plugins/sentinal.ts` through the file-checker hook directly (`src/hooks/file-checker.ts`'s exported handler), assert no block/warn output is produced.
 
 **Verify:**
+
 - `bun test src/utils/file-length.test.ts --verbose`
 - `bun test src/hooks/file-checker.test.ts --verbose` (includes the integration test above)
 - `grep "PATH_EXEMPTIONS" src/utils/file-length.ts` → at least 2 matches (declaration + usage)
@@ -506,9 +550,11 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Modify: `.sentinal/rules/sentinal-testing.md`
 
 **Key Decisions / Notes:**
+
 - Add a paragraph under the "File-Length Limits" section explaining:
   - The exemption: `targets/opencode/plugins/sentinal.ts`
   - The rationale: single-file plugin format is an OpenCode platform constraint, not a code smell.
@@ -516,10 +562,12 @@ _Assume this plan failed. Most likely internal reasons:_
   - Enforced by: `PATH_EXEMPTIONS` in `src/utils/file-length.ts`.
 
 **Definition of Done:**
+
 - [ ] Paragraph added
 - [ ] References `PATH_EXEMPTIONS` constant by name for cross-ref
 
 **Verify:**
+
 - `grep -E "sentinal\.ts.*exempt|exempt.*sentinal\.ts" .sentinal/rules/sentinal-testing.md` → 1+ matches
 
 ### Task 12: User-facing docs — OpenCode CLI flags + MDM + gitignore
@@ -529,9 +577,11 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 1
 
 **Files:**
+
 - Create: `docs/changelog-adoptions-phase1.md`
 
 **Key Decisions / Notes:**
+
 - One file, 5 short sections:
   1. `opencode run --dangerously-skip-permissions` — use for CI / spec-master runs
   2. macOS MDM guidance — how to pin Sentinal settings via MDM profiles
@@ -542,12 +592,14 @@ _Assume this plan failed. Most likely internal reasons:_
 - Link from `README.md` and/or `AGENTS.md` in a follow-up (not required this task).
 
 **Definition of Done:**
+
 - [ ] `docs/changelog-adoptions-phase1.md` exists
 - [ ] All 5 topics covered
 - [ ] No stub/TODO markers
 - [ ] Grep-verifiable mentions for each feature name
 
 **Verify:**
+
 - `grep -E "dangerously-skip-permissions|MDM|--agent|--sanitize|\.sentinal/" docs/changelog-adoptions-phase1.md | wc -l` → ≥5
 
 ### Task 13: Embed-assets regen + full verification
@@ -557,9 +609,11 @@ _Assume this plan failed. Most likely internal reasons:_
 **Wave:** 2
 
 **Files:**
+
 - Regenerated: `src/cli/embedded-assets.ts` (auto)
 
 **Key Decisions / Notes:**
+
 - `bun run embed-assets` must be run because `targets/**/*.md` and `settings.json` changes won't reach installed plugins without re-embedding.
 - Expected diff: embedded-assets.ts line count increases slightly; no other source changes.
 - Full regression suite: `bun test` (all), `bunx tsc --noEmit`, `bun run build:all`.
@@ -568,11 +622,13 @@ _Assume this plan failed. Most likely internal reasons:_
 **Definition of Done:**
 
 **Pre-embed validation checkpoint** (catches bad inputs before the 11k-line auto-generated diff):
+
 - [ ] `jq . targets/claude-code/settings.json > /dev/null` — JSON parses cleanly
 - [ ] `jq . targets/claude-code/hooks/hooks.json > /dev/null` — JSON parses cleanly
 - [ ] `bun run validate:plugin` — exits 0 (warn-only) with no hard errors
 
 **Embed + automated gates:**
+
 - [ ] `bun run embed-assets` runs successfully
 - [ ] `src/cli/embedded-assets.ts` diff only reflects intended target changes (review before commit)
 - [ ] `bun test` passes (all tests)
@@ -580,11 +636,13 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] `bun run build:all` succeeds
 
 **Manual smoke tests** (de-risks Pre-Mortem #1, #2 — these cannot be caught by automation):
+
 - [ ] Install Phase 1 build into a dev Claude Code project (`bun run install:claude-code`) and open a fresh session. Confirm statusline shows `📁 <branch>` when a git worktree is active (use `git worktree add` to create one for the test).
 - [ ] In the same dev session, submit a prompt while a spec is active (any `PENDING`/`IN_PROGRESS` plan). Confirm the session title displays as `spec:<slug>` in Claude Code's UI.
 - [ ] Open any `.ts` file matching an OpenCode `paths:` pattern (e.g., a `*.component.ts` for angular rules) and confirm the rule loads. If OpenCode does not honor `paths:` (Task 7 escape path triggered), confirm the divergence is documented in `.sentinal/rules/sentinal-opencode-rules.md`.
 
 **Verify:**
+
 - **Sequential gate order:** `jq . ... && bun run validate:plugin && bun run embed-assets && bun test && bunx tsc --noEmit && bun run build:all`
 - Manual smoke tests performed in a separate dev project with captured screenshots or terminal output pasted into the task commit message.
 

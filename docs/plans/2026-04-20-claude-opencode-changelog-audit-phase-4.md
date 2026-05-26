@@ -21,16 +21,24 @@ Wave: 2
 
 ## Pre-work (Task 0 — Day 1 Spike)
 
-**⛔ Gate:** If this spike fails, the rest of Phase 4 is blocked. Escalate to user for Plan B.
+**⛔ Gate:** If this spike fails, the rest of Phase 4 is blocked. Escalate to user for Plan B/C.
 
-1. **Verify `type: "http"` feature:** Read the Claude Code v2.1.63 changelog entry. Write a throwaway hook entry pointing at a dev server that returns `{"continue": true}` and confirm Claude Code invokes it with a JSON HookInput body.
-2. **Verify payload shape:** Confirm the HTTP request body matches our existing `HookInput` type from `src/utils/hook-output.ts:1`. Document any differences.
-3. **Verify async semantics:** Test whether `async: true` hooks support HTTP transport. If not, leave async hooks on subprocess (tdd-tracker, memory-observer, context-monitor).
-4. **Verify transport:** Can hooks.json point at a Unix socket path (`unix:~/.sentinal/sidecar.sock`) or is it HTTP URL only? Document.
+1. **⚠️ NEW: Evaluate `type: "mcp_tool"` hooks (CC 2.1.118):** Claude Code now supports hooks that invoke MCP tools directly. Since Sentinal already runs an MCP server with 26+ tools, this could be a **superior alternative to HTTP hooks**. Write a throwaway hook entry of `type: "mcp_tool"` that invokes a Sentinal MCP tool (e.g., `sentinal_tdd_status`) and verify: (a) HookInput is passed as tool input, (b) tool response shapes Claude Code's continuation behavior, (c) latency is comparable to or better than subprocess. **If MCP-tool hooks work, this may eliminate `src/sidecar/hook-routes.ts` entirely and simplify Phase 4 from 5 tasks to ~3.**
+2. **Verify `type: "http"` feature:** Read the Claude Code v2.1.63 changelog entry. Write a throwaway hook entry pointing at a dev server that returns `{"continue": true}` and confirm Claude Code invokes it with a JSON HookInput body.
+3. **Verify payload shape:** Confirm the HTTP/MCP request body matches our existing `HookInput` type from `src/utils/hook-output.ts:1`. Document any differences.
+4. **Verify async semantics:** Test whether `async: true` hooks support HTTP and/or MCP transport. If not, leave async hooks on subprocess (tdd-tracker, memory-observer, context-monitor).
+5. **Verify transport:** Can hooks.json point at a Unix socket path (`unix:~/.sentinal/sidecar.sock`) or is it HTTP URL only? Document.
 
-**Success criteria:** The dev server receives a POST with parseable HookInput JSON and its response (with appropriate status code and body) correctly shapes Claude Code's continuation behavior.
+**Decision matrix after spike:**
 
-**On failure:** Fall back to **Plan B — Warm Worker**: sidecar pre-spawns a pool of Bun processes kept warm for hook invocation. Claude Code still spawns `sentinal hook shared <name>` but the process is a thin client connecting to the warm pool via Unix socket. Slower than true HTTP but still significant win over cold Bun starts.
+| MCP-tool hooks work? | HTTP hooks work? | Decision |
+|----------------------|------------------|----------|
+| Yes | Yes | Prefer MCP-tool (no new routes needed) |
+| Yes | No | Use MCP-tool exclusively |
+| No | Yes | Use HTTP as originally planned |
+| No | No | Fall back to Plan B (warm worker) |
+
+**On full failure:** Fall back to **Plan B — Warm Worker**: sidecar pre-spawns a pool of Bun processes kept warm for hook invocation. Claude Code still spawns `sentinal hook shared <name>` but the process is a thin client connecting to the warm pool via Unix socket. Slower than true HTTP but still significant win over cold Bun starts.
 
 ---
 
@@ -56,6 +64,7 @@ Record medians and stddev. These become the baseline in Goal Verification. Targe
 ### Task 1 — Sidecar HTTP route module
 
 `src/sidecar/hook-routes.ts` exporting `handleHookRequest(req, ctx)`:
+
 - Parses HookInput from request body
 - Dispatches to the correct handler from `src/hooks/*.ts`
 - Returns HookOutput JSON as response body
@@ -64,6 +73,7 @@ Record medians and stddev. These become the baseline in Goal Verification. Targe
 ### Task 2 — HTTP Contract specification
 
 **Request (POST `/hooks/<name>`):**
+
 ```json
 // Body: HookInput (same as stdin today)
 {
@@ -80,6 +90,7 @@ Record medians and stddev. These become the baseline in Goal Verification. Targe
 ```
 
 **Response:**
+
 - `200` + `{"continue": true}` → allow, no context
 - `200` + `{"continue": true, "additionalContext": "..."}` → allow with hint
 - `200` + `{"continue": false, "decision": "block", "reason": "..."}` → deny (equivalent to exit 2 + stderr today)
@@ -89,6 +100,7 @@ Record medians and stddev. These become the baseline in Goal Verification. Targe
 ### Task 3 — hooks.json conversion
 
 Convert at least 4 hot-path hooks to `type: "http"`:
+
 - `tdd-guard` (PreToolUse Write/Edit/MultiEdit)
 - `pre-edit-guide` (same matcher)
 - `file-checker` (PostToolUse + `if` matcher)
@@ -101,6 +113,7 @@ Each must have subprocess fallback (confirmed pattern from spike).
 **Preferred:** Unix socket path `~/.sentinal/sidecar.sock` (no port race).
 
 **Fallback:** If Claude Code doesn't accept Unix socket URLs, use a wrapper hook script that:
+
 1. Reads `~/.sentinal/sidecar.port`
 2. If missing, auto-starts sidecar synchronously
 3. Forwards to HTTP
@@ -115,6 +128,35 @@ Each must have subprocess fallback (confirmed pattern from spike).
 
 ## Deferred
 
-- Async hooks (tdd-tracker, memory-observer, context-monitor) — keep on subprocess unless spike (Task 0.3) confirms async HTTP support.
+- Async hooks (tdd-tracker, memory-observer, context-monitor) — keep on subprocess unless spike (Task 0.3/0.4) confirms async HTTP/MCP support.
 - SessionStart, SessionEnd, PreCompact — fire once per session. Keep as subprocess (ROI low).
 - OpenCode equivalent — OpenCode handlers are already in-process (plugin), no HTTP conversion needed.
+
+---
+
+## Investigate During Planning (from 2026-05-26 re-audit, CC 2.1.117–2.1.142)
+
+These items were discovered after the original stub was written. Evaluate and incorporate during detailed planning.
+
+### CRITICAL: `type: "mcp_tool"` hooks (CC 2.1.118)
+
+This is the single most impactful finding. See updated Task 0 spike above. If MCP-tool hooks work, the entire architecture simplifies:
+
+- **Eliminated:** `src/sidecar/hook-routes.ts`, HTTP route module (Task 1)
+- **Eliminated:** Port/socket resolution logic (Task 4)
+- **Simplified:** hooks.json conversion (Task 3) — entries point at MCP tools instead of HTTP URLs
+- **Preserved:** Baseline benchmark (Task 0b) and post-refactor benchmark (Task 5)
+
+The MCP server already handles authentication, error handling, and response serialization. This eliminates Pre-Mortem items 6 (HTTP hooks don't exist), 7 (async HTTP undefined), and 8 (port-file race).
+
+### MEDIUM: `args: string[]` exec form (CC 2.1.139)
+
+Hooks now support `args: string[]` which spawns the command directly without shell interpretation. This eliminates shell-quoting issues in subprocess fallback declarations. Use this for any remaining subprocess-type hooks.
+
+### MEDIUM: `alwaysLoad: true` for MCP server config (CC 2.1.121)
+
+New MCP server config option ensures all tools are available immediately without tool-search deferral. Add `"alwaysLoad": true` to Sentinal's `.mcp.json` entries in both `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`. This is a quick win that should land as a standalone change or as part of Phase 4.
+
+### LOW: `continueOnBlock` on PostToolUse (CC 2.1.139)
+
+New hook config option feeds the rejection reason back to Claude instead of hard-blocking. While primarily a Phase 5 concern (permission middleware), Phase 4's `file-checker` hook conversion should note this option — it enables a "warn Claude, don't block" mode for non-critical file-length violations.
