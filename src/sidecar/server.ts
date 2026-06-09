@@ -7,7 +7,14 @@
  * OpenCode plugin to avoid per-invocation SQLite cold starts.
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
 import { logSidecar } from "../utils/file-log.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
@@ -223,6 +230,14 @@ export async function startSidecar(
   cleanupStaleSessionsOnStartup(store);
 
   const socketPath = getSidecarSocketPath();
+  // Ensure the state directory exists before any pid/port/socket file writes.
+  // On fresh machines (CI runners) ~/.sentinal has never been created and
+  // writeFileSync below would throw ENOENT.
+  try {
+    mkdirSync(dirname(socketPath), { recursive: true });
+  } catch {
+    /* non-fatal — subsequent writes will surface a real permission problem */
+  }
   const useUnix = !opts.httpOnly && process.platform !== "win32";
 
   // If the socket file exists, probe it before removing — another sidecar may be live

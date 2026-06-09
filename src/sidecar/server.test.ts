@@ -328,6 +328,55 @@ describe("sidecar server", () => {
   });
 });
 
+// ─── Fresh HOME: state dir does not exist yet ──────────────────────────────
+
+describe("startSidecar with missing state directory (fresh HOME)", () => {
+  let tmpDir: string;
+  let stateDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>> | undefined;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `sf-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    // Deliberately NOT created — simulates a machine where ~/.sentinal
+    // has never existed (CI runners). Regression: v1.29.0 CI failure where
+    // writeFileSync(getSidecarPortPath()) threw ENOENT and killed startSidecar.
+    stateDir = join(tmpDir, ".sentinal");
+
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(stateDir, "s.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(stateDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(stateDir, "sidecar.pid"),
+    );
+  });
+
+  afterEach(() => {
+    if (sidecar) {
+      stopSidecar(sidecar.server, sidecar.ctx, sidecar.httpServer);
+      sidecar = undefined;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("starts (httpOnly) and writes the port file into a created state dir", async () => {
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    expect(existsSync(join(stateDir, "sidecar.port"))).toBe(true);
+  });
+
+  it("starts (unix socket) and creates socket + pid files", async () => {
+    sidecar = await startSidecar({ store, port: 0 });
+    expect(sidecar.transport).toBe("unix");
+    expect(existsSync(join(stateDir, "sidecar.port"))).toBe(true);
+  });
+});
+
 // ─── alreadyRunning Port File Update ──────────────────────────────────────
 
 describe("startSidecar alreadyRunning port file sync", () => {
