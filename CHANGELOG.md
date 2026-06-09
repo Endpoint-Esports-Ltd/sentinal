@@ -1,3 +1,11 @@
+## [1.29.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.0...v1.29.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* **opencode:** plugin failed to load — undefined 'context' binding in workspace adaptor registration ([b644bf2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/b644bf2e224ee4f39ac4166219e5f7bb9f26ff17))
+* **sidecar:** create state directory before writing pid/port files ([bace87a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bace87a13e2fbb9ab55051405426ec51a3399261))
+
 # [1.29.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.28.0...v1.29.0) (2026-06-09)
 
 
