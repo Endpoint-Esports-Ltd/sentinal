@@ -11,11 +11,12 @@ import {
   getAssetName,
   checkForUpdateWithStore,
   reinstallPlugins,
+  runPostUpdateReinstall,
 } from "./update.js";
 import * as uninstallModule from "./uninstall.js";
 import * as installModule from "./install.js";
 import { MemoryStore } from "../../memory/store.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, platform, arch } from "node:os";
 import { realpathSync } from "node:fs";
@@ -225,5 +226,95 @@ describe("reinstallPlugins", () => {
       "uninstall-opencode",
       "install-opencode",
     ]);
+  });
+});
+
+describe("runPostUpdateReinstall", () => {
+  let tmpDir: string;
+  let fakeBin: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "sentinal-update-"));
+    fakeBin = join(tmpDir, "sentinal");
+    writeFileSync(fakeBin, "#!/bin/sh\nexit 0\n");
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  test("should spawn the new binary with 'update --reinstall-plugins' and skip in-process reinstall", async () => {
+    const spawnedWith: string[][] = [];
+    let detectCalled = false;
+    spyOn(uninstallModule, "detectInstalledTargets").mockImplementation(() => {
+      detectCalled = true;
+      return { claude: false, opencode: false };
+    });
+
+    await runPostUpdateReinstall({
+      binPath: fakeBin,
+      spawner: (cmd: string[]) => {
+        spawnedWith.push(cmd);
+        return 0;
+      },
+    });
+
+    expect(spawnedWith).toEqual([[fakeBin, "update", "--reinstall-plugins"]]);
+    // In-process reinstall must NOT run when the subprocess succeeded —
+    // it would use the OLD process's stale embedded assets.
+    expect(detectCalled).toBe(false);
+  });
+
+  test("should fall back to in-process reinstall when the spawner throws", async () => {
+    let detectCalled = false;
+    spyOn(uninstallModule, "detectInstalledTargets").mockImplementation(() => {
+      detectCalled = true;
+      return { claude: false, opencode: false };
+    });
+
+    await runPostUpdateReinstall({
+      binPath: fakeBin,
+      spawner: () => {
+        throw new Error("spawn EACCES");
+      },
+    });
+
+    expect(detectCalled).toBe(true);
+  });
+
+  test("should fall back to in-process reinstall when the subprocess exits non-zero", async () => {
+    let detectCalled = false;
+    spyOn(uninstallModule, "detectInstalledTargets").mockImplementation(() => {
+      detectCalled = true;
+      return { claude: false, opencode: false };
+    });
+
+    await runPostUpdateReinstall({
+      binPath: fakeBin,
+      spawner: () => 1,
+    });
+
+    expect(detectCalled).toBe(true);
+  });
+
+  test("should fall back to in-process reinstall when the binary does not exist", async () => {
+    const spawnedWith: string[][] = [];
+    let detectCalled = false;
+    spyOn(uninstallModule, "detectInstalledTargets").mockImplementation(() => {
+      detectCalled = true;
+      return { claude: false, opencode: false };
+    });
+
+    await runPostUpdateReinstall({
+      binPath: join(tmpDir, "missing-binary"),
+      spawner: (cmd: string[]) => {
+        spawnedWith.push(cmd);
+        return 0;
+      },
+    });
+
+    expect(spawnedWith).toEqual([]);
+    expect(detectCalled).toBe(true);
   });
 });

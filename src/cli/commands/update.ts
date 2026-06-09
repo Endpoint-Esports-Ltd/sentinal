@@ -405,6 +405,73 @@ export async function reinstallPlugins(): Promise<void> {
   }
 }
 
+// ─── Post-update reinstall (via the NEW binary) ─────────────────────────────
+
+export interface PostUpdateReinstallOptions {
+  /** Path to the freshly installed binary (default: ~/.sentinal/bin/sentinal). */
+  binPath?: string;
+  /**
+   * Spawns the reinstall subprocess; returns its exit code. Throws on spawn
+   * failure. Injectable for tests; default uses child_process.spawnSync with
+   * stdio: "inherit".
+   */
+  spawner?: (cmd: string[]) => number;
+}
+
+/** Default spawner: run the command synchronously, inheriting stdio. */
+function spawnReinstall(cmd: string[]): number {
+  const { spawnSync } = require("node:child_process") as {
+    spawnSync: (
+      command: string,
+      args: string[],
+      options: { stdio: "inherit" },
+    ) => { status: number | null; error?: Error };
+  };
+  const result = spawnSync(cmd[0]!, cmd.slice(1), { stdio: "inherit" });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
+/**
+ * Run the post-update plugin reinstall via the NEWLY installed binary.
+ *
+ * Why a subprocess: this process's embedded assets (src/cli/embedded-assets.ts)
+ * were baked in at ITS build time. After downloadAndInstall() swaps the binary
+ * on disk, calling reinstallPlugins() in-process would deploy the OLD
+ * version's plugin/hooks/commands (observed in the v1.28.0 → v1.29.0 upgrade).
+ * Spawning `<new-binary> update --reinstall-plugins` guarantees the assets
+ * come from the new version.
+ *
+ * Falls back to the in-process reinstall (previous behavior) if the binary is
+ * missing or the subprocess fails — e.g. when running from source.
+ */
+export async function runPostUpdateReinstall(
+  opts: PostUpdateReinstallOptions = {},
+): Promise<void> {
+  const binPath = opts.binPath ?? BIN_PATH;
+  const spawner = opts.spawner ?? spawnReinstall;
+
+  if (existsSync(binPath)) {
+    try {
+      const exitCode = spawner([binPath, "update", "--reinstall-plugins"]);
+      if (exitCode === 0) return;
+      console.error(
+        `Warning: reinstall via new binary exited with code ${exitCode} — ` +
+          "falling back to in-process reinstall (assets may be stale; " +
+          "run 'sentinal install' to be sure).",
+      );
+    } catch (e) {
+      console.error(
+        `Warning: failed to spawn new binary for reinstall (${(e as Error).message}) — ` +
+          "falling back to in-process reinstall (assets may be stale; " +
+          "run 'sentinal install' to be sure).",
+      );
+    }
+  }
+
+  await reinstallPlugins();
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
@@ -420,7 +487,19 @@ export function registerUpdateCommand(program: Command): void {
     .command("update")
     .description("Check for and install updates from GitHub Releases")
     .option("--check", "Check only, don't install")
-    .action(async (opts: { check?: boolean }) => {
+    .option(
+      "--reinstall-plugins",
+      "(internal) reinstall plugins using this binary's embedded assets",
+    )
+    .action(async (opts: { check?: boolean; reinstallPlugins?: boolean }) => {
+      // Internal mode: invoked by runPostUpdateReinstall() as a subprocess of
+      // the NEWLY downloaded binary. Only reinstalls — never downloads or
+      // re-spawns, so recursion is impossible by construction.
+      if (opts.reinstallPlugins) {
+        await reinstallPlugins();
+        return;
+      }
+
       const version = getVersionForUpdate();
 
       if (opts.check) {
@@ -441,9 +520,10 @@ export function registerUpdateCommand(program: Command): void {
       const success = await downloadAndInstall(version);
       if (!success) process.exit(1);
 
-      // After binary update, reinstall plugins for the same assistants
+      // After binary update, reinstall plugins for the same assistants.
+      // Runs via the NEW binary so fresh embedded assets are deployed.
       try {
-        await reinstallPlugins();
+        await runPostUpdateReinstall();
       } catch (e) {
         console.error(
           `\nWarning: Plugin reinstall failed: ${(e as Error).message}`,
