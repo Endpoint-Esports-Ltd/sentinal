@@ -277,6 +277,62 @@ export class WorktreeManager {
   }
 
   /**
+   * Resolve a plan slug to a worktree, reconciling against the filesystem.
+   * The on-disk state is authoritative:
+   * - Index hit + directory exists → return it.
+   * - Index hit + directory gone → mark abandoned, then try the disk scan.
+   * - Index miss + git worktree on disk (e.g. the DB insert was lost to a
+   *   transport failure, or the record was wrongly abandoned) → re-register
+   *   it as active and return it.
+   */
+  resolveWithReconcile(slug: string, projectPath?: string): Worktree | null {
+    const fromDb = this.store.resolveBySlug(slug, projectPath);
+    if (fromDb) {
+      if (existsSync(fromDb.worktreePath)) return fromDb;
+      // Self-heal: directory gone — don't keep returning a dead record
+      this.store.updateStatus(fromDb.id, "abandoned");
+    }
+
+    if (!projectPath) return null;
+
+    let repoRoot: string;
+    try {
+      repoRoot = getRepoRoot(projectPath);
+    } catch {
+      return null;
+    }
+
+    // Disk scan: find a git worktree whose branch matches the slug
+    const wanted = `${this.config.branchPrefix}${slugify(slug)}`;
+    const onDisk = listGitWorktrees(repoRoot).find(
+      (w) =>
+        (w.branch === wanted || w.branch.startsWith(wanted)) &&
+        existsSync(w.path),
+    );
+    if (!onDisk) return null;
+
+    // Re-register: disk is authoritative
+    const base = detectBaseBranch(repoRoot);
+    const mergeBase = gitExec(["merge-base", base, onDisk.branch], repoRoot);
+    const baseCommit =
+      mergeBase.exitCode === 0 && mergeBase.stdout.trim()
+        ? mergeBase.stdout.trim()
+        : onDisk.head;
+
+    return this.store.insert({
+      id: `${slugify(slug)}-${randomHex(4)}`,
+      specId: undefined,
+      projectPath: repoRoot,
+      worktreePath: onDisk.path,
+      branchName: onDisk.branch,
+      baseBranch: base,
+      baseCommit,
+      status: "active",
+      createdAt: Date.now(),
+    });
+  }
+
+  /**
    * Cleanup stale worktrees:
    * - Worktrees whose directory no longer exists on disk
    * - Worktrees for specs that are verified/cancelled
@@ -306,6 +362,38 @@ export class WorktreeManager {
 
     return cleaned;
   }
+}
+
+// ─── Disk Scan ──────────────────────────────────────────────────────────────
+
+interface GitWorktreeEntry {
+  path: string;
+  head: string;
+  branch: string;
+}
+
+/**
+ * Parse `git worktree list --porcelain` into entries.
+ * Skips the main checkout and detached/bare entries (no branch line).
+ */
+function listGitWorktrees(repoRoot: string): GitWorktreeEntry[] {
+  const result = gitExec(["worktree", "list", "--porcelain"], repoRoot);
+  if (result.exitCode !== 0) return [];
+
+  const entries: GitWorktreeEntry[] = [];
+  for (const block of result.stdout.split("\n\n")) {
+    let path = "";
+    let head = "";
+    let branch = "";
+    for (const line of block.split("\n")) {
+      if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+      else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
+      else if (line.startsWith("branch "))
+        branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+    }
+    if (path && branch) entries.push({ path, head, branch });
+  }
+  return entries;
 }
 
 // ─── Diff Parsing ───────────────────────────────────────────────────────────

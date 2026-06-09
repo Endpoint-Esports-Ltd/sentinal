@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
@@ -18,6 +18,16 @@ import { WorktreeManager } from "../worktree/manager.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
 import type { SidecarContext } from "./server.js";
 import { makeTmpDir } from "../test-helpers.js";
+
+/** Create a temp git repo with an initial commit. */
+function initRepo(dir: string): void {
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial commit"], { cwd: dir });
+}
 
 function makeCtx(store: MemoryStore): SidecarContext {
   return {
@@ -74,6 +84,55 @@ describe("worktree-routes", () => {
       const res = await handleWorktreeRequest(req, ctx);
       expect(res).toBeNull();
     });
+
+    it("should reconcile against disk when the index lost the record", async () => {
+      // Real git repo with a worktree created via the default config
+      const repoDir = join(tmpDir, "repo");
+      mkdirSync(repoDir, { recursive: true });
+      initRepo(repoDir);
+
+      const manager = new WorktreeManager(ctx.wtStore);
+      const wt = manager.create("2026-06-09-route-drift", repoDir);
+      // Simulate drift: DB record lost (e.g. transport failure mid-create)
+      ctx.wtStore.delete(wt.id);
+
+      const req = new Request(
+        `http://localhost/worktree/resolve?slug=2026-06-09-route-drift&project=${encodeURIComponent(repoDir)}`,
+        { method: "GET" },
+      );
+      const res = await handleWorktreeRequest(req, ctx);
+      expect(res).not.toBeNull();
+      const body = (await res!.json()) as {
+        ok: boolean;
+        data: { branchName: string; status: string } | null;
+      };
+      expect(body.ok).toBe(true);
+      expect(body.data).not.toBeNull();
+      expect(body.data!.branchName).toBe(wt.branchName);
+      expect(body.data!.status).toBe("active");
+    });
+
+    it("should self-heal when the directory is gone (client-mode parity)", async () => {
+      const repoDir = join(tmpDir, "repo2");
+      mkdirSync(repoDir, { recursive: true });
+      initRepo(repoDir);
+
+      const manager = new WorktreeManager(ctx.wtStore);
+      const wt = manager.create("2026-06-09-route-gone", repoDir);
+      rmSync(wt.worktreePath, { recursive: true, force: true });
+      Bun.spawnSync(["git", "worktree", "prune"], { cwd: repoDir });
+      Bun.spawnSync(["git", "branch", "-D", wt.branchName], { cwd: repoDir });
+
+      const req = new Request(
+        `http://localhost/worktree/resolve?slug=2026-06-09-route-gone&project=${encodeURIComponent(repoDir)}`,
+        { method: "GET" },
+      );
+      const res = await handleWorktreeRequest(req, ctx);
+      const body = (await res!.json()) as { ok: boolean; data: null };
+      expect(body.ok).toBe(true);
+      expect(body.data).toBeNull();
+      expect(ctx.wtStore.get(wt.id)!.status).toBe("abandoned");
+    });
   });
 
   // ─── POST /worktree/abandon ────────────────────────────────────────────
@@ -119,7 +178,10 @@ describe("worktree-routes", () => {
       // Mock abandon to skip git operations
       const origAbandon = WorktreeManager.prototype.abandon;
       WorktreeManager.prototype.abandon = function (id: string) {
-        this.store.updateStatus(id, "abandoned");
+        (this as unknown as { store: WorktreeStore }).store.updateStatus(
+          id,
+          "abandoned",
+        );
       };
 
       try {

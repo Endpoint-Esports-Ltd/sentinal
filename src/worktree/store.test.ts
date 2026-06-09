@@ -231,6 +231,41 @@ describe("WorktreeStore", () => {
       expect(result).toBeNull();
     });
 
+    it("should match the default 'sentinal/spec-' branch prefix when spec_id was never linked", () => {
+      // Regression: worktree_create inserts spec_id=NULL (deferred FK linkage).
+      // When spec_register fails (e.g. sidecar connectivity), linkSpec never
+      // runs — resolution must still find the worktree via its real branch
+      // name, which uses DEFAULT_WORKTREE_CONFIG.branchPrefix.
+      store.insert(
+        makeWorktree({
+          id: "wt-default-prefix",
+          branchName: "sentinal/spec-2026-06-09-twilio-sms",
+          projectPath: "/test/project",
+        }),
+      );
+
+      const result = store.resolveBySlug(
+        "2026-06-09-twilio-sms",
+        "/test/project",
+      );
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-default-prefix");
+    });
+
+    it("should match the default prefix without a project path (global fallback)", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-default-prefix-global",
+          branchName: "sentinal/spec-2026-06-09-global",
+          projectPath: "/somewhere/else",
+        }),
+      );
+
+      const result = store.resolveBySlug("2026-06-09-global");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-default-prefix-global");
+    });
+
     it("should prefer spec_id match over branch name match", () => {
       createSpec(tmpDir, memoryStore, "my-slug");
       store.insert(

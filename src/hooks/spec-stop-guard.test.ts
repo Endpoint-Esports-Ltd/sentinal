@@ -4,7 +4,6 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { processSpecStopGuard } from "./spec-stop-guard.js";
-import { processSpecStopGuard } from "./spec-stop-guard.js";
 
 describe("spec-stop-guard", () => {
   it("should not block PENDING", () => {
@@ -159,8 +158,6 @@ Approved: Yes
     expect(fullReason).toContain('last message: "Here is my final answer');
     // Verify this matches the actual spec-stop-guard.ts logic
     // (lines 25-27: if last_assistant_message, appends snippet to reason)
-    expect(fullReason).toBe(
-      `${baseReason} (last message: "${snippet}")`,
-    );
+    expect(fullReason).toBe(`${baseReason} (last message: "${snippet}")`);
   });
 });

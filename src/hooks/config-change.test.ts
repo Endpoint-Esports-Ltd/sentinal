@@ -2,25 +2,36 @@
  * Config Change Hook Tests
  */
 
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
+import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
-// Mock the sidecar client
-const mockAddObservation = mock(() => Promise.resolve());
-const mockInsertNotification = mock(() => Promise.resolve());
-const mockConnect = mock(() =>
-  Promise.resolve({
-    addObservation: mockAddObservation,
-    insertNotification: mockInsertNotification,
-  }),
+// Spy on the sidecar client's static connect (restorable — mock.module on
+// this module leaks across test files and breaks client.test.ts)
+const mockAddObservation = mock((_obs: unknown) => Promise.resolve());
+const mockInsertNotification = mock((_notif: unknown) => Promise.resolve());
+const mockConnect = spyOn(SidecarClient, "connect").mockImplementation(
+  async () =>
+    ({
+      addObservation: mockAddObservation,
+      insertNotification: mockInsertNotification,
+    }) as unknown as SidecarClient,
 );
 
-mock.module("../sidecar/client.js", () => ({
-  SidecarClient: { connect: mockConnect },
-}));
+afterAll(() => {
+  mockConnect.mockRestore();
+});
 
 const { processConfigChange } = await import("./config-change.js");
 
@@ -49,7 +60,10 @@ describe("processConfigChange", () => {
     });
     await processConfigChange(input);
     expect(mockAddObservation).toHaveBeenCalledTimes(1);
-    const obs = mockAddObservation.mock.calls[0][0] as { type: string; title: string };
+    const obs = mockAddObservation.mock.calls[0][0] as {
+      type: string;
+      title: string;
+    };
     expect(obs.type).toBe("discovery");
     expect(obs.title).toContain("standards-typescript.md");
   });
@@ -79,11 +93,17 @@ describe("processConfigChange", () => {
     const tmpDir = makeTmpDir();
     try {
       const settingsPath = join(tmpDir, "settings.json");
-      writeFileSync(settingsPath, JSON.stringify({ disableAllHooks: true }, null, 2));
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({ disableAllHooks: true }, null, 2),
+      );
       const input = makeInput({ file_path: settingsPath });
       await processConfigChange(input);
       expect(mockInsertNotification).toHaveBeenCalledTimes(1);
-      const notif = mockInsertNotification.mock.calls[0][0] as { type: string; title: string };
+      const notif = mockInsertNotification.mock.calls[0][0] as {
+        type: string;
+        title: string;
+      };
       expect(notif.type).toBe("warning");
       expect(notif.title).toContain("disabled");
     } finally {

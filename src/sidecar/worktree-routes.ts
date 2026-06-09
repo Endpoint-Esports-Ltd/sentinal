@@ -53,7 +53,11 @@ function handleResolveWorktree(url: URL, ctx: SidecarContext): Response {
   const slug = url.searchParams.get("slug");
   if (!slug) return fail("Missing 'slug' query param");
   const project = url.searchParams.get("project") ?? undefined;
-  const wt = ctx.wtStore.resolveBySlug(slug, project);
+  // Reconcile against the filesystem — on-disk worktrees are authoritative,
+  // so a record lost to a transport failure (or wrongly abandoned) is
+  // re-registered instead of answering "not found".
+  const manager = new WorktreeManager(ctx.wtStore, DEFAULT_WORKTREE_CONFIG);
+  const wt = manager.resolveWithReconcile(slug, project);
   return ok(wt);
 }
 

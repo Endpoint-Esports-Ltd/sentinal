@@ -2,18 +2,31 @@
  * TaskCreated Hook Tests
  */
 
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
+import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
-// Mock the sidecar client
-const mockInsertNotification = mock(() => Promise.resolve());
-const mockConnect = mock(() =>
-  Promise.resolve({ insertNotification: mockInsertNotification }),
+// Spy on the sidecar client's static connect (restorable — mock.module on
+// this module leaks across test files and breaks client.test.ts)
+const mockInsertNotification = mock((_notif: unknown) => Promise.resolve());
+const mockConnect = spyOn(SidecarClient, "connect").mockImplementation(
+  async () =>
+    ({
+      insertNotification: mockInsertNotification,
+    }) as unknown as SidecarClient,
 );
 
-mock.module("../sidecar/client.js", () => ({
-  SidecarClient: { connect: mockConnect },
-}));
+afterAll(() => {
+  mockConnect.mockRestore();
+});
 
 const { processTaskCreated } = await import("./task-created.js");
 
@@ -42,7 +55,10 @@ describe("processTaskCreated", () => {
     });
     await processTaskCreated(input);
     expect(mockInsertNotification).toHaveBeenCalledTimes(1);
-    const notif = mockInsertNotification.mock.calls[0][0] as { type: string; title: string };
+    const notif = mockInsertNotification.mock.calls[0][0] as {
+      type: string;
+      title: string;
+    };
     expect(notif.type).toBe("info");
     expect(notif.title).toContain("Implement auth module");
   });
@@ -54,13 +70,19 @@ describe("processTaskCreated", () => {
     });
     await processTaskCreated(input);
     expect(mockInsertNotification).toHaveBeenCalledTimes(1);
-    const notif = mockInsertNotification.mock.calls[0][0] as { type: string; title: string };
+    const notif = mockInsertNotification.mock.calls[0][0] as {
+      type: string;
+      title: string;
+    };
     expect(notif.title).toContain("task-xyz789");
   });
 
   it("should not throw when sidecar is unavailable", async () => {
     mockConnect.mockReturnValueOnce(Promise.resolve(null));
-    const input = makeInput({ task_id: "task-no-sidecar", task_subject: "Test" });
+    const input = makeInput({
+      task_id: "task-no-sidecar",
+      task_subject: "Test",
+    });
     await expect(processTaskCreated(input)).resolves.toBeUndefined();
     expect(mockInsertNotification).not.toHaveBeenCalled();
   });

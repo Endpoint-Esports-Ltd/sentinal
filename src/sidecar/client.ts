@@ -8,6 +8,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
+import { logSidecar } from "../utils/file-log.js";
 import type { QualityCheckResult } from "./quality-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
 import type { Spec } from "../spec/types.js";
@@ -15,9 +16,32 @@ import type { TddCycle, SpecEvent } from "../memory/types.js";
 import type { Worktree } from "../worktree/types.js";
 
 export class SidecarClient {
+  // ─── Self-healing reconnect knobs (overridable in tests) ────────────────
+
+  /**
+   * Respawn hook invoked when a request fails and no live sidecar can be
+   * found. Defaults to `autoStartSidecar()` (spawns `sentinal sidecar start`
+   * detached). Tests override this to avoid spawning real processes.
+   */
+  static autoStartFn: () => void = () => {
+    try {
+      // Lazy require keeps hook startup cost minimal (no bun:sqlite pull-in).
+      const { autoStartSidecar } = require("./lifecycle.js");
+      autoStartSidecar();
+    } catch {
+      /* non-fatal — reconnect polling will simply fail */
+    }
+  };
+
+  /** How many times to poll for a live sidecar after autoStartFn. */
+  static reconnectAttempts = 10;
+  /** Delay between reconnect polls in ms. */
+  static reconnectDelayMs = 200;
+
   private constructor(
-    private readonly baseUrl: string,
-    private readonly fetchOpts: RequestInit & { unix?: string },
+    private baseUrl: string,
+    private fetchOpts: RequestInit & { unix?: string },
+    private readonly reconnectEnabled = false,
   ) {}
 
   /** Build a client for a known base URL (for testing only). */
@@ -55,17 +79,24 @@ export class SidecarClient {
     // Try Unix socket
     const socketPath = getSidecarSocketPath();
     if (existsSync(socketPath)) {
-      const client = new SidecarClient("http://localhost", {
+      // Probe with a NON-reconnecting client — a reconnect-enabled probe
+      // would recurse (health → reconnect → tryConnect → health → ...)
+      // when the socket file is stale.
+      const probe = new SidecarClient("http://localhost", {
         unix: socketPath,
       });
       try {
-        const health = await client.health();
+        const health = await probe.health();
 
         // Self-heal: sync the HTTP port file from the health response
         // so Node.js clients (which can't use Unix sockets) find the right port
         SidecarClient.syncPortFile(health.httpPort);
 
-        return client;
+        return new SidecarClient(
+          "http://localhost",
+          { unix: socketPath },
+          true,
+        );
       } catch {
         /* socket exists but not responding */
       }
@@ -79,15 +110,105 @@ export class SidecarClient {
         if (content === "unix") return null; // socket mode but socket failed
         const port = parseInt(content, 10);
         if (Number.isNaN(port)) return null;
-        const client = new SidecarClient(`http://127.0.0.1:${port}`, {});
-        await client.health();
-        return client;
+        const probe = new SidecarClient(`http://127.0.0.1:${port}`, {});
+        await probe.health();
+        return new SidecarClient(`http://127.0.0.1:${port}`, {}, true);
       } catch {
         /* port file exists but server not responding */
       }
     }
 
     return null;
+  }
+
+  // ─── Self-healing reconnect ──────────────────────────────────────────────
+
+  /**
+   * The sidecar legitimately restarts (session-aware shutdown), so a cached
+   * client's transport can go stale. Re-resolve the transport; if no live
+   * sidecar is found, ask autoStartFn to respawn one and poll briefly.
+   * On success, heal this instance in place so future requests work too.
+   */
+  private async reconnect(): Promise<boolean> {
+    let fresh = await SidecarClient.tryConnect();
+
+    if (!fresh) {
+      logSidecar("client: no live sidecar — respawn triggered");
+      SidecarClient.autoStartFn();
+      for (let i = 0; i < SidecarClient.reconnectAttempts && !fresh; i++) {
+        await new Promise((r) => setTimeout(r, SidecarClient.reconnectDelayMs));
+        fresh = await SidecarClient.tryConnect();
+      }
+    }
+
+    if (!fresh) {
+      logSidecar(
+        `client: reconnect failed after ${SidecarClient.reconnectAttempts} attempts`,
+      );
+      return false;
+    }
+    this.baseUrl = fresh.baseUrl;
+    this.fetchOpts = fresh.fetchOpts;
+    logSidecar(`client: reconnected via ${this.target()}`);
+    return true;
+  }
+
+  /** Human-readable transport target for error messages. */
+  private target(): string {
+    return this.fetchOpts.unix ? `unix:${this.fetchOpts.unix}` : this.baseUrl;
+  }
+
+  /**
+   * Perform a fetch with one reconnect-and-retry on connection-level
+   * failures. A connection failure (e.g. ECONNREFUSED) means the request
+   * never reached the server, so retrying is always safe — no idempotency
+   * concerns. HTTP-level and `ok: false` errors are NOT retried.
+   */
+  private async fetchWithReconnect(
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    try {
+      return await fetch(`${this.baseUrl}${path}`, {
+        ...this.fetchOpts,
+        ...init,
+      });
+    } catch (err) {
+      if (!this.reconnectEnabled) {
+        throw SidecarClient.enrich(err, init.method ?? "GET", path, this);
+      }
+      logSidecar(
+        `client: connection lost (${init.method ?? "GET"} ${path}) — reconnecting`,
+      );
+      if (!(await this.reconnect())) {
+        throw SidecarClient.enrich(err, init.method ?? "GET", path, this);
+      }
+      try {
+        return await fetch(`${this.baseUrl}${path}`, {
+          ...this.fetchOpts,
+          ...init,
+        });
+      } catch (err2) {
+        throw SidecarClient.enrich(err2, init.method ?? "GET", path, this);
+      }
+    }
+  }
+
+  /** Wrap a raw fetch error with method, path, target, and cause. */
+  private static enrich(
+    err: unknown,
+    method: string,
+    path: string,
+    client: SidecarClient,
+  ): Error {
+    const cause = err instanceof Error ? err.message : String(err);
+    const code =
+      err instanceof Error && "code" in err
+        ? ` (${(err as { code?: string }).code})`
+        : "";
+    return new Error(
+      `${method} ${path} failed: sidecar at ${client.target()} unreachable — ${cause}${code}`,
+    );
   }
 
   /**
@@ -116,7 +237,7 @@ export class SidecarClient {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   private async get(path: string): Promise<any> {
-    const res = await fetch(`${this.baseUrl}${path}`, this.fetchOpts);
+    const res = await this.fetchWithReconnect(path, { method: "GET" });
     const body = (await res.json()) as {
       ok: boolean;
       data?: any;
@@ -127,8 +248,7 @@ export class SidecarClient {
   }
 
   private async post(path: string, data: unknown): Promise<any> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...this.fetchOpts,
+    const res = await this.fetchWithReconnect(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

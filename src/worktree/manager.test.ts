@@ -328,6 +328,74 @@ describe("WorktreeManager", () => {
     });
   });
 
+  describe("resolveWithReconcile", () => {
+    it("should return the existing record when index and disk agree", () => {
+      const wt = manager.create("2026-06-09-agree", repoDir);
+
+      const resolved = manager.resolveWithReconcile(
+        "2026-06-09-agree",
+        repoDir,
+      );
+      expect(resolved).not.toBeNull();
+      expect(resolved!.id).toBe(wt.id);
+      // No duplicate record created
+      expect(wtStore.countActive(repoDir)).toBe(1);
+    });
+
+    it("should re-register a worktree that exists on disk but is missing from the index", () => {
+      // Drift scenario: DB insert was lost (e.g. sidecar transport failure
+      // mid-create) but the git worktree exists on disk.
+      const wt = manager.create("2026-06-09-drift", repoDir);
+      wtStore.delete(wt.id);
+      expect(wtStore.resolveBySlug("2026-06-09-drift", repoDir)).toBeNull();
+
+      const resolved = manager.resolveWithReconcile(
+        "2026-06-09-drift",
+        repoDir,
+      );
+      expect(resolved).not.toBeNull();
+      expect(resolved!.branchName).toBe(wt.branchName);
+      expect(resolved!.worktreePath).toBe(wt.worktreePath);
+      expect(resolved!.status).toBe("active");
+      // Disk is authoritative: record is back in the index
+      expect(wtStore.countActive(repoDir)).toBe(1);
+    });
+
+    it("should re-register a worktree whose record was wrongly marked abandoned", () => {
+      const wt = manager.create("2026-06-09-wrong-status", repoDir);
+      wtStore.updateStatus(wt.id, "abandoned");
+
+      const resolved = manager.resolveWithReconcile(
+        "2026-06-09-wrong-status",
+        repoDir,
+      );
+      expect(resolved).not.toBeNull();
+      expect(resolved!.worktreePath).toBe(wt.worktreePath);
+      expect(resolved!.status).toBe("active");
+    });
+
+    it("should mark abandoned and return null when the directory is gone", () => {
+      const wt = manager.create("2026-06-09-gone", repoDir);
+      rmSync(wt.worktreePath, { recursive: true, force: true });
+      Bun.spawnSync(["git", "worktree", "prune"], { cwd: repoDir });
+      Bun.spawnSync(["git", "branch", "-D", wt.branchName], { cwd: repoDir });
+
+      const resolved = manager.resolveWithReconcile("2026-06-09-gone", repoDir);
+      expect(resolved).toBeNull();
+      expect(wtStore.get(wt.id)!.status).toBe("abandoned");
+    });
+
+    it("should return null for a slug with no record and nothing on disk", () => {
+      const resolved = manager.resolveWithReconcile("no-such-slug", repoDir);
+      expect(resolved).toBeNull();
+    });
+
+    it("should return null when no project path is available for a disk scan", () => {
+      const resolved = manager.resolveWithReconcile("no-such-slug");
+      expect(resolved).toBeNull();
+    });
+  });
+
   describe("hasConflicts", () => {
     it("should return false when no conflicts", () => {
       const wt = manager.create(undefined, repoDir);

@@ -7,7 +7,11 @@
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { MemoryStore } from "../memory/store.js";
-import type { Worktree, WorktreeStatus } from "./types.js";
+import {
+  DEFAULT_WORKTREE_CONFIG,
+  type Worktree,
+  type WorktreeStatus,
+} from "./types.js";
 
 // ─── Raw DB Row Type ────────────────────────────────────────────────────────
 
@@ -160,24 +164,31 @@ export class WorktreeStore {
     const bySpec = this.getBySpecId(slug);
     if (bySpec) return bySpec;
 
+    // Branch patterns: the configured prefix (default "sentinal/spec-") plus
+    // the legacy "spec/" prefix. Records often have spec_id=NULL because
+    // linkSpec() runs after spec registration — branch matching must use the
+    // prefix worktree_create actually writes.
+    const patterns = [
+      `${DEFAULT_WORKTREE_CONFIG.branchPrefix}${slug}%`,
+      `spec/${slug}%`,
+    ];
+
     // Fallback: match by branch name pattern for active worktrees
     if (projectPath) {
-      const pattern = `spec/${slug}%`;
       const row = this.db
         .prepare(
-          "SELECT * FROM worktrees WHERE project_path = ? AND branch_name LIKE ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
+          "SELECT * FROM worktrees WHERE project_path = ? AND (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
         )
-        .get(projectPath, pattern) as RawWorktree | null;
+        .get(projectPath, ...patterns) as RawWorktree | null;
       if (row) return this.deserialize(row);
     }
 
     // Global fallback: match by branch name without project scope
-    const pattern = `spec/${slug}%`;
     const row = this.db
       .prepare(
-        "SELECT * FROM worktrees WHERE branch_name LIKE ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM worktrees WHERE (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
       )
-      .get(pattern) as RawWorktree | null;
+      .get(...patterns) as RawWorktree | null;
     if (row) return this.deserialize(row);
 
     return null;

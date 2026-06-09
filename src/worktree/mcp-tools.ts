@@ -11,7 +11,6 @@
  *   - worktree_cleanup: Clean up all stale worktrees whose directories no longer exist
  */
 
-import { existsSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MemoryStore } from "../memory/store.js";
@@ -47,11 +46,11 @@ export function registerWorktreeTools(
   const wtStore = new WorktreeStore(effectiveStore);
   const manager = new WorktreeManager(wtStore, DEFAULT_WORKTREE_CONFIG);
 
-  registerWorktreeDetectTool(server, client, wtStore, manager);
+  registerWorktreeDetectTool(server, client, manager);
   registerWorktreeCreateTool(server, manager);
-  registerWorktreeDiffTool(server, client, wtStore, manager);
-  registerWorktreeSyncTool(server, client, wtStore, manager);
-  registerWorktreeAbandonTool(server, client, wtStore, manager);
+  registerWorktreeDiffTool(server, client, manager);
+  registerWorktreeSyncTool(server, client, manager);
+  registerWorktreeAbandonTool(server, client, manager);
   registerWorktreeCleanupTool(server, client, manager);
 }
 
@@ -60,7 +59,6 @@ export function registerWorktreeTools(
 function registerWorktreeDetectTool(
   server: McpServer,
   client: SidecarClient | null,
-  wtStore: WorktreeStore,
   manager: WorktreeManager,
 ): void {
   server.tool(
@@ -74,18 +72,11 @@ function registerWorktreeDetectTool(
       try {
         const projectPath = project ?? process.cwd();
 
-        let wt;
-        if (client) {
-          wt = await client.resolveWorktreeBySlug(plan_slug, projectPath);
-        } else {
-          wt = wtStore.resolveBySlug(plan_slug, projectPath);
-          // Self-healing (direct mode only): if the directory no longer exists
-          // on disk, auto-mark as abandoned so future queries don't return it.
-          if (wt && !existsSync(wt.worktreePath)) {
-            wtStore.updateStatus(wt.id, "abandoned");
-            wt = null;
-          }
-        }
+        // Both modes self-heal: the sidecar route and direct manager path
+        // reconcile the index against on-disk git worktrees.
+        const wt = client
+          ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
+          : manager.resolveWithReconcile(plan_slug, projectPath);
 
         if (!wt) {
           return mcpText(`No active worktree found for slug: ${plan_slug}`);
@@ -153,7 +144,6 @@ function registerWorktreeCreateTool(
 function registerWorktreeDiffTool(
   server: McpServer,
   client: SidecarClient | null,
-  wtStore: WorktreeStore,
   manager: WorktreeManager,
 ): void {
   server.tool(
@@ -168,7 +158,7 @@ function registerWorktreeDiffTool(
         const projectPath = project ?? process.cwd();
         const wt = client
           ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
-          : wtStore.resolveBySlug(plan_slug, projectPath);
+          : manager.resolveWithReconcile(plan_slug, projectPath);
 
         if (!wt) {
           return mcpText(`No active worktree found for slug: ${plan_slug}`);
@@ -206,7 +196,6 @@ function registerWorktreeDiffTool(
 function registerWorktreeSyncTool(
   server: McpServer,
   client: SidecarClient | null,
-  wtStore: WorktreeStore,
   manager: WorktreeManager,
 ): void {
   server.tool(
@@ -225,7 +214,7 @@ function registerWorktreeSyncTool(
         const projectPath = project ?? process.cwd();
         const wt = client
           ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
-          : wtStore.resolveBySlug(plan_slug, projectPath);
+          : manager.resolveWithReconcile(plan_slug, projectPath);
 
         if (!wt) {
           return mcpText(`No active worktree found for slug: ${plan_slug}`);
@@ -254,7 +243,6 @@ function registerWorktreeSyncTool(
 function registerWorktreeAbandonTool(
   server: McpServer,
   client: SidecarClient | null,
-  wtStore: WorktreeStore,
   manager: WorktreeManager,
 ): void {
   server.tool(
@@ -269,7 +257,7 @@ function registerWorktreeAbandonTool(
         const projectPath = project ?? process.cwd();
         const wt = client
           ? await client.resolveWorktreeBySlug(plan_slug, projectPath)
-          : wtStore.resolveBySlug(plan_slug, projectPath);
+          : manager.resolveWithReconcile(plan_slug, projectPath);
 
         if (!wt) {
           return mcpText(`No active worktree found for slug: ${plan_slug}`);

@@ -7,18 +7,29 @@
  * - "compact" (and others) → skip (no-op, addObservation NOT called)
  */
 
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
+import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
-// Mock the sidecar client
-const mockAddObservation = mock(() => Promise.resolve());
-const mockConnect = mock(() =>
-  Promise.resolve({ addObservation: mockAddObservation }),
+// Spy on the sidecar client's static connect (restorable — mock.module on
+// this module leaks across test files and breaks client.test.ts)
+const mockAddObservation = mock((_obs: unknown) => Promise.resolve());
+const mockConnect = spyOn(SidecarClient, "connect").mockImplementation(
+  async () =>
+    ({ addObservation: mockAddObservation }) as unknown as SidecarClient,
 );
 
-mock.module("../sidecar/client.js", () => ({
-  SidecarClient: { connect: mockConnect },
-}));
+afterAll(() => {
+  mockConnect.mockRestore();
+});
 
 const { processInstructionsLoaded } = await import("./instructions-loaded.js");
 
@@ -46,7 +57,10 @@ describe("processInstructionsLoaded", () => {
     const input = makeInput({ load_reason: "session_start" });
     await processInstructionsLoaded(input);
     expect(mockAddObservation).toHaveBeenCalledTimes(1);
-    const obs = mockAddObservation.mock.calls[0][0] as { type: string; title: string };
+    const obs = mockAddObservation.mock.calls[0][0] as {
+      type: string;
+      title: string;
+    };
     expect(obs.type).toBe("discovery");
     expect(obs.title).toContain("CLAUDE.md");
   });

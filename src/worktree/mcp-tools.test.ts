@@ -89,6 +89,33 @@ describe("worktree_detect MCP tool", () => {
     expect(result.content[0].text).toContain("spec/my-feature");
     expect(result.content[0].text).toContain("active");
   });
+
+  it("should reconcile against disk when the index lost the record (direct mode)", async () => {
+    // Real git repo with an on-disk worktree whose DB record was lost
+    const repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    Bun.spawnSync(["git", "init", "-b", "main"], { cwd: repoDir });
+    Bun.spawnSync(["git", "config", "user.email", "t@t.com"], { cwd: repoDir });
+    Bun.spawnSync(["git", "config", "user.name", "T"], { cwd: repoDir });
+    writeFileSync(join(repoDir, "README.md"), "# Test\n");
+    Bun.spawnSync(["git", "add", "."], { cwd: repoDir });
+    Bun.spawnSync(["git", "commit", "-m", "init"], { cwd: repoDir });
+
+    const wtStore = new WorktreeStore(store);
+    const manager = new WorktreeManager(wtStore);
+    const wt = manager.create("2026-06-09-tool-drift", repoDir);
+    wtStore.delete(wt.id);
+
+    const handler = tools.get("worktree_detect")!;
+    const result = await handler({
+      plan_slug: "2026-06-09-tool-drift",
+      project: repoDir,
+    });
+
+    expect(result.content[0].text).toContain(wt.branchName);
+    expect(result.content[0].text).toContain("active");
+    expect(result.content[0].text).not.toContain("No active worktree");
+  });
 });
 
 // --- worktree_create tests ---
@@ -189,8 +216,9 @@ describe("worktree_diff MCP tool", () => {
   });
 
   it("should return formatted diff when worktree exists", async () => {
-    // Insert a worktree record
+    // Insert a worktree record (directory must exist — resolution is disk-authoritative)
     createSpec(tmpDir, store, "diff-feature");
+    mkdirSync(join(tmpDir, ".worktrees", "diff-feature"), { recursive: true });
     const wtStore = new WorktreeStore(store);
     wtStore.insert({
       id: "wt-diff-1",
@@ -277,6 +305,9 @@ describe("worktree_sync MCP tool", () => {
 
   it("should return error when worktree has conflicts", async () => {
     createSpec(tmpDir, store, "conflict-feature");
+    mkdirSync(join(tmpDir, ".worktrees", "conflict-feature"), {
+      recursive: true,
+    });
     const wtStore = new WorktreeStore(store);
     wtStore.insert({
       id: "wt-conflict-1",
@@ -311,6 +342,7 @@ describe("worktree_sync MCP tool", () => {
 
   it("should return commit hash on successful merge", async () => {
     createSpec(tmpDir, store, "merge-feature");
+    mkdirSync(join(tmpDir, ".worktrees", "merge-feature"), { recursive: true });
     const wtStore = new WorktreeStore(store);
     wtStore.insert({
       id: "wt-merge-1",
@@ -527,7 +559,10 @@ describe("worktree_abandon MCP tool", () => {
     const origAbandon = WorktreeManager.prototype.abandon;
     WorktreeManager.prototype.abandon = function (worktreeId: string) {
       // Just update status to abandoned in store (skip git ops)
-      this.store.updateStatus(worktreeId, "abandoned");
+      (this as unknown as { store: WorktreeStore }).store.updateStatus(
+        worktreeId,
+        "abandoned",
+      );
     };
 
     try {

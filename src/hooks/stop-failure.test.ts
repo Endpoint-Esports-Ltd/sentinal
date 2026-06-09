@@ -1,24 +1,33 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
+import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
-// Mock the sidecar client module
-const mockInsertNotification = mock(() => Promise.resolve());
-const mockAddObservation = mock(() => Promise.resolve());
-const mockConnect = mock(() =>
-  Promise.resolve({
-    insertNotification: mockInsertNotification,
-    addObservation: mockAddObservation,
-  }),
+// Spy on the sidecar client's static connect (restorable — mock.module on
+// this module leaks across test files and breaks client.test.ts)
+const mockInsertNotification = mock((_notif: unknown) => Promise.resolve());
+const mockAddObservation = mock((_obs: unknown) => Promise.resolve());
+const mockConnect = spyOn(SidecarClient, "connect").mockImplementation(
+  async () =>
+    ({
+      insertNotification: mockInsertNotification,
+      addObservation: mockAddObservation,
+    }) as unknown as SidecarClient,
 );
 
-mock.module("../sidecar/client.js", () => ({
-  SidecarClient: {
-    connect: mockConnect,
-  },
-}));
+afterAll(() => {
+  mockConnect.mockRestore();
+});
 
 // Import after mocking
 const { processStopFailure } = await import("./stop-failure.js");

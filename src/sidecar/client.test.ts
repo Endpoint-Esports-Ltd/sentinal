@@ -22,6 +22,7 @@ import { startSidecar, stopSidecar, getSidecarPortPath } from "./server.js";
 import { SidecarClient, withSidecarOrDirect } from "./client.js";
 import { MemoryStore } from "../memory/store.js";
 import * as pathsModule from "./paths.js";
+import * as fileLogModule from "../utils/file-log.js";
 
 describe("SidecarClient", () => {
   let tmpDir: string;
@@ -33,6 +34,9 @@ describe("SidecarClient", () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
     sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+
+    // Redirect log writes to tmpDir so healthy-path tests can assert no writes
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
 
     // Build client directly from known port (bypasses file-based connect)
     const port = (sidecar.server as any).port;
@@ -269,6 +273,8 @@ describe("SidecarClient", () => {
     await client.syncSpec(join(plansDir, "wt-test.md"), tmpDir);
 
     // Use the sidecar context's wtStore (same DB as the warm store)
+    // Directory must exist on disk — resolution is disk-authoritative
+    mkdirSync(join(tmpDir, ".worktrees", "wt-test"), { recursive: true });
     sidecar.ctx.wtStore.insert({
       id: "wt-resolve-1",
       specId: "wt-test",
@@ -312,6 +318,19 @@ describe("SidecarClient", () => {
     );
     const result = await client.getCompactionConfig(tmpDir);
     expect(result.reserved).toBe(5000);
+  });
+
+  it("should NOT write to sidecar.log on healthy requests", async () => {
+    // A buildForTest client (no reconnect) on a live sidecar — no log writes
+    await client.health();
+    await client.ping();
+
+    const logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+    const logLines = fileLogModule.readLastLines(logPath, 20);
+    // No client-reconnect lines should appear
+    expect(logLines.some((l) => l.includes("connection lost"))).toBe(false);
+    expect(logLines.some((l) => l.includes("reconnected via"))).toBe(false);
+    expect(logLines.some((l) => l.includes("reconnect failed"))).toBe(false);
   });
 });
 
@@ -454,6 +473,201 @@ describe("SidecarClient.qualityCheck", () => {
     expect(result.prettier).toBeDefined();
     expect(typeof result.prettier!.ok).toBe("boolean");
   }, 30_000);
+});
+
+// ─── Self-healing reconnect ────────────────────────────────────────────────
+
+describe("SidecarClient self-healing reconnect", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>> | null;
+  let respawned: Awaited<ReturnType<typeof startSidecar>> | null;
+  let savedAutoStart: typeof SidecarClient.autoStartFn;
+  let savedAttempts: number;
+  let savedDelay: number;
+
+  beforeEach(async () => {
+    tmpDir = join(tmpdir(), `sc-rc-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    respawned = null;
+
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "s.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid"),
+    );
+
+    // Redirect log writes to tmpDir so assertions can check sidecar.log
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+
+    savedAutoStart = SidecarClient.autoStartFn;
+    savedAttempts = SidecarClient.reconnectAttempts;
+    savedDelay = SidecarClient.reconnectDelayMs;
+    // Never spawn a real detached sidecar from tests
+    SidecarClient.autoStartFn = () => {};
+    SidecarClient.reconnectAttempts = 3;
+    SidecarClient.reconnectDelayMs = 20;
+
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+  });
+
+  afterEach(() => {
+    SidecarClient.autoStartFn = savedAutoStart;
+    SidecarClient.reconnectAttempts = savedAttempts;
+    SidecarClient.reconnectDelayMs = savedDelay;
+    if (sidecar) stopSidecar(sidecar.server, sidecar.ctx);
+    if (respawned) stopSidecar(respawned.server, respawned.ctx);
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  const obsPayload = {
+    sessionId: "rc-session",
+    projectPath: "/test",
+    type: "fix",
+    title: "Reconnect regression",
+    content: "memory_save path must survive sidecar restart",
+  };
+
+  it("should reconnect and retry after the sidecar restarts (memory_save path)", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    // Sidecar dies (legit session-aware shutdown)...
+    stopSidecar(sidecar!.server, sidecar!.ctx);
+    sidecar = null;
+
+    // ...and a new one comes up at a different port (port file rewritten)
+    const store2 = new MemoryStore(join(tmpDir, "test2.db"));
+    respawned = await startSidecar({ store: store2, httpOnly: true, port: 0 });
+
+    // Cached client must transparently heal and the save must succeed
+    const obs = await client!.addObservation(obsPayload);
+    expect(obs.id).toBeGreaterThan(0);
+
+    // Log must record the reconnect lifecycle
+    const logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+    const logLines = fileLogModule.readLastLines(logPath, 20);
+    expect(logLines.some((l) => l.includes("connection lost"))).toBe(true);
+    expect(logLines.some((l) => l.includes("reconnected via"))).toBe(true);
+  });
+
+  it("should respawn the sidecar via autoStartFn when none is running", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    stopSidecar(sidecar!.server, sidecar!.ctx);
+    sidecar = null;
+
+    // autoStartFn simulates `sentinal sidecar start` coming up shortly after
+    const store2 = new MemoryStore(join(tmpDir, "test2.db"));
+    SidecarClient.autoStartFn = () => {
+      void startSidecar({ store: store2, httpOnly: true, port: 0 }).then(
+        (r) => {
+          respawned = r;
+        },
+      );
+    };
+
+    const obs = await client!.addObservation(obsPayload);
+    expect(obs.id).toBeGreaterThan(0);
+
+    // Log must record respawn trigger and eventual reconnect
+    const logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+    const logLines = fileLogModule.readLastLines(logPath, 20);
+    expect(logLines.some((l) => l.includes("connection lost"))).toBe(true);
+    expect(
+      logLines.some((l) => l.includes("no live sidecar — respawn triggered")),
+    ).toBe(true);
+    expect(logLines.some((l) => l.includes("reconnected via"))).toBe(true);
+  });
+
+  it("should throw an enriched error with method, path, and target when truly unreachable", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    stopSidecar(sidecar!.server, sidecar!.ctx);
+    sidecar = null;
+
+    let calls = 0;
+    SidecarClient.autoStartFn = () => {
+      calls++;
+    };
+
+    expect(client!.addObservation(obsPayload)).rejects.toThrow(
+      /POST \/observation failed: .*unreachable/,
+    );
+    // Wait for the rejection to settle before asserting autoStartFn was used
+    try {
+      await client!.addObservation(obsPayload);
+    } catch {
+      /* expected */
+    }
+    expect(calls).toBeGreaterThan(0);
+
+    // Log must record the failed reconnect
+    const logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+    const logLines = fileLogModule.readLastLines(logPath, 20);
+    expect(logLines.some((l) => l.includes("reconnect failed"))).toBe(true);
+  });
+
+  it("should fail in bounded time when a stale socket file points at nothing", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+
+    stopSidecar(sidecar!.server, sidecar!.ctx);
+    sidecar = null;
+
+    // Crash scenario: sidecar died without cleanup — stale socket file remains,
+    // no live server. tryConnect's probe must NOT recurse into reconnect.
+    writeFileSync(join(tmpDir, "s.sock"), "", "utf-8");
+    writeFileSync(join(tmpDir, "sidecar.port"), "1", "utf-8");
+
+    const start = Date.now();
+    let threw = false;
+    try {
+      await client!.addObservation(obsPayload);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    // Bounded: one reconnect cycle (attempts × delay) plus slack — not unbounded recursion
+    expect(Date.now() - start).toBeLessThan(3000);
+  }, 10_000);
+
+  it("should not add reconnect behavior to buildForTest clients", async () => {
+    const port = (sidecar!.server as any).port;
+    const plain = (SidecarClient as any).buildForTest(
+      `http://127.0.0.1:${port}`,
+    );
+
+    stopSidecar(sidecar!.server, sidecar!.ctx);
+    sidecar = null;
+
+    let calls = 0;
+    SidecarClient.autoStartFn = () => {
+      calls++;
+    };
+
+    expect(plain.addObservation(obsPayload)).rejects.toThrow();
+    try {
+      await plain.addObservation(obsPayload);
+    } catch {
+      /* expected */
+    }
+    expect(calls).toBe(0);
+
+    // Non-reconnecting client must NOT write to sidecar.log
+    const logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+    const logLines = fileLogModule.readLastLines(logPath, 20);
+    expect(logLines.some((l) => l.includes("connection lost"))).toBe(false);
+    expect(logLines.some((l) => l.includes("reconnect failed"))).toBe(false);
+  });
 });
 
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────

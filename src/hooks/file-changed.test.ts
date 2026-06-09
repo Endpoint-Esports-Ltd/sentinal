@@ -5,7 +5,16 @@
  * when test files are modified externally.
  */
 
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterAll,
+  spyOn,
+} from "bun:test";
+import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
 // ─── Mock SidecarClient ────────────────────────────────────────────────────────
@@ -20,12 +29,15 @@ const mockClient = {
   }),
 };
 
-// Mock the sidecar module
-mock.module("../sidecar/client.js", () => ({
-  SidecarClient: {
-    connect: mock(async () => mockClient),
-  },
-}));
+// Spy on the sidecar client's static connect (restorable — mock.module on
+// this module leaks across test files and breaks client.test.ts)
+const mockConnect = spyOn(SidecarClient, "connect").mockImplementation(
+  async () => mockClient as unknown as SidecarClient,
+);
+
+afterAll(() => {
+  mockConnect.mockRestore();
+});
 
 // Import AFTER mocking
 const { processFileChanged } = await import("./file-changed.js");
