@@ -142,9 +142,8 @@ async function runSessionEnd(): Promise<void> {
 }
 
 async function runMemoryObserver(): Promise<void> {
-  const { processMemoryObserver } = await import(
-    "../../hooks/memory-observer.js"
-  );
+  const { processMemoryObserver } =
+    await import("../../hooks/memory-observer.js");
   const input = await readStdin();
   await processMemoryObserver(input);
 }
@@ -198,9 +197,8 @@ async function runMemoryRestore(): Promise<void> {
 }
 
 async function runSpecStopGuard(): Promise<void> {
-  const { processSpecStopGuard } = await import(
-    "../../hooks/spec-stop-guard.js"
-  );
+  const { processSpecStopGuard } =
+    await import("../../hooks/spec-stop-guard.js");
   const input = await readStdin();
   await processSpecStopGuard(input);
 }
@@ -326,14 +324,16 @@ async function runToolRedirect(): Promise<void> {
 
 async function runFileChecker(): Promise<void> {
   const { processFileCheck } = await import("../../hooks/file-checker.js");
-  const { hint: hintFn } = await import("../../utils/hook-output.js");
+  const { blockExit } = await import("../../utils/hook-output.js");
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
   const filePath =
     (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
   const result = await processFileCheck(filePath, input.cwd);
-  if (result) output(hintFn("PostToolUse", result));
+  // Exit 2 + decision:block — paired with continueOnBlock:true in hooks.json
+  // so Claude self-corrects instead of the turn ending (Phase 5, Section B).
+  if (result) blockExit(result);
 }
 
 async function runContextMonitor(): Promise<void> {
@@ -406,9 +406,8 @@ async function runConfigChange(): Promise<void> {
 }
 
 async function runInstructionsLoaded(): Promise<void> {
-  const { processInstructionsLoaded } = await import(
-    "../../hooks/instructions-loaded.js"
-  );
+  const { processInstructionsLoaded } =
+    await import("../../hooks/instructions-loaded.js");
   await processInstructionsLoaded(await readStdin());
 }
 
