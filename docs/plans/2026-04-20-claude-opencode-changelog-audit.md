@@ -303,13 +303,13 @@ Hooks declared in agent frontmatter now fire at runtime. Sentinal could ship age
 
 ### Confirmed OC items (all 7 HIGH items from master plan are shipped)
 
-| Item | OC Version | Status |
-|------|-----------|--------|
-| OC-1 `compaction.autocontinue` | 1.4.4 | ✅ Landed (experimental) |
-| OC-2 Plugin tool metadata return | 1.4.8 | ✅ Landed |
-| OC-4 Custom workspace adaptors | 1.4.4 | ✅ API exists |
-| OC-5 `--dangerously-skip-permissions` | 1.4.0 | ✅ Landed |
-| OC-6 Workspace auth carryover | 1.4.7 | ✅ Confirmed |
-| OC-7 `preserve_recent_tokens` | 1.14.19 | ✅ Landed (renamed) |
+| Item                                  | OC Version | Status                   |
+| ------------------------------------- | ---------- | ------------------------ |
+| OC-1 `compaction.autocontinue`        | 1.4.4      | ✅ Landed (experimental) |
+| OC-2 Plugin tool metadata return      | 1.4.8      | ✅ Landed                |
+| OC-4 Custom workspace adaptors        | 1.4.4      | ✅ API exists            |
+| OC-5 `--dangerously-skip-permissions` | 1.4.0      | ✅ Landed                |
+| OC-6 Workspace auth carryover         | 1.4.7      | ✅ Confirmed             |
+| OC-7 `preserve_recent_tokens`         | 1.14.19    | ✅ Landed (renamed)      |
 
 ARGUMENTS: $ARGUMENTS

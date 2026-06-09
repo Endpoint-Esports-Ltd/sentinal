@@ -22,6 +22,7 @@ Wave: 1
 ### In Scope
 
 **7 new Claude Code hook handlers:**
+
 1. `StopFailure` — persist partial progress on API error, notify dashboard (CC-only)
 2. `ConfigChange` — detect disabled hooks, feed rules changes to memory (CC-only)
 3. `InstructionsLoaded` — record which rules loaded per session (CC + OC parity)
@@ -30,14 +31,9 @@ Wave: 1
 6. `PostCompact` — verify compacted context restored correctly (CC + OC parity)
 7. `TaskCreated` — track background tasks in dashboard (CC + OC parity)
 
-**2 existing hook refactors:**
-8. `pre-edit-guide` — use structured `additionalContext` return, consume `effort.level` for guidance verbosity
-9. `memory-observer` + `spec-stop-guard` — consume `last_assistant_message`, `agent_id`/`agent_type`, `duration_ms`
+**2 existing hook refactors:** 8. `pre-edit-guide` — use structured `additionalContext` return, consume `effort.level` for guidance verbosity 9. `memory-observer` + `spec-stop-guard` — consume `last_assistant_message`, `agent_id`/`agent_type`, `duration_ms`
 
-**Infrastructure:**
-10. Extend `HookInput` type with all new optional fields
-11. Wire all hooks into `hooks.json` and CLI dispatch
-12. Add OpenCode parity for InstructionsLoaded, PostCompact, TaskCreated
+**Infrastructure:** 10. Extend `HookInput` type with all new optional fields 11. Wire all hooks into `hooks.json` and CLI dispatch 12. Add OpenCode parity for InstructionsLoaded, PostCompact, TaskCreated
 
 ### Out of Scope
 
@@ -71,7 +67,10 @@ async function main(): Promise<void> {
 
 // 3. Guard for direct execution only
 if (import.meta.main) {
-  main().catch((err) => { process.stderr.write(String(err)); process.exit(1); });
+  main().catch((err) => {
+    process.stderr.write(String(err));
+    process.exit(1);
+  });
 }
 ```
 
@@ -92,6 +91,7 @@ Hooks that need persistent state (memory, TDD, notifications) use `SidecarClient
 ### OpenCode parity
 
 For hooks with OC equivalents, the shared logic stays in `src/hooks/<name>.ts`. The OC plugin at `targets/opencode/plugins/sentinal.ts` imports and calls the same function from its event handler. The 3 hooks with OC equivalents:
+
 - `InstructionsLoaded` → fires implicitly in `session.created` handler (line 801)
 - `PostCompact` → `experimental.session.compacting` handler (line 664, post-phase)
 - `TaskCreated` → detect subagent sessions in `session.created` handler (line 801)
@@ -102,15 +102,15 @@ Current `HookInput` (8 fields) in `src/utils/hook-output.ts:1-14`. Extend with a
 
 ### Key files
 
-| File | Lines | Role |
-|------|-------|------|
-| `src/utils/hook-output.ts` | 70 | HookInput type + output helpers |
-| `src/cli/commands/hook.ts` | 538 | CLI dispatch (`sentinal hook shared/claude <name>`) |
-| `targets/claude-code/hooks/hooks.json` | ~100 | Hook pipeline definition |
-| `targets/opencode/plugins/sentinal.ts` | ~1008 | OpenCode plugin (exempt from line limits) |
-| `src/hooks/file-checker.ts` | 85 | Template for new hooks |
-| `src/hooks/pre-edit-guide.ts` | 162 | Refactor target |
-| `src/hooks/spec-stop-guard.ts` | 16 | Refactor target |
+| File                                   | Lines | Role                                                |
+| -------------------------------------- | ----- | --------------------------------------------------- |
+| `src/utils/hook-output.ts`             | 70    | HookInput type + output helpers                     |
+| `src/cli/commands/hook.ts`             | 538   | CLI dispatch (`sentinal hook shared/claude <name>`) |
+| `targets/claude-code/hooks/hooks.json` | ~100  | Hook pipeline definition                            |
+| `targets/opencode/plugins/sentinal.ts` | ~1008 | OpenCode plugin (exempt from line limits)           |
+| `src/hooks/file-checker.ts`            | 85    | Template for new hooks                              |
+| `src/hooks/pre-edit-guide.ts`          | 162   | Refactor target                                     |
+| `src/hooks/spec-stop-guard.ts`         | 16    | Refactor target                                     |
 
 ### Gotchas
 
@@ -136,12 +136,12 @@ Current `HookInput` (8 fields) in `src/utils/hook-output.ts:1-14`. Extend with a
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `hook.ts` exceeds 600-line block threshold | Medium | Medium | Each new dispatch entry is ~5 lines. If 573+ is too close, extract dispatch tables to `hook-dispatch.ts` in Task 10 |
-| CC hook event schemas change in future versions | Low | Medium | Each hook uses optional field access (`input.field_path ?? fallback`); graceful degradation on missing fields |
-| Sidecar unavailable when hooks fire | Medium | Low | All hooks have fallback to direct store access or silent no-op (established pattern) |
-| OpenCode plugin grows too large with 3 new handlers | Low | Low | Plugin is exempt from line limits; new code is ~10-15 lines per handler (import + call) |
+| Risk                                                | Likelihood | Impact | Mitigation                                                                                                          |
+| --------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `hook.ts` exceeds 600-line block threshold          | Medium     | Medium | Each new dispatch entry is ~5 lines. If 573+ is too close, extract dispatch tables to `hook-dispatch.ts` in Task 10 |
+| CC hook event schemas change in future versions     | Low        | Medium | Each hook uses optional field access (`input.field_path ?? fallback`); graceful degradation on missing fields       |
+| Sidecar unavailable when hooks fire                 | Medium     | Low    | All hooks have fallback to direct store access or silent no-op (established pattern)                                |
+| OpenCode plugin grows too large with 3 new handlers | Low        | Low    | Plugin is exempt from line limits; new code is ~10-15 lines per handler (import + call)                             |
 
 ## Pre-Mortem
 
@@ -156,6 +156,7 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 **Wave 1 — Infrastructure + Independent Hooks (parallel):** Tasks 1-9 each modify different files (`src/hooks/<name>.ts` + test). Task 10 (HookInput + hooks.json + dispatch) touches shared files but is a prerequisite.
 
 Given `hook.ts` is a shared dependency for dispatch wiring, the execution order is:
+
 - **Wave 1:** Task 10 (infrastructure: HookInput type, hooks.json entries, CLI dispatch)
 - **Wave 2:** Tasks 1-9 (all hook implementations, parallel — each in its own `src/hooks/<name>.ts`)
 - **Wave 3:** Task 11 (OpenCode parity — touches `sentinal.ts`, depends on shared logic from Wave 2)
@@ -179,32 +180,32 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 
 ### Artifacts
 
-| Artifact | Provides | Exports |
-|----------|----------|---------|
-| `src/utils/hook-output.ts` (modified) | Extended HookInput type | `HookInput` with 15+ new optional fields |
-| `src/hooks/stop-failure.ts` (new) | StopFailure handler | `processStopFailure()` |
-| `src/hooks/config-change.ts` (new) | ConfigChange handler | `processConfigChange()` |
-| `src/hooks/instructions-loaded.ts` (new) | InstructionsLoaded handler | `processInstructionsLoaded()` |
-| `src/hooks/cwd-changed.ts` (new) | CwdChanged handler | `processCwdChanged()` |
-| `src/hooks/file-changed.ts` (new) | FileChanged handler | `processFileChanged()` |
-| `src/hooks/post-compact.ts` (new) | PostCompact handler | `processPostCompact()` |
-| `src/hooks/task-created.ts` (new) | TaskCreated handler | `processTaskCreated()` |
-| `src/hooks/memory-observer.ts` (new) | Extracted from hook.ts | `processMemoryObserver()` |
-| `src/hooks/pre-edit-guide.ts` (modified) | Refactored output | `processPreEditGuide()` (unchanged export) |
-| `src/hooks/spec-stop-guard.ts` (modified) | Consumes new fields | `processSpecStopGuard()` |
-| `src/cli/commands/hook.ts` (modified) | 7 new dispatch entries | Updated `SHARED_HOOKS` + `CLAUDE_HOOKS` |
-| `targets/claude-code/hooks/hooks.json` (modified) | 7 new hook pipeline entries | N/A (JSON data) |
-| `targets/opencode/plugins/sentinal.ts` (modified) | 3 OC parity handlers | N/A (plugin handlers) |
+| Artifact                                          | Provides                    | Exports                                    |
+| ------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| `src/utils/hook-output.ts` (modified)             | Extended HookInput type     | `HookInput` with 15+ new optional fields   |
+| `src/hooks/stop-failure.ts` (new)                 | StopFailure handler         | `processStopFailure()`                     |
+| `src/hooks/config-change.ts` (new)                | ConfigChange handler        | `processConfigChange()`                    |
+| `src/hooks/instructions-loaded.ts` (new)          | InstructionsLoaded handler  | `processInstructionsLoaded()`              |
+| `src/hooks/cwd-changed.ts` (new)                  | CwdChanged handler          | `processCwdChanged()`                      |
+| `src/hooks/file-changed.ts` (new)                 | FileChanged handler         | `processFileChanged()`                     |
+| `src/hooks/post-compact.ts` (new)                 | PostCompact handler         | `processPostCompact()`                     |
+| `src/hooks/task-created.ts` (new)                 | TaskCreated handler         | `processTaskCreated()`                     |
+| `src/hooks/memory-observer.ts` (new)              | Extracted from hook.ts      | `processMemoryObserver()`                  |
+| `src/hooks/pre-edit-guide.ts` (modified)          | Refactored output           | `processPreEditGuide()` (unchanged export) |
+| `src/hooks/spec-stop-guard.ts` (modified)         | Consumes new fields         | `processSpecStopGuard()`                   |
+| `src/cli/commands/hook.ts` (modified)             | 7 new dispatch entries      | Updated `SHARED_HOOKS` + `CLAUDE_HOOKS`    |
+| `targets/claude-code/hooks/hooks.json` (modified) | 7 new hook pipeline entries | N/A (JSON data)                            |
+| `targets/opencode/plugins/sentinal.ts` (modified) | 3 OC parity handlers        | N/A (plugin handlers)                      |
 
 ### Key Links
 
-| From | To | Via | Pattern |
-|------|----|-----|---------|
-| `targets/claude-code/hooks/hooks.json` | `src/hooks/stop-failure.ts` | `sentinal hook shared stop-failure` | `"stop-failure"` |
-| `src/cli/commands/hook.ts` | `src/hooks/stop-failure.ts` | dynamic import + dispatch | `import.*stop-failure` |
-| `src/hooks/stop-failure.ts` | `src/sidecar/client.ts` | sidecar notification | `SidecarClient` |
-| `targets/opencode/plugins/sentinal.ts` | `src/hooks/instructions-loaded.ts` | import | `import.*instructions-loaded` |
-| `src/hooks/memory-observer.ts` | `src/sidecar/client.ts` | observation posting | `SidecarClient` |
+| From                                   | To                                 | Via                                 | Pattern                       |
+| -------------------------------------- | ---------------------------------- | ----------------------------------- | ----------------------------- |
+| `targets/claude-code/hooks/hooks.json` | `src/hooks/stop-failure.ts`        | `sentinal hook shared stop-failure` | `"stop-failure"`              |
+| `src/cli/commands/hook.ts`             | `src/hooks/stop-failure.ts`        | dynamic import + dispatch           | `import.*stop-failure`        |
+| `src/hooks/stop-failure.ts`            | `src/sidecar/client.ts`            | sidecar notification                | `SidecarClient`               |
+| `targets/opencode/plugins/sentinal.ts` | `src/hooks/instructions-loaded.ts` | import                              | `import.*instructions-loaded` |
+| `src/hooks/memory-observer.ts`         | `src/sidecar/client.ts`            | observation posting                 | `SidecarClient`               |
 
 ## Progress Tracking
 
@@ -230,6 +231,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 1
 
 **Files:**
+
 - Modify: `src/utils/hook-output.ts`
 - Modify: `targets/claude-code/hooks/hooks.json`
 - Modify: `src/cli/commands/hook.ts`
@@ -284,6 +286,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Matcher verification** — Matcher syntax differs per event type. `FileChanged` uses literal filename matching (not regex); `ConfigChange` uses source-type matching (`project_settings|skills`); `CwdChanged` and `TaskCreated` don't support matchers at all. Verify each matcher against CC docs during implementation. If a matcher doesn't work as expected, fall back to filtering inside the hook handler instead.
 
 **Definition of Done:**
+
 - [ ] HookInput has all new optional fields with JSDoc comments
 - [ ] hooks.json has 7 new entries (total: 21 entries)
 - [ ] hook.ts has 7 new entries in SHARED_HOOKS (total: 18 shared + 3 claude = 21)
@@ -291,6 +294,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - [ ] hook.ts stays under 600 lines
 
 **Verify:**
+
 - `grep -c "hook_event_name" targets/claude-code/hooks/hooks.json` → 21+ (7 events × 3 entries avg)
 - `grep -c "StopFailure\|ConfigChange\|InstructionsLoaded\|CwdChanged\|FileChanged\|PostCompact\|TaskCreated" targets/claude-code/hooks/hooks.json` → 7
 - `wc -l src/cli/commands/hook.ts` → <600
@@ -304,6 +308,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/stop-failure.ts`
 - Create: `src/hooks/stop-failure.test.ts`
 
@@ -319,6 +324,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Pattern:** Follow `file-checker.ts` template.
 
 **Definition of Done:**
+
 - [ ] `processStopFailure()` exported from `src/hooks/stop-failure.ts`
 - [ ] 3 test cases: with active spec, without active spec, sidecar unavailable
 - [ ] All tests pass
@@ -334,6 +340,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/config-change.ts`
 - Create: `src/hooks/config-change.test.ts`
 
@@ -348,6 +355,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Matcher:** `project_settings|skills` — only fires on project settings and skills changes, not user-level settings.
 
 **Definition of Done:**
+
 - [ ] `processConfigChange()` exported from `src/hooks/config-change.ts`
 - [ ] 3 test cases: rules file change, hooks disabled detection, non-sentinal config change (no-op)
 - [ ] All tests pass
@@ -363,6 +371,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/instructions-loaded.ts`
 - Create: `src/hooks/instructions-loaded.test.ts`
 
@@ -375,6 +384,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **async: true** — non-blocking.
 
 **Definition of Done:**
+
 - [ ] `processInstructionsLoaded()` exported
 - [ ] 3 test cases: session_start load, compact load (skipped), path_glob_match load
 - [ ] All tests pass
@@ -390,6 +400,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/cwd-changed.ts`
 - Create: `src/hooks/cwd-changed.test.ts`
 - Modify: `src/sidecar/project-routes.ts` (add `POST /project-context/invalidate` route)
@@ -405,6 +416,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **New sidecar route:** `POST /project-context/invalidate` in `project-routes.ts` — clears the cached project context so the next `GET /project-context` re-analyzes. If `project-routes.ts` already has a cache mechanism, use its built-in invalidation. If the project context is computed fresh on every request (no cache), this route can be a no-op and Task 4 becomes even simpler.
 
 **Definition of Done:**
+
 - [ ] `processCwdChanged()` exported
 - [ ] 2 test cases: with sidecar (invalidation called), without sidecar (silent no-op)
 - [ ] All tests pass
@@ -420,6 +432,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/file-changed.ts`
 - Create: `src/hooks/file-changed.test.ts`
 
@@ -434,6 +447,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **async: true** — non-blocking.
 
 **Definition of Done:**
+
 - [ ] `processFileChanged()` exported
 - [ ] 3 test cases: test file changed (TDD cleared), non-test file (no-op), envrc (no-op)
 - [ ] All tests pass
@@ -449,6 +463,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/post-compact.ts` (new file — distinct from existing `post-compact-restore.ts`)
 - Create: `src/hooks/post-compact.test.ts`
 
@@ -463,6 +478,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Not async** — PostCompact can return additionalContext.
 
 **Definition of Done:**
+
 - [ ] `processPostCompact()` exported from `src/hooks/post-compact.ts`
 - [ ] 3 test cases: compact-state present, compact-state missing, compact-state corrupt
 - [ ] All tests pass
@@ -478,6 +494,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/task-created.ts`
 - Create: `src/hooks/task-created.test.ts`
 
@@ -490,6 +507,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **async: true** — non-blocking, fire-and-forget.
 
 **Definition of Done:**
+
 - [ ] `processTaskCreated()` exported
 - [ ] 3 test cases: with active spec, without active spec, missing optional fields
 - [ ] All tests pass
@@ -505,6 +523,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Modify: `src/hooks/pre-edit-guide.ts`
 - Modify: `src/hooks/pre-edit-guide.test.ts`
 
@@ -518,6 +537,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Minimal change** — add effort-aware truncation, not a structural rewrite.
 
 **Definition of Done:**
+
 - [ ] `processPreEditGuide()` respects `effort.level`
 - [ ] 2 new test cases: low effort (shorter), xhigh effort (full)
 - [ ] Existing tests still pass
@@ -533,6 +553,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 2
 
 **Files:**
+
 - Create: `src/hooks/memory-observer.ts` (extract from `src/cli/commands/hook.ts:144-229`)
 - Modify: `src/hooks/memory-observer.test.ts`
 - Modify: `src/hooks/spec-stop-guard.ts`
@@ -551,6 +572,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
   2. Read `agent_id` — if the stop is from a subagent (`agent_type !== "main"`), always allow it to stop (don't block subagents from completing).
 
 **Definition of Done:**
+
 - [ ] `processMemoryObserver()` extracted to `src/hooks/memory-observer.ts`
 - [ ] memory-observer includes `agent_id`, `agent_type`, `duration_ms` in observations
 - [ ] spec-stop-guard uses `last_assistant_message` in deny reason and `agent_type` for subagent bypass
@@ -558,6 +580,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - [ ] `hook.ts` line count reduced by ~80 lines (inline code replaced with import)
 
 **Verify:**
+
 - `bun test src/hooks/memory-observer.test.ts`
 - `bun test src/hooks/spec-stop-guard.test.ts`
 
@@ -570,6 +593,7 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 **Wave:** 3
 
 **Files:**
+
 - Modify: `targets/opencode/plugins/sentinal.ts`
 - Modify: `targets/opencode/plugins/sentinal-helpers.ts` (if helper extraction is cleaner)
 
@@ -582,12 +606,14 @@ Given `hook.ts` is a shared dependency for dispatch wiring, the execution order 
 - **Minimal additions:** Each handler is ~5-10 lines of wrapper code calling the shared function.
 
 **Definition of Done:**
+
 - [ ] `sentinal.ts` imports and calls `processInstructionsLoaded`, `processPostCompact`, `processTaskCreated`
 - [ ] `bun run build:opencode` succeeds
 - [ ] Existing OpenCode plugin tests still pass
 - [ ] 3 new test cases added to `targets/opencode/plugins/sentinal-helpers.test.ts` (or `sentinal.test.ts` if it exists): (1) InstructionsLoaded fires on session.created, (2) PostCompact fires on session.compacting, (3) TaskCreated fires for subagent sessions
 
 **Verify:**
+
 - `grep "instructions-loaded\|post-compact\|task-created" targets/opencode/plugins/sentinal.ts` → 3+ matches
 - `bun run build:opencode`
 - `bun test targets/opencode/plugins/`

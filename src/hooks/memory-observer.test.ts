@@ -333,7 +333,8 @@ describe("capture-to-storage pipeline", () => {
       agent_id: "agent-abc-123",
       agent_type: "Explore",
       duration_ms: 350,
-      last_assistant_message: "I fixed the type error in foo.ts by adjusting the parameter type.",
+      last_assistant_message:
+        "I fixed the type error in foo.ts by adjusting the parameter type.",
     };
 
     // Override MEMORY_ENABLED so processMemoryObserver runs

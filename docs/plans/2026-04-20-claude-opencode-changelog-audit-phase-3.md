@@ -97,12 +97,12 @@ Wave: 1
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `compaction.autocontinue` API renamed/removed in OC 1.15+ | Low | Medium | Wrap handler in try/catch; handler is a no-op if never called |
-| `tool()` helper not available at bundle time (it's a `declare const`) | Medium | High | If import fails, fall back to raw `ToolDefinition` object with Zod schemas directly |
-| `opencode.json` not at expected path or malformed | Low | Low | Default to 10000 tokens if config unreadable; log warning |
-| New `src/opencode/` directory creates import chain that pulls in bun:sqlite | Medium | High | Each new file must be checked for transitive sqlite imports before wiring into sentinal.ts |
+| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                 |
+| --------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------ |
+| `compaction.autocontinue` API renamed/removed in OC 1.15+                   | Low        | Medium | Wrap handler in try/catch; handler is a no-op if never called                              |
+| `tool()` helper not available at bundle time (it's a `declare const`)       | Medium     | High   | If import fails, fall back to raw `ToolDefinition` object with Zod schemas directly        |
+| `opencode.json` not at expected path or malformed                           | Low        | Low    | Default to 10000 tokens if config unreadable; log warning                                  |
+| New `src/opencode/` directory creates import chain that pulls in bun:sqlite | Medium     | High   | Each new file must be checked for transitive sqlite imports before wiring into sentinal.ts |
 
 ## Pre-Mortem
 
@@ -134,29 +134,29 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Artifacts
 
-| Artifact | Provides | Exports |
-|----------|----------|---------|
-| `src/opencode/compaction-autocontinue.ts` | Autocontinue handler | `handleCompactionAutocontinue()` |
-| `src/opencode/compaction-context.ts` | Token-budget-aware context builder | `buildCompactionContext()` |
-| `src/opencode/native-tdd-status.ts` | Native tool handler for TDD status | `tddStatusTool` (ToolDefinition) |
-| `src/sidecar/config-routes.ts` (modified) | Compaction config endpoint | `GET /config/compaction` |
-| `src/sidecar/client.ts` (modified) | Client method for compaction config | `getCompactionConfig()` |
-| `targets/opencode/types/opencode-plugin.d.ts` (modified) | Type defs | `PluginHooks["compaction.autocontinue"]` |
-| `targets/opencode/plugins/sentinal.ts` (modified) | Plugin wiring | autocontinue handler + native tool |
-| `targets/opencode/skills/spec-master-execute/SKILL.md` (modified) | Skill guidance | `--dangerously-skip-permissions` docs |
-| `docs/decisions/2026-04-20-opencode-authorize-api.md` | Deferred decision | n/a |
+| Artifact                                                          | Provides                            | Exports                                  |
+| ----------------------------------------------------------------- | ----------------------------------- | ---------------------------------------- |
+| `src/opencode/compaction-autocontinue.ts`                         | Autocontinue handler                | `handleCompactionAutocontinue()`         |
+| `src/opencode/compaction-context.ts`                              | Token-budget-aware context builder  | `buildCompactionContext()`               |
+| `src/opencode/native-tdd-status.ts`                               | Native tool handler for TDD status  | `tddStatusTool` (ToolDefinition)         |
+| `src/sidecar/config-routes.ts` (modified)                         | Compaction config endpoint          | `GET /config/compaction`                 |
+| `src/sidecar/client.ts` (modified)                                | Client method for compaction config | `getCompactionConfig()`                  |
+| `targets/opencode/types/opencode-plugin.d.ts` (modified)          | Type defs                           | `PluginHooks["compaction.autocontinue"]` |
+| `targets/opencode/plugins/sentinal.ts` (modified)                 | Plugin wiring                       | autocontinue handler + native tool       |
+| `targets/opencode/skills/spec-master-execute/SKILL.md` (modified) | Skill guidance                      | `--dangerously-skip-permissions` docs    |
+| `docs/decisions/2026-04-20-opencode-authorize-api.md`             | Deferred decision                   | n/a                                      |
 
 ### Key Links
 
-| From | To | Via | Pattern |
-|------|----|-----|---------|
-| `sentinal.ts` | `src/opencode/compaction-autocontinue.ts` | import | `import.*compaction-autocontinue` |
-| `sentinal.ts` | `src/opencode/compaction-context.ts` | import | `import.*compaction-context` |
-| `sentinal.ts` | `src/opencode/native-tdd-status.ts` | import | `import.*native-tdd-status` |
-| `compaction-autocontinue.ts` | `SidecarClient` | sidecar calls | `getTddState\|getCurrentSpec` |
-| `compaction-context.ts` | `SidecarClient` | sidecar calls | `getCompactionConfig` |
-| `config-routes.ts` | `opencode.json` | file read | `readFileSync.*opencode\.json` |
-| `native-tdd-status.ts` | `SidecarClient` | sidecar calls | `getTddState\|listActiveTddStates` |
+| From                         | To                                        | Via           | Pattern                            |
+| ---------------------------- | ----------------------------------------- | ------------- | ---------------------------------- |
+| `sentinal.ts`                | `src/opencode/compaction-autocontinue.ts` | import        | `import.*compaction-autocontinue`  |
+| `sentinal.ts`                | `src/opencode/compaction-context.ts`      | import        | `import.*compaction-context`       |
+| `sentinal.ts`                | `src/opencode/native-tdd-status.ts`       | import        | `import.*native-tdd-status`        |
+| `compaction-autocontinue.ts` | `SidecarClient`                           | sidecar calls | `getTddState\|getCurrentSpec`      |
+| `compaction-context.ts`      | `SidecarClient`                           | sidecar calls | `getCompactionConfig`              |
+| `config-routes.ts`           | `opencode.json`                           | file read     | `readFileSync.*opencode\.json`     |
+| `native-tdd-status.ts`       | `SidecarClient`                           | sidecar calls | `getTddState\|listActiveTddStates` |
 
 ## Progress Tracking
 
@@ -170,7 +170,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [x] Task 8: Wire all handlers into sentinal.ts (Wave 3)
 - [x] Task 9: Update spec-master-execute skill for --dangerously-skip-permissions (Wave 3)
 - [x] Task 10: Write deferred decision doc for authorize API (Wave 3)
-**Total Tasks:** 10 | **Completed:** 10 | **Remaining:** 0
+      **Total Tasks:** 10 | **Completed:** 10 | **Remaining:** 0
 
 ## Implementation Tasks
 
@@ -193,9 +193,10 @@ _Assume this plan failed. Most likely internal reasons:_
   1. `opencode-plugin.d.ts:156` — canonical SDK types
   2. `sentinal.ts:100-125` — local `PluginHooks` interface used for actual return type
   3. `sentinal.d.ts:61-90` — companion `.d.ts` (hand-maintained, mirrors sentinal.ts)
-  All three must be updated in sync.
+     All three must be updated in sync.
 
 - **Add `"compaction.autocontinue"?`** to `PluginHooks` in all 3 files:
+
   ```typescript
   "compaction.autocontinue"?: (
     input: { sessionID: string },
@@ -335,7 +336,7 @@ _Assume this plan failed. Most likely internal reasons:_
   export async function handleCompactionAutocontinue(
     sidecar: SidecarClient | null,
     projectPath: string,
-  ): Promise<{ shouldContinue: boolean; context: string[] }>
+  ): Promise<{ shouldContinue: boolean; context: string[] }>;
   ```
 - Logic:
   1. If `sidecar` is null → return `{ shouldContinue: true, context: [] }` (graceful degradation)
@@ -383,7 +384,7 @@ _Assume this plan failed. Most likely internal reasons:_
     specContext: string | null;
     memoryContext: string | null;
     reservedTokens: number;
-  }): string[]
+  }): string[];
   ```
 - Logic:
   1. Estimate token count of each context block (~4 chars per token heuristic)
@@ -428,7 +429,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - The tool is defined as a factory that accepts a sidecar client:
   ```typescript
-  export function createTddStatusTool(sidecar: SidecarClient | null): ToolDefinition
+  export function createTddStatusTool(
+    sidecar: SidecarClient | null,
+  ): ToolDefinition;
   ```
 - Uses `z.string().optional().describe("...")` for args (file_path, spec_id — matching existing MCP tool params).
 - Execute function:
@@ -497,14 +500,17 @@ _Assume this plan failed. Most likely internal reasons:_
   // Before pushing to output.context, size the content
   let reserved = 10000; // default
   if (sidecar) {
-    try { reserved = (await sidecar.getCompactionConfig(projectRootForSidecar)).reserved; } catch {}
+    try {
+      reserved = (await sidecar.getCompactionConfig(projectRootForSidecar))
+        .reserved;
+    } catch {}
   }
   const budgetedContext = buildCompactionContext({
     specContext: specLines?.join("\n") ?? null,
     memoryContext,
     reservedTokens: reserved,
   });
-  budgetedContext.forEach(c => output.context.push(c));
+  budgetedContext.forEach((c) => output.context.push(c));
   ```
   Replace the existing direct `output.context.push(specLines.join("\n"))` and `output.context.push(memoryContext)` with the budgeted version.
 - **Register native tool** — add `tool:` slot to the returned object:
@@ -600,10 +606,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 _From the "Investigate During Planning" section of the original stub:_
 
-| Item | Resolution |
-|------|-----------|
-| `api.command` deprecated → `api.keymap` (OC 1.14.45) | **Not applicable.** `sentinal.ts` does not use `api.command`. No migration needed. |
-| Instruction precedence change (OC 1.14.30) | **No conflict found.** `~/.config/opencode/AGENTS.md` contains general dev-tool instructions (Sentinal commands, workflow guidance) that don't override project-specific `.sentinal/rules/`. The precedence change is harmless for our use case. |
-| Effect-based core event system (OC 1.15.0) | **Compatible.** The `PluginHooks` return-object pattern (where the plugin returns named handler functions) is unchanged. The effect-based system is an internal OC refactor of how events are dispatched, not a change to the plugin API surface. Our handler registration pattern works. |
-| All 7 OC items confirmed shipped | **Confirmed.** All features landed and stable. No API changes detected. |
-| Zod schema metadata preservation (OC 1.15.1) | **Leveraged.** Task 7 relies on this — `sentinal_tdd_status` tool uses Zod schemas for args and structured metadata return. |
+| Item                                                 | Resolution                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api.command` deprecated → `api.keymap` (OC 1.14.45) | **Not applicable.** `sentinal.ts` does not use `api.command`. No migration needed.                                                                                                                                                                                                        |
+| Instruction precedence change (OC 1.14.30)           | **No conflict found.** `~/.config/opencode/AGENTS.md` contains general dev-tool instructions (Sentinal commands, workflow guidance) that don't override project-specific `.sentinal/rules/`. The precedence change is harmless for our use case.                                          |
+| Effect-based core event system (OC 1.15.0)           | **Compatible.** The `PluginHooks` return-object pattern (where the plugin returns named handler functions) is unchanged. The effect-based system is an internal OC refactor of how events are dispatched, not a change to the plugin API surface. Our handler registration pattern works. |
+| All 7 OC items confirmed shipped                     | **Confirmed.** All features landed and stable. No API changes detected.                                                                                                                                                                                                                   |
+| Zod schema metadata preservation (OC 1.15.1)         | **Leveraged.** Task 7 relies on this — `sentinal_tdd_status` tool uses Zod schemas for args and structured metadata return.                                                                                                                                                               |

@@ -216,16 +216,14 @@ describe("resolveProjectRoot", () => {
 
 describe("processInstructionsLoaded — OC parity", () => {
   it("should be importable from src/hooks/instructions-loaded", async () => {
-    const { processInstructionsLoaded } = await import(
-      "../../../src/hooks/instructions-loaded.js"
-    );
+    const { processInstructionsLoaded } =
+      await import("../../../src/hooks/instructions-loaded.js");
     expect(typeof processInstructionsLoaded).toBe("function");
   });
 
   it("should not throw for compact load_reason (skip path)", async () => {
-    const { processInstructionsLoaded } = await import(
-      "../../../src/hooks/instructions-loaded.js"
-    );
+    const { processInstructionsLoaded } =
+      await import("../../../src/hooks/instructions-loaded.js");
     await expect(
       processInstructionsLoaded({
         session_id: "s1",
@@ -243,16 +241,14 @@ describe("processInstructionsLoaded — OC parity", () => {
 
 describe("processPostCompact — OC parity", () => {
   it("should be importable from src/hooks/post-compact", async () => {
-    const { processPostCompact } = await import(
-      "../../../src/hooks/post-compact.js"
-    );
+    const { processPostCompact } =
+      await import("../../../src/hooks/post-compact.js");
     expect(typeof processPostCompact).toBe("function");
   });
 
   it("should return a message string when compact-state.json is missing", async () => {
-    const { processPostCompact } = await import(
-      "../../../src/hooks/post-compact.js"
-    );
+    const { processPostCompact } =
+      await import("../../../src/hooks/post-compact.js");
     const result = await processPostCompact({
       session_id: "s1",
       transcript_path: "/tmp/t.jsonl",
@@ -267,16 +263,14 @@ describe("processPostCompact — OC parity", () => {
 
 describe("processTaskCreated — OC parity", () => {
   it("should be importable from src/hooks/task-created", async () => {
-    const { processTaskCreated } = await import(
-      "../../../src/hooks/task-created.js"
-    );
+    const { processTaskCreated } =
+      await import("../../../src/hooks/task-created.js");
     expect(typeof processTaskCreated).toBe("function");
   });
 
   it("should be callable as an async function", async () => {
-    const { processTaskCreated } = await import(
-      "../../../src/hooks/task-created.js"
-    );
+    const { processTaskCreated } =
+      await import("../../../src/hooks/task-created.js");
     // The function is async and returns void — just verify it's callable
     expect(typeof processTaskCreated).toBe("function");
     // Verify it returns a Promise (async function)
@@ -292,6 +286,8 @@ describe("processTaskCreated — OC parity", () => {
     });
     expect(result).toBeInstanceOf(Promise);
     // Let it resolve (may or may not call sidecar depending on test environment)
-    await result.catch(() => {/* any sidecar error is fine */});
+    await result.catch(() => {
+      /* any sidecar error is fine */
+    });
   });
 });

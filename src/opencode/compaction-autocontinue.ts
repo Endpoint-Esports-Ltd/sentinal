@@ -38,7 +38,9 @@ export async function handleCompactionAutocontinue(
   const tddStates = allTddStates.filter((cycle) =>
     cycle.filePath.startsWith(projectPath),
   );
-  const hasRedState = tddStates.some((cycle) => cycle.state === "RED_CONFIRMED");
+  const hasRedState = tddStates.some(
+    (cycle) => cycle.state === "RED_CONFIRMED",
+  );
   if (hasRedState) {
     return {
       shouldContinue: false,

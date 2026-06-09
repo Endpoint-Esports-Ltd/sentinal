@@ -166,6 +166,7 @@ opencode run --dangerously-skip-permissions -p "Execute spec plan: <child-plan-p
 ```
 
 **Rules:**
+
 - **Only use in non-interactive contexts** — CI pipelines, automated testing, scheduled runs
 - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
 - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`

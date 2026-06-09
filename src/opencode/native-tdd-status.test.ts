@@ -13,22 +13,31 @@ describe("createTddStatusTool", () => {
 
   it("should return unavailable message when sidecar is null", async () => {
     const tool = createTddStatusTool(null);
-    const result = await tool.execute({}, { directory: "/project", worktree: "/project" });
+    const result = await tool.execute(
+      {},
+      { directory: "/project", worktree: "/project" },
+    );
     expect((result as { content: string }).content).toContain("unavailable");
-    expect((result as { metadata: { sentinal: { tdd_state: string } } }).metadata.sentinal.tdd_state).toBe("IDLE");
+    expect(
+      (result as { metadata: { sentinal: { tdd_state: string } } }).metadata
+        .sentinal.tdd_state,
+    ).toBe("IDLE");
   });
 
   it("should return file-specific TDD state in single file mode", async () => {
     const mockSidecar = {
-      getTddState: async (_fp: string) => ({ state: "RED_CONFIRMED", hasActiveSpec: true }),
+      getTddState: async (_fp: string) => ({
+        state: "RED_CONFIRMED",
+        hasActiveSpec: true,
+      }),
       listActiveTddStates: async () => [],
     } as unknown as SidecarClient;
 
     const tool = createTddStatusTool(mockSidecar);
-    const result = await tool.execute(
+    const result = (await tool.execute(
       { file_path: "/src/foo.ts" },
       { directory: "/project", worktree: "/project" },
-    ) as { content: string; metadata: { sentinal: { tdd_state: string } } };
+    )) as { content: string; metadata: { sentinal: { tdd_state: string } } };
 
     expect(result.content).toContain("/src/foo.ts");
     expect(result.content).toContain("RED_CONFIRMED");
@@ -40,16 +49,23 @@ describe("createTddStatusTool", () => {
     const mockSidecar = {
       getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
       listActiveTddStates: async () => [
-        { filePath: "/src/a.ts", state: "RED_CONFIRMED", updatedAt: Date.now() },
+        {
+          filePath: "/src/a.ts",
+          state: "RED_CONFIRMED",
+          updatedAt: Date.now(),
+        },
         { filePath: "/src/b.ts", state: "TEST_WRITTEN", updatedAt: Date.now() },
       ],
     } as unknown as SidecarClient;
 
     const tool = createTddStatusTool(mockSidecar);
-    const result = await tool.execute(
+    const result = (await tool.execute(
       {},
       { directory: "/project", worktree: "/project" },
-    ) as { content: string; metadata: { sentinal: { tdd_state: string; active_count: number } } };
+    )) as {
+      content: string;
+      metadata: { sentinal: { tdd_state: string; active_count: number } };
+    };
 
     expect(result.metadata.sentinal.active_count).toBe(2);
     expect(result.content).toContain("/src/a.ts");
@@ -64,10 +80,13 @@ describe("createTddStatusTool", () => {
     } as unknown as SidecarClient;
 
     const tool = createTddStatusTool(mockSidecar);
-    const result = await tool.execute(
+    const result = (await tool.execute(
       {},
       { directory: "/project", worktree: "/project" },
-    ) as { content: string; metadata: { sentinal: { tdd_state: string; active_count: number } } };
+    )) as {
+      content: string;
+      metadata: { sentinal: { tdd_state: string; active_count: number } };
+    };
 
     expect(result.content).toContain("No active TDD cycles");
     expect(result.metadata.sentinal.active_count).toBe(0);
@@ -80,7 +99,13 @@ describe("createTddStatusTool", () => {
       getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
       listActiveTddStates: async (specId?: string | null) => {
         capturedArgs.push(specId);
-        return [{ filePath: "/src/c.ts", state: "GREEN_CONFIRMED", updatedAt: Date.now() }];
+        return [
+          {
+            filePath: "/src/c.ts",
+            state: "GREEN_CONFIRMED",
+            updatedAt: Date.now(),
+          },
+        ];
       },
     } as unknown as SidecarClient;
 

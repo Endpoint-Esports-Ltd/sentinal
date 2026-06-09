@@ -241,4 +241,3 @@ export { startSidecar, stopSidecar } from "./sidecar/server.js";
 // Primary access is via `@endpoint/sentinal/opencode-plugin`.
 // Direct re-export removed: targets/opencode/ is outside rootDir for the
 // Claude Code tsconfig, causing TS6059.  Callers should use the subpath.
-

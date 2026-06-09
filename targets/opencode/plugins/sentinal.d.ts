@@ -23,77 +23,95 @@
  * pulling in bun:sqlite transitively during bundling.
  */
 interface PluginContext {
-    project: {
-        name: string;
-        path: string;
-    };
-    directory: string;
-    worktree: string;
-    client: {
-        app: {
-            log(options: {
-                body: {
-                    service: string;
-                    level: string;
-                    message: string;
-                };
-            }): Promise<void>;
+  project: {
+    name: string;
+    path: string;
+  };
+  directory: string;
+  worktree: string;
+  client: {
+    app: {
+      log(options: {
+        body: {
+          service: string;
+          level: string;
+          message: string;
         };
-        session: {
-            messages(options: {
-                path: {
-                    id: string;
-                };
-            }): Promise<unknown>;
-        };
+      }): Promise<void>;
     };
-    $: (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
+    session: {
+      messages(options: {
+        path: {
+          id: string;
+        };
+      }): Promise<unknown>;
+    };
+  };
+  $: (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
 }
 type Plugin = (context: PluginContext) => Promise<PluginHooks>;
 interface ToolDefinition {
-    description: string;
-    args: Record<string, unknown>;
-    execute(args: Record<string, unknown>, context: {
-        directory: string;
-        worktree: string;
-    }): Promise<unknown>;
+  description: string;
+  args: Record<string, unknown>;
+  execute(
+    args: Record<string, unknown>,
+    context: {
+      directory: string;
+      worktree: string;
+    },
+  ): Promise<unknown>;
 }
 interface PluginHooks {
-    "tool.execute.before"?: (input: {
-        tool: string;
-    }, output: {
-        args: Record<string, unknown>;
-    }) => Promise<void>;
-    "tool.execute.after"?: (input: {
-        tool: string;
-    }, output: {
-        args: Record<string, unknown>;
-    }) => Promise<void>;
-    "experimental.session.compacting"?: (input: {
-        sessionID: string;
-    }, output: {
-        context: string[];
-        prompt?: string;
-    }) => Promise<void>;
-    "experimental.chat.system.transform"?: (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>;
-    "compaction.autocontinue"?: (input: {
-        sessionID: string;
-    }, output: {
-        continue: boolean;
-        context: string[];
-    }) => Promise<void>;
-    event?: (input: {
-        event: {
-            type: string;
-            properties?: {
-                info?: {
-                    id?: string;
-                };
-            };
-            sessionID?: string;
+  "tool.execute.before"?: (
+    input: {
+      tool: string;
+    },
+    output: {
+      args: Record<string, unknown>;
+    },
+  ) => Promise<void>;
+  "tool.execute.after"?: (
+    input: {
+      tool: string;
+    },
+    output: {
+      args: Record<string, unknown>;
+    },
+  ) => Promise<void>;
+  "experimental.session.compacting"?: (
+    input: {
+      sessionID: string;
+    },
+    output: {
+      context: string[];
+      prompt?: string;
+    },
+  ) => Promise<void>;
+  "experimental.chat.system.transform"?: (
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
+  ) => Promise<void>;
+  "compaction.autocontinue"?: (
+    input: {
+      sessionID: string;
+    },
+    output: {
+      continue: boolean;
+      context: string[];
+    },
+  ) => Promise<void>;
+  event?: (input: {
+    event: {
+      type: string;
+      properties?: {
+        info?: {
+          id?: string;
         };
-    }) => Promise<void>;
-    tool?: Record<string, ToolDefinition>;
+      };
+      sessionID?: string;
+    };
+  }) => Promise<void>;
+  tool?: Record<string, ToolDefinition>;
 }
 export declare const SentinalPlugin: Plugin;
 export default SentinalPlugin;

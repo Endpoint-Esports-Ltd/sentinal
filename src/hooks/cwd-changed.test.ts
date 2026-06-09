@@ -40,7 +40,10 @@ describe("processCwdChanged", () => {
     const input = makeInput({ new_cwd: "/new/project" });
 
     // Use the exported function with a mock injected
-    await cwdChangedModule.processCwdChanged(input, async () => mockClient as never);
+    await cwdChangedModule.processCwdChanged(
+      input,
+      async () => mockClient as never,
+    );
 
     expect(invalidateCalled).toHaveLength(1);
     expect(invalidateCalled[0]).toBe("/new/project");
@@ -69,7 +72,10 @@ describe("processCwdChanged", () => {
     const cwdChangedModule = await import("./cwd-changed.js");
     const input = makeInput({ old_cwd: "/old/dir", new_cwd: "/new/dir" });
 
-    await cwdChangedModule.processCwdChanged(input, async () => mockClient as never);
+    await cwdChangedModule.processCwdChanged(
+      input,
+      async () => mockClient as never,
+    );
 
     expect(invalidatedPaths[0]).toBe("/new/dir");
   });
@@ -86,7 +92,10 @@ describe("processCwdChanged", () => {
 
     // Should not throw even when sidecar errors
     await expect(
-      cwdChangedModule.processCwdChanged(input, async () => mockClient as never),
+      cwdChangedModule.processCwdChanged(
+        input,
+        async () => mockClient as never,
+      ),
     ).resolves.toBeUndefined();
   });
 });

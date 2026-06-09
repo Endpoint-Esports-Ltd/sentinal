@@ -18,7 +18,9 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export function buildCompactionContext(opts: CompactionContextOptions): string[] {
+export function buildCompactionContext(
+  opts: CompactionContextOptions,
+): string[] {
   const { specContext, memoryContext, reservedTokens } = opts;
 
   // Rule 1: zero budget → nothing

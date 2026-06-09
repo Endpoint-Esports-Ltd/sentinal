@@ -6,6 +6,7 @@
 ## Method
 
 Unable to run a live Claude Code session from within OpenCode. Findings combine:
+
 1. Claude Code documentation (confirmed format and response semantics)
 2. Empirical sidecar HTTP benchmarks (identical underlying I/O path)
 3. OpenCode MCP tool calls against the warm Sentinal MCP server (this session)
@@ -15,6 +16,7 @@ Unable to run a live Claude Code session from within OpenCode. Findings combine:
 ### Invocation
 
 **Works per CC docs.** Format confirmed:
+
 ```json
 {
   "type": "mcp_tool",
@@ -35,6 +37,7 @@ Variable substitution available in `input`: `${tool_input.*}`, `${session_id}`, 
 ### Response Parsing
 
 Per CC docs: "The tool's text content in an MCP tool hook is processed like command-hook stdout." The MCP tool must return a `content[0].text` value that is either:
+
 - Empty / non-JSON → CC continues normally
 - JSON with `{"decision": "block", "reason": "..."}` → CC blocks the tool call
 - JSON with `{"additionalContext": "..."}` → CC injects context
@@ -56,6 +59,7 @@ Sidecar HTTP round-trip (identical I/O path to what the MCP server would do): **
 ### Conclusion
 
 MCP-tool hooks work, are faster, but require:
+
 1. New hook-decision-returning MCP tools (thin wrappers around existing sidecar routes)
 2. `alwaysLoad: true` in `.mcp.json` (done — Task 5)
 3. Variable substitution is sufficient for file-path-dependent hooks

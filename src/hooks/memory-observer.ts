@@ -86,7 +86,9 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
       ...(input.agent_id !== undefined && { agent_id: input.agent_id }),
       ...(input.agent_type !== undefined && { agent_type: input.agent_type }),
       // Tool timing (CC 2.1.119+)
-      ...(input.duration_ms !== undefined && { duration_ms: input.duration_ms }),
+      ...(input.duration_ms !== undefined && {
+        duration_ms: input.duration_ms,
+      }),
       // Last assistant message snippet for context
       ...(input.last_assistant_message !== undefined && {
         last_assistant_message: input.last_assistant_message.slice(0, 200),

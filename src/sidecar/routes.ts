@@ -383,5 +383,3 @@ function handleGetSpecEvents(url: URL, ctx: SidecarContext): Response {
   const events = ctx.store.getSpecEvents(specId, limit);
   return ok(events);
 }
-
-

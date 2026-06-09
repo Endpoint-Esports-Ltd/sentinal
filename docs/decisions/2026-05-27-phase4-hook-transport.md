@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-09  
 **Status:** Decided  
-**Deciders:** Evan  
+**Deciders:** Evan
 
 ## Recommendation: MCP-tool for sync hot-path hooks; subprocess retained for async/full-payload hooks
 
@@ -18,12 +18,12 @@ The question was: which transport should the full Phase 4b implementation use?
 
 ## Benchmarks
 
-| Transport              | Median latency | Cold-start | Full HookInput? | Block/deny? |
-|------------------------|---------------|------------|-----------------|-------------|
-| subprocess (baseline)  | ~65ms         | ~50ms      | Yes             | Yes         |
-| HTTP (loopback)        | ~8.7ms        | 0 (sidecar warm) | Yes        | Yes         |
-| MCP-tool (estimated)   | ~10–12ms      | 0 (MCP warm)| Partial (vars)  | Yes         |
-| HTTP (Unix socket)     | ~8.8ms        | 0 (sidecar warm) | Yes        | Yes         |
+| Transport             | Median latency | Cold-start       | Full HookInput? | Block/deny? |
+| --------------------- | -------------- | ---------------- | --------------- | ----------- |
+| subprocess (baseline) | ~65ms          | ~50ms            | Yes             | Yes         |
+| HTTP (loopback)       | ~8.7ms         | 0 (sidecar warm) | Yes             | Yes         |
+| MCP-tool (estimated)  | ~10–12ms       | 0 (MCP warm)     | Partial (vars)  | Yes         |
+| HTTP (Unix socket)    | ~8.8ms         | 0 (sidecar warm) | Yes             | Yes         |
 
 Both non-subprocess transports deliver a **~6–7× speedup**. The difference between them is negligible on latency.
 
@@ -34,8 +34,8 @@ Spike notes: `docs/spike-notes/phase4-mcp-tool-spike.md`, `docs/spike-notes/phas
 
 ## Decision Matrix
 
-| MCP-tool works? | HTTP works? | Decision |
-|-----------------|-------------|----------|
+| MCP-tool works? | HTTP works? | Decision            |
+| --------------- | ----------- | ------------------- |
 | Yes             | Yes         | **Prefer MCP-tool** |
 
 Both transports work. MCP-tool is preferred because:
@@ -50,18 +50,18 @@ Both transports work. MCP-tool is preferred because:
 
 ## Hooks Classified by Transport Suitability
 
-| Hook              | Scope  | Current ms | New transport     | Reason                                            |
-|-------------------|--------|-----------|-------------------|---------------------------------------------------|
-| `tdd-guard`       | shared | ~64ms      | **MCP-tool**      | Needs file_path + cwd; returns block/allow JSON   |
-| `pre-edit-guide`  | shared | ~71ms      | **MCP-tool**      | Needs file_path + cwd; returns hint JSON          |
-| `file-checker`    | claude | ~61ms      | **MCP-tool**      | Needs file_path; returns hints/block              |
-| `tool-redirect`   | claude | ~60ms      | **subprocess**    | Needs full tool_input (no vars for arbitrary keys)|
-| `tdd-tracker`     | shared | N/A (async)| **subprocess**    | Async — can't block; no benefit from MCP-tool     |
-| `memory-observer` | shared | N/A (async)| **subprocess**    | Needs full tool_input + tool_response             |
-| `context-monitor` | shared | N/A (async)| **subprocess**    | Async                                             |
-| `prompt-context`  | shared | N/A        | **subprocess**    | UserPromptSubmit; needs full prompt text          |
-| `pre-compact`     | shared | N/A        | **subprocess**    | Needs full transcript context                     |
-| All session/lifecycle hooks | — | N/A | **subprocess** | Rare; no hot-path penalty                        |
+| Hook                        | Scope  | Current ms  | New transport  | Reason                                             |
+| --------------------------- | ------ | ----------- | -------------- | -------------------------------------------------- |
+| `tdd-guard`                 | shared | ~64ms       | **MCP-tool**   | Needs file_path + cwd; returns block/allow JSON    |
+| `pre-edit-guide`            | shared | ~71ms       | **MCP-tool**   | Needs file_path + cwd; returns hint JSON           |
+| `file-checker`              | claude | ~61ms       | **MCP-tool**   | Needs file_path; returns hints/block               |
+| `tool-redirect`             | claude | ~60ms       | **subprocess** | Needs full tool_input (no vars for arbitrary keys) |
+| `tdd-tracker`               | shared | N/A (async) | **subprocess** | Async — can't block; no benefit from MCP-tool      |
+| `memory-observer`           | shared | N/A (async) | **subprocess** | Needs full tool_input + tool_response              |
+| `context-monitor`           | shared | N/A (async) | **subprocess** | Async                                              |
+| `prompt-context`            | shared | N/A         | **subprocess** | UserPromptSubmit; needs full prompt text           |
+| `pre-compact`               | shared | N/A         | **subprocess** | Needs full transcript context                      |
+| All session/lifecycle hooks | —      | N/A         | **subprocess** | Rare; no hot-path penalty                          |
 
 **3 hooks converted to MCP-tool** (the three sync PreToolUse write hooks).  
 **Remaining 11+ hooks stay on subprocess** — either async (can't block), need full payload, or are rare lifecycle events where spawn cost is irrelevant.
@@ -72,11 +72,11 @@ Both transports work. MCP-tool is preferred because:
 
 The existing `tdd_status`, `check_diagnostics`, etc. return markdown text — not hook-decision JSON. Phase 4b needs thin hook-optimised MCP tools:
 
-| New tool               | Input vars                         | Output                            |
-|------------------------|------------------------------------|-----------------------------------|
-| `hook_tdd_guard`       | `file_path`, `cwd`, `session_id`   | `{"decision":"block","reason":"..."}` or `{}` |
-| `hook_pre_edit_guide`  | `file_path`, `cwd`, `session_id`   | `{"additionalContext":"..."}` or `{}` |
-| `hook_file_checker`    | `file_path`, `session_id`          | `{"additionalContext":"..."}` or `{}` |
+| New tool              | Input vars                       | Output                                        |
+| --------------------- | -------------------------------- | --------------------------------------------- |
+| `hook_tdd_guard`      | `file_path`, `cwd`, `session_id` | `{"decision":"block","reason":"..."}` or `{}` |
+| `hook_pre_edit_guide` | `file_path`, `cwd`, `session_id` | `{"additionalContext":"..."}` or `{}`         |
+| `hook_file_checker`   | `file_path`, `session_id`        | `{"additionalContext":"..."}` or `{}`         |
 
 These are thin wrappers that reuse existing sidecar route logic and return the minimal JSON CC needs — not the human-readable markdown the current MCP tools return.
 

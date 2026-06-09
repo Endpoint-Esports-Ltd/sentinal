@@ -49,6 +49,7 @@ Re-evaluate this decision **if and when**:
 ## Current Alternative
 
 The current approach for operation safety:
+
 - **Tool-level blocking:** `tool.execute.before` handler can `throw new Error(reason)` to block tool calls
 - **Permission rules:** `opencode.json` `permission:` section restricts which tools/files are accessible
 - **MCP tool descriptions:** Destructive MCP tools are clearly labeled in their descriptions

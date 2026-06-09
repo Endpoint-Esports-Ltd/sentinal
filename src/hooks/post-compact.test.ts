@@ -76,7 +76,10 @@ describe("processPostCompact", () => {
   it("should return 'No active plan found' gracefully when compact-state.json has invalid JSON", async () => {
     const sentinalDir = join(tmpDir, ".sentinal");
     mkdirSync(sentinalDir, { recursive: true });
-    writeFileSync(join(sentinalDir, "compact-state.json"), "{ invalid json !!!");
+    writeFileSync(
+      join(sentinalDir, "compact-state.json"),
+      "{ invalid json !!!",
+    );
 
     const result = await processPostCompact(makeInput(tmpDir));
 

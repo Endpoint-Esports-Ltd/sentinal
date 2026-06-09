@@ -90,8 +90,7 @@ export async function processPreEditGuide(
 
   if (relevant.length === 0) return null;
 
-  const maxHits =
-    input.effort === "low" || input.effort === "medium" ? 3 : 5;
+  const maxHits = input.effort === "low" || input.effort === "medium" ? 3 : 5;
 
   return formatHint(fileBasename, relevant, maxHits);
 }

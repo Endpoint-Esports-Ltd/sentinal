@@ -11,6 +11,7 @@ Direct empirical measurement against the running sidecar (HTTP port 60688 + Unix
 ### Invocation
 
 **Works per CC docs.** Format:
+
 ```json
 {
   "type": "http",
@@ -27,6 +28,7 @@ CC sends the full `HookInput` JSON as the POST body — all fields available (`h
 ### Response Handling
 
 The response body is parsed as a hook decision:
+
 - `{"decision": "block", "reason": "..."}` → blocks the tool call
 - `{"additionalContext": "..."}` → injects context
 - Non-JSON or 2xx with no relevant JSON → continues normally
@@ -37,6 +39,7 @@ The response body is parsed as a hook decision:
 `curl --unix-socket` works from the command line. Whether CC's HTTP hook implementation supports `http+unix://` URLs is **not confirmed** — CC docs only show `http://` examples. The sidecar has both HTTP (dynamic port) and Unix socket available.
 
 **Risk:** HTTP hooks require a hardcoded port in hooks.json, but the sidecar port is dynamic. Solutions:
+
 1. Use a fixed port (add `--port 47123` to sidecar start) — requires config change
 2. Route discovery via port file at hook runtime — not supported by static hooks.json
 3. Use Unix socket URL if CC supports it
@@ -44,11 +47,11 @@ The response body is parsed as a hook decision:
 
 ### Latency
 
-| Transport         | Median (ms) | Notes                          |
-|-------------------|-------------|--------------------------------|
-| HTTP (curl)       | 8.7         | Same machine, loopback         |
-| Unix socket (curl)| 8.8         | Negligible difference on macOS |
-| Subprocess hook   | 63.7        | Baseline                       |
+| Transport          | Median (ms) | Notes                          |
+| ------------------ | ----------- | ------------------------------ |
+| HTTP (curl)        | 8.7         | Same machine, loopback         |
+| Unix socket (curl) | 8.8         | Negligible difference on macOS |
+| Subprocess hook    | 63.7        | Baseline                       |
 
 **~7.3× improvement** over subprocess. Essentially identical to MCP-tool expected latency.
 

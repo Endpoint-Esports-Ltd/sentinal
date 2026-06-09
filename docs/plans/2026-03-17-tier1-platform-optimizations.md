@@ -111,7 +111,7 @@ Type: Feature
 
 _Assume this plan failed. Most likely internal reasons:_
 
-1. **Async hooks break TDD workflow** (Tasks 1-2) → Trigger: `tdd-tracker` async delivery is too slow, causing `tdd-guard` to see stale state on next edit. Observable: user can edit implementation file without RED_CONFIRMED state showing in time. Mitigated: tdd-tracker writes to SQLite synchronously within the hook process — it's the _process exit wait_ that's removed, not the DB write. The SQLite write completes before the hook exits.
+1. **Async hooks break TDD workflow** (Tasks 1-2) → Trigger: `tdd-tracker` async delivery is too slow, causing `tdd-guard` to see stale state on next edit. Observable: user can edit implementation file without RED*CONFIRMED state showing in time. Mitigated: tdd-tracker writes to SQLite synchronously within the hook process — it's the \_process exit wait* that's removed, not the DB write. The SQLite write completes before the hook exits.
 
 2. **OpenCode MCP scoping doesn't work** (Task 4) → Trigger: OpenCode's `tools` agent config doesn't support MCP wildcard patterns, or subagents inherit parent tool restrictions. Observable: external MCP tools disappear entirely (even in subagents) or remain visible in main context. Mitigated: test with a single server; document gap if unsupported.
 

@@ -25,10 +25,7 @@ export async function handleProjectContextRequest(
   const url = new URL(req.url);
 
   // POST /project-context/invalidate — clear the cache for a given project
-  if (
-    url.pathname === "/project-context/invalidate" &&
-    req.method === "POST"
-  ) {
+  if (url.pathname === "/project-context/invalidate" && req.method === "POST") {
     try {
       const body = (await req.json()) as { project?: string };
       if (body.project) {

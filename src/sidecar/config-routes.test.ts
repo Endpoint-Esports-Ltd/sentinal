@@ -88,7 +88,10 @@ describe("config-routes", () => {
       );
       const res = await handleConfigRequest(req, makeCtx(store));
       expect(res).not.toBeNull();
-      const body = (await res!.json()) as { ok: boolean; data: { reserved: number } };
+      const body = (await res!.json()) as {
+        ok: boolean;
+        data: { reserved: number };
+      };
       expect(body.ok).toBe(true);
       expect(body.data.reserved).toBe(5000);
     });
@@ -104,7 +107,10 @@ describe("config-routes", () => {
       );
       const res = await handleConfigRequest(req, makeCtx(store));
       expect(res).not.toBeNull();
-      const body = (await res!.json()) as { ok: boolean; data: { reserved: number } };
+      const body = (await res!.json()) as {
+        ok: boolean;
+        data: { reserved: number };
+      };
       expect(body.ok).toBe(true);
       expect(body.data.reserved).toBe(10000);
     });
@@ -116,16 +122,24 @@ describe("config-routes", () => {
       );
       const res = await handleConfigRequest(req, makeCtx(store));
       expect(res).not.toBeNull();
-      const body = (await res!.json()) as { ok: boolean; data: { reserved: number } };
+      const body = (await res!.json()) as {
+        ok: boolean;
+        data: { reserved: number };
+      };
       expect(body.ok).toBe(true);
       expect(body.data.reserved).toBe(10000);
     });
 
     it("returns default 10000 when no project param provided", async () => {
-      const req = new Request("http://localhost/config/compaction", { method: "GET" });
+      const req = new Request("http://localhost/config/compaction", {
+        method: "GET",
+      });
       const res = await handleConfigRequest(req, makeCtx(store));
       expect(res).not.toBeNull();
-      const body = (await res!.json()) as { ok: boolean; data: { reserved: number } };
+      const body = (await res!.json()) as {
+        ok: boolean;
+        data: { reserved: number };
+      };
       expect(body.ok).toBe(true);
       expect(body.data.reserved).toBe(10000);
     });

@@ -12,11 +12,10 @@
 
 ## [1.27.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.2...v1.27.3) (2026-04-20)
 
-
 ### Bug Fixes
 
-* **spec-verify:** mandate full tsc --noEmit as pre-commit gate ([d8e69f4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d8e69f4f2fb9636d7fa12341bd0cb93f560ebbdf))
-* **worktree:** defer spec_id linkage to avoid FK constraint failure on create ([15a9692](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/15a96926a3ef7083256c69de987228fd84f7649b))
+- **spec-verify:** mandate full tsc --noEmit as pre-commit gate ([d8e69f4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d8e69f4f2fb9636d7fa12341bd0cb93f560ebbdf))
+- **worktree:** defer spec_id linkage to avoid FK constraint failure on create ([15a9692](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/15a96926a3ef7083256c69de987228fd84f7649b))
 
 ## [1.27.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.1...v1.27.2) (2026-04-09)
 
