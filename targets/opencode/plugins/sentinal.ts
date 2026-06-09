@@ -59,6 +59,10 @@ import { getContextWarning } from "../../../src/sessions/context-display.js";
 import type { SessionMessage } from "../../../src/sessions/token-usage.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
 import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
+import {
+  createSpecWorktreeAdaptor,
+  type WorkspaceAdaptor,
+} from "../../../src/opencode/workspace-adaptor.js";
 import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
 import {
   existsSync,
@@ -87,6 +91,9 @@ interface PluginContext {
     };
   };
   $: (strings: TemplateStringsArray, ...values: unknown[]) => unknown;
+  experimental_workspace?: {
+    register(type: string, adaptor: WorkspaceAdaptor): void;
+  };
 }
 
 type Plugin = (context: PluginContext) => Promise<PluginHooks>;
@@ -362,6 +369,15 @@ export const SentinalPlugin: Plugin = async ({
     }
   } else {
     log("Memory system disabled via config");
+  }
+
+  // Register workspace adaptor if the API is available (OC 1.4.4+)
+  if (context.experimental_workspace) {
+    context.experimental_workspace.register(
+      "sentinal-spec-worktree",
+      createSpecWorktreeAdaptor(sidecar),
+    );
+    log("workspace adaptor registered: sentinal-spec-worktree");
   }
 
   // Eager session creation (fallback if session.created never fires)

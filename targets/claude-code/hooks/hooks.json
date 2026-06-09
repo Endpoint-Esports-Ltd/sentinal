@@ -86,6 +86,7 @@
       {
         "matcher": "Write|Edit|MultiEdit",
         "if": "Write(*.ts)|Write(*.tsx)|Edit(*.ts)|Edit(*.tsx)|MultiEdit(*.ts)|MultiEdit(*.tsx)",
+        "continueOnBlock": true,
         "hooks": [
           {
             "type": "command",

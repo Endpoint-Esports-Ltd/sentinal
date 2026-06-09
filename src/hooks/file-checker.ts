@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { readStdin, hint, output } from "../utils/hook-output.js";
+import { readStdin, blockExit } from "../utils/hook-output.js";
 import { checkFileLength } from "../utils/file-length.js";
 import { getExpectedTestPaths, isTestFile } from "../utils/tdd.js";
 import { detectFramework } from "../checkers/detect.js";
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
   const result = await processFileCheck(filePath, input.cwd);
-  if (result) output(hint("PostToolUse", result));
+  if (result) blockExit(result);
 }
 
 if (import.meta.main) {

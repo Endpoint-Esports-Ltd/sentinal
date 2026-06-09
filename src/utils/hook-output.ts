@@ -130,3 +130,15 @@ export function denyExit(reason: string): never {
   process.stdout.write(JSON.stringify({ permissionDecision: "deny", reason }));
   process.exit(2);
 }
+
+/**
+ * Soft-block that feeds back to Claude as context (requires continueOnBlock: true in hooks.json).
+ * Exit code 2 is required — CC only acts on { decision: "block" } when exit code is 2.
+ * The continueOnBlock:true in hooks.json tells CC to feed the reason back as context
+ * instead of terminating the turn. Exiting 0 would silently downgrade to a no-op.
+ */
+export function blockExit(reason: string): never {
+  process.stderr.write(reason);
+  process.stdout.write(JSON.stringify({ decision: "block", reason }));
+  process.exit(2);
+}

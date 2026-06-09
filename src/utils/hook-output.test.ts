@@ -1,5 +1,5 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
-import { deny, hint, block, denyExit } from "./hook-output";
+import { deny, hint, block, denyExit, blockExit } from "./hook-output";
 
 describe("hook-output", () => {
   describe("deny", () => {
@@ -102,6 +102,45 @@ describe("hook-output", () => {
         decision: "block",
         reason: "Cannot stop during active spec",
       });
+    });
+  });
+
+  describe("blockExit", () => {
+    let stderrChunks: string[];
+    let stdoutChunks: string[];
+    const origStderrWrite = process.stderr.write;
+    const origStdoutWrite = process.stdout.write;
+    const origExit = process.exit;
+
+    afterEach(() => {
+      process.stderr.write = origStderrWrite;
+      process.stdout.write = origStdoutWrite;
+      process.exit = origExit;
+    });
+
+    it("should write reason to stderr and { decision: 'block', reason } JSON to stdout, then exit 2", () => {
+      stderrChunks = [];
+      stdoutChunks = [];
+      process.stderr.write = ((s: string) => {
+        stderrChunks.push(s);
+        return true;
+      }) as typeof process.stderr.write;
+      process.stdout.write = ((s: string) => {
+        stdoutChunks.push(s);
+        return true;
+      }) as typeof process.stdout.write;
+      let exitCode: number | undefined;
+      process.exit = ((code?: number) => {
+        exitCode = code;
+      }) as typeof process.exit;
+
+      blockExit("File exceeds 400 lines");
+
+      expect(stderrChunks.join("")).toBe("File exceeds 400 lines");
+      expect(stdoutChunks.join("")).toBe(
+        JSON.stringify({ decision: "block", reason: "File exceeds 400 lines" }),
+      );
+      expect(exitCode).toBe(2);
     });
   });
 });

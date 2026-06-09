@@ -137,10 +137,21 @@ describe("target asset namespace parity", () => {
     const hooks = JSON.parse(readFileSync(hooksPath, "utf-8"));
     const sessionStartHooks = hooks.hooks?.SessionStart ?? [];
 
+    // After the Phase 4 args-exec-form migration, command is "sentinal" and the
+    // hook name appears in the args array — match on args instead of command.
+    function matchesHookName(
+      name: string,
+      item: Record<string, unknown>,
+    ): boolean {
+      const args = item.args as string[] | undefined;
+      if (args) return args.some((a) => a.includes(name));
+      return (item.command as string | undefined)?.includes(name) ?? false;
+    }
+
     it("memory-restore SessionStart entry has once: true", () => {
       const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
         (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
-          (i.command as string)?.includes("memory-restore"),
+          matchesHookName("memory-restore", i),
         ),
       );
       expect(entry?.once).toBe(true);
@@ -149,7 +160,7 @@ describe("target asset namespace parity", () => {
     it("session-start SessionStart entry has once: true", () => {
       const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
         (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
-          (i.command as string)?.includes("session-start"),
+          matchesHookName("session-start", i),
         ),
       );
       expect(entry?.once).toBe(true);
@@ -158,7 +169,7 @@ describe("target asset namespace parity", () => {
     it("post-compact-restore SessionStart entry does NOT have once: true", () => {
       const entry = sessionStartHooks.find((h: Record<string, unknown>) =>
         (h.hooks as Array<Record<string, unknown>>)?.some((i) =>
-          (i.command as string)?.includes("post-compact-restore"),
+          matchesHookName("post-compact-restore", i),
         ),
       );
       expect(entry?.once).toBeUndefined();
