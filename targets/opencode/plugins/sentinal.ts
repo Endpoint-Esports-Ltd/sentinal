@@ -124,7 +124,13 @@ interface PluginHooks {
   event?: (input: {
     event: {
       type: string;
-      properties?: { info?: { id?: string } };
+      properties?: {
+        info?: {
+          id?: string;
+          parentSessionId?: string;
+          title?: string;
+        };
+      };
       sessionID?: string;
     };
   }) => Promise<void>;
