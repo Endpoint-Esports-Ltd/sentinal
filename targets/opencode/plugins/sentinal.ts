@@ -301,6 +301,7 @@ export const SentinalPlugin: Plugin = async ({
   $,
   directory,
   worktree,
+  experimental_workspace,
 }) => {
   const { root: projectRoot, reason: projectRootReason } = resolveProjectRoot(
     worktree,
@@ -372,8 +373,8 @@ export const SentinalPlugin: Plugin = async ({
   }
 
   // Register workspace adaptor if the API is available (OC 1.4.4+)
-  if (context.experimental_workspace) {
-    context.experimental_workspace.register(
+  if (experimental_workspace) {
+    experimental_workspace.register(
       "sentinal-spec-worktree",
       createSpecWorktreeAdaptor(sidecar),
     );
