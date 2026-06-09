@@ -1,3 +1,24 @@
+# [1.29.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.28.0...v1.29.0) (2026-06-09)
+
+
+### Bug Fixes
+
+* **build:** resolve build:claude TS6059 and TS2339 errors ([2b718c3](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2b718c3020c8aa830aff7a1590b5e25b350e1a3f))
+* **hooks:** wire blockExit into CLI file-checker dispatch path ([2cb63c4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2cb63c43088af02b43e1d938f53d7df3b14c48a2))
+* **sidecar:** self-heal cached SidecarClient and reconcile worktree index with disk ([fe7a05d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/fe7a05d17acab182e2a01d655ac5cf684ae514ed))
+
+
+### Features
+
+* **hooks:** add 7 new Claude Code lifecycle hook handlers ([4e1b203](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4e1b2038003f983f8b9884065dbeba4867bb85e8))
+* **hooks:** extend HookInput type and wire 7 new CC lifecycle hook events ([93e4c38](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/93e4c3877d8e0c84402258175860f061ed54f0ad))
+* **hooks:** Phase 4 — alwaysLoad, args exec form, baseline benchmark + transport decision ([8736af7](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/8736af73862c3a0a8873f3a3f780b476c64a0e56))
+* **opencode:** add OC parity for InstructionsLoaded, PostCompact, TaskCreated ([5d19177](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5d1917761635035631a4c8a8a93aa442e679df94))
+* **opencode:** Phase 3 — OC plugin hooks + src/opencode/ extraction ([24f69ce](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/24f69ce63682e6174fa2f5e32f62b5893c47facb))
+* **opencode:** Phase 5 — workspace adaptor + file-checker continueOnBlock ([e17e00b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e17e00bc3b363da82bc6a81f9f95e5bfea2bd803))
+* **sidecar:** add POST /project-context/invalidate route for CwdChanged hook ([69e347a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/69e347aff34f6e0ec3b21824239030dccf8b6b38))
+* **sidecar:** lifecycle logging, log rotation, and 'sidecar logs' CLI ([9296e93](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/9296e9352f7c1d1198097b2614d1d996636cb08f))
+
 # [1.28.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.27.3...v1.28.0) (2026-05-26)
 
 
