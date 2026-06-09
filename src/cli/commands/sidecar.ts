@@ -8,10 +8,12 @@
  *   stop        Stop the running sidecar
  *   status      Show sidecar status
  *   restart     Restart the sidecar
+ *   logs        Show recent sidecar / plugin log lines
  */
 
 import type { Command } from "commander";
 import { writeFileSync } from "node:fs";
+import { buildLogsReport, type LogFileFilter } from "./sidecar-logs.js";
 import {
   isSidecarRunning,
   getSidecarStatus,
@@ -24,6 +26,7 @@ import {
   getSidecarPidPath,
   enableSessionAwareShutdown,
 } from "../../sidecar/server.js";
+import { logSidecar } from "../../utils/file-log.js";
 
 export function registerSidecarCommand(program: Command): void {
   const sidecar = program
@@ -81,11 +84,15 @@ export function registerSidecarCommand(program: Command): void {
         console.log(
           "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
         );
+        logSidecar(
+          `sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort}`,
+        );
 
         // Enable session-aware shutdown — sidecar stays alive while sessions exist
         enableSessionAwareShutdown(result);
 
         const shutdown = () => {
+          logSidecar("sidecar: shutting down: signal");
           console.log("\nShutting down sidecar...");
           stopSidecar(result.server, result.ctx, result.httpServer);
           process.exit(0);
@@ -165,11 +172,15 @@ export function registerSidecarCommand(program: Command): void {
       console.log(
         "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
       );
+      logSidecar(
+        `sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort}`,
+      );
 
       // Enable session-aware shutdown
       enableSessionAwareShutdown(result);
 
       const shutdown = () => {
+        logSidecar("sidecar: shutting down: signal");
         console.log("\nShutting down sidecar...");
         stopSidecar(result.server, result.ctx, result.httpServer);
         process.exit(0);
@@ -177,6 +188,25 @@ export function registerSidecarCommand(program: Command): void {
 
       process.on("SIGTERM", shutdown);
       process.on("SIGINT", shutdown);
+    });
+
+  // ─── logs ───────────────────────────────────────────────────────────────
+
+  sidecar
+    .command("logs")
+    .description("Show recent sidecar and/or plugin log lines")
+    .option("-n, --lines <n>", "Number of tail lines to show per file", "50")
+    .option(
+      "--file <name>",
+      "Which file to show: sidecar | plugin | all",
+      "all",
+    )
+    .action((opts: { lines: string; file: string }) => {
+      const n = parseInt(opts.lines, 10);
+      const file = (
+        ["sidecar", "plugin", "all"].includes(opts.file) ? opts.file : "all"
+      ) as LogFileFilter;
+      process.stdout.write(buildLogsReport({ lines: isNaN(n) ? 50 : n, file }));
     });
 }
 

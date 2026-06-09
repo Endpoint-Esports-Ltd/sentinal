@@ -32,6 +32,7 @@ import {
   cleanupStaleSessionsOnStartup,
 } from "./server.js";
 import * as pathsModule from "./paths.js";
+import * as fileLogModule from "../utils/file-log.js";
 import { MemoryStore } from "../memory/store.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -785,5 +786,142 @@ describe("stale session cleanup on startup", () => {
 
     store.close();
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ─── Shutdown Reason Logging ──────────────────────────────────────────────
+
+describe("enableSessionAwareShutdown reason logging", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+
+  beforeEach(async () => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+
+    // Redirect log writes to tmpDir
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    try {
+      stopSidecar(sidecar.server, sidecar.ctx);
+    } catch {
+      /* may already be stopped */
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("should pass reason string to onShutdown callback when no sessions (idle fallback)", async () => {
+    let capturedReason: string | undefined;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 50,
+      staleActivityMs: 600_000,
+      onShutdown: (reason: string) => {
+        capturedReason = reason;
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+    expect(capturedReason).toBeDefined();
+    expect(capturedReason).toContain("shutting down:");
+    expect(capturedReason).toContain("no sessions ever created");
+    cleanup();
+  });
+
+  it("should pass reason string to onShutdown callback on grace period expiry", async () => {
+    let capturedReason: string | undefined;
+
+    sidecar.ctx.store.insertSession({
+      id: "reason-test-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: (reason: string) => {
+        capturedReason = reason;
+      },
+    });
+
+    // Let checker see active session
+    await new Promise((r) => setTimeout(r, 50));
+    expect(capturedReason).toBeUndefined();
+
+    // End the session — grace period starts
+    sidecar.ctx.store.endSession("reason-test-session");
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(capturedReason).toBeDefined();
+    expect(capturedReason).toContain("shutting down:");
+    expect(capturedReason).toContain("0 active sessions");
+    cleanup();
+  });
+
+  it("should pass stale-activity reason to onShutdown with count and age info", async () => {
+    let capturedReason: string | undefined;
+
+    sidecar.ctx.store.insertSession({
+      id: "stale-reason-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+    // Don't touch activity — stale from the start
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 30, // Very short stale threshold
+      onShutdown: (reason: string) => {
+        capturedReason = reason;
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 250));
+    expect(capturedReason).toBeDefined();
+    expect(capturedReason).toContain("stale");
+    expect(capturedReason).toContain("session");
+    // Must include activityAge and threshold so it's actionable in a bug report
+    expect(capturedReason).toMatch(/no HTTP activity for \d+ms/);
+    expect(capturedReason).toMatch(/threshold \d+ms/);
+    cleanup();
+  });
+
+  it("should write shutdown reason to sidecar.log file", async () => {
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 50,
+      staleActivityMs: 600_000,
+      onShutdown: () => {
+        // override — don't actually exit
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    const logPath = join(tmpDir, "sidecar.log");
+    expect(existsSync(logPath)).toBe(true);
+    const logContent = readFileSync(logPath, "utf-8");
+    expect(logContent).toContain("shutting down:");
+    cleanup();
   });
 });

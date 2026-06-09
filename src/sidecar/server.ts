@@ -8,6 +8,7 @@
  */
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { logSidecar } from "../utils/file-log.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
@@ -88,7 +89,7 @@ export interface SessionAwareShutdownOptions {
   /** How often to check in ms (default: 30s) */
   checkIntervalMs?: number;
   /** Custom shutdown callback (default: stopSidecar + process.exit) */
-  onShutdown?: () => void;
+  onShutdown?: (reason: string) => void;
 }
 
 /**
@@ -114,11 +115,13 @@ export function enableSessionAwareShutdown(
 
   let sessionsEverSeen = false;
   let noSessionSince: number | null = null;
+  let staleInfo: { count: number; activityAge: number } | null = null;
 
-  const doShutdown = () => {
+  const doShutdown = (reason: string) => {
     clearInterval(interval);
+    logSidecar(`sidecar: ${reason}`);
     if (opts.onShutdown) {
-      opts.onShutdown();
+      opts.onShutdown(reason);
     } else {
       stopSidecar(result.server, result.ctx, result.httpServer);
       process.exit(0);
@@ -140,13 +143,18 @@ export function enableSessionAwareShutdown(
       const activityAge = Date.now() - lastActivityTime;
       if (activityAge >= staleActivityMs) {
         // No HTTP activity for staleActivityMs — sessions are likely from a crashed client
+        // Capture stale context before falling through to grace-period logic
+        staleInfo = { count: activeSessions.length, activityAge };
         // Fall through to the noSessionSince logic
       } else {
         // Active sessions with recent activity — stay alive
         sessionsEverSeen = true;
         noSessionSince = null;
+        staleInfo = null;
         return;
       }
+    } else {
+      staleInfo = null;
     }
 
     // No active sessions (or stale sessions only)
@@ -154,13 +162,16 @@ export function enableSessionAwareShutdown(
       if (noSessionSince === null) {
         noSessionSince = Date.now();
       } else if (Date.now() - noSessionSince >= gracePeriodMs) {
-        doShutdown();
+        const reason = staleInfo
+          ? `shutting down: ${staleInfo.count} session(s) stale — no HTTP activity for ${staleInfo.activityAge}ms (threshold ${staleActivityMs}ms)`
+          : `shutting down: 0 active sessions for ${gracePeriodMs}ms`;
+        doShutdown(reason);
       }
     } else {
       // No sessions ever seen — hybrid idle fallback
       const idleMs = Date.now() - lastActivityTime;
       if (idleMs >= fallbackIdleMs) {
-        doShutdown();
+        doShutdown(`shutting down: no sessions ever created, idle ${idleMs}ms`);
       }
     }
   }, checkIntervalMs);
@@ -245,6 +256,7 @@ export async function startSidecar(
           /* non-fatal — port sync is best-effort */
         }
 
+        logSidecar("sidecar: start skipped — already running on socket");
         return {
           server: null as unknown as ReturnType<typeof Bun.serve>,
           ctx,

@@ -59,11 +59,11 @@ import { getContextWarning } from "../../../src/sessions/context-display.js";
 import type { SessionMessage } from "../../../src/sessions/token-usage.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
 import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
+import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
 import {
   existsSync,
   readFileSync,
   writeFileSync,
-  appendFileSync,
   mkdirSync,
   unlinkSync,
 } from "node:fs";
@@ -152,17 +152,10 @@ interface CompactState {
 // ─── Node.js-compatible helpers ──────────────────────────────────────────────
 
 const SENTINAL_DIR = join(homedir(), ".sentinal");
-const DEBUG_LOG_PATH = join(SENTINAL_DIR, "plugin.debug.log");
 
 /** Append a timestamped line to ~/.sentinal/plugin.debug.log */
 function log(message: string): void {
-  try {
-    if (!existsSync(SENTINAL_DIR)) mkdirSync(SENTINAL_DIR, { recursive: true });
-    const ts = new Date().toISOString();
-    appendFileSync(DEBUG_LOG_PATH, `${ts} ${message}\n`);
-  } catch {
-    /* non-fatal — never crash the plugin for logging */
-  }
+  logToFile(PLUGIN_LOG_FILE, message);
 }
 
 /** Spawn a sentinal sub-command if the PID file is stale or missing. */
@@ -182,6 +175,9 @@ function autoStartProcess(pidFile: string, ...args: string[]): void {
   const binPath = join(SENTINAL_DIR, "bin", "sentinal");
   if (!existsSync(binPath)) return;
   try {
+    log(
+      `respawn: ${args.join(" ")} (pid file ${existsSync(pidPath) ? "stale" : "missing"})`,
+    );
     const c = spawn(binPath, args, { stdio: "ignore", detached: true });
     c.unref();
   } catch {
@@ -713,7 +709,9 @@ export const SentinalPlugin: Plugin = async ({
           cwd: projectRoot,
           permission_mode: "default",
           hook_event_name: "PostCompact",
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
       }
 
       // Build spec context string (if active plan)
@@ -758,9 +756,8 @@ export const SentinalPlugin: Plugin = async ({
       let reserved = 10000;
       if (sidecar) {
         try {
-          reserved = (
-            await sidecar.getCompactionConfig(projectRootForSidecar)
-          ).reserved;
+          reserved = (await sidecar.getCompactionConfig(projectRootForSidecar))
+            .reserved;
         } catch {
           // Non-fatal — use default
         }
@@ -941,7 +938,9 @@ export const SentinalPlugin: Plugin = async ({
         }
 
         // OC parity: InstructionsLoaded — record CLAUDE.md / AGENTS.md if they exist
-        const instructionsFile = existsSync(join(projectRootForSidecar, "CLAUDE.md"))
+        const instructionsFile = existsSync(
+          join(projectRootForSidecar, "CLAUDE.md"),
+        )
           ? join(projectRootForSidecar, "CLAUDE.md")
           : existsSync(join(projectRootForSidecar, "AGENTS.md"))
             ? join(projectRootForSidecar, "AGENTS.md")
@@ -956,11 +955,13 @@ export const SentinalPlugin: Plugin = async ({
             file_path: instructionsFile,
             memory_type: "Project",
             load_reason: "session_start",
-          }).catch(() => {/* non-fatal */});
+          }).catch(() => {
+            /* non-fatal */
+          });
         }
 
         // OC parity: TaskCreated — if this appears to be a subagent session, notify dashboard
-        const isSubagent = !!(event.properties?.info?.parentSessionId);
+        const isSubagent = !!event.properties?.info?.parentSessionId;
         if (isSubagent) {
           void processTaskCreated({
             session_id: sessionId,
@@ -970,7 +971,9 @@ export const SentinalPlugin: Plugin = async ({
             hook_event_name: "TaskCreated",
             task_id: sessionId,
             task_subject: event.properties?.info?.title ?? "Subagent task",
-          }).catch(() => {/* non-fatal */});
+          }).catch(() => {
+            /* non-fatal */
+          });
         }
 
         // Restore spec plan state from previous compaction (skip if no project root)
