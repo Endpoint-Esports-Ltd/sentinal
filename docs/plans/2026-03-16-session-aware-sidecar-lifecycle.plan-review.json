@@ -1,0 +1,35 @@
+{
+  "review_summary": "Plan is well-aligned with all user requirements. One medium-risk gap: stale sessions younger than 24h (from crashes) would keep the sidecar alive indefinitely since the hybrid idle fallback only triggers when sessionsEverSeen is false, leaving a window where session-aware mode is active but all sessions are stale.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Stale sessions <24h old bypass both shutdown paths",
+      "description": "The risk table claims '30-min idle fallback catches the rest' for stale sessions not cleaned by `cleanupStaleSessionsOnStartup()` (24h threshold). But the algorithm sets `sessionsEverSeen = true` as soon as any session is found, which permanently disables the 30-min idle fallback. If a client crashes leaving a stale session <24h old, `getActiveSessions()` returns it, `sessionsEverSeen` becomes true, and the sidecar stays alive indefinitely until the next restart triggers cleanup. The risk mitigation in the table is incorrect.",
+      "suggested_fix": "Add a staleness check in the polling loop: if all active sessions have `start_time` older than a threshold (e.g., 2h), treat them as stale and proceed with shutdown. Alternatively, add a maximum uptime fallback (e.g., 4h without any HTTP activity). Document this in Task 1's algorithm and add a test case for it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 1 should preserve IdleShutdownOptions-like interface for testability",
+      "description": "The current `enableIdleShutdown` accepts an `opts` parameter with `onShutdown` callback, `timeoutMs`, and `checkIntervalMs` which are critical for unit testing (tests pass custom intervals and mock shutdown handlers at lines 534, 546, 562, 582 of server.test.ts). Task 1 says 'Keep the same function signature pattern' but doesn't specify what the new options type should include — specifically the `onShutdown` callback and configurable `SESSION_GRACE_PERIOD_MS`/`FALLBACK_IDLE_TIMEOUT_MS`/`checkIntervalMs` for testing.",
+      "suggested_fix": "Define a `SessionAwareShutdownOptions` interface in Task 1's key decisions: `{ checkIntervalMs?: number, gracePeriodMs?: number, fallbackIdleMs?: number, onShutdown?: () => void }`. This enables tests to use short intervals and assert shutdown behavior without real timers."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 2 verify step uses build check but no runtime test",
+      "description": "Task 2's verify step is `bun run build:cli` which only checks compilation. The console message change ('auto-shutdown after 5 min idle' → 'auto-shutdown when no sessions active') is a user-visible behavior that could be verified more concretely.",
+      "suggested_fix": "Add a grep assertion to Task 2's DoD: verify the old message string '5 min idle' no longer appears in `sidecar.ts` and the new message is present. This is a minor point — the build check is adequate if Task 4 covers integration."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 4 test cases should include the transition scenario",
+      "description": "Task 4 lists test cases for session-aware shutdown but doesn't mention testing the transition: sessions exist → all sessions end → 60s grace → shutdown. This is the primary user flow and the most important path to test.",
+      "suggested_fix": "Add an explicit test case to Task 4: 'Test: sessions active then all end triggers shutdown after grace period' — mock store returns sessions first, then returns empty, verify shutdown after gracePeriodMs."
+    }
+  ]
+}

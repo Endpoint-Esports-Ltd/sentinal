@@ -1,0 +1,77 @@
+{
+  "pass_summary": "Solid implementation covering all 4 tasks. Core shared memory module, restore integration, MCP tools, and .gitignore are all present and well-tested. A few gaps remain: the truncation note for >15 shared observations is missing from restore output, and the memory_share MCP tool registration lacks direct test coverage.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "Missing truncation note when >15 shared observations",
+      "description": "Plan Task 2 DoD says: 'Maximum 15 shared observations included (with truncation note if more exist)'. The `mergeSharedObservations()` function in `src/memory/restore.ts` calls `.slice(0, MAX_SHARED_OBSERVATIONS)` but never adds a note like 'Showing 15 of N shared observations' to the markdown output.",
+      "suggested_fix": "In `mergeSharedObservations()`, track whether truncation occurred (e.g., `const truncated = deduped.length > MAX_SHARED_OBSERVATIONS`). Then either inject a synthetic 'info' observation with the truncation message, or pass the count to `buildRestoreMarkdown()` and append a note line."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "memory_share MCP tool not tested via server registration",
+      "description": "The `shared-tools.test.ts` tests `saveToSharedIfRequested` and manually simulates promotion logic, but never calls `registerSharedTools(server, deps)` or invokes the `memory_share` tool through the MCP server. The actual tool handler (lines 194-226 in shared.ts) — including the sidecar/service branching, type rejection in the loop, and response formatting — has no direct test.",
+      "suggested_fix": "Add integration tests that create a McpServer, call `registerSharedTools()`, then invoke `memory_share` with test observation IDs through the server. Verify the response message, the shared file content, and rejection of error/fix types."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "Silent rejection when shared:true used with error/fix types on memory_save",
+      "description": "When `memory_save` is called with `shared: true` and type `error` or `fix`, `saveToSharedIfRequested` returns `false` but the MCP response only says 'Saved observation #N: ...' with no suffix. The user gets no feedback that the shared save was rejected.",
+      "suggested_fix": "In `mcp-tools.ts` line ~236, when `shared` was requested but `wasShared` is false, append a suffix like ' (shared skipped: only decision/discovery/pattern types can be shared)' to the response message."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "readSharedMemory does not validate individual observation shapes",
+      "description": "In `src/memory/shared.ts` line 55, `readSharedMemory` checks `Array.isArray(data.observations)` but returns the raw array without validating each entry has required fields (type, title, content). A hand-edited file with malformed entries could propagate objects missing required fields through `toObservation()` and into restore.",
+      "suggested_fix": "Add a `.filter()` after reading to validate each entry has at minimum `type`, `title`, and `content` as strings, e.g. `data.observations.filter(o => typeof o.title === 'string' && typeof o.content === 'string' && typeof o.type === 'string')`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "addSharedObservation has a TOCTOU race on read-modify-write",
+      "description": "In `src/memory/shared.ts` line 82, `addSharedObservation` reads, filters, appends, then writes. If two concurrent calls occur (e.g., multiple MCP requests), the second write could overwrite the first. This is low risk given typical usage (manual curation, small teams) but worth noting.",
+      "suggested_fix": "Acceptable for V1 given the domain (manual curation, sequential CLI usage). Document as a known limitation if concurrent access becomes relevant."
+    }
+  ],
+  "truths": [
+    {
+      "truth": ".sentinal/project-memory.json exists as a human-editable JSON file",
+      "status": "verified",
+      "evidence": "writeSharedMemory() writes formatted JSON with 2-space indent + trailing newline. SharedMemoryFile interface with version + observations array. Tests confirm readable output."
+    },
+    {
+      "truth": ".sentinal/.gitignore re-includes project-memory.json so it can be committed",
+      "status": "verified",
+      "evidence": "ensureGitignore() creates .gitignore with '* / !.gitignore / !project-memory.json' content. Called from writeSharedMemory(). Test confirms creation and idempotence."
+    },
+    {
+      "truth": "Shared observations are loaded during restoreContext() and appear in the restore markdown",
+      "status": "verified",
+      "evidence": "mergeSharedObservations() called in both restoreContextSync() and restoreContextAsync(). Converts via toObservation(), concats with SQLite observations. restore.test.ts confirms shared obs appear in markdown."
+    },
+    {
+      "truth": "memory_share MCP tool promotes existing observations to shared memory by ID",
+      "status": "verified",
+      "evidence": "registerSharedTools() registers memory_share tool with ids+project params. Reads from service/client, filters by SHAREABLE_TYPES, calls addSharedObservation(). Handler at shared.ts:194-226."
+    },
+    {
+      "truth": "memory_save with shared: true writes directly to the shared memory file",
+      "status": "verified",
+      "evidence": "shared param added to memory_save schema (mcp-tools.ts:201). saveToSharedIfRequested() called in handler (mcp-tools.ts:230-232). Tests in shared-tools.test.ts confirm direct shared save."
+    },
+    {
+      "truth": "Shared memory parse failures don't crash restore — fallback to SQLite-only",
+      "status": "verified",
+      "evidence": "readSharedMemory() wraps JSON.parse in try/catch, returns empty array on any error (shared.ts:56-58). Test verifies empty array on invalid JSON. mergeSharedObservations() handles empty array gracefully."
+    }
+  ]
+}

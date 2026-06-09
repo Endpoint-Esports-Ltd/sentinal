@@ -1,0 +1,8 @@
+$ ps auxwff |grep -i -e sentinal
+evan      172128  0.0  0.0 74055772 75348 pts/11 Sl+  16:59   0:08  |   |   |       \_ /home/evan/.sentinal/bin/sentinal mcp-server
+evan      710489  0.0  0.0   6680  4172 pts/19   S+   21:25   0:00  |   |   |   \_ grep --colour=auto -i -e sentinal
+evan      171458  0.0  0.0 73879696 89736 pts/20 Sl+  16:59   0:10  |   |   |       \_ /home/evan/.sentinal/bin/sentinal mcp-server
+evan      170545  0.0  0.0 73778864 62720 ?      Ssl  16:58   0:06  |   |   |       \_ /home/evan/.sentinal/bin/sentinal serve
+evan      170868  0.0  0.0 74088532 83452 pts/25 Sl+  16:58   0:07  |   |   |       \_ /home/evan/.sentinal/bin/sentinal mcp-server
+evan      709014  0.4  0.0 73778864 63364 ?      Ssl  21:24   0:00  |   |   |           |       \_ /home/evan/.sentinal/bin/sentinal sidecar start
+evan      709046  0.6  0.0 73846856 71872 ?      Sl   21:24   0:00  |   |   |           |       \_ /home/evan/.sentinal/bin/sentinal mcp-server

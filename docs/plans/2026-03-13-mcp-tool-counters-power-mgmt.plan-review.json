@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is well-structured and covers both features comprehensively. Key risks: store.ts at 663 lines needs extraction strategy enforced (not optional), cleanup handler integration for PowerInhibitor needs explicit wiring into existing registerMcpCleanupHandlers, and the OpenCode plugin bundling of PowerInhibitor is uncertain.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "store.ts is 663 lines — adding methods without extraction violates the 400-line standard",
+      "description": "The plan notes store.ts is 663 lines (Gotchas section) and suggests 'Consider a ToolUsageStore wrapper class if needed' but Task 1 files list only 'Modify: src/memory/store.ts'. At 663 lines the file already violates the 600-line hard block. Adding 3 new methods (incrementToolUsage, getToolUsageBySession, getToolUsageTotals) with prepared statements will add ~40-60 lines. The plan must mandate extraction, not suggest it.",
+      "suggested_fix": "Task 1 should create a new file `src/memory/tool-usage-store.ts` containing the ToolUsageStore class (or standalone functions) that takes the db instance. Import and delegate from MemoryStore with thin wrapper methods (3 one-liners). Update the Files section to include 'Create: src/memory/tool-usage-store.ts' and 'Test: src/memory/tool-usage-store.test.ts'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "PowerInhibitor cleanup not wired into existing registerMcpCleanupHandlers",
+      "description": "Task 5 says 'call inhibitor.release() in exit handlers' but the actual cleanup infrastructure is registerMcpCleanupHandlers() at server.ts:96-116 which currently handles SIGTERM/SIGINT/exit for sidecar lifecycle only. The plan doesn't specify whether to modify registerMcpCleanupHandlers to accept a PowerInhibitor, or add separate handlers. Adding duplicate process.on handlers is fragile.",
+      "suggested_fix": "Task 5 should specify: modify registerMcpCleanupHandlers() to accept an optional PowerInhibitor parameter and call inhibitor.release() in the cleanup function before the sidecar check. This centralizes all exit cleanup in one place."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "OpenCode plugin bundling of PowerInhibitor is unresolved",
+      "description": "Task 5 notes: 'the OpenCode plugin is bundled separately with bun build ... --target node. Check if src/power/inhibitor.ts would be included. If not, inline a minimal version in the plugin.' This is a critical implementation decision left unresolved. The plugin uses Bun.spawn but targets node — PowerInhibitor also uses Bun.spawn. If the plugin runs in a Node context, Bun.spawn won't be available.",
+      "suggested_fix": "Resolve this now: (1) Check if the OpenCode plugin actually runs in Bun or Node at runtime (the --target node flag may just be for compatibility). (2) If it runs in Bun, PowerInhibitor can be imported directly. (3) If it runs in Node, PowerInhibitor must use child_process.spawn instead. Task 4 should make PowerInhibitor use a platform-agnostic spawn (detect Bun.spawn vs child_process.spawn). Document the decision in Task 5."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 2 DoD doesn't verify the wrapper handles all McpServer.tool() overload signatures",
+      "description": "The plan's wrapper code in Task 2 notes 'rest may be [description, schema, handler] or [description, handler]' but the MCP SDK's McpServer.tool() actually has multiple overloads (2, 3, or 4 args). The DoD only says 'every registered MCP tool call increments a counter' without verifying overload handling. If the wrapper misidentifies the handler arg, tools will break silently.",
+      "suggested_fix": "Add a DoD item: 'Wrapper correctly handles all McpServer.tool() overload signatures (2-arg, 3-arg, 4-arg forms)'. Add a test case for each overload variant. The wrapper should use a type guard or check typeof for the last argument being a function."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "No orphan process protection for PowerInhibitor beyond exit handlers",
+      "description": "Pre-Mortem #2 identifies orphaned caffeinate/systemd-inhibit processes but the only mitigation is exit handlers (SIGTERM/SIGINT/exit). These don't fire on SIGKILL, OOM kills, or unhandled crashes. Orphaned caffeinate processes prevent sleep indefinitely.",
+      "suggested_fix": "Task 4 should add a secondary safety mechanism: write the child process PID to a known file (e.g., ~/.sentinal/inhibitor.pid). On PowerInhibitor construction, check for and kill any stale PID from a previous run. This handles crash recovery."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "sidecar/routes.ts at 398 lines — plan acknowledges risk but extraction strategy is vague",
+      "description": "Task 3 says 'If over 400, extract the handler bodies to inline functions at the bottom of the file' which doesn't actually reduce line count. The plan should decide upfront whether to extract to a new file.",
+      "suggested_fix": "Task 3 should create `src/sidecar/tool-usage-routes.ts` with the 3 route handlers as exported functions, imported and called from the main routes.ts if-chain. This keeps routes.ts under 400 and follows the extraction pattern."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 6 Dashboard DoD missing htmx auto-refresh verification",
+      "description": "Assumption #4 states 'The dashboard auto-refreshes every 5s via htmx, so tool usage will appear without manual refresh'. Task 6 DoD doesn't verify this — if the new stat cards aren't inside an htmx polling container, they won't auto-refresh.",
+      "suggested_fix": "Add a DoD item to Task 6: 'New stat cards are included within the htmx polling region so they auto-refresh with the rest of the dashboard'."
+    }
+  ]
+}

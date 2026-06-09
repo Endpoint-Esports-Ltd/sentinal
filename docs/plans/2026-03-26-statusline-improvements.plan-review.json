@@ -1,0 +1,35 @@
+{
+  "review_summary": "The plan is well-structured and covers both runtime and install-time detection as required. Three concrete issues were found against the actual code: a JSON path access trap, an inconsistent JSONC parsing approach for Task 1, and an uncovered hardcoded success message in the install flow that will misreport a skip.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "settings.json key is nested — dot-notation access will silently return undefined",
+      "description": "The actual settings.json schema (install.ts:387-390) writes `settings.statusLine = { type: 'command', command: '...' }` — meaning the command lives at `settings['statusLine']['command']`, not at a flat key named `'statusLine.command'`. Task 1's description says 'checks if `statusLine.command` contains sentinal', which could be mis-read as `settings['statusLine.command']` (a single key with a dot), which will always be `undefined` and cause `isStatuslineActive` to return `true` always. The DoD tests don't exercise nested access explicitly, so this is easy to get wrong.",
+      "suggested_fix": "Explicitly specify in Task 1's Key Decisions that the access pattern must be `(settings?.statusLine as { command?: string })?.command` — a two-level nested access — not string splitting on `.` or bracket notation with the literal string `'statusLine.command'`. Add a DoD test case: `isStatuslineActive` returns false when JSON is `{ \"statusLine\": { \"type\": \"command\", \"command\": \"npx ccstatusline-usage\" } }` (the exact shape written by configureStatusline)."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Hardcoded success log on line 353 of install.ts will print even when statusline is skipped",
+      "description": "The call site in install.ts (lines 352-353) is: `configureStatusline(); ok('[OK] Statusline configured (sentinal statusline)');`. Task 2 modifies `configureStatusline()` to return early when another plugin is detected and 'log a warning instead', but the `ok(...)` success message on the following line is outside `configureStatusline()` and will still print regardless. The user will see a false '[OK] Statusline configured' even when sentinal deliberately skipped configuration.",
+      "suggested_fix": "Either (a) change `configureStatusline()` to return a boolean indicating whether it configured anything, and gate the `ok(...)` on that return value, or (b) move the success log inside `configureStatusline()` so the skip branch can substitute the warning message. Option (a) is simpler. Add to Task 2 DoD: 'Install does not print [OK] Statusline configured when skipping'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 1 avoids stripJsoncComments but the pre-mortem identifies JSONC as a risk",
+      "description": "The pre-mortem flags 'JSONC parsing not available in statusline runtime' as a likely failure mode. Task 1's Key Decisions then says 'handle JSONC with try/catch since comments are rare'. However, `stripJsoncComments` is already exported from `src/utils/shell.ts` and is imported in `install.ts` — it is available and costs nothing to reuse. Using bare `JSON.parse` on a file that may contain comments (many editors write them) means `isStatuslineActive` will catch the parse error and return `true` (the safe default), making the detection silently fail to detect another plugin when comments are present.",
+      "suggested_fix": "Update Task 1 Key Decisions to specify: import `stripJsoncComments` from `../../utils/shell.js` (matching the install.ts pattern) and apply it before `JSON.parse`, exactly as done in `install.ts:376`. This closes the pre-mortem risk rather than leaving it open."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Duplicated detection logic in Task 2 creates a maintenance split",
+      "description": "Task 2 says 'Use the same detection logic as Task 1 but inline (avoid cross-file dependency for install simplicity)'. This means the string-contains-sentinal check will exist in two places. If the detection heuristic ever needs updating (e.g., adding another known competing package), both sites must be changed. The user requirement doesn't require isolation between files.",
+      "suggested_fix": "Consider having `install.ts` import and call `isStatuslineActive(settingsPath)` from `statusline.ts`. Both are CLI command files in the same directory. If the circular-dependency concern is real, extract `isStatuslineActive` into a shared utility (e.g., `src/utils/statusline-detect.ts`) that both files import. At minimum, document in Task 2 that this is a deliberate duplication and note that future changes must update both locations."
+    }
+  ]
+}

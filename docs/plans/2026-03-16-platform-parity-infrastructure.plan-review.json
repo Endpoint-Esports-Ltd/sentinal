@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan covers all three requested features (conflict detection, TDD parity, LSP diagnostics) with good structure. Key risks: Task 2 file-level conflict detection relies on observation queries that may not have file-path filtering, Task 3 has no unit tests for the OpenCode TDD transitions (only manual test + build), and the LSP client's reliance on textDocument/diagnostic vs publishDiagnostics needs clarification since the protocol strategy is ambiguous.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 3 (OpenCode TDD) has no automated tests",
+      "description": "Task 3's DoD includes only a manual test and a build command. The other tasks all have unit test files. User requirement says 'complete OpenCode TDD tracking' — this is a critical feature (without it, TDD guard permanently blocks edits in OpenCode). Having no automated tests for the transition logic risks regression.",
+      "suggested_fix": "Add a test file for the TDD transition helper in sentinal-helpers.ts. At minimum, test that transitionTddState() makes the correct sidecar call with the right action and specId. Could be a simple unit test in targets/opencode/plugins/sentinal-helpers.test.ts mocking the sidecar client."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 2 file-level conflict: observation query mechanism unspecified",
+      "description": "Task 2 says detectFileConflict queries 'recent observations that mention filePath in their filePaths array' but doesn't specify which store method does this. The plan mentions using 'existing sidecar memory search or a lightweight store query' but doesn't commit to one. The observations table may not have an index on filePaths (it's likely JSON or comma-separated). This could cause the <10ms performance target to be missed.",
+      "suggested_fix": "Specify the exact query strategy: either (a) add a SQL query filtering observations by session_id != current AND file_paths LIKE '%<file>%' AND created_at > (now - 5min), or (b) use the sidecar's existing memory_search endpoint with file path filter. Add a note about adding an index on file_paths if using direct SQL."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "LSP protocol strategy is ambiguous between pull and push diagnostics",
+      "description": "Task 5 mentions both 'textDocument/diagnostic' (pull-based, LSP 3.17+) and 'textDocument/publishDiagnostics' (push-based notification). These are fundamentally different approaches. typescript-language-server uses push-based publishDiagnostics by default. The plan should commit to one strategy to avoid implementation confusion.",
+      "suggested_fix": "Commit to push-based diagnostics: open the file via textDocument/didOpen, then collect textDocument/publishDiagnostics notifications. The pull-based textDocument/diagnostic request is not universally supported by typescript-language-server. Update Task 5 Key Decisions to specify: 'Use push-based textDocument/publishDiagnostics notifications (not pull-based textDocument/diagnostic).'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 6 lacks a test file despite modifying two critical near-limit files",
+      "description": "Task 6 modifies mcp-tools.ts (590 lines) and quality-routes.ts (390 lines) but specifies no new test file. The verify command is 'bun test src/analysis/ src/sidecar/' which runs existing tests. Since the LSP integration adds a new code path (try LSP → fallback to tsc), there should be explicit tests for the fallback logic.",
+      "suggested_fix": "Add DoD item: 'Tests verify fallback from LSP to tsc subprocess when LSP is unavailable.' This can be covered in the existing test files (quality-routes.test.ts, mcp-tools.test.ts) by mocking isLspAvailable() to return false and verifying the tsc path is taken."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 1 modifies OpenCode plugin but Task 3 also modifies it — ordering risk",
+      "description": "Task 1 says to modify sentinal.ts for session conflict warning. Task 3 also modifies sentinal.ts for TDD stubs. Both tasks add lines to a file at 591/600 lines. Task 1 adds '~5 lines' and Task 3 claims 'net zero change'. But if Task 1 is implemented first, the file could be at 596 lines, making Task 3's line budget tighter.",
+      "suggested_fix": "Add a note to Task 1 that the OpenCode session conflict check should be extracted to sentinal-helpers.ts (not inline in sentinal.ts) to avoid pushing the main plugin file closer to the 600-line limit before Task 3 runs."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "No sidecar route for session-level conflict check from OpenCode",
+      "description": "Task 1 says OpenCode should check for conflicts after session creation, but the conflict detection function lives in src/session/conflict.ts which is server-side code. The OpenCode plugin communicates via sidecar HTTP. No sidecar endpoint is planned for session conflict detection (Task 2 mentions a possible GET /session/file-conflict but Task 1 does not).",
+      "suggested_fix": "Either (a) add a sidecar endpoint GET /session/conflicts?project=<path>&session=<id> to Task 1 or Task 4's route file, or (b) clarify that the sidecar session creation response already includes conflict info (i.e., the sidecar performs the check internally when POST /session is called)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "store.ts is at 663 lines — plan doesn't address existing violation",
+      "description": "The plan correctly notes store.ts is over the 600-line limit and says 'new methods must go through service.ts.' But the existing 663-line violation isn't addressed. While not strictly in scope, the plan could note this as technical debt to avoid confusion during implementation.",
+      "suggested_fix": "Add an out-of-scope note: 'Reducing store.ts line count is not in scope for this plan but is tracked as technical debt.' This prevents an implementer from trying to refactor it during this plan."
+    }
+  ]
+}

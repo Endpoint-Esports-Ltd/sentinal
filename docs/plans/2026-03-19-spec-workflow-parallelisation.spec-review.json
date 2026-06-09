@@ -1,0 +1,79 @@
+{
+  "pass_summary": "All 12 goal truths verified. Wave grouping, parallel execution engine, and cross-platform parity are fully implemented. One minor suggestion about the pre-parallel commit guard being conditionalised on a frontmatter flag rather than applied unconditionally.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 12,
+  "truths_total": 12,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Pre-parallel commit guard conditionalised on Worktree: Yes flag",
+      "description": "In targets/claude-code/commands/spec-implement.md Step 2.2c, the pre-parallel commit checkpoint (`git add . && git commit -m 'wip: pre-parallel checkpoint'`) is only triggered when the plan has `Worktree: Yes` in its frontmatter. The plan's Task 2 described this as a general note to always apply before spawning agents with worktree isolation, not as a conditional. Plans executed outside a session worktree (Worktree: No) may still have uncommitted changes that the spawned agents won't see.",
+      "suggested_fix": "In targets/claude-code/commands/spec-implement.md, change the condition from 'If plan has Worktree: Yes' to 'Commit any pending changes before spawning parallel agents' (unconditional). This ensures agents always fork from a clean, consistent state regardless of the Worktree frontmatter value."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "targets/claude-code/commands/spec-plan.md contains ## Execution Waves in the plan template section",
+      "status": "verified",
+      "evidence": "Diff adds ## Execution Waves block with Wave 1/Wave 2 template lines to the Step 1.6 plan template in spec-plan.md"
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-plan.md contains instructions for grouping tasks by dependency wave",
+      "status": "verified",
+      "evidence": "Diff adds Step 1.5.0: Execution Wave Grouping with dependency analysis rules, file-overlap constraint, and sequential fallback rule"
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-implement.md contains isolation: \"worktree\" in Agent spawning instructions",
+      "status": "verified",
+      "evidence": "Diff adds Step 2.2c with Agent(isolation=\"worktree\") code block in the Wave Execution Loop"
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-implement.md contains wave-based parallel execution loop",
+      "status": "verified",
+      "evidence": "Diff adds FOR each wave loop with single-task vs multi-task branching, agent spawning, wait-for-all, failure handling, and checkpoint commit"
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-master-plan.md contains note about child plans including ## Execution Waves",
+      "status": "verified",
+      "evidence": "Diff updates Phases Section line to read: 'Each child plan should include an ## Execution Waves section to enable parallel task execution within that phase'"
+    },
+    {
+      "truth": "targets/claude-code/commands/spec-master-execute.md contains Agent with isolation and worktree (replacing old Task calls)",
+      "status": "verified",
+      "evidence": "Diff replaces Task(subagent_type=\"general\") with Agent(description=..., isolation=\"worktree\") at lines 93-95 of the spawning block"
+    },
+    {
+      "truth": "targets/opencode/skills/spec-plan/SKILL.md contains ## Execution Waves (parity with Claude Code)",
+      "status": "verified",
+      "evidence": "Diff shows identical Step 1.5.0 wave grouping instructions and ## Execution Waves template added to OC spec-plan/SKILL.md"
+    },
+    {
+      "truth": "targets/opencode/skills/spec-implement/SKILL.md contains wave execution loop with Task(subagent_type=\"general\", Step 2.2c wave parsing, single-task fallback, and orchestrator-updates-checkboxes rule",
+      "status": "verified",
+      "evidence": "Diff adds Step 2.2c with Task(subagent_type=\"general\") loop, no-waves sequential fallback, orchestrator-updates-checkboxes rule, and OpenCode safety note about shared working directory"
+    },
+    {
+      "truth": "targets/opencode/skills/spec-master-execute/SKILL.md retains Task(subagent_type=\"general\" (OpenCode keeps existing pattern)",
+      "status": "verified",
+      "evidence": "File not in changed_files (intentionally unchanged); grep confirms Task(subagent_type=\"general\") still present at line 93-94 of the file"
+    },
+    {
+      "truth": "targets/opencode/skills/spec-master-plan/SKILL.md contains note about child plans including ## Execution Waves (parity with Truth 5)",
+      "status": "verified",
+      "evidence": "Diff applies identical single-line change to OC spec-master-plan/SKILL.md: 'Each child plan should include an ## Execution Waves section' at line 122"
+    },
+    {
+      "truth": "templates/commands/spec-plan.md contains wave grouping concept",
+      "status": "verified",
+      "evidence": "Diff adds Wave: field to task structure, ## Execution Waves section with Wave 1/Wave 2 template, and wave grouping instruction; file is 91 lines (under 100)"
+    },
+    {
+      "truth": "templates/commands/spec-implement.md contains parallel execution concept",
+      "status": "verified",
+      "evidence": "Diff adds Wave Execution section with single-task/multi-task branching and parallel subagents concept; no platform-specific tool names (Agent/Task) used; file is 84 lines (under 100)"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "review_summary": "Plan covers all three user requirements (semantic restore, failed approach capture, quality decay with manual prune) with good task decomposition. A few structural issues need fixing: the migration version constant is missing from types.ts grep, Task 2's `buildSemanticQuery` helper lacks a clear file location and the 'always-semantic' requirement needs stronger enforcement, and the plan doesn't mention the `quality_score` being set on new inserts (only backfill and decay).",
+  "alignment_score": "medium",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "requirement_coverage",
+      "title": "Always-semantic requirement not fully enforced — fallback to chronological is the default",
+      "description": "User clarification says 'Always-semantic (not just when spec is active)'. Task 2 builds `buildSemanticQuery()` with active spec task as primary and recent files + project name as fallback, which is correct. However, Task 1's implementation only uses semantic search 'when semanticQuery is provided' (line 164). If `buildSemanticQuery()` returns empty or throws, the callers in hook.ts/plugin would pass no query, silently falling back to chronological. The plan should mandate that `buildSemanticQuery()` ALWAYS returns a non-empty string (project name alone is sufficient as a minimum) so semantic search is truly always-on.",
+      "suggested_fix": "Add to Task 2's Key Decisions: 'buildSemanticQuery() MUST always return a non-empty string. Minimum fallback is the project directory basename. Return type should be `string` (not `string | undefined`). Task 1 should treat empty/undefined semanticQuery as the only fallback trigger, not the normal path.'"
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "quality_score not set on new observation inserts",
+      "description": "Task 4 adds the column and backfills existing data. Task 5 adds decay. But nowhere does any task specify setting `quality_score` on new INSERT operations. The `addObservation()` in `service.ts` and the store's insert method need to map capture confidence to `quality_score` at insert time, otherwise all new observations get the DEFAULT 1.0 regardless of their capture confidence.",
+      "suggested_fix": "Add a DoD item to Task 4: 'New observations set quality_score from capture confidence at insert time (modify store insert or service.addObservation())'. Alternatively, create a sub-step in Task 4 to update the INSERT statement in store.ts (noting the 600-line constraint — this may need to go through service.ts)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "buildSemanticQuery() helper has no designated file location",
+      "description": "Task 2 describes a `buildSemanticQuery(projectPath)` function that needs to read active plans and recent observations, but doesn't specify which file it lives in. It's called from hook.ts, the OpenCode plugin, and potentially the sidecar. Putting it in hook.ts would make it inaccessible to the plugin. Putting it in each caller duplicates logic.",
+      "suggested_fix": "Add `buildSemanticQuery()` to `src/memory/restore.ts` (which is at 238 lines, well under limit) or create a small `src/memory/query-builder.ts`. List the file explicitly in Task 2's Files section."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "SCHEMA_VERSION constant location not identified — grep found no CURRENT_VERSION",
+      "description": "Task 4 says 'Update CURRENT_VERSION to 8' and references `types.ts`, but grep for `CURRENT_VERSION` found no matches. The migrations use `DB_CONSTANTS.SCHEMA_VERSION` (seen at line 27 of migrations.ts). The plan references the wrong constant name, which will confuse the implementer.",
+      "suggested_fix": "Change Task 4 to reference `DB_CONSTANTS.SCHEMA_VERSION` instead of `CURRENT_VERSION`. Identify the file where `DB_CONSTANTS` is defined (likely `store.ts` or a constants file) and list it in Task 4's Files section."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 6 (memory_maintain) missing test file in Files section",
+      "description": "Task 6's Verify says 'bun test src/memory/mcp-tools.test.ts' but the Files section only lists `src/memory/mcp-tools.ts`. No test file is listed for modification, yet the DoD includes 'Tests cover all three actions'.",
+      "suggested_fix": "Add `src/memory/mcp-tools.test.ts` to Task 6's Files section (Modify or Create)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Decay formula is per-30-days but no mechanism triggers it periodically",
+      "description": "Task 5 defines decay rates 'per 30 days' and the Out of Scope section excludes 'automatic background decay'. The `memory_maintain` MCP tool (Task 6) is manual-only. But the decay formula multiplies `quality_score * decay_rate` — if the user runs decay after 60 days, does it apply the rate once or twice? The plan doesn't specify how elapsed time maps to decay iterations.",
+      "suggested_fix": "Clarify in Task 5 that the decay formula should be time-proportional: `new_score = quality_score * (decay_rate ^ (days_since_last_decay / 30))`. Store a `last_decayed_at` timestamp (either per-observation or globally) to calculate elapsed periods correctly."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 7 modifies chronological restore ordering — may surprise users",
+      "description": "Task 7 says 'When no semantic query, sort by quality_score * recency_weight instead of pure timestamp'. The user asked for semantic restore, not for changing the non-semantic fallback ordering. This could make the fallback path behave unexpectedly (old high-quality observations displacing recent ones).",
+      "suggested_fix": "Consider keeping chronological restore as pure-timestamp ordering (the existing behavior) and only apply quality weighting when semantic search is active. If quality-weighted chronological is desired, make it opt-in or document it as a secondary enhancement."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "No sidecar route for memory_maintain tool",
+      "description": "Task 6 says 'Route through sidecar when available, direct when not' but doesn't list any sidecar route file modifications. The existing MCP tools pattern in mcp-tools.ts handles sidecar routing, but if memory_maintain needs a new sidecar endpoint (e.g., POST /maintain), that should be listed.",
+      "suggested_fix": "Add `src/sidecar/routes.ts` to Task 6's Files section if a new endpoint is needed, or clarify that the existing MCP routing pattern handles this without a new route."
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "pass_summary": "All 11 tasks are implemented and largely correct. 7 new hooks are created and wired into hooks.json and CLI dispatch; HookInput is fully extended; memory-observer is extracted; spec-stop-guard and pre-edit-guide are refactored; OpenCode parity handlers are added. Key gap: StopFailure misses the required 'active spec check before persisting' behavior from the plan, and the new dispatch wrappers redundantly re-import readStdin which is already module-scoped in hook.ts. Tests are generally solid but a few test cases are behaviorally weak (resolve-only assertions without mocking).",
+  "compliance_score": "medium",
+  "quality_score": "high",
+  "goal_score": "partial",
+  "truths_verified": 10,
+  "truths_total": 12,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "StopFailure does not check for active spec before persisting error observation",
+      "description": "Plan Task 1 specifies: '1. If an active spec is in progress (SidecarClient.specStatus()), save a memory observation of type `error` with the error details + last assistant message snippet.' The implementation in src/hooks/stop-failure.ts (lines 12-29) only sends a dashboard notification and never saves a memory observation. The spec-status check and memory observation are entirely absent.",
+      "suggested_fix": "After connecting to the sidecar, call client.specStatus(input.cwd) and if a plan is IN_PROGRESS, also call client.addObservation({ type: 'error', title: `API Error: ${error}`, content: `${error_details}\\nLast message: ${input.last_assistant_message?.slice(0, 200) ?? '(none)'}`, ... }). Add a test case for 'with active spec' that mocks specStatus and verifies addObservation is called."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "StopFailure stop-failure test missing 'with active spec' test case",
+      "description": "Plan Task 1 DoD requires 3 test cases: 'with active spec, without active spec, sidecar unavailable.' The test file src/hooks/stop-failure.test.ts has: error present, no error field, sidecar unavailable — none of these verifies the spec-status check path because that path was never implemented. This makes the test suite pass against incorrect behavior.",
+      "suggested_fix": "Once the active-spec check is added to the implementation, add a test case that mocks client.specStatus() to return an active plan and verifies that client.addObservation() is called with type:'error'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "ConfigChange does not detect 'disableAllHooks' — only checks rules files",
+      "description": "Plan Task 2 specifies two behaviors: (1) save a memory observation for .sentinal/rules/*.md or CLAUDE.md changes, and (2) 'If file_path matches **/settings.json or **/hooks.json, check if disableAllHooks was set. If so, warn via dashboard notification.' Behavior (2) is entirely absent from src/hooks/config-change.ts.",
+      "suggested_fix": "Add a branch in processConfigChange: if filePath ends with 'settings.json' or 'hooks.json', attempt to read the file content and check for 'disableAllHooks'. If found, call client.insertNotification({ type: 'warning', title: 'Hooks disabled', ... }). Add the corresponding test case (the plan specifies 'hooks disabled detection' as one of the 3 required test cases)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "config-change.test.ts does not mock SidecarClient — tests only cover the silent no-op path",
+      "description": "config-change.test.ts imports processConfigChange directly without mocking the sidecar (SidecarClient.connect will return null in test env). All 5 test cases only assert that the function resolves without throwing. The test for '.sentinal/rules/*.md file change' cannot verify that addObservation is actually called — it just tests the sidecar-unavailable fallback silently.",
+      "suggested_fix": "Add a mock for ../sidecar/client.js (same pattern as stop-failure.test.ts) and assert that addObservation is called with the correct payload for rules file changes. This is the standard pattern used in stop-failure.test.ts and file-changed.test.ts."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "instructions-loaded.test.ts does not verify addObservation is called — only asserts no-throw",
+      "description": "The 3 test cases in instructions-loaded.test.ts only assert resolves.toBeUndefined() for all paths. The 'session_start captures' and 'path_glob_match captures' cases are semantically indistinguishable from the 'compact skips' case in the test output. Without mocking the sidecar, there is no verification that an observation is actually saved for the captured cases.",
+      "suggested_fix": "Mock ../sidecar/client.js and assert addObservation is called for session_start/path_glob_match but NOT called for 'compact'. This distinguishes capturing from skipping."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "task-created.test.ts does not mock SidecarClient — does not verify notification is sent",
+      "description": "task-created.test.ts has 3 test cases but none mock SidecarClient. In a test environment where no sidecar is running, connect() returns null and insertNotification is never reached. The tests only verify no-throw behavior, not that notifications are sent.",
+      "suggested_fix": "Add mock.module('../sidecar/client.js', ...) before the import of processTaskCreated, and assert that insertNotification is called with type:'info' and the correct title for the 'with task_subject' case."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "spec-stop-guard test for last_assistant_message does not call processSpecStopGuard",
+      "description": "In src/hooks/spec-stop-guard.test.ts (lines 146-168), the test 'should include last_assistant_message snippet in deny reason' manually rebuilds the reason string instead of calling processSpecStopGuard. It asserts against a locally-computed string, not the actual function behavior. If the function's formatting changes, this test would still pass.",
+      "suggested_fix": "Intercept denyExit (mock the hook-output module or spy on process.exit/stderr) and call processSpecStopGuard with a real IN_PROGRESS plan directory and last_assistant_message set. Assert that the captured stderr contains the expected snippet."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "New dispatch wrappers in hook.ts redundantly import readStdin from hook-output",
+      "description": "In src/cli/commands/hook.ts, the 7 new dispatch functions (runStopFailure, runConfigChange, etc. at lines 395-442) all do: const { readStdin } = await import('../../utils/hook-output.js'), then await readStdin(). But readStdin is already imported at the top of the file (line 8) and used the same way in all existing dispatch functions (e.g., runTddGuard at line 25). This is inconsistent and wasteful.",
+      "suggested_fix": "Use the already-imported readStdin directly in the new dispatch functions, e.g.: async function runStopFailure() { const { processStopFailure } = await import('../../hooks/stop-failure.js'); await processStopFailure(await readStdin()); }"
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "OpenCode parity: InstructionsLoaded fires unconditionally with hardcoded CLAUDE.md path",
+      "description": "In targets/opencode/plugins/sentinal.ts (lines ~913-924), processInstructionsLoaded is called with a hardcoded file_path of join(projectRootForSidecar, 'CLAUDE.md') regardless of whether that file exists. This will always record an observation even in projects that don't have CLAUDE.md. The plan notes this is a synthetic input, but the hardcoded path could create noise.",
+      "suggested_fix": "Guard the call with an existsSync check: only fire processInstructionsLoaded if CLAUDE.md actually exists in the project root. Alternatively, use AGENTS.md or another actual file that OpenCode loads."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "PostCompact hook does not re-create compact-state.json when missing (Plan requirement)",
+      "description": "Plan Task 6 specifies: 'If compact-state.json is missing or corrupt, re-create it from current spec status + memory context.' The implementation in src/hooks/post-compact.ts returns a message string but never re-creates the file. This is the plan's core behavioral requirement beyond the verification step.",
+      "suggested_fix": "When compact-state.json is missing, call SidecarClient.specStatus() to get the current plan slug (if any) and write a fresh compact-state.json with { activePlan, timestamp }. This enables post-compact-restore to function correctly after a compaction that lost the state file."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/utils/hook-output.ts contains error?, last_assistant_message?, agent_id?, agent_type?, duration_ms?, file_path? in the HookInput interface",
+      "status": "verified",
+      "evidence": "All fields confirmed present in the diff: error?, error_details?, last_assistant_message?, agent_id?, agent_type?, duration_ms?, file_path?, plus 12 additional new fields (stop_hook_active, background_tasks, session_crons, source, memory_type, load_reason, old_cwd, new_cwd, event, task_id, task_subject, task_description, teammate_name, team_name, effort)"
+    },
+    {
+      "truth": "targets/claude-code/hooks/hooks.json contains entries for StopFailure, ConfigChange, InstructionsLoaded, CwdChanged, FileChanged, PostCompact, TaskCreated",
+      "status": "verified",
+      "evidence": "All 7 new event entries confirmed in the hooks.json diff with correct event names, matchers, commands, timeouts, and async flags matching the plan table"
+    },
+    {
+      "truth": "src/hooks/stop-failure.ts exports processStopFailure",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processStopFailure(input: HookInput): Promise<void>'"
+    },
+    {
+      "truth": "src/hooks/config-change.ts exports processConfigChange",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processConfigChange(input: HookInput): Promise<void>'"
+    },
+    {
+      "truth": "src/hooks/instructions-loaded.ts exports processInstructionsLoaded",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processInstructionsLoaded(input: HookInput): Promise<void>'"
+    },
+    {
+      "truth": "src/hooks/cwd-changed.ts exports processCwdChanged",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processCwdChanged(input: HookInput, connect?: ...): Promise<void>'"
+    },
+    {
+      "truth": "src/hooks/file-changed.ts exports processFileChanged",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processFileChanged(input: HookInput): Promise<void>'"
+    },
+    {
+      "truth": "src/hooks/post-compact.ts exports processPostCompact",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processPostCompact(input: HookInput): Promise<string | null>'"
+    },
+    {
+      "truth": "src/hooks/task-created.ts exports processTaskCreated",
+      "status": "verified",
+      "evidence": "File exists and exports 'export async function processTaskCreated(input: HookInput): Promise<void>'"
+    },
+    {
+      "truth": "All 7 new hook test files pass (bun test src/hooks/stop-failure.test.ts etc.)",
+      "status": "uncertain",
+      "evidence": "All test files exist and are well-structured. Tests cannot be executed in this review context, but no obvious structural issues (missing imports, wrong API usage) were found. The stop-failure test does re-import readStdin via the module mock which is a minor inconsistency but should not break tests."
+    },
+    {
+      "truth": "src/hooks/spec-stop-guard.ts contains last_assistant_message reference",
+      "status": "verified",
+      "evidence": "spec-stop-guard.ts lines 28-30: reads input.last_assistant_message and uses .slice(0, 100) in the deny reason; agent_type bypass also present on lines 17-19"
+    },
+    {
+      "truth": "targets/opencode/plugins/sentinal.ts imports from instructions-loaded, post-compact, or task-created",
+      "status": "verified",
+      "evidence": "Diff shows 3 new imports added at top of sentinal.ts: processInstructionsLoaded from '../../src/hooks/instructions-loaded.js', processPostCompact from '../../src/hooks/post-compact.js', processTaskCreated from '../../src/hooks/task-created.js', and all 3 are called in the appropriate event handlers"
+    }
+  ]
+}

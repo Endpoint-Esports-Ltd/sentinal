@@ -1,0 +1,49 @@
+{
+  "review_summary": "Plan is well-structured and aligns strongly with user requirements. Both project_context (sidecar-based, rules + live analysis) and pre-edit guidance (observation-gated, silent otherwise) match the spec. Key risks are around Task 4's approach to querying observations by file path (FTS on basename is imprecise) and the OpenCode plugin being at exactly 599 lines with no margin for error.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 4 observation query strategy is imprecise — FTS basename search will return false positives",
+      "description": "Task 4's 'Final decision' says: use `client.memorySearch({ query: basename(filePath), project: cwd, limit: 5 })` then filter client-side. FTS on a basename like 'index.ts' or 'routes.ts' will match observations that merely mention those common filenames in their content, not observations about that specific file. The plan notes 'filter results client-side to only those with matching filePaths' but observations store filePaths as JSON arrays — the plan doesn't specify how this client-side filter works or what the search response shape is.",
+      "suggested_fix": "Add a concrete specification for the client-side filter: after memorySearch returns results, filter to observations where the `filePaths` array contains the exact target file path (not basename). Document the expected response shape from `/memory/search`. Consider adding a `filePath` filter parameter to the sidecar `/memory/search` endpoint to do server-side filtering and avoid false positives entirely."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "OpenCode plugin at 599 lines — adding pre-edit guide call has zero margin",
+      "description": "The plan acknowledges the plugin is at 599 lines (verified) and says to add ~5 lines delegating to a helper. But the plan also says 'Must be minimal (~5 lines) to stay under 600 lines' — 599 + 5 = 604 which exceeds the 600-line hard block. The plan contradicts itself: it recognizes the risk but the proposed mitigation (adding 5 lines) doesn't actually solve it.",
+      "suggested_fix": "Task 5 must include an explicit sub-task to refactor the OpenCode plugin BEFORE adding the pre-edit guide call. Extract an existing block (e.g., the grep/fetch hint logic at lines 269-287 — ~19 lines) into a helper module first, then add the pre-edit guide call. Net result: plugin shrinks before growing. Add a DoD item: 'OpenCode plugin stays under 595 lines after changes'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 3 has no unit test file specified",
+      "description": "Testing Strategy says 'Unit tests: src/project/mcp-tools.test.ts — test MCP tool registration' but Task 3's Files section only lists 'Create: src/project/mcp-tools.ts' and 'Modify: src/mcp/server.ts' — no test file. The Verify section says `bun test src/project/` which would pick up tests from Task 1, but Task 3 itself has no test deliverable.",
+      "suggested_fix": "Add 'Create: src/project/mcp-tools.test.ts' to Task 3's Files section. Add a DoD item: 'Tests verify tool registration, sidecar-first with direct fallback, and refresh parameter handling'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 4 has conflicting design notes — three different sidecar strategies documented",
+      "description": "Task 4's Key Decisions section walks through three different approaches (reuse /context endpoint, new /file-context endpoint, use existing /memory/search) but leaves all three in the plan text. The implementer must read through the deliberation to find the 'Final decision' buried at the end. The earlier approaches reference adding a `file` parameter to `handleRestoreContext` and a new `/file-context` endpoint — both contradicted by the final decision.",
+      "suggested_fix": "Remove the abandoned approaches from Task 4. Keep only the final decision (use `client.memorySearch` with basename query + client-side filePaths filter). Present it as a clean specification, not a design journal."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "No E2E or manual verification step for the full hook pipeline",
+      "description": "The plan has unit tests for individual modules but no verification that the full pipeline works end-to-end: Claude Code hook fires → sidecar query → hint injected. Task 5 says 'bun run build:cli' but doesn't include a manual smoke test verifying the hook actually fires in Claude Code.",
+      "suggested_fix": "Add a manual verification step to Task 5's Verify section: 'Manual: save an observation for a test file, then trigger a Write in Claude Code — verify the hint appears in the conversation'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Pre-edit guidance excludes non-code files but observations may exist for them",
+      "description": "Out of Scope says 'Pre-edit guidance for non-code files (markdown, config, etc.)' but the user request doesn't restrict this. If a developer has saved observations about a config file (e.g., tsconfig.json gotchas), the pre-edit hook would silently skip them. This is a reasonable scope cut but should be a conscious decision.",
+      "suggested_fix": "Either remove the exclusion (let the observation-gated logic handle it — if no observations exist, it's already silent) or document the rationale for excluding non-code files explicitly in the plan."
+    }
+  ]
+}

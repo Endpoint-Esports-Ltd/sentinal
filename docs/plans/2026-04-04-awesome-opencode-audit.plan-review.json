@@ -1,0 +1,42 @@
+{
+  "review_summary": "Plan is well-structured and companion-first strategy is correctly reflected throughout. Two must-fix issues were found: aggregateTokenUsage returns a single context-window percentage, not per-category breakdown, so Task 4's core premise is broken; and the Claude Code plugin detection path described in Task 2 does not match the actual marketplace directory structure used by the codebase.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "aggregateTokenUsage does not provide per-category token breakdown",
+      "description": "Task 4 states it will 'use existing token-usage.ts infrastructure to produce a per-category token breakdown (system, user, assistant, tools).' The Assumptions section also claims 'aggregateTokenUsage returns per-message breakdowns sufficient for category attribution.' This is false. The actual function signature is `aggregateTokenUsage(messages: SessionMessage[]): ContextUsage` and it returns only `{ percent, tokens, fileBytes }` — a single total context window fill level. The SessionMessage type only carries `{ role, tokens?: { input, output, reasoning, cache } }` on assistant messages. There is no system/user/tool category split at all; the SDK does not expose which tokens came from system prompt vs user messages vs tool call results. Task 4 requires either a separate per-category counting approach (e.g., iterating all message roles and estimating per-role token counts) or using js-tiktoken directly as the Context Analysis plugin does, not aggregateTokenUsage.",
+      "suggested_fix": "Revise Task 4 Key Decisions to: (a) abandon the claim that aggregateTokenUsage provides per-category breakdown, (b) specify that per-category breakdown requires iterating messages by role and summing tokens differently — assistant messages provide input/output/cache, user and system messages need estimation, (c) add js-tiktoken as a dependency if server-side tokenization is needed, or note that counts are estimated via role-iteration of SessionMessage.info.role. Update the Assumptions section to remove the 'per-message breakdowns sufficient for category attribution' claim."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Claude Code plugin detection path in Task 2 does not match actual directory structure",
+      "description": "Task 2 Context for Implementer states: 'Claude Code plugins live in ~/.claude/plugins/ as marketplace directories. Detect by scanning dir names.' Task 2's Key Decisions then elaborates: 'detectClaudePlugins(pluginsDir?) scans ~/.claude/plugins/*/plugins/*/ directories and returns plugin names.' The actual Claude Code Sentinal installation uses a single marketplace directory at `~/.claude/plugins/sentinal-marketplace/` (confirmed in install.ts line 274 and install-constants.ts `MARKETPLACE_DIR`). Third-party Claude Code plugins also install as top-level named directories under `~/.claude/plugins/<plugin-name>/`, not a nested `*/plugins/*/` path. The glob pattern `~/.claude/plugins/*/plugins/*/` will return zero results for real-world plugin installs and the detection will silently fail.",
+      "suggested_fix": "Change the detectClaudePlugins() directory scan to enumerate top-level entries of `~/.claude/plugins/` (i.e., `readdirSync(pluginsDir)` one level deep) rather than `*/plugins/*/`. Each top-level directory is a plugin; its name is the plugin identifier. Also verify the Claude Code marketplace manifest format to confirm whether a `package.json` or manifest file can be used to extract a canonical plugin name vs relying solely on the directory name."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 4 /context slash command assumes CLAUDE_CODE_SESSION_ID env var exists but this is unverified",
+      "description": "Task 4 states: 'Default session: current session (from env var CLAUDE_CODE_SESSION_ID or first active session in DB).' A search for CLAUDE_CODE_SESSION_ID across the codebase returns no matches — it is not documented, not used, and not set by the Claude Code hook environment. Claude Code hooks receive session info via stdin JSON, not environment variables. The fallback 'first active session in DB' is also undefined — there is no DB access pattern shown in the existing CLI commands that would identify an active session.",
+      "suggested_fix": "Remove the CLAUDE_CODE_SESSION_ID assumption. Specify that when invoked interactively (not from a hook), sentinal context analyze either (a) requires --session=<id> as a mandatory argument, (b) reads the most recent session from the sidecar's SQLite DB using the existing session retrieval path, or (c) accepts piped stdin in the same hook JSON format. Clarify which of these is the intended interaction model and document the session ID source explicitly."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 5 statusline coexistence for OpenCode has no concrete detection mechanism defined",
+      "description": "Task 5 states: 'Statusline flow: existing isStatuslineActive() already handles Claude Code statusline; extend for OpenCode plugin-detection.' However, isStatuslineActive() reads ~/.claude/settings.json and checks if the statusline command contains 'sentinal'. There is no equivalent OpenCode statusline configuration key documented. The plan does not specify what OpenCode config key would signal that a competing statusline plugin (opencode-quota, opencode-mystatus) is active — the opencode.json plugin array only tells you if a plugin is installed, not if it has taken over the statusline hook.",
+      "suggested_fix": "Add to Task 5 a concrete specification of which OpenCode hook key or config path would indicate a competing statusline plugin is active. If OpenCode does not expose a hook-ownership config equivalent, then the coexistence check for OpenCode statusline should yield whenever any of the named quota/status plugins appears in detectOpencodePlugins() output, and the DoD should reflect that simpler approach rather than implying structural parity with isStatuslineActive()."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "embed-assets.mjs verification note in Task 1 is vague — no confirmation the script auto-scans rule dirs",
+      "description": "Task 1 states: 'Modify: scripts/embed-assets.mjs — ensure new rules files get embedded (verify no changes needed if rule dir is scanned).' This is an untested assumption. If embed-assets.mjs explicitly lists files rather than glob-scanning the rules/ directory, adding companion-plugins.md will silently not be embedded without a modification. The DoD mentions running bun run embed-assets as verification, but does not specify how to confirm the new file is included.",
+      "suggested_fix": "Before Task 1 implementation, verify how embed-assets.mjs discovers rules files (glob scan vs explicit list). If explicit, add the file path to the script as part of Task 1 scope. Update the DoD to include: 'grep companion-plugins in embed output or generated bundle confirms file is present.'"
+    }
+  ]
+}

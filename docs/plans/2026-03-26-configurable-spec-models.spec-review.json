@@ -1,0 +1,58 @@
+{
+  "pass_summary": "Core implementation is solid: applyModelRouting, resolveModelRouting, and install-time wiring are all present and tested. Two gaps exist: findInstalledPluginDirs has no tests despite being exported and used in the critical config-set path, and the config set action applies stored routing (not env-var-merged routing), meaning env var overrides are silently ignored when patching files via config set.",
+  "compliance_score": "medium",
+  "quality_score": "high",
+  "goal_score": "partial",
+  "truths_verified": 4,
+  "truths_total": 5,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "findInstalledPluginDirs has no tests",
+      "description": "src/config/model-routing.test.ts imports findInstalledPluginDirs (line 12) but never exercises it in any describe/it block. The function contains non-trivial recursive scanning logic with a depth limit of 5 and a sentinel check for commands/spec-plan.md. The plan's DoD (Task 1) explicitly requires testing the full config-set → file-patch path, which relies on this function working correctly.",
+      "suggested_fix": "Add a describe('findInstalledPluginDirs') block in model-routing.test.ts. At minimum: (1) returns empty array when base dir does not exist, (2) returns the plugin dir when commands/spec-plan.md is present, (3) does not recurse beyond depth 5. Pass a custom baseDir (the tmpdir test fixture) to avoid touching the real ~/.claude/plugins."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "config set applies stored routing, not env-var-merged routing",
+      "description": "In src/cli/commands/config.ts (around line 126-137), after setModelRouting the code calls applyModelRouting(dirs, result) where result is the return value of setModelRouting (the stored config only). It does not call resolveModelRouting(store). This means if SENTINAL_MODEL_PLANNING=haiku is set and the user runs sentinal config set model_routing.implementation opus, the patched files will use the stored planning value instead of haiku. Truth 4 ('SENTINAL_MODEL_PLANNING=haiku env var overrides the stored config value') is not satisfied for the config-set code path.",
+      "suggested_fix": "Replace applyModelRouting(dirs, result) in the set action with applyModelRouting(dirs, resolveModelRouting(store)). Import resolveModelRouting in config.ts (already imported indirectly via model-routing.ts but not listed in the import block in the diff — add it). The store is still open at this point so resolveModelRouting(store) is safe to call."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "JSON.stringify key-order comparison for isNonDefault is fragile",
+      "description": "In src/cli/commands/install.ts (line 327), the isNonDefault check uses JSON.stringify(routing) !== JSON.stringify(DEFAULT_MODEL_ROUTING). This only works if both objects have keys in the same order. Currently safe because ModelRoutingSchema.parse always produces keys in declaration order, but this is an implicit coupling that could break if the schema key order changes.",
+      "suggested_fix": "Compare each key individually: const isNonDefault = Object.keys(DEFAULT_MODEL_ROUTING).some(k => routing[k as keyof ModelRouting] !== DEFAULT_MODEL_ROUTING[k as keyof ModelRouting]). This is order-independent and more intention-revealing."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "applyModelRouting with { planning: 'haiku' } changes model: opus to model: haiku in spec-plan.md",
+      "status": "verified",
+      "evidence": "Test 'should patch model frontmatter in commands' in model-routing.test.ts writes spec-plan.md with model: opus, calls applyModelRouting with planning: haiku, and asserts the file contains model: haiku and not model: opus. Implementation uses regex /^model:\\s*\\S+/m replace."
+    },
+    {
+      "truth": "sentinal config set model_routing.planning haiku rewrites installed plugin files",
+      "status": "verified",
+      "evidence": "config.ts set action calls findInstalledPluginDirs() and applyModelRouting(dirs, result) after setModelRouting. The wiring is present. (Note: env vars are not merged here — see issue above.)"
+    },
+    {
+      "truth": "sentinal install claude applies model routing config after writing plugin files",
+      "status": "verified",
+      "evidence": "install.ts lines 322-333: after writeClaudeCodeEmbeddedAssets/copyDirRecursive, resolveModelRouting and applyModelRouting([pluginDir], routing) are called in a try/catch block that does not fail the install."
+    },
+    {
+      "truth": "SENTINAL_MODEL_PLANNING=haiku env var overrides the stored config value",
+      "status": "failed",
+      "evidence": "resolveModelRouting correctly merges env vars and is used in install.ts. However, config.ts set action uses applyModelRouting(dirs, result) where result is the raw setModelRouting return value — env vars are not applied in this path. The truth is only partially satisfied (install path yes, config set path no)."
+    },
+    {
+      "truth": "Files not in the routing map (e.g., spec.md, quick.md) are left unchanged",
+      "status": "verified",
+      "evidence": "FILE_ROUTING_MAP in model-routing.ts only includes known skill filenames. applyModelRouting skips files whose basename is not in the map (adds to skipped, does not write). Test 'should not modify files not in the routing map' confirms spec.md is untouched."
+    }
+  ]
+}

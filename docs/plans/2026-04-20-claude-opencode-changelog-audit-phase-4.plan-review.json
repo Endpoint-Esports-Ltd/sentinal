@@ -1,0 +1,35 @@
+{
+  "review_summary": "Well-structured spike plan with correct factual claims about hook counts (21), current formats, and .mcp.json state. Two issues: the 'hot-path' hook set mislabels tool-redirect (it fires on Bash/WebSearch, not Write/Edit), and the decision doc filename has a future date that won't match when actually created.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Hot-path hook set includes tool-redirect which doesn't fire on Write/Edit",
+      "description": "The plan states '4 sync hooks that fire on every write/edit: tdd-guard, pre-edit-guide, file-checker, tool-redirect'. Verified in hooks.json: tool-redirect is PreToolUse with matcher 'Bash|WebSearch|WebFetch|Grep|EnterPlanMode|ExitPlanMode' (line 58) — it never fires on Write/Edit. file-checker is PostToolUse on Write/Edit (correct). The benchmark in Task 4 will still produce valid numbers since hyperfine calls the CLI directly, but the framing as 'write/edit hot path' is misleading and will confuse the decision doc analysis.",
+      "suggested_fix": "Reframe: 3 write/edit hot-path hooks (tdd-guard, pre-edit-guide, file-checker) + 1 tool-intercept hot-path hook (tool-redirect). Or replace tool-redirect in the benchmark with prompt-context (UserPromptSubmit, fires every prompt — arguably more 'hot path')."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Decision doc filename has hardcoded future date 2026-05-27",
+      "description": "Truth #1 and Task 7 reference 'docs/decisions/2026-05-27-phase4-hook-transport.md'. The plan was created 2026-04-20 and today is 2026-05-26. Using a hardcoded date means the artifact name may not match the actual creation date, causing confusion in the decisions/ directory.",
+      "suggested_fix": "Use a placeholder like 'docs/decisions/YYYY-MM-DD-phase4-hook-transport.md' in the plan text, with a note to use the actual date when creating the file. Or just accept the date mismatch — low impact since it's a one-off doc."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 6 (args exec form) lacks rollback plan if CC version doesn't support args",
+      "description": "Task 6 says 'This is backward-compatible — if CC doesn't recognize args, it falls back to command string parsing.' The plan trusts this claim but provides no verification step. If the fallback doesn't work as expected, all 21 hooks break simultaneously.",
+      "suggested_fix": "Add a DoD item: 'Verify in live CC session that at least one hook still fires correctly after migration.' This is a 30-second check that prevents a catastrophic all-hooks-broken scenario."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 4 benchmark uses empty JSON input which may not reflect real hook latency",
+      "description": "The benchmark command is 'echo \"{}\" | sentinal hook shared tdd-guard'. Real hook invocations receive full HookInput with session_id, tool_name, tool_input, cwd, etc. Empty input may cause early-exit fast paths in some hooks (e.g., tdd-guard may skip all checks without a file_path), underreporting real latency.",
+      "suggested_fix": "Use a realistic HookInput JSON payload: '{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"src/test.ts\",\"content\":\"x\"},\"cwd\":\"/tmp\",\"session_id\":\"bench\"}'. This measures the actual code path."
+    }
+  ]
+}

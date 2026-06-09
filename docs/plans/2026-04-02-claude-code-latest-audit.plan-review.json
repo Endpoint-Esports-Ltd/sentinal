@@ -1,0 +1,28 @@
+{
+  "review_summary": "Plan is well-structured and accurately describes the codebase state. The three riskiest assumptions (rate_limits field names in statusline.ts, agent files being pre-populated with background:true, hooks.json TDD guard structure) were all verified against code. Two issues found: one task scope gap on the weeklyPct field, and one untested assumption about the if-field syntax for multi-matcher hooks.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 1 DoD omits the weeklyPct -> seven_day rename and its test coverage",
+      "description": "The current code at statusline.ts:105 reads `rateLimit.weekly_used_percentage` and returns `weeklyPct`. The plan's Task 1 DoD only checks the five_hour / session path. The return type `{ sessionPct, weeklyPct }` will also need to change — weeklyPct will come from `rate_limits.seven_day.used_percentage` in the new nested format. Task 1 DoD item 3 says 'All 5 existing test cases rewritten for new nested format' but makes no explicit mention of the seven_day branch. If the implementer only fixes the five_hour path, `rateLimits.weeklyPct` at statusline.ts:280-286 will always be undefined and model usage scaling will silently drop.",
+      "suggested_fix": "Add to Task 1 DoD: '[ ] `weeklyPct` now parsed from `rate_limits.seven_day.used_percentage`' and '[ ] New test covering both five_hour and seven_day fields populated.' Also consider renaming the return fields from `sessionPct`/`weeklyPct` to `fiveHourPct`/`sevenDayPct` to match the API, though a comment mapping them to their display roles would be acceptable if renaming is deferred."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "if-field syntax for multi-tool matchers is unverified — plan uses a concatenated pattern that may not be the correct form",
+      "description": "Task 4 proposes `\"if\": \"Write(*.ts)|Write(*.tsx)|Edit(*.ts)|Edit(*.tsx)|MultiEdit(*.ts)|MultiEdit(*.tsx)\"` for a hook whose `matcher` is already `Write|Edit|MultiEdit`. The Claude Code changelog example for the `if` field uses single-tool patterns (`Bash(git *)`). It is an untested assumption that the `if` field accepts a pipe-separated multi-tool expression rather than a single permission-rule pattern. If the field only accepts a single rule, the compound expression may either be silently ignored (hook always fires) or throw a parse error (hook never fires). The plan's hard gate mitigates the worst outcome, but the DoD should call out this specific syntax risk.",
+      "suggested_fix": "Add to Task 4 Key Decisions: 'If `if` field does not support pipe-separated multi-tool patterns, use separate hook entries per tool — one for Write(*.ts), one for Edit(*.ts), one for MultiEdit(*.ts) — rather than a single compound expression.' Also add a DoD item: '[ ] Verified that the if-field value is accepted without error in Claude Code's hook config parser (check for parse errors in Claude Code startup log).'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 3 DoD treats background:true as unimplemented but code shows plan-reviewer.md and spec-reviewer.md already have it",
+      "description": "Grep confirms `targets/claude-code/agents/plan-reviewer.md` line 6 and `targets/claude-code/agents/spec-reviewer.md` line 6 both already contain `background: true`. Task 3 DoD item '[ ] plan-reviewer.md and spec-reviewer.md have `background: true`' will trivially pass without any change, which may mislead the implementer into thinking they completed real work when only `research.md` (maxTurns: 30) needs actual modification.",
+      "suggested_fix": "Update Task 3 to reflect current state: mark the plan-reviewer/spec-reviewer background:true items as already done (or remove them from the pending checklist), and note that the only actual change needed is adding `maxTurns: 30` to research.md. This keeps progress tracking honest and prevents the implementer from skipping research.md under the mistaken belief they already finished Task 3."
+    }
+  ]
+}

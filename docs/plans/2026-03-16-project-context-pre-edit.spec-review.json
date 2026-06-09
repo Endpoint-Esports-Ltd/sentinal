@@ -1,0 +1,82 @@
+{
+  "pass_summary": "All 5 tasks implemented with correct architecture: project analysis module, sidecar caching endpoint, MCP tool, pre-edit guidance hook, and Claude Code + OpenCode wiring. Code quality is good with proper separation of concerns and file-length-aware refactoring. Tests cover core paths but MCP tool tests lack sidecar fallback verification.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 7,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "MCP tool tests don't verify sidecar-first with direct fallback",
+      "description": "src/project/mcp-tools.test.ts tests only the direct analyzeProject+formatProjectContext pipeline. The plan DoD for Task 3 requires 'Tests verify tool registration, sidecar-first with direct fallback, and refresh parameter'. The test file doesn't test registerProjectTools at all — it doesn't create a mock McpServer, doesn't verify sidecar fallback behavior, and doesn't test the refresh parameter through the tool handler.",
+      "suggested_fix": "Add tests that mock McpServer and SidecarClient, verify: (1) tool calls client.projectContext when client is available, (2) falls back to analyzeProject when sidecar throws, (3) passes refresh parameter through to client."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "projectContext client method returns generic Record<string, unknown> instead of typed response",
+      "description": "In src/sidecar/client.ts line ~257, projectContext() returns Promise<Record<string, unknown>>. But the sidecar wraps the response in { ok: true, data: ctx }. In src/project/mcp-tools.ts line 39, the handler casts the raw response as ProjectContext: `ctx = data as unknown as ProjectContext`. However, the actual response from the sidecar is { ok: true, data: ProjectContext }, so `data` is the wrapper, not the ProjectContext directly. The client's this.get() may or may not unwrap the { ok, data } envelope depending on the base client implementation.",
+      "suggested_fix": "Verify how this.get() handles the { ok, data } envelope in the base SidecarClient. If get() returns the raw JSON body, mcp-tools.ts should use `(data as any).data` or the client method should unwrap it. Check other client methods (e.g., restoreContext) to see the established pattern."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Pre-edit hook in hook.ts duplicates logic already in pre-edit-guide.ts main()",
+      "description": "src/cli/commands/hook.ts adds a runPreEditGuide() function (lines 354-365) that reads stdin, extracts file path, connects sidecar, and calls processPreEditGuide. Meanwhile, src/hooks/pre-edit-guide.ts already has a main() function (lines 129-151) that does the same thing. The hooks.json command 'sentinal hook shared pre-edit-guide' will call through hook.ts. The standalone main() in pre-edit-guide.ts is dead code for the Claude Code path.",
+      "suggested_fix": "This is fine architecturally — hook.ts is the dispatch layer and pre-edit-guide.ts main() is for standalone/direct execution. No change needed, but the main() function in pre-edit-guide.ts could be documented as 'for standalone/debug use' or removed if unused."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "searchDirect in pre-edit-guide uses getRecentForProject instead of semantic search",
+      "description": "In src/hooks/pre-edit-guide.ts line 99, the direct fallback uses service.getRecentForProject(project, 50) which fetches the 50 most recent observations for the project. The plan specifies using memory search with the file basename as query. The sidecar path uses memorySearch (semantic search), but the direct fallback just gets recent observations without any query relevance. For projects with many observations, this may return irrelevant results.",
+      "suggested_fix": "Consider using service.search() with the basename as query for the direct fallback path, matching the sidecar path's semantic search behavior. The current approach works but is less precise."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Pre-edit guide test doesn't verify sidecar client path",
+      "description": "src/hooks/pre-edit-guide.test.ts tests only the direct MemoryService path. There are no tests for the sidecar client path (when input.client is provided). While the direct path tests cover the core logic, the sidecar code path (lines 49-61) including error fallback to direct is untested.",
+      "suggested_fix": "Add a test with a mock SidecarClient that returns search results, and another test verifying fallback to direct when the client throws."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "project_context MCP tool returns a structured project summary including tech stack, directory structure, and conventions",
+      "status": "verified",
+      "evidence": "src/project/mcp-tools.ts registers 'project_context' tool via server.tool(). It calls analyzeProject/formatProjectContext which produces markdown with Tech Stack, Directory Structure, Commands, and Conventions sections."
+    },
+    {
+      "truth": "Project analysis reads package.json, tsconfig.json, and directory tree from the filesystem",
+      "status": "verified",
+      "evidence": "src/project/context.ts:analyzeProject() calls readPackageJson(), detectLanguage (checks tsconfig.json), buildStructure (reads directories), and detectConventions (parses tsconfig). Tests in context.test.ts verify all three sources."
+    },
+    {
+      "truth": "Existing sync-generated rule files are included in the project context when available",
+      "status": "verified",
+      "evidence": "src/project/context.ts:findRulesContent() checks .claude/rules and .opencode/rules for *-project.md files. context.test.ts line 97-107 tests this with a mock .claude/rules/test-project.md file."
+    },
+    {
+      "truth": "Sidecar caches project context in memory with per-project cache key",
+      "status": "verified",
+      "evidence": "src/sidecar/project-routes.ts uses module-level Map<string, ProjectContext> with resolve(projectPath) as cache key. Cache is checked before analysis, and refresh=true bypasses it."
+    },
+    {
+      "truth": "Pre-edit guidance hook injects file-specific memory observations before Write/Edit/MultiEdit",
+      "status": "verified",
+      "evidence": "src/hooks/pre-edit-guide.ts:processPreEditGuide() queries memory, filters by file path match, and returns formatted hint. hook.ts outputs it via hint('PreToolUse', result). hooks.json registers it for Write|Edit|MultiEdit matcher."
+    },
+    {
+      "truth": "Pre-edit guidance is silent (returns nothing) when no observations exist for the target file",
+      "status": "verified",
+      "evidence": "src/hooks/pre-edit-guide.ts line 84: returns null when relevant.length === 0. pre-edit-guide.test.ts lines 39-47 and 70-84 verify null return for no observations and for observations about other files."
+    },
+    {
+      "truth": "Pre-edit guidance works on both Claude Code (PreToolUse hook) and OpenCode (tool.execute.before)",
+      "status": "verified",
+      "evidence": "Claude Code: hooks.json has PreToolUse matcher for Write|Edit|MultiEdit calling 'sentinal hook shared pre-edit-guide'. hook.ts registers 'pre-edit-guide' in SHARED_HOOKS. OpenCode: sentinal.ts imports getPreEditGuide from sentinal-helpers.ts and calls it in tool.execute.before when sidecar and filePath are available."
+    }
+  ]
+}

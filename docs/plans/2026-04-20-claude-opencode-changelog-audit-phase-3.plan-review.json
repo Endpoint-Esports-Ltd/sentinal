@@ -1,0 +1,49 @@
+{
+  "review_summary": "Plan is well-structured and covers all 4 user-requested capabilities plus the decision doc. Two must-fix issues found: sentinal.ts has a LOCAL PluginHooks interface (separate from the .d.ts) that also needs compaction.autocontinue + tool slot, and the local ToolDefinition's execute returns Promise<string> which conflicts with the structured metadata return in Task 7.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "sentinal.ts has a LOCAL PluginHooks interface that must also be updated",
+      "description": "Task 1 only targets `targets/opencode/types/opencode-plugin.d.ts`, but sentinal.ts has its own local `interface PluginHooks` at lines 100-122 that is used for the actual return type (line 89: `type Plugin = (context: PluginContext) => Promise<PluginHooks>`). This local interface lacks both `compaction.autocontinue` and `tool` keys. Task 8's wiring will produce TypeScript errors unless the local interface is also updated. The .d.ts types file is not imported by sentinal.ts — it uses its own copy.",
+      "suggested_fix": "Add to Task 1 (or Task 8): update the local `interface PluginHooks` at sentinal.ts:100 to add `\"compaction.autocontinue\"?:` handler signature and `tool?: Record<string, ToolDefinition>`. Alternatively, note in Task 8 that the local interface must be extended as part of wiring."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Local ToolDefinition.execute returns Promise<string>, not Promise<unknown>",
+      "description": "sentinal.ts:91-98 defines a local `interface ToolDefinition` where `execute()` returns `Promise<string>`. Task 7 designs the native tool to return a structured object `{ content: string, metadata: { sentinal: {...} } }`, which is incompatible with `Promise<string>`. The .d.ts types file uses `Promise<unknown>` which would work, but sentinal.ts uses its own local copy. The build will fail or the metadata will be silently dropped.",
+      "suggested_fix": "Add to Task 8 (or Task 1): update the local `interface ToolDefinition` at sentinal.ts:91-98 to change `execute` return type from `Promise<string>` to `Promise<unknown>` (matching the .d.ts version), and add the missing `ToolExecuteContext` fields (`agent`, `sessionID`, `messageID`) to the context parameter."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 3 reads opencode.json but SidecarContext may not carry projectPath",
+      "description": "Task 3 says the handler reads `opencode.json` from `ctx.projectPath` or a `?project=` query param. The existing config-routes.ts handler at line 22 uses `ctx.store` (not `ctx.projectPath`). The plan should clarify which SidecarContext field provides the project path, or confirm that the query param approach is the only path (matching how the client method in Task 4 encodes it).",
+      "suggested_fix": "Clarify in Task 3 that the endpoint should ONLY use the `?project=` query param (matching Task 4's client method which calls `GET /config/compaction?project=${encodeURIComponent(projectPath)}`). Don't rely on ctx.projectPath — confirm it exists in SidecarContext or use query param exclusively."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 8 DoD missing: update local PluginHooks and ToolDefinition interfaces",
+      "description": "Task 8's DoD lists 'No TypeScript errors' and 'bun run build:opencode succeeds' but doesn't explicitly call out updating the local type interfaces. Since these are in the same file being modified, the implementer might not realize they need changes and will hit confusing type errors.",
+      "suggested_fix": "Add DoD item: 'Local PluginHooks interface at line ~100 includes compaction.autocontinue and tool keys' and 'Local ToolDefinition.execute return type updated to Promise<unknown>'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 5 references sidecar.getCurrentSpec() but return type shape not verified",
+      "description": "Task 5 uses `sidecar.getCurrentSpec(projectPath)` to check for active specs and extract plan path + current task. The plan assumes it returns a Spec object with fields like status, planPath, and current task title. The method exists (client.ts:326) but the Spec type shape and whether it includes the current task title isn't verified.",
+      "suggested_fix": "Mark as untested_assumption or add a note: 'Verify Spec return type from getCurrentSpec() includes planPath and current task info before writing tests. May need to call specStatus() instead (which returns progress and task details).'"
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "sentinal.ts also has a local PluginHooks in sentinal.d.ts that may drift",
+      "description": "grep found a THIRD copy of PluginHooks at targets/opencode/plugins/sentinal.d.ts:61. This appears to be a generated or companion declaration file. If it exists as a maintained file, it will also need the new type additions, creating a three-way sync burden.",
+      "suggested_fix": "Add a note to Task 1: check whether sentinal.d.ts is generated (from build:opencode) or hand-maintained. If generated, no action needed. If hand-maintained, add it to the modification list."
+    }
+  ]
+}

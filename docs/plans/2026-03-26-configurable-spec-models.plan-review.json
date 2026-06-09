@@ -1,0 +1,49 @@
+{
+  "review_summary": "The plan is well-structured and covers the core requirements, but contains a critical factual error in the routing map: spec-master-plan.md and spec-master-execute.md have no model: frontmatter, so applyModelRouting will silently skip them. Also, the dashboard config path is asserted as already complete without verification, and the cache dir path in Task 2 is hardcoded to a stale version string.",
+  "alignment_score": "medium",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "spec-master-plan.md and spec-master-execute.md have no model: frontmatter — routing map is wrong",
+      "description": "The plan's routing map lists spec-master-plan.md → planning and spec-master-execute.md → implementation. Both files exist at targets/claude-code/commands/ but their frontmatter contains only description: and argument-hint: — no model: line. The plan's DoD says applyModelRouting only patches files that have a model: line, so these two files will be silently skipped. The user explicitly requested all phases be configurable. If planning via spec-master-plan is a usage pattern, it cannot be configured via model routing with the current approach.",
+      "suggested_fix": "Either (a) add model: lines to spec-master-plan.md and spec-master-execute.md frontmatter so applyModelRouting can patch them, or (b) remove them from the routing map and note them as not supporting model routing in the Out of Scope section, and document this limitation explicitly."
+    },
+    {
+      "severity": "must_fix",
+      "category": "requirement_coverage",
+      "title": "Dashboard config path claimed complete but not verified",
+      "description": "The user request states config via dashboard is required. The plan's In Scope says 'OpenCode: expose model routing via spec_config MCP tool (already has dashboard API)' and Out of Scope says 'UI for model selection in the dashboard (API already exists)'. This is an untested_assumption — the plan ships no dashboard work on the basis that the API already exists, but does not verify that the dashboard actually reads and surfaces model_routing config for display or editing. If the dashboard API does not expose model_routing, the dashboard config requirement is unmet.",
+      "suggested_fix": "Add a verification task: confirm that the existing dashboard API surfaces model_routing values to the user (read/write). If it does not, add a task to wire model_routing into the dashboard API responses."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Cache dir path in Task 2 uses a hardcoded stale version string",
+      "description": "Task 2 notes: 'Also apply to the cache dir if it exists: ~/.claude/plugins/cache/sentinal-marketplace/sentinal/0.1.0/'. The version 0.1.0 is hardcoded. The installed version will differ in production. If the implementer uses this literal path, cache dir patching will fail silently for all real installs.",
+      "suggested_fix": "Replace the hardcoded version with a dynamic lookup — read the current package version from the store or from package.json at runtime. Use a glob or directory scan for the version segment rather than a literal path."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "resolveModelRouting uses MemoryStore but install.ts may need store restructuring — risk understated",
+      "description": "Task 2 notes 'Need to open MemoryStore to read config — may need to restructure slightly since store isn't available at that point in the install flow' but this is listed only as a note, not a DoD item or tracked risk. If the install flow requires significant restructuring to thread the store through, this can silently break the install command. The plan provides no concrete mitigation or implementation guidance.",
+      "suggested_fix": "Promote this to an explicit sub-task in Task 2 with a DoD item: 'MemoryStore is opened and closed cleanly in the install flow with no double-open or leak'. Add it to the Risks table."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "No automated test covers the config set → file patch integration path",
+      "description": "The Testing Strategy lists unit tests for applyModelRouting and resolveModelRouting, and an integration step for sentinal install. But the Task 3 path (sentinal config set → immediate patch) has only a manual verification step. Given this is listed as a Pre-Mortem failure mode ('Config set doesn't find installed files'), it warrants an automated integration test.",
+      "suggested_fix": "Add an automated integration test to model-routing.test.ts or a dedicated integration test file: create a temp plugin dir structure, invoke the config set code path, assert file frontmatter was updated."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "research.md agent has model: frontmatter but is not in the routing map",
+      "description": "targets/claude-code/agents/research.md has model: sonnet frontmatter but is not included in the skill-to-routing-key mapping table. If a user wants to control the research agent model, there is currently no routing key for it. This may be intentional but is not documented.",
+      "suggested_fix": "Add a note to Out of Scope explaining that research.md is intentionally excluded from model routing, or add a research routing key if configuring it is desirable."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "review_summary": "Plan is well-structured and addresses all user requirements from iteration 2 clarifications. Task 0 (sidecar endpoint) is correctly scoped and follows verified existing patterns. Two targeted issues remain: the sidecar routing file is misidentified (routes.ts vs server.ts), and the PluginHooks interface currently ends at line 117 but the plan does not specify where exactly to insert the new hook declaration.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Sidecar dispatch belongs in server.ts, not routes.ts",
+      "description": "Task 0 says 'Modify: src/sidecar/routes.ts — add dispatch to config-routes handler' and notes 'routes.ts is at 400 lines'. The actual sidecar entry point is src/sidecar/server.ts, which imports quality-routes and tdd-routes with named handlers (handleQualityRequest, handleTddTransitionRequest). There is no routes.ts file in src/sidecar/. An implementer following the plan literally will create a file that never gets imported.",
+      "suggested_fix": "Change the Task 0 file list to 'Modify: src/sidecar/server.ts — add dispatch to handleGetModelRouting, following the import pattern used for handleQualityRequest and handleTddTransitionRequest'. Remove the routes.ts reference and update the line-count note."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 1 PluginHooks interface insertion point not specified",
+      "description": "The PluginHooks interface currently closes at line 117 with only four hook types (tool.execute.before, tool.execute.after, experimental.session.compacting, event, tool). Task 1 says 'Update the local PluginHooks interface (lines 97-118)' but does not state the exact insertion point or whether the closing brace is at line 117 or 118. The output type described — '(input: unknown, output: { system?: string[]; context?: string[] }) => Promise<void>' — uses a union shape that mixes the compaction output signature (context: string[]) with a hypothetical system: string[]. If the real hook only exposes one of these, the probe-before-inject gate (which is a DoD item) will fire a warning and the handler will return early with no injection.",
+      "suggested_fix": "Add the new hook immediately before the closing brace of PluginHooks (after line 116, before the tool definition). Clarify that 'output' type should be permissive (e.g., output: Record<string, unknown>) rather than a union of two named shapes, since the shape is unconfirmed. The output-shape probe gate in the DoD already guards this, but the interface declaration should not assume a specific property name."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 0 DoD does not require verifying the endpoint is reachable from the plugin (integration smoke test)",
+      "description": "Task 0 DoD gates on unit tests for the route handler and TypeScript compilation, but does not require a curl or plugin-level smoke test to confirm the endpoint is registered and returns the expected JSON shape. The sidecar server.ts dispatch could be wired incorrectly (wrong URL prefix, unhandled method) and unit tests on the handler function alone would still pass. This is especially relevant given the routes.ts vs server.ts confusion above.",
+      "suggested_fix": "Add a DoD item: 'curl http://localhost:<sidecar_port>/config/model-routing returns 200 with a JSON body containing planning, implementation, verification, plan_reviewer, spec_reviewer keys'. This can be manual verification but should be explicit."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "findActivePlan availability inside OpenCode plugin process is untested",
+      "description": "Task 1 notes 'use findActivePlan() directly (doesn't need sidecar)' for spec context, implying src/spec/detect.ts is importable from within the OpenCode plugin at targets/opencode/plugins/sentinal.ts. The plugin already uses other src/ imports (see sidecar client usage), so this is likely fine, but whether findActivePlan's file-system reads work correctly relative to context.directory vs context.project.path is not verified.",
+      "suggested_fix": "Add a note in Task 1 Key Decisions: pass context.project.path as projectRoot to findActivePlan(), matching the pattern used in other plugin hook handlers that invoke src/ utilities."
+    }
+  ]
+}

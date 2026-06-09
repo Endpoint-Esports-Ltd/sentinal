@@ -1,0 +1,96 @@
+{
+  "pass_summary": "All 7 tasks implemented with good test coverage. Semantic restore, failed approach detection, quality decay, V8 migration, and memory_maintain MCP tool all present. Critical TypeScript error: restoreContext() returns union type `RestoredContext | Promise<RestoredContext>` which breaks existing callers (25+ TS errors in restore.test.ts and memory-restore.ts). Also: decay formula ignores existing quality_score.",
+  "compliance_score": "high",
+  "quality_score": "low",
+  "goal_score": "achieved",
+  "truths_verified": 7,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "bugs",
+      "title": "restoreContext() return type union breaks 25+ existing callers with TS errors",
+      "description": "restoreContext() now returns `RestoredContext | Promise<RestoredContext>` depending on whether semanticQuery is provided. This causes TypeScript errors in all existing callers that access .hasMemory, .markdown, .observationCount without awaiting — including src/hooks/memory-restore.ts (3 errors) and src/memory/restore.test.ts (22+ errors). The synchronous path returns RestoredContext directly but TypeScript can't narrow the union without the caller checking. All existing tests that call restoreContext() without `await` now fail type checking.",
+      "suggested_fix": "Always return Promise<RestoredContext> from restoreContext() — wrap the sync path in Promise.resolve(). This makes the API consistently async. All callers already use `await` in hook.ts and routes.ts (which were updated). The test file needs existing sync calls updated to use `await`. Alternatively, add a type overload: `function restoreContext(service, opts: RestoreOptions & { semanticQuery: string }): Promise<RestoredContext>` and `function restoreContext(service, opts: RestoreOptions): RestoredContext`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "decayQualityScores ignores current quality_score — recomputes from 1.0 each time",
+      "description": "In src/memory/maintenance.ts:183, the decay formula is `Math.max(0.1, Math.pow(rate, periods))` which always starts from an implicit `1.0 * rate^periods`. It ignores the current `row.quality_score`. If an observation was inserted with confidence 0.6 (quality_score = 0.6), running decay resets it to `rate^periods` which could be HIGHER than 0.6 for young observations. For example, a 10-day-old error with quality_score 0.6 would be recalculated to `0.75^(10/30)` ≈ 0.91 — effectively boosting it. The plan says 'initial score from capture confidence, time-based decay in maintenance'. The formula should multiply from the initial score or at minimum not increase scores.",
+      "suggested_fix": "Change formula to: `const newScore = Math.max(MINIMUM_QUALITY_SCORE, row.quality_score * Math.pow(rate, periods))` or better: track the initial quality_score and compute `initialScore * rate^periods`. At minimum, add a guard: `const newScore = Math.min(row.quality_score, Math.max(0.1, Math.pow(rate, periods)))` to prevent boosting."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "MCP tools test doesn't exercise the registered tool handler",
+      "description": "In src/memory/mcp-tools.test.ts, the tests for prune and stats directly call `db.run(...)` and raw SQL queries instead of invoking the `memory_maintain` MCP tool handler. This means the Zod schema validation, parameter defaults (prune_threshold=0.15, dry_run=false), and the handler logic in `registerMaintainTool()` are untested. The decay test calls `decayQualityScores()` directly (which is already tested in maintenance.test.ts), making it a duplicate rather than an integration test.",
+      "suggested_fix": "Either (a) invoke the registered tool handler through the McpServer mock, or (b) extract the handler logic into a testable function and test that directly with proper params. At minimum, test the Zod schema validation and parameter defaults."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "Embedding timeout in restore uses 2s but plan specifies 500ms",
+      "description": "The plan's risk mitigation says 'Timeout on embedding (500ms), fall back to FTS-only if slow'. In src/memory/restore.ts:72, `SEMANTIC_TIMEOUT = 2000` (2 seconds). While 2s is arguably more practical, it deviates from the plan's explicit risk mitigation. The plan's Task 1 notes say 2s timeout, creating an internal plan inconsistency, but the risk table is more conservative.",
+      "suggested_fix": "This is an internal plan inconsistency (Task 1 says 2s, risk table says 500ms). The 2s in Task 1 is likely the intended value since it accounts for the full search pipeline, not just embedding. Consider adding a comment noting this decision. No code change strictly required since Task 1 is the implementation spec."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Failed approach heuristic counts errors incorrectly — may double-count the current event",
+      "description": "In src/memory/capture.ts:393-405, `errorCount` starts at 1 (for the current event), then iterates buffer entries. However, the current event is NOT yet in the buffer when `analyzeEvent` is called — the buffer contains only prior events. The code iterates `recent(10)` and counts entries where `!e.success || hasErrorIndicator(e.output)`. The `!e.success` condition counts ALL unsuccessful events (even non-error ones like permission-denied edits), not just error-output events. This could lead to false positives where 2 buffer errors + current event triggers (correct behavior) but also where 2 non-error failures + current event triggers (potentially incorrect).",
+      "suggested_fix": "Consider tightening the buffer scan to only count events that have error output indicators (not just `!e.success`), or at minimum ensure the success check aligns with what constitutes a 'repeated error' pattern."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "buildSemanticQuery() doesn't pass service in hook.ts callers",
+      "description": "In src/cli/commands/hook.ts, `buildSemanticQuery(input.cwd)` is called without the optional `service` parameter, so the 'recent files' fallback (part 2 of the query builder) is never used. When there's no active spec, the query degrades to just the project basename, which is a weak semantic signal. The OpenCode plugin (sentinal.ts:454) also calls without service.",
+      "suggested_fix": "In hook.ts, create a MemoryService instance (or reuse the one created later in the fallback path) and pass it to `buildSemanticQuery(input.cwd, service)`. For the sidecar path, the service isn't available on the client side, but `buildSemanticQuery` could accept the sidecar client to fetch recent observations. This is a quality-of-restore improvement, not blocking."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "store.ts grew to ~673 lines — plan warned about 663 being over limit",
+      "description": "The plan explicitly warned 'store.ts is at 663 lines (OVER 600-line limit) — new methods MUST go in separate files or existing helper modules'. The diff adds ~10 lines to store.ts (insertObservation changes + deserialize change), pushing it to ~673 lines. The quality_score insert logic was placed in store.ts per the plan's guidance to 'modify the service layer instead', but the actual insert SQL change had to go in store.ts.",
+      "suggested_fix": "The insert SQL change is unavoidable in store.ts. Consider extracting the confidence-to-quality logic into a helper or the service layer to minimize store.ts growth. Not blocking since the changes are minimal and in the right location."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "restoreContext() uses semantic search (hybrid vector+FTS) when vector store is available",
+      "status": "verified",
+      "evidence": "restore.ts:65-93 implements restoreContextAsync() that calls service.search() which routes through the orchestrator to hybrid strategy. Timeout and fallback logic present."
+    },
+    {
+      "truth": "Semantic query is constructed from active spec task description (primary) + recent files (fallback)",
+      "status": "verified",
+      "evidence": "restore.ts:297-337 implements buildSemanticQuery() with findActivePlan() for spec tasks, service.getRecentForProject() for recent files, and basename(projectPath) as minimum fallback."
+    },
+    {
+      "truth": "Restore falls back to chronological fetch when vector store is unavailable",
+      "status": "verified",
+      "evidence": "restore.ts:62-64 checks options.semanticQuery — when absent, calls restoreContextSync() which uses getRecentForProject(). When semantic search fails (line 92-94), falls back to chronological. Tests in restore.test.ts verify fallback."
+    },
+    {
+      "truth": "Failed approach patterns (repeated errors + git restore) are detected and captured as observations",
+      "status": "verified",
+      "evidence": "capture.ts:345-413 implements detectFailedApproach() with both signals: GIT_RESTORE_PATTERNS regex for git restore/checkout, and 3+ error count on same file. Wired into analyzeEvent() chain at line 186. Tests cover both signals plus negative case."
+    },
+    {
+      "truth": "Observations have a quality_score that decays over time",
+      "status": "verified",
+      "evidence": "migrations.ts V8 adds quality_score REAL DEFAULT 1.0 column with backfill from metadata.confidence. types.ts adds qualityScore to Observation. maintenance.ts:decayQualityScores() applies time-based decay with per-type rates."
+    },
+    {
+      "truth": "memory_maintain MCP tool allows pruning low-quality observations",
+      "status": "verified",
+      "evidence": "mcp-tools.ts:240-319 registers memory_maintain tool with decay/prune/stats actions. Prune action deletes observations below threshold (default 0.15). Zod schema with proper parameter definitions."
+    },
+    {
+      "truth": "Restore prioritizes high-quality observations via score weighting",
+      "status": "verified",
+      "evidence": "hybrid.ts:104-105 multiplies combinedScore by Math.max(qualityScore ?? 1.0, 0.1). Tests in hybrid.test.ts verify high-quality ranked above low-quality, minimum floor of 0.1, and score ordering."
+    }
+  ]
+}

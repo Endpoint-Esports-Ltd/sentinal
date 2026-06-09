@@ -1,0 +1,28 @@
+{
+  "review_summary": "Plan fully covers the user's 4 log points + 10MB/.1 rotation + `sentinal sidecar logs` CLI, honors all clarifications (no debug toggle, shared sidecar.log), and its riskiest code claims were verified against the codebase. One should_fix: the plan maps three distinct shutdown reasons to doShutdown call sites, but only two call sites exist — the stale-activity path falls through into the grace-period path, so the 'stale' reason needs explicit state threading the plan doesn't currently describe.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Stale-activity shutdown has no distinct doShutdown call site — reason requires state threading",
+      "description": "Task 2 says 'every doShutdown call site passes a distinct reason' with three reasons (grace / stale / idle). Verified in src/sidecar/server.ts:128-165: there are only TWO doShutdown() call sites (line 157 grace, line 163 idle). The stale-activity branch (lines 141-143) is a comment-only fall-through: '// Fall through to the noSessionSince logic'. The grace-path doShutdown at line 157 fires for BOTH pure-grace and stale-session scenarios. An implementer following the plan literally will look for a third call site that doesn't exist, and a naive reason string at line 157 will mislabel stale-session shutdowns as ordinary grace-period shutdowns — exactly the diagnostic ambiguity this plan is meant to eliminate.",
+      "suggested_fix": "In Task 2 Key Decisions, replace 'thread a reason string into doShutdown(reason)' with explicit instructions: capture stale context in the interval closure when the fall-through at server.ts:141 is taken (e.g., `staleInfo = { count: activeSessions.length, activityAge }`, reset to null when sessions are healthy or absent), then compose the reason at the line-157 call site: stale info present → stale reason string; otherwise → grace reason string. Also reword the DoD checkbox to 'both doShutdown call sites pass reasons, with the grace-path site distinguishing stale vs. grace'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "bun:test spyOn(getLogDir) only works if logToFile resolves the dir through the live module binding",
+      "description": "Tasks 2/3 test strategy relies on `spyOn(fileLogModule, \"getLogDir\")` (mirroring the proven pathsModule spy in client.test.ts:336-344). This only works if logToFile invokes getLogDir as a re-entrant module-level call that bun:test can intercept — if Task 1's implementation caches the dir at module load or calls a private helper, the spy is a no-op and the Task 2/3 log-file assertions silently test the real ~/.sentinal. The plan cites the precedent but doesn't make the constraint explicit in Task 1.",
+      "suggested_fix": "Add to Task 1 Key Decisions: 'logToFile must call the exported getLogDir() on every invocation (no module-level caching of the resolved dir), so bun:test spyOn interception works — same constraint as src/sidecar/paths.ts.' Optionally add a Task 1 test that spies getLogDir to a tmp dir and asserts the append lands there."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Truth 2 grep pattern has loose alternation",
+      "description": "Goal Verification Truth 2 uses `logSidecar\\(.*shutdown|shutting down` — the unanchored alternation means the right side matches the phrase 'shutting down' anywhere in server.ts (including comments), which could produce a false-positive pass even if the logSidecar call is missing.",
+      "suggested_fix": "Tighten to `logSidecar\\(.*(shutting down|shutdown)` or simply grep `logSidecar` in src/sidecar/server.ts (matching the style of Truth 3)."
+    }
+  ]
+}

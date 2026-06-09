@@ -1,0 +1,42 @@
+{
+  "review_summary": "Plan is well-aligned with user requirements and covers all requested features (save, load, share, human-editable JSON, .sentinal/ location, nested .gitignore). Two should-fix issues around mcp-tools.ts line count feasibility and a missing test file, plus minor suggestions.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 3 mcp-tools.ts line budget is too tight even with extraction",
+      "description": "The plan says mcp-tools.ts is at 361 lines (actually 360) and proposes extracting memory_share registration into shared.ts as registerSharedTool(). However, Task 3 also adds a `shared` parameter to memory_save (line 192-198 schema + line 199-232 handler). Adding the `shared` boolean to the schema is 1 line, but the handler logic (import addSharedObservation, convert to SharedObservation, type-gate, call addSharedObservation) adds ~8-12 lines to the already-360 line file, pushing it to ~370. The plan's DoD for Task 3 lists 'memory_save with shared: true writes to both SQLite and shared file' but doesn't specify where this integration code lives — if it stays in mcp-tools.ts the file won't exceed 400 but is getting close. The plan should be explicit about whether the shared-save logic in memory_save is also extracted or stays inline.",
+      "suggested_fix": "Add a note to Task 3: the shared-save integration in memory_save handler should call a single function from shared.ts (e.g., `saveToSharedIfRequested(project, obs, shared)`) to keep mcp-tools.ts growth to ~5 lines total. Make the extraction strategy explicit in the task."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 3 missing test file for memory_share MCP tool",
+      "description": "Task 3 DoD includes 5 verification criteria for the memory_share tool and shared parameter, but the Files section only lists 'Modify: src/memory/mcp-tools.ts' with no test file. The Testing Strategy section mentions 'src/memory/mcp-tools.test.ts' but Task 3 doesn't list it as a file to modify. If registerSharedTool() is extracted to shared.ts, those tests should go in shared.test.ts (Task 1), but Task 1's scope doesn't include the MCP tool tests.",
+      "suggested_fix": "Add 'Modify: src/memory/mcp-tools.test.ts' to Task 3's Files section, OR if the tool registration lives in shared.ts, add MCP tool test cases to Task 1's shared.test.ts scope and update Task 1's DoD accordingly."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 2 'maximum 5 shared observations' limit is arbitrary and may frustrate users",
+      "description": "The plan limits shared observations to 5 in restore context (Task 2 DoD bullet 3, Pre-Mortem item 1). For a team with 20-30 curated decisions/patterns, only showing 5 means most shared knowledge is silently dropped during restore. The user requested 'full promotion flow' — silently capping at 5 undermines the value of shared memory.",
+      "suggested_fix": "Consider raising the limit to 15-20, or making it configurable. At minimum, document the limit in the restore markdown (e.g., 'Showing 5 of 23 shared observations') so users know entries are being truncated."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "No memory_search integration for shared observations",
+      "description": "User request says 'save + load + share tool'. The plan covers save (memory_save shared:true), share (memory_share), and load (restoreContext). However, memory_search won't find shared observations since they're not in SQLite. A user searching for a known shared decision won't find it via the search tool, which could be confusing.",
+      "suggested_fix": "Add a note to Out of Scope acknowledging this gap, or add a brief mention that memory_search could be extended in a future iteration to include shared observations. Not a must-fix since restoreContext covers the 'load' requirement."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 1 SharedObservation 'author' field has no default or auto-detection",
+      "description": "The SharedObservation type includes an 'author' field (Task 1 file format example shows 'author: evan'). When observations are promoted via memory_share or saved with shared:true via MCP tools, there's no specification for how the author field gets populated. SQLite observations don't have an author field.",
+      "suggested_fix": "Specify in Task 1 or Task 3 how author is populated: e.g., default to git config user.name, or make it optional in the schema, or use 'unknown' as fallback."
+    }
+  ]
+}

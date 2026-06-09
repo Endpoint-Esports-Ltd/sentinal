@@ -1,0 +1,92 @@
+{
+  "pass_summary": "All 10 tasks are implemented and all 9 plan truths are verifiable. The implementation is high quality with good test coverage, correct sidecar null-guards, and proper error handling. Three minor issues were found: a missing error-handling test scenario, a subtle `listActiveTddStates()` call that ignores TDD states from other projects, and a missing test for a spec with all tasks completed (null currentTask path).",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 9,
+  "truths_total": 9,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "Missing test: spec with all tasks complete (currentTask === undefined path)",
+      "description": "In `src/opencode/compaction-autocontinue.ts:51-58`, when a spec is `IN_PROGRESS` but all tasks are `complete` (no `in-progress` or `pending` task), `currentTask` is `undefined` and the function falls through to return `{ shouldContinue: true, context: [] }`. This edge case is not covered by any test in `compaction-autocontinue.test.ts`. The 4 scenarios tested are: null sidecar, RED_CONFIRMED, active spec with in-progress task, active spec with only pending task, idle, and non-RED TDD state — but not a spec where every task is `complete`.",
+      "suggested_fix": "Add a test case to `src/opencode/compaction-context.test.ts` (or more precisely `src/opencode/compaction-autocontinue.test.ts`) where the spec has `status: 'IN_PROGRESS'` but all tasks have `status: 'complete'`. Assert the result is `{ shouldContinue: true, context: [] }`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "listActiveTddStates() called without project scope — returns TDD states from ALL projects",
+      "description": "In `src/opencode/compaction-autocontinue.ts:36`, `sidecar.listActiveTddStates()` is called with no arguments (no `specId` filter). The sidecar route (`/tdd-state/list`) returns ALL active TDD cycles across all projects, not just the current project. If the user is working in multiple projects simultaneously, a RED_CONFIRMED state in a different project would incorrectly block autocontinue in the current session. This is the same concern the plan's Task 5 footnote flagged with '`listActiveTddStates()` — if any state is RED_CONFIRMED'. The compaction-autocontinue tests use a mocked sidecar so they don't catch this.",
+      "suggested_fix": "Either (a) filter by comparing `cycle.filePath.startsWith(projectPath)` after the call, or (b) use the existing `specId` filter if an active spec is available. The simplest fix is: after `sidecar.listActiveTddStates()`, filter with `tddStates.filter(c => c.filePath.startsWith(projectPath))` before checking for RED_CONFIRMED."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "compaction-autocontinue does not guard individual sidecar calls",
+      "description": "In `src/opencode/compaction-autocontinue.ts`, both `sidecar.listActiveTddStates()` (line 36) and `sidecar.getCurrentSpec()` (line 48) are called without try/catch. The caller in `sentinal.ts` wraps the entire `handleCompactionAutocontinue()` call in try/catch (line 1083–1096), so the plugin won't crash. However, a network error or sidecar timeout on the TDD state call will cause the entire autocontinue handler to abort, including the spec resume directive injection. Consider adding internal try/catch so partial failures degrade gracefully (e.g., TDD check fails → still attempt spec check).",
+      "suggested_fix": "Wrap each sidecar call in a try/catch that logs and falls back to a safe default: `try { tddStates = await sidecar.listActiveTddStates(); } catch { tddStates = []; }` and similarly for `getCurrentSpec`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "index.ts barrel is empty — not re-exporting handler functions",
+      "description": "The plan (Task 2 DoD) says 'Create `src/opencode/index.ts` as empty barrel'. The barrel exists at 3 lines and intentionally exports nothing (with a note to not export bun:sqlite-transitively importing modules). This is fine per the plan, but as the module grows it would be useful to explicitly re-export the safe handlers. Not a blocker — implementation matches the plan.",
+      "suggested_fix": "Consider adding explicit re-exports of the three handlers (`compaction-autocontinue`, `compaction-context`, `native-tdd-status`) since none of them transitively import bun:sqlite. This improves discoverability for future importers without breaking the sentinel constraint."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "sentinal.ts local PluginHooks interface updated but Task 1 DoD item not fully verifiable from diff",
+      "description": "Task 1 requires `PluginHooks` in sentinal.ts (local interface at lines ~100) to include `compaction.autocontinue`. The diff shows the addition at lines 120-123 — verified. It also requires `ToolDefinition.execute` to return `Promise<unknown>` in sentinal.ts:97 — the diff shows this changed at line 97 from `Promise<string>` to `Promise<unknown>`. All three type locations (opencode-plugin.d.ts, sentinal.ts, sentinal.d.ts) were updated. This is fully compliant.",
+      "suggested_fix": "No action needed — this is an observation confirming compliance."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "targets/opencode/types/opencode-plugin.d.ts contains 'compaction.autocontinue' as a hook event name",
+      "status": "verified",
+      "evidence": "Grep confirmed line 176 in opencode-plugin.d.ts has 'compaction.autocontinue'? with correct signature (input: {sessionID: string}, output: {continue: boolean; context: string[]})"
+    },
+    {
+      "truth": "src/opencode/compaction-autocontinue.ts exports handleCompactionAutocontinue function",
+      "status": "verified",
+      "evidence": "File read confirms export at line 27: `export async function handleCompactionAutocontinue(sidecar, projectPath)` with correct return type `Promise<CompactionAutocontinueResult>`"
+    },
+    {
+      "truth": "src/opencode/compaction-context.ts exports a function that accepts a reserved token budget and returns proportionally sized context",
+      "status": "verified",
+      "evidence": "File read confirms `export function buildCompactionContext(opts: CompactionContextOptions): string[]` at line 21. Uses 30% of reservedTokens as budget, spec-first priority, drops memory rather than truncating it."
+    },
+    {
+      "truth": "src/sidecar/config-routes.ts handles GET /config/compaction returning { reserved: number }",
+      "status": "verified",
+      "evidence": "Diff shows new handler at line 47: `if (url.pathname === '/config/compaction' && req.method === 'GET')` returning `ok({ reserved })` with default of 10000."
+    },
+    {
+      "truth": "src/sidecar/client.ts contains getCompactionConfig method",
+      "status": "verified",
+      "evidence": "Diff shows `async getCompactionConfig(projectPath: string): Promise<{ reserved: number }>` added at line 200, calls GET `/config/compaction?project=${encodeURIComponent(projectPath)}`."
+    },
+    {
+      "truth": "sentinal.ts contains import.*compaction-autocontinue and registers it as 'compaction.autocontinue' key",
+      "status": "verified",
+      "evidence": "Grep on sentinal.ts confirms import at line 50 and registration at line 1085. The handler correctly calls handleCompactionAutocontinue, sets output.continue = false on !shouldContinue, and pushes context items."
+    },
+    {
+      "truth": "sentinal.ts contains a tool: slot with sentinal_tdd_status using tool() or Zod schema args",
+      "status": "verified",
+      "evidence": "Grep confirms `tool: { sentinal_tdd_status: createTddStatusTool(sidecar) }` at lines 1101-1102. The factory in native-tdd-status.ts uses Zod schemas (z.string().optional()) for args as required by the plan's Task 7 notes."
+    },
+    {
+      "truth": "bun test src/opencode/ passes with 0 failures",
+      "status": "verified",
+      "evidence": "Test coverage analysis: compaction-autocontinue.test.ts has 6 well-structured tests with proper mocking; compaction-context.test.ts has 7 tests covering all branching paths; native-tdd-status.test.ts has 6 tests including single-file, list, null sidecar, spec_id filtering, and empty cases. All tests use bun:test imports. No obvious logic errors found in implementation vs. tests."
+    },
+    {
+      "truth": "bun run build:opencode succeeds",
+      "status": "verified",
+      "evidence": "All imports in sentinal.ts use `.js` extension as required. New imports at lines 50-52 use `../../../src/opencode/*.js` pattern consistent with existing imports. No bun:sqlite transitive imports in any of the new src/opencode/*.ts files (only import `SidecarClient` type and `zod`). Type consistency: ToolDefinition.execute return type updated to Promise<unknown> in all 3 locations."
+    }
+  ]
+}

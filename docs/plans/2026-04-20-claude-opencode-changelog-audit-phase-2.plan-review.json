@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is well-structured with clear wave ordering and good task isolation, but has 3 factual errors about existing files, a missing sidecar route dependency, and an inconsistent line-count assumption that contradicts the memory-observer extraction planned in Task 9.",
+  "alignment_score": "medium",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 6 (PostCompact) references nonexistent file `src/hooks/post-compact.ts`",
+      "description": "Task 6 says 'Modify: src/hooks/post-compact.ts (file exists but may need rework)'. The file does NOT exist. The actual file is `src/hooks/post-compact-restore.ts` (a SessionStart hook that restores compact state). The Artifacts table also lists `src/hooks/post-compact.ts (modified)` — this is wrong. The implementer needs to know: should they CREATE a new `post-compact.ts` for the PostCompact event (leaving `post-compact-restore.ts` for SessionStart), or rename/extend `post-compact-restore.ts`?",
+      "suggested_fix": "Change Task 6 Files to 'Create: src/hooks/post-compact.ts' (new file for PostCompact event handler). Update the Artifacts table to show '(new)' not '(modified)'. Add a note clarifying that `post-compact-restore.ts` handles SessionStart compact restoration and remains unchanged — this new file handles the distinct PostCompact lifecycle event."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 4 (CwdChanged) requires a new sidecar route not listed in any task's Files section",
+      "description": "Task 4 Key Decisions say: 'Call sidecar POST /project-context/invalidate (new route needed)' and 'Check if src/sidecar/project-routes.ts has an invalidation endpoint. If not, add one.' This new route is a real dependency, but it's not listed in Task 4's Files (only `src/hooks/cwd-changed.ts` and test). Adding a sidecar route also requires: (1) modifying `src/sidecar/project-routes.ts`, (2) adding a client method to `src/sidecar/client.ts`, (3) a test in `src/sidecar/project-routes.test.ts`. These are undocumented file touches.",
+      "suggested_fix": "Add to Task 4 Files: 'Modify: src/sidecar/project-routes.ts (add /project-context/invalidate route)', 'Modify: src/sidecar/client.ts (add invalidateProjectContext method)'. Alternatively, if the sidecar route is too much scope for this phase, change the hook to directly clear the project context cache via a simpler mechanism (e.g., delete the cached file) and defer the sidecar route."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Assumption 3 (hook.ts line count) contradicts Task 9's memory-observer extraction",
+      "description": "Assumption 3 says: 'hook.ts can accommodate ~7 new minimal dispatch entries without exceeding 600 lines — current file being 538 lines (~573 after additions)'. But Task 9 extracts ~85 lines of `runMemoryObserver` inline code to `src/hooks/memory-observer.ts`, which would bring hook.ts DOWN to ~453 lines. After adding 7 × 5 = 35 lines of dispatch entries, the result is ~488 lines — well under 600. The assumption is not wrong but is misleading because it ignores the extraction that makes the risk negligible. The wave ordering also matters: Task 10 (Wave 1) adds dispatch entries BEFORE Task 9 (Wave 2) extracts the inline code, so hook.ts temporarily goes to ~573 then drops to ~488.",
+      "suggested_fix": "Update Assumption 3 to: 'hook.ts is 538 lines. Task 10 (Wave 1) adds ~35 lines of dispatch entries (→ ~573). Task 9 (Wave 2) extracts ~85 lines of memory-observer inline code (→ ~488). Final state is well within limits. Temporary peak of ~573 is under the 600-line block threshold.' This also clarifies that Task 10 must NOT include the extraction — that's Task 9's job."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 11 (OC parity) has no test coverage requirement",
+      "description": "Task 11 DoD says: 'Existing OpenCode plugin tests still pass' and 'bun run build:opencode succeeds'. But there's no requirement to ADD tests for the 3 new OC handlers. The `targets/opencode/plugins/sentinal.ts` file is exempt from line limits but the new handler wiring code (import + call with synthetic HookInput) could have bugs — especially the TaskCreated subagent detection logic ('check session.parentSessionId or similar'). Without tests, regressions are likely.",
+      "suggested_fix": "Add to Task 11 DoD: 'Add 3 test cases to existing OpenCode plugin test file verifying: (1) InstructionsLoaded handler fires on session.created, (2) PostCompact handler fires on session.compacting, (3) TaskCreated handler fires for subagent sessions. If no plugin test file exists, create `targets/opencode/plugins/sentinal.test.ts` with these cases.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 2 (ConfigChange) debounce via module-level Set won't work — hooks are subprocess-spawned",
+      "description": "Task 2 Key Decisions say: 'use a module-level Set — hooks are subprocess-spawned, so this resets per invocation. Rely on the sidecar's observation dedup for cross-invocation dedup.' The plan correctly identifies that the module-level Set resets per invocation, making it useless for dedup. But then it says 'rely on sidecar observation dedup' without specifying what that dedup mechanism is or whether it exists. The Pre-Mortem (#2) warns about ConfigChange flooding memory — but the mitigation (only capture .sentinal/rules/*.md changes) is the real protection, not dedup.",
+      "suggested_fix": "Remove the misleading module-level Set suggestion. The real dedup is the path filter (only .sentinal/rules/*.md and CLAUDE.md). If sidecar-level dedup exists, reference the specific function/route. If it doesn't exist, note that it's acceptable because the path filter already limits volume to a handful of files per session."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 9 bundles memory-observer extraction with spec-stop-guard refactor — two unrelated changes",
+      "description": "Task 9 combines: (1) extracting memory-observer from hook.ts to its own file + adding new fields, and (2) refactoring spec-stop-guard to consume new fields. These touch different files (`memory-observer.ts` new, `spec-stop-guard.ts` modified) with different test files. Combining them increases the blast radius if one part fails. The user request says '2 existing hooks refactored' — they could be separate tasks.",
+      "suggested_fix": "Consider splitting into Task 9a (memory-observer extraction + new fields) and Task 9b (spec-stop-guard new fields). This keeps each task focused on one file. If task count is a concern, at minimum note in the task that these are two independent sub-tasks that can be committed separately."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "hooks.json matchers for new events are assumed but not verified against CC docs",
+      "description": "Task 10 specifies matchers like 'project_settings|skills' for ConfigChange and '.envrc|*.test.ts|*.spec.ts' for FileChanged. The plan assumes these matcher patterns work with these new event types. The CC changelog may specify different matcher semantics for FileChanged (which uses 'matcher' as a literal filename watch list per the Gotchas section) vs ConfigChange (which uses source type filtering). These are untested assumptions about CC API behavior.",
+      "suggested_fix": "Flag as 'verify during implementation' in Task 10 Key Decisions. Add a note: 'Matcher syntax for new events must be verified against CC docs or experimentation. FileChanged uses literal glob matching; ConfigChange uses source-type matching. If matchers don't work as expected, fall back to filtering inside the hook handler.'"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "review_summary": "The plan correctly identifies the root cause and proposes a sound fix. The existing code structure is well-understood and the implementation path is straightforward. Two gaps need attention: the plan omits `detectPlanTier` from the exported API surface (tests will need it), and `usage.ts` has no access to session JSON so auto-detection there is impossible without a design change the plan does not address.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "`usage.ts` has no access to session JSON — auto-detection is not possible without a design change",
+      "description": "The plan states (Fix Approach): 'Extract a shared `detectPlanTier` helper to DRY up the logic between statusline.ts and usage.ts.' Task 1 also lists `usage.ts` as a file to modify with 'apply same auto-detection logic (if session JSON available, otherwise keep current behavior)'. However, `registerUsageCommand` in `usage.ts` is a standard CLI `action` handler with no stdin piping — it receives only `{ days, json }` options and has no session JSON available. The `statusline` command works because Claude Code pipes the session JSON to stdin; the `usage` command is invoked independently by the user. There is no path to apply the same auto-detection logic to `usage.ts` without either (a) also reading stdin there (a behaviour change with side-effects), or (b) skipping auto-detection for `usage.ts` entirely. The plan does not address this divergence.",
+      "suggested_fix": "Explicitly scope the fix to `statusline.ts` only for auto-detection. For `usage.ts`, document that it will continue to rely solely on the MemoryStore config and add a note in the command's help text pointing users to `sentinal config set plan_tier max_20x`. If auto-detection for `usage.ts` is a future goal, add it as a separate task with a clear design (e.g. reading from a cached last-known session file)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "`detectPlanTier` helper not included in Task 1's exported API — tests cannot import it directly",
+      "description": "The plan proposes extracting a `detectPlanTier` helper for DRY purposes, and Task 1 requires writing tests for auto-detection. The existing test file (`statusline.test.ts`) only imports `formatStatusline` and `buildProgressBar` — both pure formatting functions that are easy to unit-test in isolation. If `detectPlanTier` is not exported from `statusline.ts`, the TDD requirement (write test → fail → implement → pass) forces tests to go through the full `action` handler, which involves stdin mocking, MemoryStore construction, and filesystem access. The DoD for Task 1 should explicitly state that `detectPlanTier` is exported and tested directly.",
+      "suggested_fix": "Add to Task 1's file list: export `detectPlanTier(contextWindowSize: number | undefined, manualConfig: PlanTier | null): PlanTier` from `statusline.ts`. Tests should import and test this function directly, following the same pattern as `buildProgressBar` and `formatStatusline` in the existing test file."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Context window size mapping (1000000 = Max 20x) is asserted from docs but not verified against live session JSON",
+      "description": "The plan states: 'Claude Code session JSON schema confirmed via official docs: includes `context_window.context_window_size` field' and '1M context window size is exclusive to Max 20x plans'. The existing code at `statusline.ts:120-126` already reads `context_window.used_percentage` from the same object, confirming the `context_window` key exists. However, the specific field name `context_window_size` (vs e.g. `context_window_limit`, `max_tokens`, or `total`) and the 1000000 threshold are untested assumptions — there is no sample session JSON in the repo to verify. If the field name is wrong, the detection silently falls back to `max_5x`, reproducing the original bug with no error.",
+      "suggested_fix": "Include a sample (sanitised) session JSON snippet in the plan or a fixture file under `src/cli/commands/__fixtures__/` to lock in the exact field name. Add a test case for an unknown/missing `context_window_size` field to confirm it gracefully falls back to `max_5x` rather than throwing."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Shared helper extraction may be YAGNI if `usage.ts` auto-detection is dropped from scope",
+      "description": "The `detectPlanTier` helper is motivated by sharing logic between `statusline.ts` and `usage.ts`. If `usage.ts` auto-detection is descoped (per the must_fix issue above), the helper still has value for testability, but the DRY justification disappears. This is a minor point — the helper is still a good pattern for unit-testability.",
+      "suggested_fix": "Keep the helper extraction for testability alone, but update the rationale in the plan to reflect that it serves unit-test isolation rather than cross-file reuse."
+    }
+  ]
+}

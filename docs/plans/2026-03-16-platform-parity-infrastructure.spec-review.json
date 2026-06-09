@@ -1,0 +1,110 @@
+{
+  "pass_summary": "All 6 tasks implemented with correct architecture. Three independent workstreams (conflict detection, OpenCode TDD, LSP diagnostics) are present with proper separation. Key issues: tdd-routes URL parsing bug, LSP diagnostics limited to 3 non-recursive files with a hard 3s cap, missing tests for checkSessionConflict helper and HTTP handler.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "bugs",
+      "title": "tdd-routes URL parsing missing base URL — will throw on path-only req.url",
+      "description": "src/sidecar/tdd-routes.ts:59 uses `new URL(req.url)` without a base. If `req.url` is a relative path (e.g., '/tdd-state/transition'), this throws `TypeError: Invalid URL`. All other route handlers (quality-routes.ts:398, project-routes) use `new URL(req.url, \"http://localhost\")` with a base.",
+      "suggested_fix": "Change line 59 to: `const url = new URL(req.url, \"http://localhost\");`"
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "LSP diagnostics timeout hardcoded to 3s regardless of DIAGNOSTICS_TIMEOUT_MS",
+      "description": "src/sidecar/lsp-client.ts:335 — `const deadline = Date.now() + Math.min(timeoutMs, 3000)` caps the wait at 3000ms even though DIAGNOSTICS_TIMEOUT_MS is 15000. For large projects where tsserver needs time to analyze, this will frequently return incomplete or empty diagnostics, making the LSP path unreliable and triggering unnecessary fallbacks to tsc subprocess.",
+      "suggested_fix": "Remove the Math.min cap or increase it to at least 10000ms: `const deadline = Date.now() + timeoutMs;` — the stability check (2 consecutive unchanged counts) already provides early exit for fast projects."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "LSP getDiagnostics only opens 3 non-recursive files — insufficient for real projects",
+      "description": "src/sidecar/lsp-client.ts:168-182 — `findTsFiles(srcDir, 3)` only scans the top-level `src/` directory (non-recursive) and opens at most 3 files. For projects with nested directories (src/components/, src/services/, etc.), this discovers almost nothing. TypeScript language server requires didOpen on files to push diagnostics for them.",
+      "suggested_fix": "Make findTsFiles recursive (walk subdirectories) and increase the limit to at least 10-20 files. Alternatively, open the project entry point (from tsconfig.json 'include' or 'files' field) which will trigger transitive analysis."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "diagnosticsWaiters array grows unboundedly — memory leak",
+      "description": "src/sidecar/lsp-client.ts:364 — Each call to `waitForDiagnostics` pushes a waiter function into `this.diagnosticsWaiters` but never removes it. Over many diagnostic calls, this array grows and every `publishDiagnostics` notification iterates all stale waiters.",
+      "suggested_fix": "Remove the waiter after the promise resolves: store the index, then splice it out in the resolve path. Or clear the array at the start of each getDiagnostics call (line 148, alongside diagnosticsMap.clear())."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "No test for checkSessionConflict helper in sentinal-helpers.test.ts",
+      "description": "targets/opencode/plugins/sentinal-helpers.test.ts tests transitionTddState and the existing grep/fetch hints, but does not test checkSessionConflict() which was added in this plan. The function has branching logic (filter by project, format message) that should be verified.",
+      "suggested_fix": "Add a describe block for checkSessionConflict with tests for: (1) no conflicts returns null, (2) other sessions detected returns formatted message, (3) sidecar error returns null."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "No HTTP handler test for /tdd-state/transition endpoint",
+      "description": "src/sidecar/tdd-routes.test.ts only tests the bulkTddTransition() function directly. The handleTddTransitionRequest() HTTP handler has validation logic (action check, JSON parsing, error handling) that is untested. This is especially important given the URL parsing bug.",
+      "suggested_fix": "Add tests for handleTddTransitionRequest: (1) returns null for non-matching paths, (2) returns 400 for invalid action, (3) returns correct JSON for confirm_red/confirm_green, (4) returns 500 on store error."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Unsafe stdin type cast in LSP client",
+      "description": "src/sidecar/lsp-client.ts:228 — `const stdin = this.proc.stdin as unknown as { write(s: string): void; flush(): void }` uses a double cast. Bun's Subprocess.stdin with `stdin: 'pipe'` returns a `FileSink` which has `write()` and `flush()` but the types may drift between Bun versions.",
+      "suggested_fix": "Use Bun's documented FileSink interface or add a runtime check: `if (!this.proc.stdin?.write) throw new Error('stdin not writable');`"
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_mitigation",
+      "title": "LSP client crash recovery relies on caller re-initializing — no auto-respawn",
+      "description": "Plan specifies 'Crash recovery: re-spawns on next request if process died'. Implementation (lsp-client.ts:144-146) checks `isReady()` which returns false after crash, then calls `initialize()`. This works but only because getDiagnostics checks isReady first. If initialize itself fails, the error propagates to the caller.",
+      "suggested_fix": "Wrap the initialize call in getDiagnostics with try/catch and fall through so the caller (quality-routes) can trigger tsc fallback. Currently quality-routes catches the top-level but the error message ('LSP diagnostics failed') is generic."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Sidecar GET /session/file-conflict endpoint not implemented",
+      "description": "Task 2 mentions adding a `GET /session/file-conflict?project=<path>&file=<path>&session=<id>` endpoint in tdd-routes.ts. The implementation instead does file conflict detection directly in the CLI hook (hook.ts) by opening a local MemoryStore. This is a valid approach (avoids sidecar round-trip) but means OpenCode doesn't get file-level conflict detection (only session-level via checkSessionConflict).",
+      "suggested_fix": "Either add the sidecar endpoint for OpenCode parity, or document that file-level conflict detection is Claude-Code-only in the current implementation."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Starting a session on a project with an existing active session shows a conflict warning",
+      "status": "verified",
+      "evidence": "session-start.ts calls detectSessionConflict() after insertSession() and outputs hint. OpenCode plugin calls checkSessionConflict() in session.created handler and logs warning. Both paths tested."
+    },
+    {
+      "truth": "Editing a file that another active session recently edited shows a per-file warning",
+      "status": "verified",
+      "evidence": "cli/commands/hook.ts runPreEditGuide() calls detectFileConflict() with store, appends message to hint. SQL query filters by project, file pattern, recency window, and active sessions. Tests verify detection and recency window."
+    },
+    {
+      "truth": "OpenCode TDD correctly transitions to RED_CONFIRMED when tests fail",
+      "status": "verified",
+      "evidence": "sentinal.ts sidecarTddTrack() calls transitionTddState(sidecar, 'confirm_red') when TEST_FAIL_INDICATORS match. transitionTddState calls sidecar.tddTransition('confirm_red'). tdd-routes handles confirm_red by updating TEST_WRITTEN → RED_CONFIRMED."
+    },
+    {
+      "truth": "OpenCode TDD correctly clears state (GREEN_CONFIRMED) when tests pass",
+      "status": "verified",
+      "evidence": "sentinal.ts calls transitionTddState(sidecar, 'confirm_green') when TEST_PASS_INDICATORS match. tdd-routes handles confirm_green by deleting RED_CONFIRMED rows. Tests verify this."
+    },
+    {
+      "truth": "check_diagnostics uses LSP for TypeScript diagnostics instead of tsc subprocess",
+      "status": "verified",
+      "evidence": "mcp-tools.ts check_diagnostics handler tries sidecar qualityCheck first (which uses LSP in quality-routes.ts via runTscLsp), falls back to direct tsc subprocess if sidecar unavailable."
+    },
+    {
+      "truth": "LSP diagnostics fall back to tsc subprocess when the language server is unavailable",
+      "status": "verified",
+      "evidence": "quality-routes.ts checks isLspAvailable() before creating LspClient. runTscLsp catches errors and falls through to runTsc(). mcp-tools.ts wraps sidecar call in try/catch, falls back to direct tsc spawn."
+    },
+    {
+      "truth": "All existing tests continue to pass",
+      "status": "uncertain",
+      "evidence": "Cannot verify dynamically in review. No evidence of breaking changes to existing APIs — session/store interfaces unchanged, quality-routes maintains backward compatibility, mcp-tools preserves existing baseline/delta tracking."
+    }
+  ]
+}

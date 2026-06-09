@@ -1,0 +1,53 @@
+{
+  "pass_summary": "All three artifacts are implemented and wired correctly. The config endpoint, client method, and system.transform hook match the plan. One notable deviation: the plan required logging Object.keys(output) on every first call to discover the output shape, but the implementation only logs on failure — this is actually better behavior in production but misses the stated debugging intent. Minor issues noted around the output shape probe and a missing HTTP POST guard.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 4,
+  "truths_total": 4,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "Output shape probe logs only on failure, not on first call as specified",
+      "description": "The plan (Task 1 DoD, and risk mitigation for 'Hook signature differs from gist description') requires logging Object.keys(output) to discover the actual property names before injection code runs. The implementation at targets/opencode/plugins/sentinal.ts:711-716 only logs keys when the shape is unexpected (i.e., when systemArr is not an array). If the hook fires with the expected shape, the output shape is never logged, making it impossible to verify the correct property was used during manual testing.",
+      "suggested_fix": "Add an unconditional debug-level log before the shape check: `log('system.transform output keys: ' + Object.keys(output).join(', '))`. This can be gated behind a debug flag or removed after manual verification confirms the shape."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "GET /config/model-routing accepts POST and other methods",
+      "description": "src/sidecar/config-routes.ts:21 checks req.method === 'GET' correctly, but a POST or PUT to /config/model-routing returns null and falls through to the general handler rather than a 405 Method Not Allowed. This matches the pattern of other route handlers in the codebase (quality-routes, tdd-routes) so it is consistent, but could confuse callers.",
+      "suggested_fix": "Optionally add an explicit 405 response for method mismatches on the /config/model-routing path. Only needed if the API surface is expected to be public."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "system.transform injects filePath rather than plan name in context string",
+      "description": "The plan specifies injecting 'Active plan: <name>' (Task 1 notes). The implementation at targets/opencode/plugins/sentinal.ts:735 uses filePath (e.g., '/Users/.../docs/plans/2026-04-02-opencode-v1.3-parity.md') rather than a short plan name. The full path may provide more context, but the filename alone (basename without extension) would match the documented intent and be more readable in system prompts.",
+      "suggested_fix": "Consider using path.basename(filePath, '.md') for the plan name in the injected string, keeping the full path in a secondary field if needed."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "sentinal.ts exports a hook handler for experimental.chat.system.transform",
+      "status": "verified",
+      "evidence": "targets/opencode/plugins/sentinal.ts diff adds 'experimental.chat.system.transform': async (_input, output) => { ... } to the hooks object, and the PluginHooks interface is updated with the correct optional signature."
+    },
+    {
+      "truth": "The handler injects active spec plan name and status when a plan is active",
+      "status": "verified",
+      "evidence": "Handler calls findActivePlan(projectRoot) and pushes '[Sentinal] Active plan: <filePath> | Status: <spec.status> | Task: <current> | Progress: <done>/<total>' to systemArr when active is truthy."
+    },
+    {
+      "truth": "The handler injects model routing hints when config differs from defaults",
+      "status": "verified",
+      "evidence": "Handler calls sidecar.getModelRouting(), compares against a hardcoded defaults object, and pushes a '[Sentinal] Model routing: ...' hint when any value differs. The comparison covers all five routing keys."
+    },
+    {
+      "truth": "Async audit identifies at least one pattern that can be simplified or documents that none exist",
+      "status": "verified",
+      "evidence": "Plan section '## Async Audit Results' documents all four patterns (eager session creation, fire-and-forget TDD, observation queue, session.updated fallback) with explicit keep/no-change decisions. All four are determined safe to keep, satisfying the 'documented that none are safe to remove' branch of the DoD."
+    }
+  ]
+}

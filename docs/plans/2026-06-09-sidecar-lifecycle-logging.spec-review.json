@@ -1,0 +1,77 @@
+{
+  "pass_summary": "All five plan tasks are implemented and the feature is functionally complete. One critical architectural defect exists: logToFile calls getLogDir() as a direct intramodule call, which means spyOn(fileLogModule, 'getLogDir') will NOT intercept it — tests in file-log.test.ts, server.test.ts, and client.test.ts will write to the real ~/.sentinal directory instead of the tmpDir, making them environment-dependent and potentially flaky.",
+  "compliance_score": "medium",
+  "quality_score": "medium",
+  "goal_score": "partial",
+  "truths_verified": 5,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "spec_compliance",
+      "title": "logToFile calls getLogDir() as direct intramodule call — spyOn won't intercept it",
+      "description": "src/utils/file-log.ts line 74: `const dir = getLogDir();` is a bare function call to the local binding within the same ESM module. Bun's spyOn(fileLogModule, 'getLogDir') replaces the exported property on the module namespace object, but the local variable `getLogDir` inside file-log.ts is bound at parse time to the original function — it does NOT go through the exported slot. Result: every test that does `spyOn(fileLogModule, 'getLogDir').mockReturnValue(tmpDir)` and then calls logToFile/logSidecar will see the real ~/.sentinal path, not tmpDir. This affects file-log.test.ts (all tests), server.test.ts shutdown-reason tests (line 805), and client.test.ts reconnect tests (lines 39, 506). The plan explicitly required calling through the module namespace: 'have logToFile/readLastLines call it through the module namespace on every invocation — this is what makes the bun:test spyOn pattern actually intercept (mirror src/sidecar/paths.ts)'. The paths.ts mirror works because client.ts calls getSidecarSocketPath() as an *imported* function from a different module — that IS an intermodule call through the exported binding. The fix is to use a re-export indirection pattern: export the module namespace as a self-reference, or restructure so logToFile goes through an intermediate that IS interceptable. The simplest fix in Bun: add `import * as self from './file-log.js'` at the top and use `self.getLogDir()` inside logToFile and readLastLines. Alternative: export a mutable config object `{ getLogDir }` and have logToFile call `config.getLogDir()`, letting tests override `fileLogModule.config.getLogDir`.",
+      "suggested_fix": "In src/utils/file-log.ts, change line 74 from `const dir = getLogDir();` to use a module-namespace-level call. The idiomatic Bun approach: add `import * as fileLog from './file-log.js'` at the bottom (circular self-import works in ESM) is messy. Cleanest fix: export a mutable `_config` object — `export const _config = { getLogDir: () => join(homedir(), '.sentinal') };` — then `export function getLogDir() { return _config.getLogDir(); }` and inside `logToFile`/`readLastLines` call `getLogDir()` (unchanged), BUT have tests override `fileLogModule._config.getLogDir = () => tmpDir` instead of using spyOn. Alternatively, restructure so `getLogDir` is only called from caller modules (i.e., the caller passes `dir` to `logToFile`), but that breaks the convenience API. The simplest minimally-invasive fix: in logToFile line 74, replace `getLogDir()` with a call that goes through a module-level indirection: `export const _getLogDir: { fn: () => string } = { fn: getLogDir }; export function logToFile(...) { const dir = _getLogDir.fn(); ... }` and have tests do `fileLogModule._getLogDir.fn = () => tmpDir`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "buildLogsReport in sidecar-logs.ts calls getLogDir() directly — spy interception is uncertain",
+      "description": "src/cli/commands/sidecar-logs.ts line 58: `const dir = getLogDir();` is called within buildLogsReport. Since this is an *intermodule* call (getLogDir is imported from file-log.js into sidecar-logs.ts), Bun's spyOn on fileLogModule.getLogDir SHOULD intercept it — ESM live bindings mean the import in sidecar-logs.ts refers to the same slot that spyOn patches. However, renderFile at lines 41-48 then calls readLastLines(filePath, n) which itself calls getLogDir() again internally (intramodule, same issue as above). This means the filePath passed to readLastLines is built from the spied getLogDir (correct tmpDir), but readLastLines internally constructs its own path? No — readLastLines takes a full filePath string already, so it does NOT call getLogDir internally. Re-reading: readLastLines(filePath: string, n: number) at line 99 takes an absolute path, does not call getLogDir. So the sidecar-logs.ts spy interception issue is limited to line 58, which IS an intermodule call and should work. Marking should_fix for the double-read of the file (totalLines + readLastLines both read the whole file), which wastes I/O for files up to 10MB.",
+      "suggested_fix": "In src/cli/commands/sidecar-logs.ts renderFile function (lines 41-48), compute total inline while slicing: read once, filter, get length and slice in one pass. Example: `const lines = readLastLines(filePath, n); const total = /* read once and count */`. Or have readLastLines return a { lines, total } object. Low priority since files are capped at 10MB and this is CLI code, not hot path."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "Plugin autoStartProcess logs respawn before checking existsSync(binPath) guard",
+      "description": "In targets/opencode/plugins/sentinal.ts, the new log() call at the respawn site (line ~178 in the diff) is placed AFTER the PID-alive early-return but BEFORE the `if (!existsSync(binPath)) return;` guard. This means if the sentinal binary is missing, the plugin logs a 'respawn: ... (pid file missing/stale)' line but then immediately returns without actually spawning. The log line is misleading — it implies a spawn is about to happen. The plan says 'log when actually spawning' and 'Do NOT log the early-return path'. A missing binary is another early-return variant. Severity: should_fix — the log message is diagnostic noise in a missing-binary scenario, but does not cause functional breakage.",
+      "suggested_fix": "In targets/opencode/plugins/sentinal.ts autoStartProcess, move the log() call to after the existsSync(binPath) guard — i.e., immediately before the spawn call. The block should be: check pid alive → return; check binPath exists → return; then log() and spawn."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "sidecar.ts startup log message uses 'sidecar:' prefix inconsistently with plan spec",
+      "description": "src/cli/commands/sidecar.ts lines ~87 and ~175 log `sidecar: started pid=... transport=... port=...`. The plan (Task 2, Key Decisions) specifies `started: pid=${pid} transport=${transport} port=${httpPort} socket=${socketPath}` — note the 'started:' prefix without the 'sidecar:' wrapper, and it includes socket=${socketPath}. The implementation uses 'sidecar: started pid=...' (no socket path in the log). The socket path omission makes logs less useful for diagnosing which transport is active when both could be present. This is a minor deviation from the spec rather than a functional bug.",
+      "suggested_fix": "In src/cli/commands/sidecar.ts, update the log calls to include the socket path: logSidecar(`sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort} socket=${socketPath}`) — obtain socketPath from getSidecarSocketPath() (already imported) or result.ctx."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "stale-activity shutdown reason test doesn't assert the activityAge value",
+      "description": "src/sidecar/server.test.ts 'should pass stale-activity reason to onShutdown with count and age info' only asserts that capturedReason contains 'stale' and 'session'. The plan specifies the stale reason format as 'shutting down: ${count} session(s) stale — no HTTP activity for ${activityAge}ms (threshold ${staleActivityMs}ms)'. The test should also verify the activityAge and threshold are present in the reason string to confirm the correct information is captured and not just a generic 'stale session' message.",
+      "suggested_fix": "In src/sidecar/server.test.ts stale-activity test, add assertions: expect(capturedReason).toContain('no HTTP activity for'); expect(capturedReason).toContain('threshold 30ms');"
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/utils/file-log.ts exists and contains the 10MB default cap — grep `10 * 1024 * 1024`",
+      "status": "verified",
+      "evidence": "src/utils/file-log.ts line 31: `const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;`"
+    },
+    {
+      "truth": "Sidecar logs shutdown reasons — doShutdown() call sites pass a reason argument, and logSidecar appears in the shutdown path",
+      "status": "verified",
+      "evidence": "server.ts: doShutdown(reason) signature at line ~118; two call sites pass distinct reasons (stale/grace at ~162, idle fallback at ~167); doShutdown body calls logSidecar(`sidecar: ${reason}`) before onShutdown callback. Also startSidecar alreadyRunning branch logs 'sidecar: start skipped — already running on socket'."
+    },
+    {
+      "truth": "Client logs reconnect lifecycle — grep `logSidecar` in src/sidecar/client.ts",
+      "status": "verified",
+      "evidence": "client.ts: logSidecar imported at line 11. Four log calls in reconnect path: 'connection lost' in fetchWithReconnect catch (reconnectEnabled path only), 'no live sidecar — respawn triggered' in reconnect(), 'reconnect failed after N attempts' in reconnect(), 'reconnected via ${target}' in reconnect(). Healthy-path requests (reconnectEnabled=false) do not log."
+    },
+    {
+      "truth": "Plugin log() rotates — grep `rotateIfNeeded|maxBytes` in targets/opencode/plugins/sentinal.ts",
+      "status": "verified",
+      "evidence": "Plugin diff shows old appendFileSync-based log() replaced with logToFile(PLUGIN_LOG_FILE, message). Rotation is handled inside logToFile via rotateIfNeeded — the plugin itself no longer needs to reference rotateIfNeeded/maxBytes directly. The grep pattern from the plan would NOT match the plugin file (rotation is delegated to the util), but the intent — that rotation is applied — is satisfied."
+    },
+    {
+      "truth": "CLI subcommand registered — grep `command('logs')` in src/cli/commands/sidecar.ts",
+      "status": "verified",
+      "evidence": "sidecar.ts diff shows sidecar.command('logs') registered with -n/--lines and --file options, delegates to buildLogsReport from sidecar-logs.ts."
+    },
+    {
+      "truth": "bun test src/utils/file-log.test.ts passes with rotation + tail coverage — all DoD test cases present",
+      "status": "uncertain",
+      "evidence": "Test file has all required cases: append creates file, ISO timestamp, rotation at tiny cap, second rotation replaces .1, readLastLines last N, missing file → [], unwritable dir does not throw. However, the spyOn(fileLogModule, 'getLogDir') pattern will NOT intercept intramodule calls from logToFile (see must_fix issue). Tests will write to real ~/.sentinal/ rather than tmpDir. Tests may pass if ~/.sentinal is writable on the test machine but are not properly isolated. The 'unwritable dir does not throw' test overrides getLogDir to return an unwritable path — this spy will also not intercept the call, so the test will use ~/.sentinal instead and the not-throw expectation may pass for the wrong reason."
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "review_summary": "The plan is well-structured and covers all four required feature categories with concrete tasks, but contains two must-fix issues: OBSERVATION_TYPES in types.ts does not include 'bug_fix' (the actual values are 'decision', 'discovery', 'error', 'fix', 'pattern'), and the DNR config option references src/memory/config.ts which has a narrow MemoryConfig interface that would need explicit extension — the plan does not mention this interface change. All other assumptions are credible given the codebase patterns verified.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "OBSERVATION_TYPES does not contain 'bug_fix' — it contains entirely different values",
+      "description": "The plan's Assumptions section and Task 3 assume adding 'bug_fix' to OBSERVATION_TYPES is straightforward. However the actual array in src/memory/types.ts is: ['decision', 'discovery', 'error', 'fix', 'pattern']. There is no 'learning' or 'mistake' type either, which are also referenced in Task 7's DNR guard query logic ('mistake', 'bug_fix', 'learning'). The plan's competitive matrix states 'Observation type \"bug_fix\" possible but not structured' — implying the type already exists — but it does not. This means Task 3 must add 'bug_fix', Task 7 must add 'mistake' and 'learning', and any existing observations stored under those type labels would be schema-invalid today. The implementer needs to know to add all three new types, not just 'bug_fix'.",
+      "suggested_fix": "Update Task 3 DoD to explicitly state: add 'bug_fix', 'mistake', and 'learning' to OBSERVATION_TYPES. Update Task 7 to state it depends on all three types being present (either from Task 3 or its own step). Update the competitive matrix note to remove the implication that 'bug_fix' already exists — it does not."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "DNR block-mode config option requires extending MemoryConfig interface — not mentioned in plan",
+      "description": "Task 7 states: 'Configuration option in src/memory/config.ts to make it blocking.' The actual MemoryConfig interface in that file has only one field: memory.enabled (boolean). Adding a dnr block-mode toggle requires modifying the interface, the DEFAULT_CONFIG constant, and likely the config schema validation. None of Task 7's file list mentions modifying config.ts. If an implementer follows the file list exactly they will skip this change, causing a TypeScript compile error when the hook tries to read a non-existent config field.",
+      "suggested_fix": "Add src/memory/config.ts to Task 7's Files list with the note: 'Extend MemoryConfig interface with dnr: { blockMode: boolean } field, add to DEFAULT_CONFIG with default false.' Also add a test case to config.test.ts verifying the default is warn-only."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 2 reads OpenCode hook event as 'PostToolUse.write' but token tracking needs Read events too",
+      "description": "Task 2's Key Decisions note says 'OpenCode plugin: add to PostToolUse.write handler array, fire-and-forget sidecar call.' But token tracking is meant to cover Read, Write, and Edit operations — the same as the Claude Code hook registered under 'PostToolUse for Read|Write|Edit'. The OpenCode plugin parity requirement would be incomplete if only write events are tracked. The read-advisor warning (repeated reads) would also be inert for OpenCode users if read events are not tracked.",
+      "suggested_fix": "Update Task 2's OpenCode Key Decisions note to specify that token tracking must be wired to both read and write PostToolUse events in the plugin. Clarify which OpenCode hook event names map to file-read operations (this may require a targeted check of the OpenCode plugin's existing hook event list)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Design QC DoD has no verification path for the OpenCode plugin parity",
+      "description": "Tasks 5 and 6 specify a Claude Code slash command and MCP tool for Design QC, and Task 6 mentions 'OpenCode: tool exposed via plugin tools array, captures via sidecar API.' However neither Task 5 nor Task 6 includes OpenCode plugin modification in the Files list, and the DoD checklists contain no OpenCode parity item. This means OpenCode users would silently lack the feature even though it is listed as a cross-platform deliverable.",
+      "suggested_fix": "Add 'Modify: targets/opencode/plugins/sentinal.ts — add sentinal_design_qc tool' to Task 6's Files list. Add a DoD checkbox: '[ ] OpenCode plugin exposes design_qc tool via sidecar API'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Route discovery for Next.js app directory pattern may be insufficiently specified for an implementer",
+      "description": "Task 5 specifies discoverRoutes() scans for 'Next.js app/*/page.tsx' but the Next.js App Router uses nested directories of arbitrary depth (app/**/page.tsx), not just one level deep. An implementer following the spec literally would miss nested routes like app/dashboard/settings/page.tsx. This is not a failure condition for the task but would reduce practical value for common Next.js project structures.",
+      "suggested_fix": "Change the route pattern in Task 5 notes from 'app/*/page.tsx' to 'app/**/page.tsx' to match the App Router's actual file-system convention."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "review_summary": "The plan is well-structured and platform-specific instructions are largely clear and correct. Three targeted issues remain: the OpenCode spec-implement parity is incomplete (the template in Task 2 is identical to Claude Code's Agent() call rather than showing the Task() equivalent), the backward-compat fallback for plans without waves contradicts itself across Task 2 notes, and Truth 8 is ambiguous about what 'equivalent changes' means for OpenCode.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 2 OpenCode backward-compat fallback is contradictory",
+      "description": "Task 2 'Key Decisions / Notes' says two different things for plans without waves. Under 'Add a new Step 2.2c' it states: 'If no waves section: treat all tasks as Wave 1 (execute sequentially for backward compat)'. But Wave 1 with multiple tasks triggers parallel spawning per the wave execution loop ('If wave has 2+ tasks: spawn parallel Agents'). So 'no waves → Wave 1 → sequential' is internally inconsistent — it would actually trigger parallel execution, not sequential. The correct backward-compat behavior should be: if no waves section, fall back to the old sequential per-task loop entirely, not assign everything to Wave 1.",
+      "suggested_fix": "Change the Step 2.2c fallback rule to: 'If no ## Execution Waves section exists, skip wave-based execution entirely and fall back to the original sequential per-task TDD loop (Step 2.3 legacy path).' Add a DoD checkbox: 'Backward compat path bypasses wave execution loop, not just assigns to Wave 1.'"
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 2 platform-specific spawning patterns show Agent() in both, masking OpenCode difference",
+      "description": "The 'Platform-specific agent spawning patterns' section in Task 2 shows two code blocks — one labeled Claude Code with Agent() and one labeled OpenCode with Task(). However, both blocks contain an identical prompt body including 'Use quality_report MCP tool after edits.' This is fine, but more importantly, the Task 4 template update (spec-implement.md template) says 'Add note about Agent tool with worktree isolation for parallel tasks' without any mention of OpenCode's Task() equivalent. An implementer reading Task 4 in isolation will add Agent-only instructions to the shared template, which is incorrect — templates/commands/spec-implement.md is a platform-neutral template. The plan never clarifies whether templates are CC-only or shared.",
+      "suggested_fix": "Add a clarifying note to Task 4: 'templates/commands/spec-implement.md is platform-neutral — reference the parallel execution concept generically (e.g., \"spawn parallel subagents per wave\") without naming Agent() or Task() specifically. Platform-specific tool names belong only in targets/claude-code/ and targets/opencode/ files.' Also update Task 4 DoD to include: 'Template does not mention Agent() or Task() by name.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Truth 8 is ambiguous — 'equivalent changes with Task() pattern' is not specific enough",
+      "description": "Truth 8 states: 'targets/opencode/skills/spec-implement/SKILL.md contains Task(subagent_type= for parallel execution (OpenCode equivalent).' This is a valid truth but it is the weakest of the twelve — it verifies only that Task() appears somewhere in the file, not that the full wave execution loop, Step 2.2c wave parsing, and orchestrator-updates-checkboxes pattern are all present. A partial implementation that adds a single Task() call without the wave loop would satisfy Truth 8 but not the spirit of parity.",
+      "suggested_fix": "Strengthen Truth 8 to: 'targets/opencode/skills/spec-implement/SKILL.md contains Task(subagent_type=\"general\" in a wave execution loop with (a) Step 2.2c wave parsing, (b) single-task fallback to main context, and (c) orchestrator-updates-checkboxes-after-wave rule.' This makes the truth verifiable via a single targeted read."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 2 does not address the 'NO sub-agents' constraint in OpenCode spec-implement",
+      "description": "The existing OpenCode targets/opencode/skills/spec-implement/SKILL.md contains '- **NO sub-agents** — all tasks execute sequentially in main context' (confirmed at line 18). Task 2 notes 'Keep the existing constraint \"NO sub-agents\" but modify it' — but this instruction is only stated once and does not explicitly call out that the same constraint exists in the OpenCode file and must be updated there too. The DoD for Task 2 does not include a checkbox for updating this constraint in the OC file. An implementer who focuses on CC first and mirrors changes may miss replacing the constraint in OC.",
+      "suggested_fix": "Add a DoD checkbox to Task 2: '- [ ] OpenCode spec-implement/SKILL.md \"NO sub-agents\" constraint updated to allow Task() calls for parallel wave execution (mirrors CC change).' Also add it explicitly to the Key Decisions / Notes under the OpenCode section."
+    }
+  ]
+}
