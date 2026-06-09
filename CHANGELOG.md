@@ -1,3 +1,10 @@
+## [1.29.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.1...v1.29.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* **update:** run post-update plugin reinstall via the new binary ([5f83df4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5f83df4af1277db569cb1db46834c3a59ae586de))
+
 ## [1.29.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.0...v1.29.1) (2026-06-09)
 
 
