@@ -67,7 +67,10 @@ describe("memory setup", () => {
 
   afterEach(() => {
     rmSync(depsDir, { recursive: true, force: true });
-    process.exitCode = undefined;
+    // Bun gotcha: `process.exitCode = undefined` does NOT clear a previously
+    // set exit code (unlike Node) — assign 0 or the whole `bun test` run
+    // exits 1 despite all tests passing (broke CI for e4927d5/01d1507).
+    process.exitCode = 0;
   });
 
   describe("readPinnedVersions", () => {
@@ -374,7 +377,9 @@ describe("memory setup", () => {
       });
 
       expect(output).toContain("Memory Setup");
-      expect(process.exitCode).toBeUndefined();
+      // afterEach resets exitCode to 0 (Bun can't reset to undefined), so
+      // "unset" here means "not a failure code".
+      expect(process.exitCode ?? 0).toBe(0);
     });
 
     it("should set a non-zero exit code on failure", async () => {
