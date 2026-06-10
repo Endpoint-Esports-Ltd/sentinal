@@ -11,6 +11,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { DB_CONSTANTS } from "./types.js";
+import { resolveTransformers, SETUP_HINT } from "./native-deps.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -51,8 +52,13 @@ export class EmbeddingService {
 
   private async doInitialize(): Promise<void> {
     try {
-      // Dynamic import to allow graceful degradation
-      const { pipeline, env } = await import("@xenova/transformers");
+      // Resolved at runtime: bare import (source) or ~/.sentinal/deps
+      // (compiled binary, provisioned by `sentinal memory setup`).
+      const transformers = await resolveTransformers();
+      if (!transformers) {
+        throw new Error(`@xenova/transformers not available. ${SETUP_HINT}`);
+      }
+      const { pipeline, env } = transformers;
 
       // Configure transformers.js cache directory
       env.allowLocalModels = true;

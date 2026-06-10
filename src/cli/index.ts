@@ -172,6 +172,9 @@ async function maybeCheckForUpdate(): Promise<void> {
     "mcp-server",
     "hook",
     "sidecar",
+    // memory: `memory setup` must call Database.setCustomSQLite() BEFORE any
+    // Database opens — the update check's MemoryStore would poison it.
+    "memory",
     "statusline",
     "help",
     "--help",

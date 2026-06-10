@@ -37,38 +37,31 @@ describe("sentinal hook claude file-checker (CLI wiring)", () => {
       tool_name: "Write",
       tool_input: { file_path: filePath },
     });
-    return Bun.spawnSync(
-      ["bun", CLI, "hook", "claude", "file-checker"],
-      { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe" },
-    );
+    return Bun.spawnSync(["bun", CLI, "hook", "claude", "file-checker"], {
+      stdin: Buffer.from(input),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
   }
 
-  it(
-    "exits 2 with decision:block when the file violates limits",
-    () => {
-      const result = runFileChecker(bigFile);
-      expect(result.exitCode).toBe(2);
+  it("exits 2 with decision:block when the file violates limits", () => {
+    const result = runFileChecker(bigFile);
+    expect(result.exitCode).toBe(2);
 
-      // continueOnBlock requires the block decision on stdout…
-      const stdout = result.stdout.toString();
-      const parsed = JSON.parse(stdout);
-      expect(parsed.decision).toBe("block");
-      expect(parsed.reason).toContain("650 lines");
+    // continueOnBlock requires the block decision on stdout…
+    const stdout = result.stdout.toString();
+    const parsed = JSON.parse(stdout);
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toContain("650 lines");
 
-      // …and Claude Code only surfaces exit-2 reasons from stderr.
-      expect(result.stderr.toString()).toContain("650 lines");
-    },
-    30_000,
-  );
+    // …and Claude Code only surfaces exit-2 reasons from stderr.
+    expect(result.stderr.toString()).toContain("650 lines");
+  }, 30_000);
 
-  it(
-    "exits 0 silently when the file is clean",
-    () => {
-      const cleanFile = join(dir, "clean.test.ts");
-      writeFileSync(cleanFile, "export const ok = 1;\n");
-      const result = runFileChecker(cleanFile);
-      expect(result.exitCode).toBe(0);
-    },
-    30_000,
-  );
+  it("exits 0 silently when the file is clean", () => {
+    const cleanFile = join(dir, "clean.test.ts");
+    writeFileSync(cleanFile, "export const ok = 1;\n");
+    const result = runFileChecker(cleanFile);
+    expect(result.exitCode).toBe(0);
+  }, 30_000);
 });

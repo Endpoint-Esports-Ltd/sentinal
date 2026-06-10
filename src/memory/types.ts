@@ -111,6 +111,14 @@ export interface TimelineResult {
   totalAfter: number;
 }
 
+/** Vector search availability info attached to MemoryStats by the sidecar. */
+export interface VectorSearchStats {
+  status: "disabled" | "initializing" | "ready" | "unavailable";
+  count: number;
+  initError: string | null;
+  hint: string | null;
+}
+
 export interface MemoryStats {
   totalObservations: number;
   totalSessions: number;
@@ -119,6 +127,8 @@ export interface MemoryStats {
   oldestTimestamp: number | null;
   newestTimestamp: number | null;
   databaseSizeBytes: number;
+  /** Present only when served by a sidecar with vector init state. */
+  vector?: VectorSearchStats;
 }
 
 // ─── Raw DB Row Types ─────────────────────────────────────────────────────────

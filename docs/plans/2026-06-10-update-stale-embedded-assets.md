@@ -34,6 +34,7 @@ Type: Bugfix
 ### Preservation Property (!C => unchanged)
 
 **When condition C does NOT hold:**
+
 - `--check` mode: unchanged (no install, no reinstall)
 - Download fails: unchanged (exit 1, no reinstall)
 - Already up to date: reinstall still runs (now via subprocess — same version, identical assets)
@@ -45,6 +46,7 @@ Type: Bugfix
 **Files:** `src/cli/commands/update.ts`, `src/cli/commands/update.test.ts`
 
 **Strategy:**
+
 1. Add a hidden `--reinstall-plugins` option to the `update` command: when set, run ONLY `reinstallPlugins()` and return (no download, no recursion — guards infinite spawn loops by construction).
 2. Extract `runPostUpdateReinstall(opts?)` with an injectable spawner (default `Bun.spawnSync`/`child_process.spawnSync` with `stdio: "inherit"`):
    - If `BIN_PATH` exists → spawn `BIN_PATH update --reinstall-plugins`; on exit 0 → done.
@@ -52,6 +54,7 @@ Type: Bugfix
 3. Update the action handler: replace the direct `reinstallPlugins()` call (line 446) with `runPostUpdateReinstall()`.
 
 **Tests** (follow existing `spyOn` patterns in update.test.ts):
+
 - `runPostUpdateReinstall` spawns `[BIN_PATH, "update", "--reinstall-plugins"]` when the binary exists; in-process `reinstallPlugins` is NOT called.
 - Falls back to in-process `reinstallPlugins()` when the spawner throws or returns non-zero.
 - Falls back when `BIN_PATH` does not exist.

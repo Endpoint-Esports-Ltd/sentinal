@@ -24,6 +24,8 @@ import {
 } from "./maintenance.js";
 import type { ObservationType } from "./types.js";
 import { OBSERVATION_TYPES } from "./types.js";
+import { runMemorySetup } from "./setup.js";
+import type { MemorySetupOptions } from "./setup.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -254,6 +256,19 @@ export function runRepair(service: MemoryService): string {
   return lines.join("\n");
 }
 
+/**
+ * `sentinal memory setup` — provision ~/.sentinal/deps with native deps
+ * (sqlite-vec, @xenova/transformers) for compiled binaries.
+ * Sets a non-zero exit code when deps remain unavailable.
+ */
+export async function runSetupCommand(
+  opts: MemorySetupOptions = {},
+): Promise<string> {
+  const result = await runMemorySetup(opts);
+  if (!result.ok) process.exitCode = 1;
+  return result.report;
+}
+
 function parseDuration(input: string): number | null {
   const match = input.match(/^(\d+)([dhmy])$/);
   if (!match) return null;
@@ -287,6 +302,7 @@ Commands:
   stats              Show database statistics
   prune              Remove old observations
   repair             Check integrity and rebuild FTS index
+  setup              Install native deps for vector search (~/.sentinal/deps)
 
 Options:
   --project <path>   Filter by project path
@@ -302,6 +318,18 @@ Options:
 
 export async function runCli(argv: string[]): Promise<string> {
   const args = parseArgs(argv);
+
+  // Commands that must run BEFORE any Database is opened:
+  // `setup` calls Database.setCustomSQLite() (macOS), which fails once any
+  // Database instance exists in the process.
+  switch (args.command) {
+    case "setup":
+      return await runSetupCommand();
+    case "help":
+    case "--help":
+    case "-h":
+      return showHelp();
+  }
 
   const store = new MemoryStore();
   const service = new MemoryService(store);
@@ -324,10 +352,6 @@ export async function runCli(argv: string[]): Promise<string> {
         return runPrune(service, args);
       case "repair":
         return runRepair(service);
-      case "help":
-      case "--help":
-      case "-h":
-        return showHelp();
       default:
         return `Unknown command: ${args.command}\n\n${showHelp()}`;
     }

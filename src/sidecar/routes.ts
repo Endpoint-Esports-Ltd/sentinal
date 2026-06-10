@@ -7,6 +7,10 @@
 
 import type { SidecarContext } from "./server.js";
 import { ok, fail, readBody } from "./response.js";
+import {
+  buildVectorStats,
+  notifyVectorUnavailableOnce,
+} from "./vector-stats.js";
 import { restoreContext } from "../memory/restore.js";
 import type {
   AssistantType,
@@ -339,6 +343,13 @@ async function handleMemoryGet(
 
 function handleMemoryStats(ctx: SidecarContext): Response {
   const stats = ctx.service.getStats();
+  if (ctx.vectorState) {
+    stats.vector = buildVectorStats(ctx.vectorState);
+    if (ctx.vectorState.status === "unavailable") {
+      // Lazy one-time alert — avoids touching server.ts's init path
+      notifyVectorUnavailableOnce(ctx.store, ctx.vectorState.error);
+    }
+  }
   return ok(stats);
 }
 

@@ -11,7 +11,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { decayQualityScores } from "./maintenance.js";
-import type { CreateObservation } from "./types.js";
+import { formatMemoryStats } from "./mcp-tools.js";
+import type { CreateObservation, MemoryStats } from "./types.js";
 
 function makeTmpDb(): string {
   const dir = join(
@@ -176,5 +177,79 @@ describe("memory_maintain tool logic", () => {
       expect(distribution["0.2-0.4"]).toBe(1);
       expect(distribution["0.8-1.0"]).toBe(2);
     });
+  });
+});
+
+describe("formatMemoryStats", () => {
+  function makeStats(overrides: Partial<MemoryStats> = {}): MemoryStats {
+    return {
+      totalObservations: 5,
+      totalSessions: 2,
+      byType: { decision: 2, discovery: 3, error: 0, fix: 0, pattern: 0 },
+      byProject: { "/test/project": 5 },
+      oldestTimestamp: Date.now() - 1000,
+      newestTimestamp: Date.now(),
+      databaseSizeBytes: 2048,
+      ...overrides,
+    };
+  }
+
+  it("omits the Vector Search section when stats has no vector field", () => {
+    const out = formatMemoryStats(makeStats());
+    expect(out).toContain("## Memory Statistics");
+    expect(out).not.toContain("Vector Search");
+  });
+
+  it("renders ready state with vector count", () => {
+    const out = formatMemoryStats(
+      makeStats({
+        vector: { status: "ready", count: 12, initError: null, hint: null },
+      }),
+    );
+    expect(out).toContain("### Vector Search");
+    expect(out).toContain("available");
+    expect(out).toContain("12 vectors");
+  });
+
+  it("renders initializing state", () => {
+    const out = formatMemoryStats(
+      makeStats({
+        vector: {
+          status: "initializing",
+          count: 0,
+          initError: null,
+          hint: null,
+        },
+      }),
+    );
+    expect(out).toContain("### Vector Search");
+    expect(out).toContain("initializing");
+  });
+
+  it("renders unavailable state with init error and setup hint", () => {
+    const out = formatMemoryStats(
+      makeStats({
+        vector: {
+          status: "unavailable",
+          count: 0,
+          initError: "sqlite-vec not available",
+          hint: "Run: sentinal memory setup",
+        },
+      }),
+    );
+    expect(out).toContain("### Vector Search");
+    expect(out).toContain("unavailable");
+    expect(out).toContain("sqlite-vec not available");
+    expect(out).toContain("Run: sentinal memory setup");
+  });
+
+  it("renders disabled state", () => {
+    const out = formatMemoryStats(
+      makeStats({
+        vector: { status: "disabled", count: 0, initError: null, hint: null },
+      }),
+    );
+    expect(out).toContain("### Vector Search");
+    expect(out).toContain("disabled");
   });
 });

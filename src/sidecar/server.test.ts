@@ -30,10 +30,16 @@ import {
   enableSessionAwareShutdown,
   getLastActivityTime,
   cleanupStaleSessionsOnStartup,
+  initVectorSearch,
 } from "./server.js";
 import * as pathsModule from "./paths.js";
 import * as fileLogModule from "../utils/file-log.js";
+import * as backfillModule from "../memory/backfill.js";
 import { MemoryStore } from "../memory/store.js";
+import type { VectorStore } from "../memory/vector-store.js";
+import type { EmbeddingService } from "../memory/embeddings.js";
+import type { SearchOrchestrator } from "../memory/search/orchestrator.js";
+import type { SearchResult } from "../memory/types.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function get(base: string, path: string): Promise<any> {
@@ -58,7 +64,12 @@ describe("sidecar server", () => {
   beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
     base = `http://127.0.0.1:${(sidecar.server as any).port}`;
   });
 
@@ -366,12 +377,17 @@ describe("startSidecar with missing state directory (fresh HOME)", () => {
   });
 
   it("starts (httpOnly) and writes the port file into a created state dir", async () => {
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
     expect(existsSync(join(stateDir, "sidecar.port"))).toBe(true);
   });
 
   it("starts (unix socket) and creates socket + pid files", async () => {
-    sidecar = await startSidecar({ store, port: 0 });
+    sidecar = await startSidecar({ store, port: 0, enableVectorSearch: false });
     expect(sidecar.transport).toBe("unix");
     expect(existsSync(join(stateDir, "sidecar.port"))).toBe(true);
   });
@@ -402,7 +418,11 @@ describe("startSidecar alreadyRunning port file sync", () => {
     );
 
     // Start first sidecar with Unix socket (writes correct port file)
-    firstSidecar = await startSidecar({ store, port: 0 });
+    firstSidecar = await startSidecar({
+      store,
+      port: 0,
+      enableVectorSearch: false,
+    });
     expect(firstSidecar.transport).toBe("unix");
     expect(firstSidecar.httpServer).toBeDefined();
   });
@@ -423,7 +443,11 @@ describe("startSidecar alreadyRunning port file sync", () => {
 
     // Attempt to start a second sidecar — should detect alreadyRunning
     const store2 = new MemoryStore(join(tmpDir, "test2.db"));
-    const second = await startSidecar({ store: store2, port: 0 });
+    const second = await startSidecar({
+      store: store2,
+      port: 0,
+      enableVectorSearch: false,
+    });
     expect(second.alreadyRunning).toBe(true);
 
     // Port file should now be corrected to the first sidecar's actual HTTP port
@@ -442,7 +466,11 @@ describe("startSidecar alreadyRunning port file sync", () => {
 
     // Second start attempt
     const store2 = new MemoryStore(join(tmpDir, "test2.db"));
-    const second = await startSidecar({ store: store2, port: 0 });
+    const second = await startSidecar({
+      store: store2,
+      port: 0,
+      enableVectorSearch: false,
+    });
     expect(second.alreadyRunning).toBe(true);
 
     // Port file should still be correct
@@ -568,7 +596,12 @@ describe("idle auto-shutdown", () => {
   beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
     base = `http://127.0.0.1:${(sidecar.server as any).port}`;
   });
 
@@ -848,7 +881,12 @@ describe("enableSessionAwareShutdown reason logging", () => {
   beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
 
     // Redirect log writes to tmpDir
     spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
@@ -972,5 +1010,274 @@ describe("enableSessionAwareShutdown reason logging", () => {
     const logContent = readFileSync(logPath, "utf-8");
     expect(logContent).toContain("shutting down:");
     cleanup();
+  });
+});
+
+// ─── Vector Search Wiring ─────────────────────────────────────────────────
+
+describe("vector search wiring", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>> | undefined;
+
+  function makeMockEmbeddings(opts: { available?: boolean } = {}) {
+    const available = opts.available ?? true;
+    return {
+      initialize: () => Promise.resolve(),
+      isAvailable: () => available,
+      getInitError: () => (available ? null : "transformers missing"),
+    } as unknown as EmbeddingService;
+  }
+
+  function makeMockVectorStore(
+    opts: { available?: boolean; initError?: string; count?: number } = {},
+  ) {
+    const available = opts.available ?? true;
+    return {
+      initialize: () => Promise.resolve(),
+      isAvailable: () => available,
+      getInitError: () => opts.initError ?? null,
+      getVectorCount: () => opts.count ?? 0,
+    } as unknown as VectorStore;
+  }
+
+  function makeMockOrchestrator(sentinel: SearchResult[]) {
+    return {
+      search: () => Promise.resolve(sentinel),
+      isVectorAvailable: () => true,
+    } as unknown as SearchOrchestrator;
+  }
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+  });
+
+  afterEach(() => {
+    if (sidecar) {
+      stopSidecar(sidecar.server, sidecar.ctx);
+      sidecar = undefined;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("sets vectorState to disabled when enableVectorSearch is false", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+    expect(sidecar.ctx.vectorState?.status).toBe("disabled");
+    expect(sidecar.ctx.service.isVectorAvailable()).toBe(false);
+  });
+
+  it("honors SENTINAL_DISABLE_VECTOR_SEARCH=1 env var", async () => {
+    process.env.SENTINAL_DISABLE_VECTOR_SEARCH = "1";
+    try {
+      // Deliberately omits enableVectorSearch — the env var alone must gate
+      sidecar = await startSidecar({ port: 0, httpOnly: true, store });
+      expect(sidecar.ctx.vectorState?.status).toBe("disabled");
+    } finally {
+      delete process.env.SENTINAL_DISABLE_VECTOR_SEARCH;
+    }
+  });
+
+  it("initVectorSearch injects backends into the live service and marks ready", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+
+    const sentinel: SearchResult[] = [
+      {
+        id: 7,
+        title: "Semantic hit",
+        type: "discovery",
+        timestamp: Date.now(),
+        score: 0.95,
+        estimatedTokens: 3,
+        snippet: "semantic",
+        tags: [],
+        filePaths: [],
+      },
+    ];
+    const vectorStore = makeMockVectorStore({ available: true, count: 12 });
+    const orchestrator = makeMockOrchestrator(sentinel);
+    const logSpy = spyOn(fileLogModule, "logSidecar").mockImplementation(
+      () => {},
+    );
+
+    await initVectorSearch(sidecar.ctx, {
+      createEmbeddings: () => makeMockEmbeddings(),
+      createVectorStore: () => vectorStore,
+      createOrchestrator: () => orchestrator,
+    });
+
+    expect(sidecar.ctx.vectorState?.status).toBe("ready");
+    expect(sidecar.ctx.vectorState?.vectorStore).toBe(vectorStore);
+    expect(sidecar.ctx.vectorState?.orchestrator).toBe(orchestrator);
+
+    // The LIVE service instance must now route through the orchestrator
+    expect(sidecar.ctx.service.isVectorAvailable()).toBe(true);
+    const results = await sidecar.ctx.service.search("paraphrase query");
+    expect(results).toEqual(sentinel);
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("vector search ready (12 vectors)");
+    logSpy.mockRestore();
+  });
+
+  it("fires observation backfill after vector search becomes ready", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+
+    const vectorStore = makeMockVectorStore({ available: true, count: 0 });
+    const orchestrator = makeMockOrchestrator([]);
+    const backfillSpy = spyOn(
+      backfillModule,
+      "backfillVectors",
+    ).mockResolvedValue({ scanned: 0, indexed: 0 });
+    const logSpy = spyOn(fileLogModule, "logSidecar").mockImplementation(
+      () => {},
+    );
+
+    await initVectorSearch(sidecar.ctx, {
+      createEmbeddings: () => makeMockEmbeddings(),
+      createVectorStore: () => vectorStore,
+      createOrchestrator: () => orchestrator,
+    });
+
+    expect(sidecar.ctx.vectorState?.status).toBe("ready");
+    expect(backfillSpy).toHaveBeenCalledTimes(1);
+    expect(backfillSpy.mock.calls[0][0]).toBe(sidecar.ctx.store);
+    expect(backfillSpy.mock.calls[0][1]).toBe(vectorStore);
+
+    backfillSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("does not fire backfill when vector search degrades", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+
+    const backfillSpy = spyOn(
+      backfillModule,
+      "backfillVectors",
+    ).mockResolvedValue({ scanned: 0, indexed: 0 });
+    const logSpy = spyOn(fileLogModule, "logSidecar").mockImplementation(
+      () => {},
+    );
+
+    await initVectorSearch(sidecar.ctx, {
+      createEmbeddings: () => makeMockEmbeddings(),
+      createVectorStore: () =>
+        makeMockVectorStore({ available: false, initError: "no sqlite-vec" }),
+      depsStatus: () =>
+        Promise.resolve({
+          transformers: false,
+          sqliteVec: false,
+          hint: "Run: sentinal memory setup",
+          errors: [],
+        }),
+    });
+
+    expect(sidecar.ctx.vectorState?.status).toBe("unavailable");
+    expect(backfillSpy).not.toHaveBeenCalled();
+
+    backfillSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it("records unavailable state with init error and setup hint when vector store degrades", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+
+    const logSpy = spyOn(fileLogModule, "logSidecar").mockImplementation(
+      () => {},
+    );
+
+    await initVectorSearch(sidecar.ctx, {
+      createEmbeddings: () => makeMockEmbeddings(),
+      createVectorStore: () =>
+        makeMockVectorStore({
+          available: false,
+          initError: "sqlite-vec not available",
+        }),
+      depsStatus: () =>
+        Promise.resolve({
+          transformers: false,
+          sqliteVec: false,
+          hint: "Run: sentinal memory setup",
+          errors: [],
+        }),
+    });
+
+    expect(sidecar.ctx.vectorState?.status).toBe("unavailable");
+    expect(sidecar.ctx.vectorState?.error).toContain(
+      "sqlite-vec not available",
+    );
+    expect(sidecar.ctx.service.isVectorAvailable()).toBe(false);
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("sqlite-vec not available");
+    expect(logged).toContain("Run: sentinal memory setup");
+    logSpy.mockRestore();
+
+    // Degraded INIT must insert the one-time notification (not just the
+    // lazy stats-route path) — installs that never call memory_stats still
+    // get surfaced in the dashboard.
+    const notifications = store.getNotifications();
+    expect(
+      notifications.some((n) => n.title === "Vector search unavailable"),
+    ).toBe(true);
+  });
+
+  it("records unavailable state when embeddings degrade", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+
+    const logSpy = spyOn(fileLogModule, "logSidecar").mockImplementation(
+      () => {},
+    );
+
+    await initVectorSearch(sidecar.ctx, {
+      createEmbeddings: () => makeMockEmbeddings({ available: false }),
+      createVectorStore: () => makeMockVectorStore({ available: true }),
+      depsStatus: () =>
+        Promise.resolve({
+          transformers: false,
+          sqliteVec: true,
+          hint: "Run: sentinal memory setup",
+          errors: [],
+        }),
+    });
+
+    expect(sidecar.ctx.vectorState?.status).toBe("unavailable");
+    expect(sidecar.ctx.vectorState?.error).toContain("transformers missing");
+    expect(sidecar.ctx.service.isVectorAvailable()).toBe(false);
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("Run: sentinal memory setup");
+    logSpy.mockRestore();
   });
 });

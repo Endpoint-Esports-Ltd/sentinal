@@ -197,6 +197,7 @@ describe("sidecar lifecycle", () => {
       store: testStore,
       httpOnly: true,
       port: 0,
+      enableVectorSearch: false,
     });
     const port = (result.server as any).port;
 

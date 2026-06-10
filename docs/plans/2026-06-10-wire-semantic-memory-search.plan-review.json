@@ -1,0 +1,42 @@
+{
+  "review_summary": "Strong, well-grounded plan: every clarification (runtime deps everywhere, loud alerts, startup backfill, 'sentinal memory setup', background init + late inject) maps to a concrete task, and all spot-checked file:line claims verified against the codebase (server.ts:224, vector-store.ts:73-93/:114-115/:177/:191, service.ts:30-51/:68-82/:95-101, orchestrator constructor isAvailable check, package.json:39 build:cli lacking externals). Remaining risks are the unverified bun --compile + --external interaction and test isolation for subprocess-spawned sidecars.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "bun build --compile + --external interaction is unverified",
+      "description": "Task 6 / Gotcha at plan line 55 assumes adding `--external @xenova/transformers --external sqlite-vec` to build:cli (package.json:39, verified to currently have no externals) makes the compiled binary keep bare imports as catchable runtime failures. Bun's --compile and --external interaction is not validated anywhere in the plan before Wave 4: --external under --compile may be ignored, may resolve relative to cwd's node_modules (surprising successes), or may fail with a non-Error throw that the native-deps try/catch fallback mishandles. Pre-Mortem #1 covers transformers' .node loading but NOT the bundler-flag interaction itself. Note build:opencode (package.json:36) already externalizes both packages, but that is --target node --format esm, NOT --compile — it is not evidence for the compiled path.",
+      "suggested_fix": "Add an early smoke check to Task 1's Verify (not Task 6): build a throwaway `bun build --compile` binary of a 5-line script that does `await import(\"sqlite-vec\")` with the externals flags, run it outside the repo, and confirm (a) the flags are honored, (b) the bare import throws a catchable error, (c) the deps-dir pathToFileURL fallback loads. This de-risks Waves 2-3 before they're built on the assumption."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Test isolation gate (opts.enableVectorSearch) does not cover subprocess-spawned sidecars",
+      "description": "Task 3 gates vector init on `opts.enableVectorSearch ?? true` with tests passing `false`. This only protects tests that call startSidecar() in-process. Sidecar lifecycle/integration tests (and autoStartSidecar paths) that spawn a real `sentinal sidecar start` subprocess cannot pass options — with a default of `true` those test runs will load the 23MB embedding model AND run backfill against the developer's real ~/.sentinal/memory.db (DB path is from DB_CONSTANTS, not test-scoped), mutating production memory state from the test suite. It also silently breaks the plan's own '27ms test budget' claim for any in-process call site that isn't updated to pass false.",
+      "suggested_fix": "Add an environment-variable gate checked inside initVectorSearch (e.g. `SENTINAL_DISABLE_VECTOR=1` short-circuits regardless of opts), set it in bunfig test preload or in every test that spawns the sidecar subprocess, and add to Task 3's DoD: 'grep all startSidecar call sites in *.test.ts and all subprocess spawns; none trigger vector init'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Backfill batching mitigates between-batch latency but not within-call embedding blocking",
+      "description": "User clarification requires the sidecar to 'stay responsive ~100ms for hooks'. Task 4 mitigates with batches of 5 + 50ms setTimeout, but each `embedBatch` call embeds ~3 texts per observation (title/content/tags, per vector-store.ts:152-169) and onnxruntime inference is CPU-bound — a single batch of 5 observations (~15 embeddings) can block the event loop well beyond 100ms on cold caches. The risk table rates this 'Low' without measurement. Same concern applies to index-on-save during normal operation, though that's one observation at a time.",
+      "suggested_fix": "Add to Task 4 DoD: measure wall time of one backfill batch (logSidecar timing already planned) and assert/verify hook-facing routes (e.g. /ping, /tdd-state via curl during backfill) respond <100ms while backfill runs; if not, drop batch size to 1 observation or embed texts one at a time with yields."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Backfill detection relies on DISTINCT over a vec0 aux column",
+      "description": "Task 4 uses `SELECT DISTINCT observation_id FROM observation_vectors` where observation_id is a `+aux` column in a vec0 virtual table (verified at vector-store.ts:128). Full-scan SELECTs over vec0 aux columns work in current sqlite-vec but are a less-trodden path than rowid queries, and behavior across the pinned version should be confirmed.",
+      "suggested_fix": "In backfill.test.ts, include an explicit test that the unindexed-detection query works against a real vec0 table; if it fails, fall back to deriving observation ids from `rowid/1000` (the scheme at vector-store.ts:177) which avoids aux-column scans entirely."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Minor line-reference drift: server.ts:216",
+      "description": "Plan gotcha (line 58) and Task 3 cite `server.ts:216` for `opts.store ?? new MemoryStore()`; it is actually server.ts:223 (line 224 for `new MemoryService(store)` is correct). Harmless, but the implementer instruction 'loadCustomSqlite BEFORE :216' should point at the right line. Also worth noting in the plan that SpecStore/WorktreeStore (server.ts:225-226) wrap the same MemoryStore, so no second Database is opened there — supporting the loadCustomSqlite-first ordering claim.",
+      "suggested_fix": "Update the reference to server.ts:223 and add a one-line note that SpecStore/WorktreeStore reuse the same store instance (no additional Database creation on the sidecar path)."
+    }
+  ]
+}

@@ -50,6 +50,22 @@ export class MemoryService {
     }
   }
 
+  /**
+   * Late-inject vector search backends into the LIVE service instance.
+   *
+   * The sidecar initializes the vector stack in the background after
+   * listening; routes capture `ctx.service`, so the existing instance is
+   * mutated rather than replaced. After injection, `addObservation()`
+   * auto-indexes vectors and `search()` routes through the orchestrator.
+   */
+  setSearchBackends(
+    vectorStore: VectorStore,
+    orchestrator: SearchOrchestrator,
+  ): void {
+    this.vectorStore = vectorStore;
+    this.orchestrator = orchestrator;
+  }
+
   // ─── Observations ─────────────────────────────────────────────────────
 
   addObservation(obs: CreateObservation): Observation {

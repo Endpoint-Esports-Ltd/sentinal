@@ -18,8 +18,17 @@ import { dirname } from "node:path";
 import { logSidecar } from "../utils/file-log.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
+import { loadCustomSqlite, VectorStore } from "../memory/vector-store.js";
+import { EmbeddingService } from "../memory/embeddings.js";
+import { SearchOrchestrator } from "../memory/search/orchestrator.js";
+import { backfillVectors } from "../memory/backfill.js";
+import {
+  nativeDepsStatus,
+  type NativeDepsStatus,
+} from "../memory/native-deps.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "../worktree/store.js";
+import { notifyVectorUnavailableOnce } from "./vector-stats.js";
 import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";
@@ -43,6 +52,20 @@ import {
   getSidecarPidPath,
 } from "./paths.js";
 
+// Vector init lives in vector-init.ts; re-exported for backward compatibility.
+export {
+  initVectorSearch,
+  startBackgroundVectorInit,
+  vectorSearchEnabled,
+  type VectorSearchState,
+  type InitVectorSearchDeps,
+} from "./vector-init.js";
+import {
+  startBackgroundVectorInit,
+  vectorSearchEnabled,
+} from "./vector-init.js";
+import type { VectorSearchState } from "./vector-init.js";
+
 export interface SidecarContext {
   store: MemoryStore;
   service: MemoryService;
@@ -52,6 +75,8 @@ export interface SidecarContext {
   httpPort?: number;
   /** LSP client for TypeScript diagnostics. Lazy-initialized on first use. */
   lspClient?: LspClient;
+  /** Vector search init state. Set by initVectorSearch after listen. */
+  vectorState?: VectorSearchState;
 }
 
 export interface SidecarServerOptions {
@@ -61,6 +86,12 @@ export interface SidecarServerOptions {
   httpOnly?: boolean;
   /** Specific port for HTTP fallback (0 = dynamic) */
   port?: number;
+  /**
+   * Initialize semantic vector search in the background after listen
+   * (default true). Tests pass false to avoid model loads. Also disabled
+   * by env SENTINAL_DISABLE_VECTOR_SEARCH=1 (subprocess-spawned sidecars).
+   */
+  enableVectorSearch?: boolean;
 }
 
 // ─── Session-Aware Lifecycle ─────────────────────────────────────────────────
@@ -220,6 +251,12 @@ export interface SidecarStartResult {
 export async function startSidecar(
   opts: SidecarServerOptions = {},
 ): Promise<SidecarStartResult> {
+  const vectorEnabled = vectorSearchEnabled(opts);
+  // macOS requires Database.setCustomSQLite BEFORE any Database instance
+  // exists in the process — must run before the MemoryStore below.
+  if (vectorEnabled) {
+    loadCustomSqlite();
+  }
   const store = opts.store ?? new MemoryStore();
   const service = new MemoryService(store);
   const specStore = new SpecStore(store);
@@ -328,6 +365,7 @@ export async function startSidecar(
       });
       ctx.httpPort = httpServer.port;
       writeFileSync(getSidecarPortPath(), String(httpServer.port), "utf-8");
+      startBackgroundVectorInit(ctx, vectorEnabled);
       return { server, httpServer, ctx, transport: "unix" };
     } catch {
       // Unix socket failed — fall through to HTTP-only
@@ -343,6 +381,7 @@ export async function startSidecar(
   });
   ctx.httpPort = server.port;
   writeFileSync(getSidecarPortPath(), String(server.port), "utf-8");
+  startBackgroundVectorInit(ctx, vectorEnabled);
   return { server, ctx, transport: "http" };
 }
 

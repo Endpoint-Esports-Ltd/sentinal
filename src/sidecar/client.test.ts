@@ -33,7 +33,12 @@ describe("SidecarClient", () => {
   beforeEach(async () => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
 
     // Redirect log writes to tmpDir so healthy-path tests can assert no writes
     spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
@@ -363,7 +368,7 @@ describe("SidecarClient.connect port file self-heal", () => {
     );
 
     // Start sidecar with Unix socket + HTTP
-    sidecar = await startSidecar({ store, port: 0 });
+    sidecar = await startSidecar({ store, port: 0, enableVectorSearch: false });
     expect(sidecar.transport).toBe("unix");
   });
 
@@ -433,7 +438,12 @@ describe("SidecarClient.qualityCheck", () => {
       join(tmpDir, "sidecar.pid"),
     );
 
-    sidecar = await startSidecar({ store, port: 0, httpOnly: true });
+    sidecar = await startSidecar({
+      store,
+      port: 0,
+      httpOnly: true,
+      enableVectorSearch: false,
+    });
   });
 
   afterEach(() => {
@@ -513,7 +523,12 @@ describe("SidecarClient self-healing reconnect", () => {
     SidecarClient.reconnectAttempts = 3;
     SidecarClient.reconnectDelayMs = 20;
 
-    sidecar = await startSidecar({ store, httpOnly: true, port: 0 });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
   });
 
   afterEach(() => {
@@ -544,7 +559,12 @@ describe("SidecarClient self-healing reconnect", () => {
 
     // ...and a new one comes up at a different port (port file rewritten)
     const store2 = new MemoryStore(join(tmpDir, "test2.db"));
-    respawned = await startSidecar({ store: store2, httpOnly: true, port: 0 });
+    respawned = await startSidecar({
+      store: store2,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
 
     // Cached client must transparently heal and the save must succeed
     const obs = await client!.addObservation(obsPayload);
@@ -567,11 +587,14 @@ describe("SidecarClient self-healing reconnect", () => {
     // autoStartFn simulates `sentinal sidecar start` coming up shortly after
     const store2 = new MemoryStore(join(tmpDir, "test2.db"));
     SidecarClient.autoStartFn = () => {
-      void startSidecar({ store: store2, httpOnly: true, port: 0 }).then(
-        (r) => {
-          respawned = r;
-        },
-      );
+      void startSidecar({
+        store: store2,
+        httpOnly: true,
+        port: 0,
+        enableVectorSearch: false,
+      }).then((r) => {
+        respawned = r;
+      });
     };
 
     const obs = await client!.addObservation(obsPayload);

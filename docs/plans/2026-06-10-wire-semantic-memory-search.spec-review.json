@@ -1,0 +1,77 @@
+{
+  "pass_summary": "Implementation faithfully wires the existing semantic stack per plan: native-dep resolution with deps-dir + createRequire fallbacks, `memory setup` provisioning, background sidecar init with late-inject via setSearchBackends (mutating the live service, avoiding Pre-Mortem #3), paced idempotent backfill, and observability — all with solid injectable-dependency test coverage. Live adversarial check confirms semantic search works: the keyword-free paraphrase returned observations #130/#124 as top hits through the real sidecar. Main gap: the one-time degraded notification fires lazily on the stats route rather than at degraded init as the Task 5 DoD specifies.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Degraded-init notification is lazy (stats-route-triggered), not inserted at init",
+      "description": "Task 5 DoD says 'Degraded init inserts exactly one notification per version'. In src/sidecar/routes.ts:345-352, notifyVectorUnavailableOnce() only runs inside handleMemoryStats when someone calls /memory/stats while vectorState.status === 'unavailable'. Neither initVectorSearch's catch block nor markVectorUnavailable (src/sidecar/server.ts) inserts the notification. A degraded install where memory_stats is never invoked gets the log line but never the dashboard notification — the comment 'avoids touching server.ts's init path' acknowledges this was a deliberate Wave-3 coordination tradeoff, but it weakens the 'loud degrade' guarantee the plan leans on for the compiled-binary path.",
+      "suggested_fix": "Call notifyVectorUnavailableOnce(ctx.store, reason) from markVectorUnavailable() and from initVectorSearch's outer catch in src/sidecar/server.ts (the settings-key guard already makes it safe to also keep the lazy stats-route call)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "Backfill aborts the whole run if a single indexObservation rejects",
+      "description": "src/memory/backfill.ts:57-64 awaits vectorStore.indexObservation() with no per-observation try/catch. If one observation's indexing rejects (e.g. transient embedding failure), the entire backfill loop aborts via the .catch in server.ts:initVectorSearch, leaving all remaining observations unindexed until the next sidecar restart. Idempotency makes retry safe, but one bad observation shouldn't starve the rest.",
+      "suggested_fix": "Wrap the indexObservation call in try/catch inside the loop in src/memory/backfill.ts, log the failing observation id, and continue; report failures in BackfillResult (e.g. add a `failed` count)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Test-only conditional in production resolution path",
+      "description": "src/memory/native-deps.ts:144 — `if (path && opts.importer) return path; // injected importer in tests` embeds a test-only branch in resolveSqliteVecPath's production logic. A future caller passing a custom importer in production would skip the existsSync guard and could return a non-existent dylib path, deferring the failure to db.loadExtension with a less actionable error.",
+      "suggested_fix": "Replace with an explicit option (e.g. `skipExistsCheck?: boolean` set only by tests) or have tests inject an fs/existsSync stub like the importer, keeping production semantics uniform."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "server.ts exceeds the repo's 400-line warn threshold; planned vector-init.ts split not done",
+      "description": "src/sidecar/server.ts grew by ~155 lines (Implementation Notes record 532 lines, over Sentinal's own 400-line warn limit). The plan's Wave 2 notes flagged 'consider splitting src/sidecar/vector-init.ts after Task 4's hook lands' — the hook landed but the split didn't. initVectorSearch/markVectorUnavailable/startBackgroundVectorInit plus their injectable deps interface are a cohesive, extractable unit.",
+      "suggested_fix": "Extract VectorSearchState, InitVectorSearchDeps, initVectorSearch, markVectorUnavailable, and startBackgroundVectorInit into src/sidecar/vector-init.ts (mirroring how vector-stats.ts was factored out), re-exporting VectorSearchState from server.ts for consumers."
+    },
+    {
+      "severity": "suggestion",
+      "category": "goal_achievement",
+      "title": "Deployed MCP binary renders stats without the Vector Search section until updated",
+      "description": "Live check: the sidecar serves stats.vector correctly, but the memory_stats render observed through the currently installed sentinal MCP binary omits the '### Vector Search' section because formatMemoryStats runs client-side in mcp-tools.ts and the installed binary predates this change. Not a code defect — formatMemoryStats deliberately omits the section when `vector` is absent — but until users update the CLI binary, truth #5's visible behavior depends on which component is stale.",
+      "suggested_fix": "No code change needed; ensure the release that ships the sidecar change also ships the CLI/MCP binary (already the case via build:cli), and note in the deferred-issues list that stale installed binaries won't render the vector section."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/sidecar/server.ts contains SearchOrchestrator and setSearchBackends wiring",
+      "status": "verified",
+      "evidence": "Diff shows `import { SearchOrchestrator } from \"../memory/search/orchestrator.js\"` and `ctx.service.setSearchBackends(vectorStore, orchestrator)` inside initVectorSearch; orchestrator constructed only after `await vectorStore.initialize()` + embeddings init, per the construction-time isAvailable() gotcha."
+    },
+    {
+      "truth": "package.json build:cli includes --external @xenova/transformers --external sqlite-vec",
+      "status": "verified",
+      "evidence": "package.json diff adds both externals to build:cli; scripts/release-build.mjs also adds the same externals for all release targets (beyond plan scope, correct — release binaries would otherwise diverge from local build:cli)."
+    },
+    {
+      "truth": "After sidecar restart, observation_vectors exists with ≥130 distinct observation_ids (backfill ran)",
+      "status": "verified",
+      "evidence": "Indirectly proven live: semantic retrieval of pre-existing observations #124/#130 (created 2026-06-09, before vector wiring) through the running sidecar requires their vectors to exist, which only backfill could have created. Consistent with self-reported 132/132; direct sqlite3 query unavailable in this review environment."
+    },
+    {
+      "truth": "memory_search with keyword-free paraphrase 'upgrading the tool leaves old extension files behind' returns observation #124 or #130",
+      "status": "verified",
+      "evidence": "Independently executed live via the sentinal MCP memory_search: top two results were #130 ('sentinal update now spawns the new binary for plugin reinstall') and #124 ('sentinal update deploys stale embedded assets') — neither shares FTS keywords with the query, confirming semantic ranking."
+    },
+    {
+      "truth": "memory_stats output contains a vector status section",
+      "status": "verified",
+      "evidence": "Code + tests: formatMemoryStats/formatVectorSection in src/memory/mcp-tools.ts render all four states (ready/initializing/disabled/unavailable with error+hint); routes.ts handleMemoryStats attaches buildVectorStats(ctx.vectorState); covered in mcp-tools.test.ts and routes.test.ts. Live render through this session's pre-update installed MCP binary omits the section (stale client-side renderer — see suggestion issue), not a code defect."
+    },
+    {
+      "truth": "src/memory/cli.ts contains case \"setup\" (command exists)",
+      "status": "verified",
+      "evidence": "Diff shows `case \"setup\": return await runSetupCommand();` hoisted ABOVE MemoryStore creation (Pre-Mortem #2 fix), plus help text and `memory` added to the update-check skip list in src/cli/index.ts to avoid poisoning Database.setCustomSQLite()."
+    }
+  ]
+}

@@ -5,7 +5,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { MemoryService } from "./service.js";
 import { MemoryStore } from "./store.js";
-import type { CreateObservation } from "./types.js";
+import type { VectorStore } from "./vector-store.js";
+import type { SearchOrchestrator } from "./search/orchestrator.js";
+import type { CreateObservation, SearchResult } from "./types.js";
 
 function makeObservation(
   overrides: Partial<CreateObservation> = {},
@@ -203,6 +205,83 @@ describe("MemoryService", () => {
       expect(stats.totalObservations).toBe(2);
       expect(stats.byType.decision).toBe(1);
       expect(stats.byType.fix).toBe(1);
+    });
+  });
+
+  describe("setSearchBackends", () => {
+    function makeMockBackends() {
+      const indexCalls: unknown[][] = [];
+      const vectorStore = {
+        isAvailable: () => true,
+        indexObservation: (...args: unknown[]) => {
+          indexCalls.push(args);
+          return Promise.resolve(3);
+        },
+        removeObservation: () => {},
+      } as unknown as VectorStore;
+
+      const sentinel: SearchResult[] = [
+        {
+          id: 42,
+          title: "From orchestrator",
+          type: "discovery",
+          timestamp: Date.now(),
+          score: 0.9,
+          estimatedTokens: 5,
+          snippet: "orchestrator result",
+          tags: [],
+          filePaths: [],
+        },
+      ];
+      const searchCalls: unknown[][] = [];
+      const orchestrator = {
+        search: (...args: unknown[]) => {
+          searchCalls.push(args);
+          return Promise.resolve(sentinel);
+        },
+        isVectorAvailable: () => true,
+      } as unknown as SearchOrchestrator;
+
+      return { vectorStore, orchestrator, indexCalls, searchCalls, sentinel };
+    }
+
+    it("routes search() through the injected orchestrator", async () => {
+      const { vectorStore, orchestrator, searchCalls, sentinel } =
+        makeMockBackends();
+
+      // Before injection: FTS fallback, orchestrator untouched
+      service.addObservation(makeObservation({ title: "JWT authentication" }));
+      const before = await service.search("authentication");
+      expect(before[0]?.title).toBe("JWT authentication");
+      expect(searchCalls).toHaveLength(0);
+
+      service.setSearchBackends(vectorStore, orchestrator);
+
+      const after = await service.search("authentication");
+      expect(after).toEqual(sentinel);
+      expect(searchCalls).toHaveLength(1);
+      expect(searchCalls[0]?.[0]).toBe("authentication");
+    });
+
+    it("auto-indexes new observations via the injected vectorStore", () => {
+      const { vectorStore, orchestrator, indexCalls } = makeMockBackends();
+      service.setSearchBackends(vectorStore, orchestrator);
+
+      const obs = service.addObservation(
+        makeObservation({ title: "Indexed observation" }),
+      );
+
+      expect(indexCalls).toHaveLength(1);
+      expect(indexCalls[0]?.[0]).toBe(obs.id);
+      expect(indexCalls[0]?.[1]).toBe("Indexed observation");
+    });
+
+    it("reports vector availability after injection", () => {
+      const { vectorStore, orchestrator } = makeMockBackends();
+
+      expect(service.isVectorAvailable()).toBe(false);
+      service.setSearchBackends(vectorStore, orchestrator);
+      expect(service.isVectorAvailable()).toBe(true);
     });
   });
 

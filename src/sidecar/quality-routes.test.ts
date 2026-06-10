@@ -33,7 +33,12 @@ beforeAll(async () => {
   mkdirSync(tmpDir, { recursive: true });
 
   const store = new MemoryStore(join(tmpDir, "test.db"));
-  sidecar = await startSidecar({ store, port: 0, httpOnly: true });
+  sidecar = await startSidecar({
+    store,
+    port: 0,
+    httpOnly: true,
+    enableVectorSearch: false,
+  });
   const port = sidecar.server.port;
   base = `http://127.0.0.1:${port}`;
 });

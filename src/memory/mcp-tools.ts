@@ -15,7 +15,11 @@ import { z } from "zod";
 import type { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
-import type { ObservationType } from "./types.js";
+import type {
+  MemoryStats,
+  ObservationType,
+  VectorSearchStats,
+} from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { mcpText } from "../mcp/helpers.js";
 import { decayQualityScores } from "./maintenance.js";
@@ -433,44 +437,68 @@ function registerStatsTool(
     {},
     async () => {
       const stats = client ? await client.memoryStats() : service!.getStats();
-
-      const lines = [
-        "## Memory Statistics",
-        "",
-        `- **Total Observations:** ${stats.totalObservations}`,
-        `- **Total Sessions:** ${stats.totalSessions}`,
-        `- **Database Size:** ${(stats.databaseSizeBytes / 1024).toFixed(1)} KB`,
-      ];
-
-      if (stats.oldestTimestamp && stats.newestTimestamp) {
-        const oldest = new Date(stats.oldestTimestamp)
-          .toISOString()
-          .split("T")[0];
-        const newest = new Date(stats.newestTimestamp)
-          .toISOString()
-          .split("T")[0];
-        lines.push(`- **Date Range:** ${oldest} to ${newest}`);
-      }
-
-      const typeEntries = Object.entries(stats.byType).filter(
-        ([, v]) => (v as number) > 0,
-      );
-      if (typeEntries.length > 0) {
-        lines.push("", "### By Type");
-        for (const [t, count] of typeEntries) {
-          lines.push(`- ${t}: ${count}`);
-        }
-      }
-
-      const projectEntries = Object.entries(stats.byProject);
-      if (projectEntries.length > 0) {
-        lines.push("", "### By Project");
-        for (const [p, count] of projectEntries) {
-          lines.push(`- ${p}: ${count}`);
-        }
-      }
-
-      return mcpText(lines.join("\n"));
+      return mcpText(formatMemoryStats(stats));
     },
   );
+}
+
+/**
+ * Render MemoryStats as markdown. Exported for testing. The vector section
+ * is omitted when the payload has no `vector` field (e.g. an old sidecar).
+ */
+export function formatMemoryStats(stats: MemoryStats): string {
+  const lines = [
+    "## Memory Statistics",
+    "",
+    `- **Total Observations:** ${stats.totalObservations}`,
+    `- **Total Sessions:** ${stats.totalSessions}`,
+    `- **Database Size:** ${(stats.databaseSizeBytes / 1024).toFixed(1)} KB`,
+  ];
+
+  if (stats.oldestTimestamp && stats.newestTimestamp) {
+    const oldest = new Date(stats.oldestTimestamp).toISOString().split("T")[0];
+    const newest = new Date(stats.newestTimestamp).toISOString().split("T")[0];
+    lines.push(`- **Date Range:** ${oldest} to ${newest}`);
+  }
+
+  const typeEntries = Object.entries(stats.byType).filter(
+    ([, v]) => (v as number) > 0,
+  );
+  if (typeEntries.length > 0) {
+    lines.push("", "### By Type");
+    for (const [t, count] of typeEntries) {
+      lines.push(`- ${t}: ${count}`);
+    }
+  }
+
+  const projectEntries = Object.entries(stats.byProject);
+  if (projectEntries.length > 0) {
+    lines.push("", "### By Project");
+    for (const [p, count] of projectEntries) {
+      lines.push(`- ${p}: ${count}`);
+    }
+  }
+
+  if (stats.vector) {
+    lines.push("", "### Vector Search", ...formatVectorSection(stats.vector));
+  }
+
+  return lines.join("\n");
+}
+
+function formatVectorSection(vector: VectorSearchStats): string[] {
+  switch (vector.status) {
+    case "ready":
+      return [`- **Status:** available (${vector.count} vectors)`];
+    case "initializing":
+      return ["- **Status:** initializing"];
+    case "disabled":
+      return ["- **Status:** disabled"];
+    case "unavailable": {
+      const lines = ["- **Status:** unavailable"];
+      if (vector.initError) lines.push(`- **Error:** ${vector.initError}`);
+      if (vector.hint) lines.push(`- **Hint:** ${vector.hint}`);
+      return lines;
+    }
+  }
 }

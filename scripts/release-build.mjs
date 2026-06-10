@@ -45,10 +45,13 @@ for (const { os, arch } of TARGETS) {
   const target = `bun-${os}-${arch}`;
   const outfile = `${DIST_DIR}/sentinal-${os}-${arch}`;
   const define = `--define __SENTINAL_VERSION__="'${version}'"`;
+  // Native deps cannot live inside compiled binaries — resolved at runtime
+  // from ~/.sentinal/deps (see src/memory/native-deps.ts).
+  const externals = "--external @xenova/transformers --external sqlite-vec";
 
   console.log(`  Compiling ${target}...`);
   execSync(
-    `bun build --compile --target=${target} ${ENTRY} --outfile ${outfile} ${define}`,
+    `bun build --compile --target=${target} ${ENTRY} --outfile ${outfile} ${externals} ${define}`,
     { stdio: "inherit" },
   );
 }

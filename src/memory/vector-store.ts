@@ -16,6 +16,7 @@ import { platform } from "node:os";
 import { EmbeddingService } from "./embeddings.js";
 import { EMBEDDING_CONSTANTS } from "./embeddings.js";
 import { SEARCH_CONSTANTS } from "./types.js";
+import { resolveSqliteVecPath, SETUP_HINT } from "./native-deps.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,8 +112,13 @@ export class VectorStore {
    */
   async initialize(): Promise<void> {
     try {
-      const sqliteVec = await import("sqlite-vec");
-      this.db.loadExtension(sqliteVec.getLoadablePath());
+      // Resolved at runtime: bare import (source) or ~/.sentinal/deps
+      // (compiled binary, provisioned by `sentinal memory setup`).
+      const loadablePath = await resolveSqliteVecPath();
+      if (!loadablePath) {
+        throw new Error(`sqlite-vec not available. ${SETUP_HINT}`);
+      }
+      this.db.loadExtension(loadablePath);
       this.createTables();
       this.available = true;
     } catch (error) {
