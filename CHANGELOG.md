@@ -1,3 +1,10 @@
+## [1.30.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.30.0...v1.30.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* **dashboard:** stop dashboard when sidecar shuts down; add lifecycle logging ([1e7b422](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1e7b422178d8a4a96847d11c947fcb1229b42c9e))
+
 # [1.30.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.2...v1.30.0) (2026-06-10)
 
 
