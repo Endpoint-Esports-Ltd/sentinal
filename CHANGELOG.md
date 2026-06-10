@@ -1,3 +1,10 @@
+## [1.31.5](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.4...v1.31.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* **opencode:** plugin module must export ONLY the plugin function ([7be3909](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7be3909b2c41213c077a0726c8bb05fff3747cb6))
+
 ## [1.31.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.3...v1.31.4) (2026-06-10)
 
 
