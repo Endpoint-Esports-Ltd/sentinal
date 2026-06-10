@@ -1,7 +1,41 @@
 import { describe, expect, it } from "bun:test";
 // NOTE: import the .ts source explicitly — a stale tracked sentinal.js
 // artifact in this directory would otherwise shadow it in bun's resolution.
-import { SentinalPlugin, ensureDashboardForTest } from "./sentinal.ts";
+import {
+  SentinalPlugin,
+  ensureDashboardForTest,
+  parseBinaryVersion,
+} from "./sentinal.ts";
+
+/**
+ * parseBinaryVersion — regression guard for the 2026-06-10 incident where a
+ * mid-update binary printed the literal string "undefined" for --version,
+ * which sailed past the `?? "unknown"` guard and triggered a version-mismatch
+ * respawn ("running=1.30.0 current=undefined"). Only MAJOR.MINOR.PATCH...
+ * stdout counts as a version; anything else is null (= unknown, no respawn).
+ */
+describe("parseBinaryVersion", () => {
+  it("accepts plain semver", () => {
+    expect(parseBinaryVersion("1.31.1\n")).toBe("1.31.1");
+  });
+
+  it("accepts prerelease/build suffixes", () => {
+    expect(parseBinaryVersion("1.31.1-beta.2")).toBe("1.31.1-beta.2");
+    expect(parseBinaryVersion("2.0.0+build.5\n")).toBe("2.0.0+build.5");
+  });
+
+  it("rejects the literal string 'undefined'", () => {
+    expect(parseBinaryVersion("undefined")).toBeNull();
+    expect(parseBinaryVersion("undefined\n")).toBeNull();
+  });
+
+  it("rejects empty and garbage output", () => {
+    expect(parseBinaryVersion("")).toBeNull();
+    expect(parseBinaryVersion("   \n")).toBeNull();
+    expect(parseBinaryVersion("error: something broke")).toBeNull();
+    expect(parseBinaryVersion("v1.2.3")).toBeNull(); // binary prints bare semver, no v-prefix
+  });
+});
 
 /**
  * Plugin load smoke test.

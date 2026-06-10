@@ -3,7 +3,70 @@
  */
 
 import { describe, it, expect, spyOn, afterEach, mock } from "bun:test";
-import { deepMergeAdditive, checkPlaywrightCli } from "./install.js";
+import {
+  deepMergeAdditive,
+  checkPlaywrightCli,
+  buildPluginList,
+} from "./install.js";
+
+// ─── buildPluginList tests ───────────────────────────────────────────────────
+//
+// Regression guard for the plugin double-load defect: binary-mode install wrote
+// plugins/sentinal.mjs (auto-loaded by OpenCode's directory scan) AND appended
+// "./plugins/sentinal.mjs" to config.plugin — the same module loaded twice per
+// session. Binary mode must rely on directory auto-load ONLY; npm mode has no
+// file in plugins/ and legitimately needs the config entry.
+
+describe("buildPluginList", () => {
+  const NPM_REF = "@endpoint/sentinal/opencode-plugin";
+
+  it("binary mode: removes legacy sentinal file entry, keeps other plugins", () => {
+    const result = buildPluginList(
+      ["./plugins/sentinal.mjs", "opencode-wakatime"],
+      true,
+      "./plugins/sentinal.mjs",
+    );
+    expect(result).toEqual(["opencode-wakatime"]);
+  });
+
+  it("binary mode: returns undefined when only sentinal entries existed (key should be omitted)", () => {
+    const result = buildPluginList(["./plugins/sentinal.mjs"], true, "./plugins/sentinal.mjs");
+    expect(result).toBeUndefined();
+  });
+
+  it("binary mode: returns undefined for empty/missing existing list", () => {
+    expect(buildPluginList(undefined, true, "./plugins/sentinal.mjs")).toBeUndefined();
+    expect(buildPluginList([], true, "./plugins/sentinal.mjs")).toBeUndefined();
+  });
+
+  it("binary mode: also removes legacy npm-ref sentinal entries", () => {
+    const result = buildPluginList(
+      [NPM_REF, "other-plugin"],
+      true,
+      "./plugins/sentinal.mjs",
+    );
+    expect(result).toEqual(["other-plugin"]);
+  });
+
+  it("npm mode: appends the package reference exactly once", () => {
+    const result = buildPluginList(["other-plugin"], false, NPM_REF);
+    expect(result).toEqual(["other-plugin", NPM_REF]);
+  });
+
+  it("npm mode: replaces legacy sentinal entries with the package reference", () => {
+    const result = buildPluginList(
+      ["./plugins/sentinal.mjs", "other-plugin", NPM_REF],
+      false,
+      NPM_REF,
+    );
+    expect(result).toEqual(["other-plugin", NPM_REF]);
+  });
+
+  it("preserves non-sentinal plugin order", () => {
+    const result = buildPluginList(["a-plugin", "b-plugin", "c-plugin"], true, "./plugins/sentinal.mjs");
+    expect(result).toEqual(["a-plugin", "b-plugin", "c-plugin"]);
+  });
+});
 
 // ─── deepMergeAdditive tests ─────────────────────────────────────────────────
 

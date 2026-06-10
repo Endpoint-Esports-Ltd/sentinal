@@ -171,6 +171,19 @@ function log(message: string): void {
   logToFile(PLUGIN_LOG_FILE, message);
 }
 
+/**
+ * Validate `sentinal --version` stdout. A binary caught mid-update once
+ * printed the literal string "undefined", which passed the `?? "unknown"`
+ * guard and triggered a bogus version-mismatch respawn. Only bare
+ * MAJOR.MINOR.PATCH (optionally with prerelease/build suffix) is a version.
+ */
+export function parseBinaryVersion(stdout: string): string | null {
+  const trimmed = stdout.trim();
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
 /** Read the installed binary's version string (e.g. "1.30.1"). Cached after first call. */
 let _cachedBinaryVersion: string | null | undefined = undefined; // undefined = not yet fetched; null = fetch failed
 async function getBinaryVersion(): Promise<string | null> {
@@ -185,7 +198,7 @@ async function getBinaryVersion(): Promise<string | null> {
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
     const { stdout } = await execFileAsync(binPath, ["--version"], { timeout: 3000 });
-    _cachedBinaryVersion = stdout.trim();
+    _cachedBinaryVersion = parseBinaryVersion(stdout);
     return _cachedBinaryVersion;
   } catch {
     _cachedBinaryVersion = null; // cache the failure — don't retry every call
