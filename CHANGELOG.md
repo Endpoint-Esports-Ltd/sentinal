@@ -1,3 +1,16 @@
+# [1.30.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.2...v1.30.0) (2026-06-10)
+
+
+### Bug Fixes
+
+* **test:** Bun cannot reset process.exitCode to undefined — CI exited 1 with all tests passing ([6d26afe](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/6d26afe552c88960df901b5659aa21de6dbd2f6b))
+
+
+### Features
+
+* **memory:** wire semantic vector search into the sidecar ([01d1507](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/01d1507e599cac35aa86c4d7682c322b0c8de96f)), closes [#131](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/131) [#1](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/1)
+* **memory:** zero-touch semantic search for compiled binaries via setup-time bundling ([e4927d5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e4927d5c28cd6801d6983615b7f23c6cb9a3b063)), closes [#1](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/1)
+
 ## [1.29.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.29.1...v1.29.2) (2026-06-09)
 
 
