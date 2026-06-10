@@ -1,3 +1,10 @@
+## [1.31.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.0...v1.31.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* **opencode:** bundle zod into plugin — bare external import crashed OpenCode at startup ([f0cbfbd](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f0cbfbd9c2b76b3d96be0e46da99f7facfa13f6c))
+
 # [1.31.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.30.1...v1.31.0) (2026-06-10)
 
 
