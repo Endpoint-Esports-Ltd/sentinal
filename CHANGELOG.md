@@ -1,3 +1,10 @@
+## [1.31.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.3...v1.31.4) (2026-06-10)
+
+
+### Bug Fixes
+
+* **opencode:** harden plugin version read — runtime TypeError killed plugin load on OSX ([c940faf](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c940fafdf370da664807d971a210e87301d134cf))
+
 ## [1.31.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.2...v1.31.3) (2026-06-10)
 
 
