@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.30.1...v1.31.0) (2026-06-10)
+
+
+### Features
+
+* **dashboard:** idempotent serve, version-aware plugin, README refresh ([45f0af2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/45f0af2a8b4c7bb71ae45f9e5d1361816be22e7e))
+
 ## [1.30.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.30.0...v1.30.1) (2026-06-10)
 
 
