@@ -176,6 +176,54 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  describe("embedded OpenCode plugin — must be self-contained (no bare external imports)", () => {
+    // Root cause guard for the 2026-06-10 Linux startup failure: the plugin
+    // bundle shipped with `--external zod`, leaving bare `from "zod"` imports
+    // in sentinal.mjs. Bun only auto-installs such imports when the loading
+    // directory has NO node_modules/lockfile; machines with deps in
+    // ~/.config/opencode/ (e.g. other plugins) get `Cannot find package 'zod'`
+    // at import time, which kills OpenCode with "Unexpected server error"
+    // BEFORE any logging. The shipped plugin must never bare-import anything
+    // except node: builtins. (bun:sqlite / sqlite-vec / @xenova/transformers
+    // stay external in build flags but must not be reachable from the
+    // plugin's import graph either.)
+    const FORBIDDEN_SPECIFIERS = [
+      "zod",
+      "bun:sqlite",
+      "sqlite-vec",
+      "@xenova/transformers",
+    ];
+
+    it("EMBEDDED_OPENCODE_PLUGIN contains no bare imports of zod or native externals", async () => {
+      const { EMBEDDED_OPENCODE_PLUGIN } = await import("./embedded-assets.js");
+      const offenders: string[] = [];
+      for (const spec of FORBIDDEN_SPECIFIERS) {
+        const escaped = spec.replace(/[/@:]/g, (c) => `\\${c}`);
+        const patterns = [
+          new RegExp(`from\\s*["']${escaped}["']`),
+          new RegExp(`require\\(\\s*["']${escaped}["']\\s*\\)`),
+          new RegExp(`import\\(\\s*["']${escaped}["']\\s*\\)`),
+        ];
+        for (const re of patterns) {
+          const m = EMBEDDED_OPENCODE_PLUGIN.match(re);
+          if (m) offenders.push(`${spec} (${m[0]})`);
+        }
+      }
+      if (offenders.length > 0) {
+        throw new Error(
+          `Embedded OpenCode plugin bundle has bare external imports that ` +
+            `crash OpenCode at plugin load on machines where the import ` +
+            `cannot resolve from ~/.config/opencode/ (no Bun auto-install ` +
+            `when node_modules/lockfile present):\n  ${offenders.join("\n  ")}\n` +
+            `Fix: ensure these are bundled (remove from --external in ` +
+            `package.json build:opencode) or unreachable from the plugin graph, ` +
+            `then run 'bun run embed-assets'.`,
+        );
+      }
+      expect(offenders).toEqual([]);
+    });
+  });
+
   describe("targets/claude-code/ — must KEEP Claude Code namespace prefixes (preservation guard)", () => {
     it("Claude Code rules/task-and-workflow.md still references 'sentinal:plan-reviewer' and 'sentinal:spec-reviewer'", () => {
       const file = join(CLAUDE_DIR, "rules", "task-and-workflow.md");

@@ -33,7 +33,7 @@
   "scripts": {
     "build:claude": "tsc -p targets/claude-code/tsconfig.json",
     "build:claude:watch": "tsc -p targets/claude-code/tsconfig.json --watch",
-    "build:opencode": "bun build targets/opencode/plugins/sentinal.ts --outfile targets/opencode/dist/sentinal.mjs --target node --format esm --external bun:sqlite --external @xenova/transformers --external sqlite-vec --external zod",
+    "build:opencode": "bun build targets/opencode/plugins/sentinal.ts --outfile targets/opencode/dist/sentinal.mjs --target node --format esm --external bun:sqlite --external @xenova/transformers --external sqlite-vec",
     "deploy:opencode": "bun run build:opencode && cp targets/opencode/dist/sentinal.mjs ~/.config/opencode/plugins/sentinal.mjs",
     "embed-assets": "bun run build:opencode && node scripts/embed-assets.mjs",
     "build:cli": "bun run embed-assets && bun build --compile src/cli/index.ts --outfile dist/sentinal --external @xenova/transformers --external sqlite-vec --define __SENTINAL_VERSION__=\"'$(node -p \"require('./package.json').version\")'\"",
