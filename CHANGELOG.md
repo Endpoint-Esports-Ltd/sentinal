@@ -1,3 +1,10 @@
+## [1.31.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.2...v1.31.3) (2026-06-10)
+
+
+### Bug Fixes
+
+* **opencode:** restore plugin config entry — v1.31.2 silently disabled the plugin ([b1be5e1](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/b1be5e12d81aa25943d393ad975234e8d8894e7f))
+
 ## [1.31.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.1...v1.31.2) (2026-06-10)
 
 
