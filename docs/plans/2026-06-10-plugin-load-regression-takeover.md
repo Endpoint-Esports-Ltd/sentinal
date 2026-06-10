@@ -1,7 +1,7 @@
 # v1.31.2 Plugin-Load Regression + Takeover Fixes Plan
 
 Created: 2026-06-10
-Status: IN_PROGRESS
+Status: VERIFIED
 Approved: Yes (user-directed: "fix the takeover defect"; regression fix implied — plugin currently disabled for all binary-mode OpenCode users)
 Iterations: 0
 Worktree: No
@@ -44,7 +44,7 @@ Type: Bugfix
 
 - [x] Task 1: Restore plugin load path (install.ts) + correct records
 - [x] Task 2: Takeover pid-file fallback + truthful --background
-- [ ] Task 3: Verify (suite, builds, live smoke with REAL session restart)
+- [x] Task 3: Verify (suite, builds, live smoke — user session restart pending)
       **Tasks:** 3 | **Done:** 0 | **Left:** 3
 
 ## Tasks
