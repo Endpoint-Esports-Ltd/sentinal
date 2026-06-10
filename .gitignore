@@ -3,5 +3,7 @@ dist/
 targets/claude-code/hooks/dist/
 *.tsbuildinfo
 .DS_Store
+# OpenCode-local tool state — only .opencode/skills/ is tracked
+.opencode/package-lock.json
 # .sentinal/ contents controlled by .sentinal/.gitignore (ignores all except rules/, skills/, project-memory.json)
 .idea/
