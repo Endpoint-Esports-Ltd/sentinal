@@ -176,15 +176,43 @@ function log(message: string): void {
  * printed the literal string "undefined", which passed the `?? "unknown"`
  * guard and triggered a bogus version-mismatch respawn. Only bare
  * MAJOR.MINOR.PATCH (optionally with prerelease/build suffix) is a version.
+ *
+ * ⛔ Input is typed `string` but treated as UNKNOWN: under OpenCode's
+ * embedded Bun runtime, child_process stdout arrived as a non-string
+ * (Buffer-like), and the resulting `stdout.trim is not a function`
+ * TypeError escaped the caller's try/catch (thrown in the runtime's
+ * internal callback context) and killed the ENTIRE plugin at load
+ * (2026-06-10 OSX incident). This function must never throw.
  */
 export function parseBinaryVersion(stdout: string): string | null {
-  const trimmed = stdout.trim();
+  let s: string;
+  if (typeof stdout === "string") {
+    s = stdout;
+  } else if (stdout == null) {
+    return null;
+  } else {
+    try {
+      s = String(stdout);
+    } catch {
+      return null;
+    }
+  }
+  const trimmed = s.trim();
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(trimmed)
     ? trimmed
     : null;
 }
 
-/** Read the installed binary's version string (e.g. "1.30.1"). Cached after first call. */
+/**
+ * Read the installed binary's version string (e.g. "1.30.1"). Cached after
+ * first call.
+ *
+ * Uses SYNCHRONOUS spawnSync with explicit utf8 encoding — the previous
+ * async execFile+promisify path let a TypeError thrown inside the runtime's
+ * child-process callback escape this function's try/catch under OpenCode's
+ * embedded Bun, failing the entire plugin load (2026-06-10 OSX incident).
+ * spawnSync keeps every throw inside this stack frame.
+ */
 let _cachedBinaryVersion: string | null | undefined = undefined; // undefined = not yet fetched; null = fetch failed
 async function getBinaryVersion(): Promise<string | null> {
   if (_cachedBinaryVersion !== undefined) return _cachedBinaryVersion;
@@ -194,11 +222,12 @@ async function getBinaryVersion(): Promise<string | null> {
     return null;
   }
   try {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync(binPath, ["--version"], { timeout: 3000 });
-    _cachedBinaryVersion = parseBinaryVersion(stdout);
+    const { spawnSync } = await import("node:child_process");
+    const result = spawnSync(binPath, ["--version"], {
+      encoding: "utf8",
+      timeout: 3000,
+    });
+    _cachedBinaryVersion = parseBinaryVersion(result.stdout as string);
     return _cachedBinaryVersion;
   } catch {
     _cachedBinaryVersion = null; // cache the failure — don't retry every call
@@ -415,11 +444,19 @@ export const SentinalPlugin: Plugin = async ({
   } catch {
     /* non-fatal */
   }
-  // Version-aware dashboard ensure — spawns only when absent or stale-version
+  // Version-aware dashboard ensure — spawns only when absent or stale-version.
+  // Explicit .catch: a rejection here must NEVER propagate into the plugin
+  // loader (an escaped init error fails the whole plugin with all handlers).
   void (async () => {
     const ver = await getBinaryVersion();
     await ensureDashboardForTest({ currentVersion: ver ?? "unknown" });
-  })();
+  })().catch((e) => {
+    try {
+      log(`init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`);
+    } catch {
+      /* even logging must not throw during init */
+    }
+  });
 
   // Inline: avoid importing config.ts which pulls in types.ts → zod
   const memoryEnabled = (() => {

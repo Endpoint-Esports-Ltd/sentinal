@@ -35,6 +35,21 @@ describe("parseBinaryVersion", () => {
     expect(parseBinaryVersion("error: something broke")).toBeNull();
     expect(parseBinaryVersion("v1.2.3")).toBeNull(); // binary prints bare semver, no v-prefix
   });
+
+  // Regression guard for the 2026-06-10 OSX incident: under OpenCode's
+  // embedded Bun runtime, execFile+promisify resolved stdout as a NON-STRING
+  // (Buffer-like), and the resulting `stdout.trim is not a function`
+  // TypeError escaped getBinaryVersion's try/catch (thrown in the runtime's
+  // internal callback context), killing the ENTIRE plugin at load:
+  //   ERROR failed to load plugin ... error="stdout.trim is not a function"
+  // parseBinaryVersion must accept unknown input and never throw.
+  it("never throws on non-string input (Buffer, undefined, null, number, object)", () => {
+    expect(parseBinaryVersion(Buffer.from("1.31.3\n") as unknown as string)).toBe("1.31.3");
+    expect(parseBinaryVersion(undefined as unknown as string)).toBeNull();
+    expect(parseBinaryVersion(null as unknown as string)).toBeNull();
+    expect(parseBinaryVersion(42 as unknown as string)).toBeNull();
+    expect(parseBinaryVersion({} as unknown as string)).toBeNull();
+  });
 });
 
 /**
