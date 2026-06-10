@@ -43,6 +43,14 @@ describe("Dashboard Server", () => {
     expect(body.version).toBe("1.0.0-test");
   });
 
+  it("should include pid in /api/health response", async () => {
+    const res = await fetch(`${baseUrl}/api/health`);
+    expect(res.status).toBe(200);
+    const body = await jsonBody(res);
+    expect(typeof body.pid).toBe("number");
+    expect(body.pid).toBeGreaterThan(0);
+  });
+
   it("should include X-Sentinal-Version header", async () => {
     const res = await fetch(`${baseUrl}/api/health`);
     expect(res.headers.get("X-Sentinal-Version")).toBe("1.0.0-test");

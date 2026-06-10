@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 // NOTE: import the .ts source explicitly — a stale tracked sentinal.js
 // artifact in this directory would otherwise shadow it in bun's resolution.
-import { SentinalPlugin } from "./sentinal.ts";
+import { SentinalPlugin, ensureDashboardForTest } from "./sentinal.ts";
 
 /**
  * Plugin load smoke test.
@@ -56,4 +56,48 @@ describe("SentinalPlugin init (load smoke)", () => {
     const hooks = await SentinalPlugin(mockContext());
     expect(hooks).toBeDefined();
   }, 30_000);
+});
+
+// ─── ensureDashboard logic ────────────────────────────────────────────────────
+
+describe("ensureDashboardForTest", () => {
+  it("should spawn when health probe returns null (not running)", async () => {
+    let spawned = false;
+    await ensureDashboardForTest({
+      currentVersion: "1.30.1",
+      probeFn: async () => null,
+      spawnFn: () => { spawned = true; },
+    });
+    expect(spawned).toBe(true);
+  });
+
+  it("should not spawn when same version is live", async () => {
+    let spawned = false;
+    await ensureDashboardForTest({
+      currentVersion: "1.30.1",
+      probeFn: async () => ({ version: "1.30.1", pid: 1234 }),
+      spawnFn: () => { spawned = true; },
+    });
+    expect(spawned).toBe(false);
+  });
+
+  it("should spawn when different version is live (serve handles takeover)", async () => {
+    let spawned = false;
+    await ensureDashboardForTest({
+      currentVersion: "1.30.1",
+      probeFn: async () => ({ version: "1.30.0", pid: 1234 }),
+      spawnFn: () => { spawned = true; },
+    });
+    expect(spawned).toBe(true);
+  });
+
+  it("should not throw when spawnFn throws", async () => {
+    await expect(
+      ensureDashboardForTest({
+        currentVersion: "1.30.1",
+        probeFn: async () => null,
+        spawnFn: () => { throw new Error("spawn failed"); },
+      })
+    ).resolves.toBeUndefined();
+  });
 });

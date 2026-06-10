@@ -12,7 +12,7 @@ Sentinal is a quality enforcement plugin for TypeScript, Angular, and NestJS pro
 
 - **Language:** TypeScript (strict mode, `noImplicitAny`, ES2022, `moduleResolution: bundler`)
 - **Runtime:** **Bun ≥ 1.0** (NOT plain Node.js — many features depend on Bun APIs)
-- **Test Runner:** `bun test` (bun:test, NOT jest — `package.json` "jest" description is stale)
+- **Test Runner:** `bun test` (bun:test, NOT jest)
 - **Package Manager:** `bun` (see `bun.lock`)
 - **MCP SDK:** `@modelcontextprotocol/sdk` 1.27.1
 - **Native deps:** `sqlite-vec` (loaded via Homebrew SQLite in tests), `@xenova/transformers` (384-dim embeddings)
@@ -84,6 +84,6 @@ bin/sentinal.sh            # CLI shim
 - **Dual-target architecture** — shared `src/`, with target-specific wrappers in `targets/claude-code/` and `targets/opencode/`. Most changes need to land in both. See `sentinal-dual-target.md`.
 - **Sidecar pattern** — `src/sidecar/server.ts` runs a long-lived HTTP server (Unix socket preferred). Hooks, the MCP server, and the OpenCode plugin all connect via `SidecarClient` to avoid per-invocation SQLite cold starts. See `sentinal-sidecar.md`.
 - **Hook I/O protocol** — Claude Code hooks read JSON from stdin, write JSON to stdout. Exit code 2 with stderr = block. See `sentinal-hooks-development.md`.
-- **MCP server** — single `sentinal` server exposing 26 tools across 6 domains (memory, spec, tdd, worktree, analysis, project). See `sentinal-mcp-servers.md`.
+- **MCP server** — single `sentinal` server exposing 28 tools across 6 domains (memory, spec, tdd, worktree, analysis, project). See `sentinal-mcp-servers.md`.
 - **`.sentinal/` sidecar state** — runtime state (`compact-state.json`, `project-memory.json`) lives here, NOT in `.claude/` or `.opencode/`.
 - **File length limits** — Sentinal enforces its own rules on itself: warn at 400 lines, block at 600 lines. Test files exempt.

@@ -23,7 +23,7 @@ export interface ApiContext {
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 export function healthHandler(ctx: ApiContext): Response {
-  return json({ status: "ok", version: ctx.version });
+  return json({ status: "ok", version: ctx.version, pid: process.pid });
 }
 
 // ─── Dashboard ──────────────────────────────────────────────────────────────

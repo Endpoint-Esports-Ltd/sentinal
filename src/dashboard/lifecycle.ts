@@ -148,6 +148,79 @@ export function findSentinalCmd(): string[] | null {
   return null;
 }
 
+// ─── Startup Decision Helper ─────────────────────────────────────────────────
+
+/** Shape returned by the health probe. Null means unreachable. */
+export interface DashboardHealthData {
+  version?: string;
+  pid?: number;
+  [key: string]: unknown;
+}
+
+export type ServeStartupAction =
+  | { action: "start" }
+  | { action: "exit"; reason: string }
+  | { action: "takeover"; pid: number; runningVersion: string }
+  | { action: "takeover-no-pid"; runningVersion: string };
+
+export interface DecideServeStartupOptions {
+  currentVersion: string;
+  /** Injectable probe fn — defaults to a real HTTP fetch. */
+  probeFn?: () => Promise<DashboardHealthData | null>;
+}
+
+/**
+ * Probe the running dashboard's /api/health endpoint.
+ * Returns null on any network error (not running).
+ */
+export async function probeDashboardHealth(): Promise<DashboardHealthData | null> {
+  try {
+    const resp = await fetch("http://127.0.0.1:41778/api/health", {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (!resp.ok) return null;
+    return (await resp.json()) as DashboardHealthData;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide what `sentinal serve` should do at startup based on health probe:
+ * - "start"          — nothing running, proceed normally
+ * - "exit"           — same version already live, exit 0 (optionally repair pid file)
+ * - "takeover"       — older version live and pid known, send SIGTERM then start
+ * - "takeover-no-pid"— older version live but pid unknown (pre-1.30.1 health)
+ */
+export async function decideServeStartup(
+  opts: DecideServeStartupOptions,
+): Promise<ServeStartupAction> {
+  const probe = opts.probeFn ?? probeDashboardHealth;
+  let health: DashboardHealthData | null;
+  try {
+    health = await probe();
+  } catch {
+    health = null;
+  }
+
+  if (!health) return { action: "start" };
+
+  const { version: runningVersion, pid: runningPid } = health;
+
+  // No version in response — treat as "start" (unknown dashboard, let it try to bind)
+  if (!runningVersion) return { action: "start" };
+
+  if (runningVersion === opts.currentVersion) {
+    return { action: "exit", reason: `dashboard already running pid=${runningPid ?? "unknown"} version=${runningVersion}` };
+  }
+
+  // Version mismatch — need to take over
+  if (typeof runningPid === "number" && runningPid > 0) {
+    return { action: "takeover", pid: runningPid, runningVersion };
+  }
+  return { action: "takeover-no-pid", runningVersion };
+}
+
 /** @deprecated Use findSentinalCmd() instead */
 export function findSentinalBin(): string | null {
   const cmd = findSentinalCmd();

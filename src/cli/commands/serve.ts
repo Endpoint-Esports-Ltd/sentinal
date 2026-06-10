@@ -11,9 +11,9 @@
 
 import type { Command } from "commander";
 import {
-  isServerRunning,
   writePidFile,
   removePidFile,
+  decideServeStartup,
 } from "../../dashboard/lifecycle.js";
 import { startServer } from "../../dashboard/server.js";
 import { logDashboard } from "../../utils/file-log.js";
@@ -33,21 +33,51 @@ export function registerServeCommand(program: Command): void {
         const port = parseInt(opts.port, 10);
         const host = opts.host;
 
-        // Check for existing server
-        if (isServerRunning()) {
-          console.log(
-            `Dashboard already running. Visit http://${host}:${port}`,
-          );
-          process.exit(0);
-        }
-
         if (opts.background) {
           await startBackground(port, host);
           return;
         }
 
-        // Foreground mode
+        // Foreground mode — probe first to make serve idempotent
         const version = getVersion();
+        const decision = await decideServeStartup({ currentVersion: version });
+
+        if (decision.action === "exit") {
+          logDashboard(`dashboard: ${decision.reason} — skipping start`);
+          console.log(`Dashboard already running. Visit http://${host}:${port}`);
+          process.exit(0);
+        }
+
+        if (decision.action === "takeover") {
+          logDashboard(
+            `dashboard: version mismatch (running=${decision.runningVersion} current=${version}) — taking over from pid=${decision.pid}`,
+          );
+          try {
+            process.kill(decision.pid, "SIGTERM");
+            // Wait for port to be released — up to 3 × 200ms
+            for (let i = 0; i < 3; i++) {
+              await new Promise((r) => setTimeout(r, 200));
+              const recheck = await decideServeStartup({ currentVersion: version });
+              if (recheck.action !== "exit" && recheck.action !== "takeover") break;
+            }
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code === "ESRCH") {
+              // Process already gone — fine, proceed to start
+              logDashboard("dashboard: takeover target already gone (ESRCH) — proceeding");
+            } else {
+              logDashboard(`dashboard: takeover kill failed (${code}) — proceeding`);
+            }
+          }
+        }
+
+        if (decision.action === "takeover-no-pid") {
+          const msg = `dashboard: version mismatch (running=${decision.runningVersion} current=${version}) but no pid available — cannot auto-takeover. Run: lsof -ti :${port} | xargs kill`;
+          logDashboard(msg);
+          console.error(msg);
+          process.exit(1);
+        }
+
         const server = startServer({ port, host, version });
 
         writePidFile(process.pid);

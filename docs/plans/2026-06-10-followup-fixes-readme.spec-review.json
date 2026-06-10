@@ -1,0 +1,96 @@
+{
+  "pass_summary": "Core implementation is solid: health pid field, decideServeStartup decision helper with full test matrix, plugin version-aware ensureDashboard, dead notify removal, and README refresh all land correctly. Three defects stand out: (1) Task 4 left stale tool counts in both dev-rule files (26/28 instead of 29), causing Truth #6 to fail; (2) an ESRCH condition inversion in serve.ts produces a misleading log on the exact happy-path case (process already gone); (3) the _cachedBinaryVersion sentinel uses null for both 'not yet fetched' and 'binary not found', so a failed first lookup is never cached and re-spawns the binary on every call.",
+  "compliance_score": "medium",
+  "quality_score": "medium",
+  "goal_score": "partial",
+  "truths_verified": 5,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "Task 4 DoD unmet: tool counts not updated in dev-rule files",
+      "description": "`.sentinal/rules/sentinal-mcp-servers.md` line 3 still reads '28 tools across 6 domains' and the Memory section header on line 25 still reads '— 6 tools' (missing `memory_share`). `.sentinal/rules/sentinal-project.md` line 87 still reads '26 tools across 6 domains'. The actual count is 29 (confirmed via 29 `server.tool()` calls across src/). Task 4 DoD requires counts matching grep-verified registrations, and Truth #6 (`rg \"29 tools\" .sentinal/rules/sentinal-mcp-servers.md`) fails. This makes the dev rules actively misleading for anyone working on the MCP layer.",
+      "suggested_fix": "In `.sentinal/rules/sentinal-mcp-servers.md`: change '28 tools' → '29 tools' on line 3, change 'Memory Domain ... — 6 tools' → '— 7 tools' on line 25, add `memory_share` row to the Memory table. In `.sentinal/rules/sentinal-project.md`: change '26 tools' → '29 tools' on line 87."
+    },
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "README MCP catalog totals still say 28 — Task 5 DoD partially unmet",
+      "description": "README.md line 59 reads 'sentinal (28 tools across 6 domains)' and line 566 reads 'exposes **28 tools across 6 domains**'. The catalog table itself lists 7 memory tools, 6 worktree tools, etc. (correct rows), but the two summary lines contradict it. The task DoD requires every count/flag to be grep-verified against source; 29 `server.tool()` registrations exist.",
+      "suggested_fix": "Update README.md line 59 and line 566: change '28 tools' → '29 tools'. Also update the Memory row count in the catalog table from '6' to '7' (add `memory_share` row), if not already listed."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "ESRCH condition is inverted in serve.ts takeover block — misleading log on normal path",
+      "description": "In `src/cli/commands/serve.ts` lines 64-68:\n```ts\nconst code = (e as NodeJS.ErrnoException).code;\nif (code !== \"ESRCH\") {\n  // Process no longer exists — fine, proceed to start\n  logDashboard(`dashboard: takeover kill failed (${code}) — proceeding`);\n}\n```\nThe comment says 'Process no longer exists — fine, proceed to start' but ESRCH is the errno for 'no such process' (process already gone). So the `!== ESRCH` branch fires for every OTHER error (e.g. EPERM — permission denied) and logs a misleading 'takeover kill failed' message. The ESRCH case (process already gone — the normal/expected race case) gets no log at all. The plan spec (Task 1 notes) says 'kill throws ESRCH (process already gone → proceed to bind)' — meaning ESRCH should be the silent no-op, but the inverted condition means ESRCH is the case that gets silently ignored while non-ESRCH errors get logged (which is actually correct for the log part). However, the comment on the block is inverted and there's no explicit ESRCH log, violating 'all outcomes logged to dashboard.log'.",
+      "suggested_fix": "Invert the condition and add explicit ESRCH logging:\n```ts\nconst code = (e as NodeJS.ErrnoException).code;\nif (code === \"ESRCH\") {\n  logDashboard(\"dashboard: takeover target already gone (ESRCH) — proceeding to bind\");\n} else {\n  logDashboard(`dashboard: takeover kill failed (${code}) — proceeding anyway`);\n}\n```"
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "getBinaryVersion null-caching ambiguity — failed lookups not cached, re-spawns binary on every call",
+      "description": "In `targets/opencode/plugins/sentinal.ts` line 171-186:\n```ts\nlet _cachedBinaryVersion: string | null = null;\nasync function getBinaryVersion(): Promise<string | null> {\n  if (_cachedBinaryVersion !== null) return _cachedBinaryVersion;\n  // ... on failure: return null;\n}\n```\nThe sentinel for 'not yet fetched' is `null`, and the return value for 'binary not found / exec failed' is also `null`. Because the cache check is `!== null`, a failed lookup (returns `null`) is never stored and the function will re-spawn `sentinal --version` on every subsequent call. If the binary is missing or times out, the plugin will attempt to exec it on every tool call. The plan notes this should be cached 'after first call'.",
+      "suggested_fix": "Use `undefined` as the 'not yet cached' sentinel:\n```ts\nlet _cachedBinaryVersion: string | null | undefined = undefined;\nasync function getBinaryVersion(): Promise<string | null> {\n  if (_cachedBinaryVersion !== undefined) return _cachedBinaryVersion;\n  // ... compute ...\n  _cachedBinaryVersion = result; // stores null on failure, caching the miss\n  return _cachedBinaryVersion;\n}\n```"
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 1 DoD: ESRCH kill case not unit-tested in lifecycle.test.ts",
+      "description": "Task 1 DoD requires '6+ cases incl. ESRCH' and the plan's decision matrix explicitly calls out 'kill throws ESRCH (process already gone → proceed to bind)'. The `lifecycle.test.ts` diff adds tests for: `start` (not running), `exit` (same version), `takeover` (older+pid), `takeover-no-pid` (older, no pid), `start` (no version), `start` (probe throws) — that is 6 cases, but none tests the ESRCH kill path. The ESRCH handling lives in `serve.ts` (not lifecycle.ts), and since CLI action handlers are not unit-testable directly, the plan intended to cover this via the injected `kill` fn. No such injected `kill` parameter exists on `decideServeStartup`, and no test exercises what happens when `process.kill` throws ESRCH.",
+      "suggested_fix": "Either: (a) add an optional `killFn` injectable to `decideServeStartup` or a new `performTakeover(opts)` helper exported from lifecycle.ts that accepts an injected `kill` fn, and add a test verifying ESRCH is swallowed; or (b) document that the ESRCH path is intentionally tested only via live smoke (acceptable if clearly marked in test comments)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "takeover-no-pid path in serve.ts structurally unreachable after takeover block falls through",
+      "description": "In serve.ts, the `takeover-no-pid` guard (lines 72-77) checks `decision.action === \"takeover-no-pid\"` using the *original* `decision` — but this block is only reached after the `takeover` block (lines 51-70) finishes. If the original decision was `takeover`, `decision.action` is `\"takeover\"`, so the `takeover-no-pid` check on line 72 can never be true for that execution path. The `takeover-no-pid` branch only fires when the *original* probe returned `takeover-no-pid`, which is correct. The logic works correctly, but the code would be clearer with `else if` chaining or early returns to make the mutual exclusion explicit.",
+      "suggested_fix": "Refactor to use `else if` branches or early returns to make control flow explicit and avoid the visual implication that `takeover-no-pid` could fire after a `takeover` block:\n```ts\nif (decision.action === \"exit\") { ... process.exit(0); }\nelse if (decision.action === \"takeover\") { ... }\nelse if (decision.action === \"takeover-no-pid\") { ... process.exit(1); }\n// action === \"start\" falls through to startServer\n```"
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Background serve path bypasses idempotency check entirely",
+      "description": "In serve.ts lines 36-38, `--background` mode returns immediately without calling `decideServeStartup`. The plan scope says 'Make `sentinal serve` idempotent and self-replacing' and the OpenCode plugin's `defaultDashboardSpawn` always passes `--background`. This means the plugin's spawn path (the primary automated path) never benefits from the idempotency logic — it relies entirely on the plugin's own `ensureDashboard` probe. This is consistent with the plan's Pre-Mortem #2 (ensureDashboard as the gate) but creates a gap if `--background` is called directly without going through the plugin.",
+      "suggested_fix": "Consider running the health probe in `startBackground()` as well (a quick abort if same version is already running), or document explicitly in a comment that `--background` intentionally skips the probe (relying on the caller to gate)."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "rg \"pid: process.pid\" src/dashboard/routes/api.ts matches (health exposes pid)",
+      "status": "verified",
+      "evidence": "src/dashboard/routes/api.ts healthHandler returns `json({ status: \"ok\", version: ctx.version, pid: process.pid })`. server.test.ts adds a test asserting `typeof body.pid === \"number\"` and `body.pid > 0`."
+    },
+    {
+      "truth": "curl returns JSON containing \"pid:\" (runtime truth — static only)",
+      "status": "uncertain",
+      "evidence": "Code change is confirmed correct (pid: process.pid added to health response). Runtime verification requires a live dashboard; not statically provable."
+    },
+    {
+      "truth": "rg \"api/health\" and \"--version\" both match in sentinal.ts AND autoStartProcess(\"server.pid\", \"serve\") does NOT match",
+      "status": "verified",
+      "evidence": "sentinal.ts: `defaultDashboardProbe` fetches `http://127.0.0.1:41778/api/health`; `getBinaryVersion` runs `execFileAsync(binPath, [\"--version\"])`. The old `autoStartProcess(\"server.pid\", \"serve\")` call site replaced with `void ensureDashboardForTest(...)`. grep confirms no `autoStartProcess(\"server.pid\", \"serve\")` call remains."
+    },
+    {
+      "truth": "rg -l \"sentinal notify\" targets/ returns no files AND embedded-assets.ts contains zero matches",
+      "status": "verified",
+      "evidence": "grep confirms zero matches for 'sentinal notify' across all targets/ files (excluding dist/). embedded-assets.ts also returns no matches. All 4 files (spec-bugfix-plan.md, spec-verify.md, both SKILL.md equivalents) updated."
+    },
+    {
+      "truth": "rg \"sentinal update\" README.md and rg \"memory setup\" README.md both match",
+      "status": "verified",
+      "evidence": "README.md contains multiple matches for 'sentinal update' (lines 84, 207, 211+) and 'sentinal memory setup' (lines 112, 165, 181, 217, 244). Both truths confirmed."
+    },
+    {
+      "truth": "rg \"29 tools\" .sentinal/rules/sentinal-mcp-servers.md matches",
+      "status": "failed",
+      "evidence": "`.sentinal/rules/sentinal-mcp-servers.md` line 3 still reads '28 tools across 6 domains'. The Memory section (line 25) still reads '— 6 tools'. `.sentinal/rules/sentinal-project.md` line 87 reads '26 tools'. Actual grep count: 29 `server.tool()` registrations in src/. Task 4 is marked complete but the counts were not updated."
+    },
+    {
+      "truth": "Running sentinal serve while same-version dashboard is live exits 0 without second process (live smoke)",
+      "status": "uncertain",
+      "evidence": "Code path confirmed: decideServeStartup returns 'exit' → logDashboard + process.exit(0). Unit tests cover the decision logic. Live smoke not verifiable statically; no CI evidence in diff."
+    }
+  ]
+}

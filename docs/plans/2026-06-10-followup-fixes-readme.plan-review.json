@@ -1,0 +1,35 @@
+{
+  "review_summary": "Plan aligns well with all five user-requested fixes and reflects every clarification (idempotent serve + thin plugin, skill-text fix over new CLI, full README refresh, legacy dir out of scope). Code-level claims verified: health handler returns only {status, version} (src/dashboard/routes/api.ts:26), blind spawn call site exists at targets/opencode/plugins/sentinal.ts:327, 'sentinal notify' appears in exactly the 4 claimed target files and no src/cli/commands/notify.ts exists. Remaining gaps are verification-completeness, not requirement coverage.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Embedded-assets cleanliness for 'sentinal notify' removal is not verified or committed anywhere",
+      "description": "Task 3's DoD and Goal Verification Truth 4 only grep `targets/` (`rg -l \"sentinal notify\" targets/ --glob '!**/dist/**'`). But src/cli/embedded-assets.ts currently contains 4 'sentinal notify' occurrences (lines 5816, 7370, 8921, 10490) — verbatim copies of all four skill/command files that ship inside the compiled binary. The plan's Context gotcha correctly says changes 'flow in via bun run build:cli', and Task 6 runs build:cli (which runs embed-assets per package.json:38-39), but no truth or DoD bullet confirms the regenerated embedded-assets.ts is clean and committed. Prior reviews in this repo (2026-03-11-autonomous-permissions.md.review.json) caught exactly this failure: source fixed, embedded copy stale, users install the dead reference anyway.",
+      "suggested_fix": "Add to Goal Verification Truths: '`rg \"sentinal notify\" src/cli/embedded-assets.ts` returns no matches (after Task 6 build:cli)'. Add to Task 6 DoD: 'git diff shows regenerated src/cli/embedded-assets.ts is committed alongside the targets/ edits'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "The exact observed live bug (≤1.29.1 dashboard, no pid file, no pid in health) still dead-ends at exit 1 — manual-kill path must be a checkable DoD item",
+      "description": "Context line 35 describes the real incident: pid file missing, old dashboard holds port 41778, served v1.29.1 for 11h. Under the new design, the takeover kill needs a pid — but a ≤1.29.1 dashboard's /api/health has no `pid` field (verified: api.ts returns only status+version) and the pid file is missing, so serve logs + exits 1 and the stale dashboard persists. Pre-Mortem #1 acknowledges this ('log + exit 1 with clear message, manual kill instruction') but no Task 1 DoD bullet nor the Task 5 README objective captures it. The user's requirement was 'plugin never restarting a stale-version dashboard' — for users upgrading from ≤1.29.1 specifically, this fix self-heals nothing without operator action.",
+      "suggested_fix": "Add Task 1 DoD bullet: 'exit-1 path logs an actionable manual-kill instruction (e.g. kill $(lsof -ti :41778)) to both stderr and dashboard.log'. Add to Task 5's README 'Updating' objective: the ≤1.29.1 transition note must explicitly include killing the stale dashboard process (or `rm ~/.sentinal/server.pid` + kill), not only the plugin reinstall note."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Concurrent-takeover semantics (multi-session race, ESRCH, PID reuse) unaddressed in decision matrix",
+      "description": "Multiple OpenCode sessions can each run ensureDashboard at init: two `sentinal serve` processes both probe the same stale dashboard, both SIGTERM the same pid, then race to bind. The loser must handle kill-of-already-dead-pid (ESRCH) gracefully and exit 1 quietly rather than crash; there's also a small PID-reuse hazard if the probed pid is killed long after probing. The Risks table covers the port-release race (bind retry 3×200ms) but not kill semantics. Task 1's test matrix lists 4 cases (no-response/same-version/older-version/probe-error) and omits these.",
+      "suggested_fix": "In decideServeStartup: re-probe /api/health immediately before issuing SIGTERM, treat ESRCH from the injected kill fn as success (process already gone), and add 'concurrent takeover loser exits 1 cleanly' + 'kill throws ESRCH' cases to the Task 1 unit-test matrix."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Truth 3's positive grep is satisfiable without the version comparison actually existing",
+      "description": "Truth 3 (`rg \"ensureDashboard|api/health\" targets/opencode/plugins/sentinal.ts` matches) passes if either string appears — e.g. a probe-only implementation with no `--version` binary comparison would pass all greps while missing the 'plugin never restarting a stale-version dashboard' requirement. The behavior is only covered by unit tests named loosely in Task 2.",
+      "suggested_fix": "Tighten Truth 3 with an additional grep for the version-compare mechanism (e.g. `rg '\\-\\-version' targets/opencode/plugins/sentinal.ts` or the helper name once final), and add a Task 2 DoD bullet: 'unit test covers alive-but-stale → spawn, alive-and-current → no spawn'."
+    }
+  ]
+}

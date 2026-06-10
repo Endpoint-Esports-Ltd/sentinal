@@ -171,6 +171,28 @@ function log(message: string): void {
   logToFile(PLUGIN_LOG_FILE, message);
 }
 
+/** Read the installed binary's version string (e.g. "1.30.1"). Cached after first call. */
+let _cachedBinaryVersion: string | null | undefined = undefined; // undefined = not yet fetched; null = fetch failed
+async function getBinaryVersion(): Promise<string | null> {
+  if (_cachedBinaryVersion !== undefined) return _cachedBinaryVersion;
+  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
+  if (!existsSync(binPath)) {
+    _cachedBinaryVersion = null;
+    return null;
+  }
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync(binPath, ["--version"], { timeout: 3000 });
+    _cachedBinaryVersion = stdout.trim();
+    return _cachedBinaryVersion;
+  } catch {
+    _cachedBinaryVersion = null; // cache the failure — don't retry every call
+    return null;
+  }
+}
+
 /** Spawn a sentinal sub-command if the PID file is stale or missing. */
 function autoStartProcess(pidFile: string, ...args: string[]): void {
   const pidPath = join(SENTINAL_DIR, pidFile);
@@ -213,6 +235,63 @@ function stopProcess(pidFile: string): void {
 function stopDashboard(): void {
   log("stopDashboard: sending SIGTERM to dashboard");
   stopProcess("server.pid");
+}
+
+// ─── Version-aware dashboard ensure ─────────────────────────────────────────
+
+export interface EnsureDashboardOptions {
+  currentVersion: string;
+  probeFn?: () => Promise<{ version?: string; pid?: number } | null>;
+  spawnFn?: () => void;
+}
+
+/**
+ * Ensure the dashboard is running at the current version.
+ * Exported as `ensureDashboardForTest` so tests can inject probe/spawn fns.
+ * - If health probe returns null → spawn
+ * - If running at a different version → spawn (idempotent serve handles takeover)
+ * - If running at same version → skip
+ * Never throws.
+ */
+export async function ensureDashboardForTest(
+  opts: EnsureDashboardOptions,
+): Promise<void> {
+  const probe = opts.probeFn ?? defaultDashboardProbe;
+  const spawn = opts.spawnFn ?? defaultDashboardSpawn;
+  try {
+    const health = await probe();
+    if (health && health.version === opts.currentVersion) {
+      log(`dashboard ensure: already running version=${health.version} pid=${health.pid ?? "unknown"}`);
+      return;
+    }
+    if (health && health.version) {
+      log(`dashboard ensure: version mismatch (running=${health.version} current=${opts.currentVersion}) — respawning`);
+    } else {
+      log("dashboard ensure: not running — spawning");
+    }
+    spawn();
+  } catch (err) {
+    log(`dashboard ensure: error — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function defaultDashboardProbe(): Promise<{ version?: string; pid?: number } | null> {
+  try {
+    const resp = await fetch("http://127.0.0.1:41778/api/health", {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (!resp.ok) return null;
+    return (await resp.json()) as { version?: string; pid?: number };
+  } catch {
+    return null;
+  }
+}
+
+function defaultDashboardSpawn(): void {
+  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
+  if (!existsSync(binPath)) return;
+  const c = spawn(binPath, ["serve", "--background"], { stdio: "ignore", detached: true });
+  c.unref();
 }
 function stopSidecar(): void {
   stopProcess("sidecar.pid");
@@ -317,17 +396,17 @@ export const SentinalPlugin: Plugin = async ({
   let toolCallCount = 0;
   let draining = false;
 
-  // Auto-start sidecar + dashboard (Node.js-compatible spawn)
+  // Auto-start sidecar (Node.js-compatible spawn)
   try {
     autoStartProcess("sidecar.pid", "sidecar", "start");
   } catch {
     /* non-fatal */
   }
-  try {
-    autoStartProcess("server.pid", "serve");
-  } catch {
-    /* non-fatal */
-  }
+  // Version-aware dashboard ensure — spawns only when absent or stale-version
+  void (async () => {
+    const ver = await getBinaryVersion();
+    await ensureDashboardForTest({ currentVersion: ver ?? "unknown" });
+  })();
 
   // Inline: avoid importing config.ts which pulls in types.ts → zod
   const memoryEnabled = (() => {

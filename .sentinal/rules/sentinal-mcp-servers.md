@@ -1,6 +1,6 @@
 # Sentinal MCP Server (Self-Hosted)
 
-The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **26 tools across 6 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
+The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **28 tools across 6 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
 > **Note:** Sentinal _also_ ships global MCP server configurations for `context7`, `web-search`, `grep-mcp`, and `web-fetch` — those are installed once into the user's Claude Code / OpenCode config by the installer and are NOT documented here.
 
@@ -55,14 +55,16 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 | `tdd_set_state` | Transition state: IDLE/TEST_WRITTEN/RED/GREEN |
 | `tdd_clear`     | Clear state for a file or entire spec         |
 
-### Worktree Domain (`src/worktree/mcp-tools.ts`) — 4 tools
+### Worktree Domain (`src/worktree/mcp-tools.ts`) — 6 tools
 
-| Tool              | Purpose                                          |
-| ----------------- | ------------------------------------------------ |
-| `worktree_detect` | Find worktree for a plan slug                    |
-| `worktree_create` | Create a git worktree for a plan                 |
-| `worktree_diff`   | Summarize file changes, insertions, deletions    |
-| `worktree_sync`   | Squash-merge worktree back to base (destructive) |
+| Tool               | Purpose                                          |
+| ------------------ | ------------------------------------------------ |
+| `worktree_detect`  | Find worktree for a plan slug                    |
+| `worktree_create`  | Create a git worktree for a plan                 |
+| `worktree_diff`    | Summarize file changes, insertions, deletions    |
+| `worktree_sync`    | Squash-merge worktree back to base (destructive) |
+| `worktree_abandon` | Remove worktree from disk and mark abandoned     |
+| `worktree_cleanup` | Clean up all stale worktrees missing from disk   |
 
 ### Analysis Domain (`src/analysis/mcp-tools.ts`) — 3 tools
 

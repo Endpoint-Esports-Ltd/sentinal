@@ -275,10 +275,7 @@ Type: Bugfix
 
 **When `SENTINAL_PLAN_APPROVAL_ENABLED` is NOT `"false"`:**
 
-0. Notify: **Preferred:** Use `spec_notify` MCP tool with `type: "info"`, `title`, `message`, and `spec_id`. **Fallback:**
-   ```bash
-   sentinal notify plan_approval "Bugfix Plan Ready" "<plan-slug> — approval needed" --plan-path "<plan_path>" 2>/dev/null || true
-   ```
+0. Notify: Use `spec_notify` MCP tool with `type: "info"`, `title`, `message`, and `spec_id`.
 1. Summarize: symptom → root cause → fix approach → task structure
 2. AskUserQuestion: "Yes, proceed" | "No, let me edit"
 3. **Yes:** Set `Approved: Yes`, invoke `Skill(skill='spec-implement', args='<plan-path>')`

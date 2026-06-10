@@ -158,3 +158,71 @@ describe("Dashboard lifecycle logging", () => {
     expect(content).toContain("dashboard: already running");
   });
 });
+
+// ─── Startup Decision Helper ─────────────────────────────────────────────────
+
+describe("decideServeStartup", () => {
+  let tmpDir: string;
+  let getLogDirSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    getLogDirSpy = spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    getLogDirSpy.mockRestore();
+    mock.restore();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should return 'start' when health probe fails (not running)", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.0",
+      probeFn: async () => null, // connection refused
+    });
+    expect(result.action).toBe("start");
+  });
+
+  it("should return 'exit' when same-version dashboard is live", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.0",
+      probeFn: async () => ({ version: "1.30.0", pid: 9999 }),
+    });
+    expect(result.action).toBe("exit");
+    if (result.action === "exit") expect(result.reason).toContain("already running");
+  });
+
+  it("should return 'takeover' when older-version dashboard is live with pid", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.1",
+      probeFn: async () => ({ version: "1.30.0", pid: 9999 }),
+    });
+    expect(result.action).toBe("takeover");
+    if (result.action === "takeover") expect(result.pid).toBe(9999);
+  });
+
+  it("should return 'takeover-no-pid' when older-version dashboard has no pid in health", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.1",
+      probeFn: async () => ({ version: "1.29.1" }), // old dashboard, no pid field
+    });
+    expect(result.action).toBe("takeover-no-pid");
+  });
+
+  it("should return 'start' when no version in health response (unknown dashboard)", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.0",
+      probeFn: async () => ({}), // no version, no pid
+    });
+    expect(result.action).toBe("start");
+  });
+
+  it("should return 'start' when probe throws", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.30.0",
+      probeFn: async () => { throw new Error("ECONNREFUSED"); },
+    });
+    expect(result.action).toBe("start");
+  });
+});
