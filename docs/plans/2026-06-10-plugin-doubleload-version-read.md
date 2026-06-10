@@ -60,3 +60,15 @@ Type: Bugfix
 - **Fresh-install sandbox (binary mode):** `plugin` key omitted from opencode.json; sentinal.mjs in plugins/ → single load path
 - **Legacy-upgrade sandbox:** existing `["./plugins/sentinal.mjs", "opencode-wakatime"]` → `["opencode-wakatime"]` after install; third-party entries preserved
 - **parseBinaryVersion:** literal "undefined"/garbage/empty → null (no bogus respawn); semver + prerelease/build suffixes accepted
+
+## ⛔ INVALIDATION NOTE (2026-06-10, same day)
+
+The double-load root cause was WRONG. OpenCode's plugin loader scans
+`{plugin,plugins}/*.{ts,js}` — `.mjs` is excluded — so `plugins/sentinal.mjs`
+was NEVER directory-auto-loaded. The `config.plugin` entry this fix removed
+was the ONLY load path; v1.31.2 silently disabled the plugin for binary-mode
+OpenCode installs (zero errors, zero logs). The multiple same-timestamp init
+lines that motivated this fix are normal per-instance plugin initialization
+(OpenCode creates main/subagent/compaction instances, each initializing
+plugins). Reverted in `2026-06-10-plugin-load-regression-takeover.md`.
+The `parseBinaryVersion` half of this plan remains valid and shipped.

@@ -801,24 +801,14 @@ export async function installOpenCode(
       return; // unreachable but satisfies TypeScript
     }
 
-    // Binary mode: plugins/sentinal.mjs is auto-loaded from the plugins
-    // directory — a config.plugin entry would double-load it. Clean legacy
-    // entries; only npm mode registers the package reference here.
-    const newPlugins = buildPluginList(
+    // The config.plugin entry is the ONLY load path (OpenCode's directory
+    // scan excludes .mjs — see buildPluginList doc). Dedupe to exactly one.
+    config.plugin = buildPluginList(
       config.plugin as string[] | undefined,
       binary,
       pluginPath,
     );
-    if (newPlugins) {
-      config.plugin = newPlugins;
-    } else {
-      delete config.plugin;
-    }
-    ok(
-      binary
-        ? "    Plugin configured (directory auto-load; legacy config entries removed)"
-        : "    Plugin configured",
-    );
+    ok("    Plugin configured");
 
     const existingMcp = (config.mcp as Record<string, unknown>) ?? {};
     config.mcp = { ...mcpServers, ...existingMcp, ...mcpServers };
@@ -852,13 +842,12 @@ export async function installOpenCode(
     writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
     ok("  OpenCode configuration updated");
   } else {
-    const freshPlugins = buildPluginList(undefined, binary, pluginPath);
     writeFileSync(
       configFile,
       JSON.stringify(
         {
           $schema: "https://opencode.ai/config.json",
-          ...(freshPlugins ? { plugin: freshPlugins } : {}),
+          plugin: buildPluginList(undefined, binary, pluginPath),
           permission: permissionConfig,
           agent: agentConfig,
           instructions: [".sentinal/rules/*.md"],
@@ -907,24 +896,24 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 /**
  * Compute the `config.plugin` array for an OpenCode install.
  *
- * Double-load guard: in BINARY mode the plugin file lives in
- * `<config>/plugins/sentinal.mjs`, which OpenCode auto-loads from the
- * plugins directory — a `config.plugin` entry would load the same module a
- * second time (doubled hooks/sessions/spawns; observed in production logs
- * since March). Binary mode therefore only CLEANS legacy sentinal entries.
- * NPM mode has no file in plugins/ and needs the package-reference entry.
+ * ⛔ The config entry is the ONLY load path for the binary-mode plugin file.
+ * OpenCode's plugin loader (upstream packages/opencode/src/config/plugin.ts)
+ * scans `{plugin,plugins}/*.{ts,js}` — `.mjs` is EXCLUDED from the glob, so
+ * `plugins/sentinal.mjs` is never directory-auto-loaded. Removing this entry
+ * (v1.31.2) silently disabled the entire plugin with no error anywhere.
+ * Do not remove it again. Multiple same-timestamp init log lines are normal
+ * per-instance plugin initialization (main/subagent/compaction instances),
+ * NOT a double-load.
  *
- * Returns the new array, or `undefined` when the result is empty (caller
- * omits/removes the `plugin` key).
+ * Dedupes any legacy sentinal entries down to exactly one `pluginPath`.
  */
 export function buildPluginList(
   existing: string[] | undefined,
-  binary: boolean,
+  _binary: boolean,
   pluginPath: string,
-): string[] | undefined {
+): string[] {
   const others = (existing ?? []).filter((p) => !p.includes("sentinal"));
-  const result = binary ? others : [...others, pluginPath];
-  return result.length > 0 ? result : undefined;
+  return [...others, pluginPath];
 }
 
 export function deepMergeAdditive(

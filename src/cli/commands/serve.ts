@@ -14,6 +14,7 @@ import {
   writePidFile,
   removePidFile,
   decideServeStartup,
+  waitForDashboardHealthy,
 } from "../../dashboard/lifecycle.js";
 import { startServer } from "../../dashboard/server.js";
 import { logDashboard } from "../../utils/file-log.js";
@@ -104,6 +105,7 @@ export function registerServeCommand(program: Command): void {
 }
 
 async function startBackground(port: number, host: string): Promise<void> {
+  const version = getVersion();
   const args = ["serve", "--port", String(port), "--host", host];
   const argv1 = process.argv[1] ?? "";
   // Compiled Bun binaries have argv[1] in virtual FS (/$bunfs/)
@@ -112,13 +114,54 @@ async function startBackground(port: number, host: string): Promise<void> {
     : ["bun", argv1, ...args];
 
   const proc = Bun.spawn(cmd, {
-    stdio: ["ignore", "ignore", "ignore"],
+    stdio: ["ignore", "ignore", "pipe"],
     env: { ...process.env },
   });
-  proc.unref();
 
-  console.log(`Dashboard started in background (PID: ${proc.pid})`);
-  console.log(`Visit http://${host}:${port}`);
+  // Truthful success: only report started once /api/health answers at the
+  // current version (or fail with the child's actual outcome). Previously
+  // this printed "Dashboard started" unconditionally even when the child
+  // exited 1 (e.g. takeover-no-pid), leaving users with a stale dashboard.
+  const result = await waitForDashboardHealthy({
+    expectedVersion: version,
+    probeFn: () => probeHealthAt(host, port),
+    shouldAbort: () => proc.exitCode,
+  });
+
+  if (result.ok) {
+    proc.unref();
+    console.log(
+      `Dashboard running in background (PID: ${result.pid ?? proc.pid}, v${version})`,
+    );
+    console.log(`Visit http://${host}:${port}`);
+    return;
+  }
+
+  let stderr = "";
+  try {
+    stderr = proc.stderr ? await new Response(proc.stderr).text() : "";
+  } catch {
+    /* stream unavailable */
+  }
+  console.error(`Dashboard failed to start in background: ${result.reason}`);
+  if (stderr.trim()) console.error(stderr.trim());
+  process.exit(1);
+}
+
+/** Probe /api/health at an explicit host:port (the default probe is fixed to 41778). */
+async function probeHealthAt(
+  host: string,
+  port: number,
+): Promise<{ version?: string; pid?: number } | null> {
+  try {
+    const resp = await fetch(`http://${host}:${port}/api/health`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (!resp.ok) return null;
+    return (await resp.json()) as { version?: string; pid?: number };
+  } catch {
+    return null;
+  }
 }
 
 declare const __SENTINAL_VERSION__: string | undefined;

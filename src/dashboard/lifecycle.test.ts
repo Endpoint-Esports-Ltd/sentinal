@@ -202,10 +202,88 @@ describe("decideServeStartup", () => {
     if (result.action === "takeover") expect(result.pid).toBe(9999);
   });
 
-  it("should return 'takeover-no-pid' when older-version dashboard has no pid in health", async () => {
+  it("should return 'takeover-no-pid' when health has no pid AND pid file is unavailable", async () => {
     const result = await lifecycleModule.decideServeStartup({
       currentVersion: "1.30.1",
       probeFn: async () => ({ version: "1.29.1" }), // old dashboard, no pid field
+      pidFileReadFn: () => null, // no pid file either
+    });
+    expect(result.action).toBe("takeover-no-pid");
+  });
+
+  // Pid-file fallback — regression guard for the 1.30.x→1.31.x upgrade gap:
+  // pre-1.31 dashboards don't report pid in /api/health, but the pid file at
+  // ~/.sentinal/server.pid is valid. Takeover must fall back to it instead of
+  // bailing with "no pid available".
+  it("should fall back to the pid file when health lacks pid (live pid → takeover)", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.31.3",
+      probeFn: async () => ({ version: "1.30.1" }), // pre-1.31 health: no pid
+      pidFileReadFn: () => 6451, // valid live pid from server.pid
+    });
+    expect(result.action).toBe("takeover");
+    if (result.action === "takeover") expect(result.pid).toBe(6451);
+  });
+
+  it("should prefer the health pid over the pid file when both exist", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.31.3",
+      probeFn: async () => ({ version: "1.31.0", pid: 1111 }),
+      pidFileReadFn: () => 2222,
+    });
+    expect(result.action).toBe("takeover");
+    if (result.action === "takeover") expect(result.pid).toBe(1111);
+  });
+
+  // waitForDashboardHealthy — regression guard for the false-success defect:
+  // `serve --background` printed "Dashboard started (PID: N)" even when the
+  // spawned child immediately exited 1 (e.g. takeover-no-pid). Background
+  // mode must verify the dashboard actually answers /api/health at the
+  // expected version before claiming success.
+  describe("waitForDashboardHealthy", () => {
+    it("resolves ok=true once the probe reports the expected version", async () => {
+      let calls = 0;
+      const result = await lifecycleModule.waitForDashboardHealthy({
+        expectedVersion: "1.31.3",
+        probeFn: async () => (++calls < 3 ? null : { version: "1.31.3", pid: 42 }),
+        timeoutMs: 2000,
+        intervalMs: 1,
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.pid).toBe(42);
+    });
+
+    it("resolves ok=false on timeout when probe never matches", async () => {
+      const result = await lifecycleModule.waitForDashboardHealthy({
+        expectedVersion: "1.31.3",
+        probeFn: async () => ({ version: "1.30.1" }), // stale version forever
+        timeoutMs: 30,
+        intervalMs: 5,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("1.30.1");
+    });
+
+    it("resolves ok=false immediately when shouldAbort reports child exit", async () => {
+      const result = await lifecycleModule.waitForDashboardHealthy({
+        expectedVersion: "1.31.3",
+        probeFn: async () => null,
+        shouldAbort: () => 1, // child exit code
+        timeoutMs: 5000,
+        intervalMs: 1,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("exit");
+    });
+  });
+
+  it("should return 'takeover-no-pid' when pid file reader throws", async () => {
+    const result = await lifecycleModule.decideServeStartup({
+      currentVersion: "1.31.3",
+      probeFn: async () => ({ version: "1.30.1" }),
+      pidFileReadFn: () => {
+        throw new Error("fs error");
+      },
     });
     expect(result.action).toBe("takeover-no-pid");
   });

@@ -167,6 +167,24 @@ export interface DecideServeStartupOptions {
   currentVersion: string;
   /** Injectable probe fn — defaults to a real HTTP fetch. */
   probeFn?: () => Promise<DashboardHealthData | null>;
+  /**
+   * Injectable pid-file reader — returns the dashboard pid from
+   * ~/.sentinal/server.pid IF that process is alive, else null.
+   * Fallback for pre-1.31 dashboards whose /api/health lacks a pid field.
+   */
+  pidFileReadFn?: () => number | null;
+}
+
+/** Default pid-file fallback: read server.pid and verify the process is alive. */
+function readLivePidFromFile(): number | null {
+  const pid = readPidFile();
+  if (!pid) return null;
+  try {
+    process.kill(pid, 0);
+    return pid;
+  } catch {
+    return null; // stale pid file
+  }
 }
 
 /**
@@ -218,7 +236,80 @@ export async function decideServeStartup(
   if (typeof runningPid === "number" && runningPid > 0) {
     return { action: "takeover", pid: runningPid, runningVersion };
   }
+
+  // Pre-1.31 dashboards don't report pid in /api/health — fall back to the
+  // pid file (validated for liveness) before giving up.
+  try {
+    const filePid = (opts.pidFileReadFn ?? readLivePidFromFile)();
+    if (typeof filePid === "number" && filePid > 0) {
+      return { action: "takeover", pid: filePid, runningVersion };
+    }
+  } catch {
+    /* fall through to takeover-no-pid */
+  }
+
   return { action: "takeover-no-pid", runningVersion };
+}
+
+export interface WaitForDashboardOptions {
+  expectedVersion: string;
+  /** Injectable probe — defaults to the real /api/health fetch. */
+  probeFn?: () => Promise<DashboardHealthData | null>;
+  /** Returns the child's exit code when it has died, else null/undefined. */
+  shouldAbort?: () => number | null | undefined;
+  timeoutMs?: number;
+  intervalMs?: number;
+}
+
+export type WaitForDashboardResult =
+  | { ok: true; pid?: number }
+  | { ok: false; reason: string };
+
+/**
+ * Poll the dashboard health endpoint until it reports `expectedVersion`.
+ * Used by `serve --background` so it only claims success when the dashboard
+ * is ACTUALLY serving at the right version — previously it printed
+ * "Dashboard started" unconditionally even when the child exited 1.
+ */
+export async function waitForDashboardHealthy(
+  opts: WaitForDashboardOptions,
+): Promise<WaitForDashboardResult> {
+  const probe = opts.probeFn ?? probeDashboardHealth;
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  const intervalMs = opts.intervalMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+  let lastSeen: string | null = null;
+
+  while (Date.now() < deadline) {
+    const exitCode = opts.shouldAbort?.();
+    if (exitCode !== null && exitCode !== undefined) {
+      // Child died — one final probe: it may have exited 0 because the
+      // dashboard was already running at the right version ("exit" action).
+      const final = await probe().catch(() => null);
+      if (final?.version === opts.expectedVersion) {
+        return { ok: true, pid: final.pid };
+      }
+      return {
+        ok: false,
+        reason: `dashboard process exited with code ${exitCode} before becoming healthy`,
+      };
+    }
+
+    const health = await probe().catch(() => null);
+    if (health?.version === opts.expectedVersion) {
+      return { ok: true, pid: health.pid };
+    }
+    if (health?.version) lastSeen = health.version;
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  return {
+    ok: false,
+    reason: lastSeen
+      ? `timed out — a dashboard is responding but at version ${lastSeen}, expected ${opts.expectedVersion}`
+      : `timed out — no healthy dashboard at expected version ${opts.expectedVersion}`,
+  };
 }
 
 /** @deprecated Use findSentinalCmd() instead */

@@ -11,41 +11,33 @@ import {
 
 // ─── buildPluginList tests ───────────────────────────────────────────────────
 //
-// Regression guard for the plugin double-load defect: binary-mode install wrote
-// plugins/sentinal.mjs (auto-loaded by OpenCode's directory scan) AND appended
-// "./plugins/sentinal.mjs" to config.plugin — the same module loaded twice per
-// session. Binary mode must rely on directory auto-load ONLY; npm mode has no
-// file in plugins/ and legitimately needs the config entry.
+// ⛔ The config.plugin entry is the ONLY load path for the binary-mode plugin.
+// OpenCode's plugin loader (packages/opencode/src/config/plugin.ts) scans
+// `{plugin,plugins}/*.{ts,js}` — `.mjs` is EXCLUDED from the glob, so
+// plugins/sentinal.mjs is never directory-auto-loaded. v1.31.2 removed the
+// config entry believing directory auto-load covered it, silently disabling
+// the entire plugin (no TDD guard, no memory, no session tracking) with zero
+// errors logged. These tests pin the entry's presence in BOTH modes.
+// (The "double-load" that motivated the removal was normal per-instance
+// plugin init — OpenCode initializes plugins once per instance: main,
+// subagent, compaction.)
 
 describe("buildPluginList", () => {
+  const FILE_REF = "./plugins/sentinal.mjs";
   const NPM_REF = "@endpoint/sentinal/opencode-plugin";
 
-  it("binary mode: removes legacy sentinal file entry, keeps other plugins", () => {
+  it("binary mode: appends the file entry (the ONLY load path — .mjs is not directory-auto-loaded)", () => {
+    expect(buildPluginList(undefined, true, FILE_REF)).toEqual([FILE_REF]);
+    expect(buildPluginList([], true, FILE_REF)).toEqual([FILE_REF]);
+  });
+
+  it("binary mode: dedupes — existing sentinal entries replaced by exactly one", () => {
     const result = buildPluginList(
-      ["./plugins/sentinal.mjs", "opencode-wakatime"],
+      [FILE_REF, "opencode-wakatime", NPM_REF],
       true,
-      "./plugins/sentinal.mjs",
+      FILE_REF,
     );
-    expect(result).toEqual(["opencode-wakatime"]);
-  });
-
-  it("binary mode: returns undefined when only sentinal entries existed (key should be omitted)", () => {
-    const result = buildPluginList(["./plugins/sentinal.mjs"], true, "./plugins/sentinal.mjs");
-    expect(result).toBeUndefined();
-  });
-
-  it("binary mode: returns undefined for empty/missing existing list", () => {
-    expect(buildPluginList(undefined, true, "./plugins/sentinal.mjs")).toBeUndefined();
-    expect(buildPluginList([], true, "./plugins/sentinal.mjs")).toBeUndefined();
-  });
-
-  it("binary mode: also removes legacy npm-ref sentinal entries", () => {
-    const result = buildPluginList(
-      [NPM_REF, "other-plugin"],
-      true,
-      "./plugins/sentinal.mjs",
-    );
-    expect(result).toEqual(["other-plugin"]);
+    expect(result).toEqual(["opencode-wakatime", FILE_REF]);
   });
 
   it("npm mode: appends the package reference exactly once", () => {
@@ -55,16 +47,21 @@ describe("buildPluginList", () => {
 
   it("npm mode: replaces legacy sentinal entries with the package reference", () => {
     const result = buildPluginList(
-      ["./plugins/sentinal.mjs", "other-plugin", NPM_REF],
+      [FILE_REF, "other-plugin", NPM_REF],
       false,
       NPM_REF,
     );
     expect(result).toEqual(["other-plugin", NPM_REF]);
   });
 
-  it("preserves non-sentinal plugin order", () => {
-    const result = buildPluginList(["a-plugin", "b-plugin", "c-plugin"], true, "./plugins/sentinal.mjs");
-    expect(result).toEqual(["a-plugin", "b-plugin", "c-plugin"]);
+  it("preserves non-sentinal plugin order in both modes", () => {
+    expect(buildPluginList(["a", "b"], true, FILE_REF)).toEqual(["a", "b", FILE_REF]);
+    expect(buildPluginList(["a", "b"], false, NPM_REF)).toEqual(["a", "b", NPM_REF]);
+  });
+
+  it("never returns undefined — the sentinal entry must always be present", () => {
+    expect(buildPluginList(undefined, true, FILE_REF)).toBeDefined();
+    expect(buildPluginList(undefined, false, NPM_REF)).toBeDefined();
   });
 });
 
