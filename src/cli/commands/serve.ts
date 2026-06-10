@@ -16,6 +16,7 @@ import {
   removePidFile,
 } from "../../dashboard/lifecycle.js";
 import { startServer } from "../../dashboard/server.js";
+import { logDashboard } from "../../utils/file-log.js";
 
 const DEFAULT_PORT = 41778;
 const DEFAULT_HOST = "127.0.0.1";
@@ -50,12 +51,16 @@ export function registerServeCommand(program: Command): void {
         const server = startServer({ port, host, version });
 
         writePidFile(process.pid);
+        logDashboard(
+          `dashboard: started pid=${process.pid} port=${server.port} version=${version}`,
+        );
         console.log(`Sentinal Dashboard v${version}`);
         console.log(`Listening on http://${host}:${server.port}`);
         console.log(`Press Ctrl+C to stop`);
 
         // Graceful shutdown
         const shutdown = () => {
+          logDashboard("dashboard: shutting down: signal");
           console.log("\nShutting down...");
           server.stop(true);
           removePidFile();

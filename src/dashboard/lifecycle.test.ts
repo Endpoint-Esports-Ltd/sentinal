@@ -2,7 +2,7 @@
  * Dashboard Lifecycle Tests
  */
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, beforeEach, spyOn, mock } from "bun:test";
 import { join } from "node:path";
 import {
   mkdirSync,
@@ -12,6 +12,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
+import * as fileLogModule from "../utils/file-log.js";
+import * as lifecycleModule from "./lifecycle.js";
 
 // We test the internal functions by importing them, but override the PID path
 // by testing the core logic directly rather than the path-dependent functions.
@@ -82,5 +84,77 @@ describe("Dashboard Lifecycle", () => {
     // Write a PID that doesn't exist
     writeFileSync(pidPath, "999999", "utf-8");
     expect(isProcessAlive(999999)).toBe(false);
+  });
+});
+
+// ─── Lifecycle Logging ────────────────────────────────────────────────────────
+
+describe("Dashboard lifecycle logging", () => {
+  let tmpDir: string;
+  let getLogDirSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    getLogDirSpy = spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    getLogDirSpy.mockRestore();
+    mock.restore();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should log when stopServer sends SIGTERM to a live process", () => {
+    // Redirect PID file path to tmpDir so the function reads the right file
+    const pidPath = join(tmpDir, "server.pid");
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+
+    // Intercept SIGTERM so we don't kill the test process
+    const killSpy = spyOn(process, "kill").mockImplementation((() => true) as any);
+    try {
+      lifecycleModule.stopServer();
+    } finally {
+      killSpy.mockRestore();
+      getPidSpy.mockRestore();
+    }
+
+    const logPath = join(tmpDir, fileLogModule.DASHBOARD_LOG_FILE);
+    expect(existsSync(logPath)).toBe(true);
+    const content = readFileSync(logPath, "utf-8");
+    expect(content).toContain("dashboard: stopped");
+  });
+
+  it("should log when stopServer finds no PID file", () => {
+    const pidPath = join(tmpDir, "server.pid"); // doesn't exist
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+    try {
+      lifecycleModule.stopServer();
+    } finally {
+      getPidSpy.mockRestore();
+    }
+
+    const logPath = join(tmpDir, fileLogModule.DASHBOARD_LOG_FILE);
+    expect(existsSync(logPath)).toBe(true);
+    const content = readFileSync(logPath, "utf-8");
+    expect(content).toContain("dashboard: stop skipped");
+  });
+
+  it("should log when autoStartDashboard skips because already running", async () => {
+    // Redirect PID file to tmpDir with current PID → isServerRunning() returns true
+    const pidPath = join(tmpDir, "server.pid");
+    writeFileSync(pidPath, String(process.pid), "utf-8");
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+
+    try {
+      await lifecycleModule.autoStartDashboard(); // no version — should return early with a log
+    } finally {
+      getPidSpy.mockRestore();
+    }
+
+    const logPath = join(tmpDir, fileLogModule.DASHBOARD_LOG_FILE);
+    expect(existsSync(logPath)).toBe(true);
+    const content = readFileSync(logPath, "utf-8");
+    expect(content).toContain("dashboard: already running");
   });
 });

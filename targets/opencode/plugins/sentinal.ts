@@ -211,6 +211,7 @@ function stopProcess(pidFile: string): void {
 }
 
 function stopDashboard(): void {
+  log("stopDashboard: sending SIGTERM to dashboard");
   stopProcess("server.pid");
 }
 function stopSidecar(): void {

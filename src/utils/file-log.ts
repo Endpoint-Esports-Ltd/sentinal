@@ -26,6 +26,7 @@ import { homedir } from "node:os";
 
 export const SIDECAR_LOG_FILE = "sidecar.log";
 export const PLUGIN_LOG_FILE = "plugin.debug.log";
+export const DASHBOARD_LOG_FILE = "dashboard.log";
 
 /** Default max file size before rotation (10 MB). */
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -89,6 +90,14 @@ export function logToFile(
  */
 export function logSidecar(message: string): void {
   logToFile(SIDECAR_LOG_FILE, message);
+}
+
+/**
+ * Append a timestamped message to dashboard.log.
+ * Convenience wrapper used by the dashboard serve command and lifecycle manager.
+ */
+export function logDashboard(message: string): void {
+  logToFile(DASHBOARD_LOG_FILE, message);
 }
 
 /**

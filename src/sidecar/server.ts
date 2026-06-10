@@ -36,6 +36,7 @@ import { handleTddTransitionRequest } from "./tdd-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
 import { LspClient } from "./lsp-client.js";
+import { stopServer } from "../dashboard/lifecycle.js";
 
 // Re-export path helpers for backward compatibility
 export {
@@ -128,6 +129,14 @@ export interface SessionAwareShutdownOptions {
   checkIntervalMs?: number;
   /** Custom shutdown callback (default: stopSidecar + process.exit) */
   onShutdown?: (reason: string) => void;
+  /**
+   * Optional callback to stop the dashboard when the sidecar shuts down.
+   * When omitted AND onShutdown is not set (production path), the real
+   * stopServer() from dashboard/lifecycle is called.
+   * When omitted but onShutdown IS set (test/injection mode), no-op —
+   * protects test environments from touching real PID files.
+   */
+  stopDashboardFn?: () => void;
 }
 
 /**
@@ -158,6 +167,23 @@ export function enableSessionAwareShutdown(
   const doShutdown = (reason: string) => {
     clearInterval(interval);
     logSidecar(`sidecar: ${reason}`);
+    // Stop the dashboard when the sidecar shuts down so it doesn't orphan.
+    // Use injected fn in test/custom mode; fall back to real stopServer in production.
+    if (opts.stopDashboardFn) {
+      try {
+        opts.stopDashboardFn();
+      } catch {
+        /* non-fatal — dashboard stop is best-effort */
+      }
+    } else if (!opts.onShutdown) {
+      // Production path (no custom onShutdown) — stop the real dashboard.
+      try {
+        stopServer();
+        logSidecar("sidecar: dashboard stopped");
+      } catch {
+        /* non-fatal */
+      }
+    }
     if (opts.onShutdown) {
       opts.onShutdown(reason);
     } else {

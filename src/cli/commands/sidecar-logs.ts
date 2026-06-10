@@ -13,11 +13,12 @@ import {
   getLogDir,
   SIDECAR_LOG_FILE,
   PLUGIN_LOG_FILE,
+  DASHBOARD_LOG_FILE,
 } from "../../utils/file-log.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type LogFileFilter = "sidecar" | "plugin" | "all";
+export type LogFileFilter = "sidecar" | "plugin" | "dashboard" | "all";
 
 export interface BuildLogsReportOptions {
   /** Number of tail lines to show per file. */
@@ -66,6 +67,11 @@ export function buildLogsReport(opts: BuildLogsReportOptions): string {
   if (opts.file === "plugin" || opts.file === "all") {
     sections.push(
       renderFile("plugin.debug.log", join(dir, PLUGIN_LOG_FILE), opts.lines),
+    );
+  }
+  if (opts.file === "dashboard" || opts.file === "all") {
+    sections.push(
+      renderFile("dashboard.log", join(dir, DASHBOARD_LOG_FILE), opts.lines),
     );
   }
 

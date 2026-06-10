@@ -102,4 +102,32 @@ describe("buildLogsReport", () => {
     expect(report).toContain("plugin.debug.log");
     expect(report).toContain("plugin: hello");
   });
+
+  // ─── dashboard log ────────────────────────────────────────────────────────
+
+  it("should show only dashboard.log when --file dashboard", () => {
+    writeLog("sidecar.log", ["2026-06-09T00:00:00.000Z sidecar: started"]);
+    writeLog("dashboard.log", ["2026-06-09T00:00:00.000Z dashboard: started pid=1234"]);
+    const report = buildLogsReport({ lines: 10, file: "dashboard" });
+    expect(report).toContain("dashboard.log");
+    expect(report).toContain("dashboard: started pid=1234");
+    expect(report).not.toContain("sidecar.log");
+  });
+
+  it("should include dashboard.log in all mode", () => {
+    writeLog("sidecar.log", ["2026-06-09T00:00:00.000Z sidecar: started"]);
+    writeLog("dashboard.log", ["2026-06-09T00:00:00.000Z dashboard: started pid=1234"]);
+    writeLog("plugin.debug.log", ["2026-06-09T00:00:00.000Z plugin: hello"]);
+    const report = buildLogsReport({ lines: 10, file: "all" });
+    expect(report).toContain("dashboard.log");
+    expect(report).toContain("dashboard: started pid=1234");
+    expect(report).toContain("sidecar.log");
+    expect(report).toContain("plugin.debug.log");
+  });
+
+  it("should note when dashboard.log is missing in dashboard mode", () => {
+    const report = buildLogsReport({ lines: 10, file: "dashboard" });
+    expect(report).toContain("dashboard.log");
+    expect(report).toContain("(no log file found)");
+  });
 });

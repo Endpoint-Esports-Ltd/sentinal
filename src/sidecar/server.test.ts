@@ -1011,6 +1011,94 @@ describe("enableSessionAwareShutdown reason logging", () => {
     expect(logContent).toContain("shutting down:");
     cleanup();
   });
+
+  it("should invoke stopDashboardFn when shutting down via idle fallback", async () => {
+    let dashboardStopped = false;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 50,
+      staleActivityMs: 600_000,
+      onShutdown: () => {
+        // override — don't actually exit
+      },
+      stopDashboardFn: () => {
+        dashboardStopped = true;
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+    expect(dashboardStopped).toBe(true);
+    cleanup();
+  });
+
+  it("should invoke stopDashboardFn when shutting down via grace period", async () => {
+    let dashboardStopped = false;
+
+    sidecar.ctx.store.insertSession({
+      id: "dashboard-grace-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: () => {
+        // override — don't actually exit
+      },
+      stopDashboardFn: () => {
+        dashboardStopped = true;
+      },
+    });
+
+    // Active session — dashboard should NOT be stopped yet
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dashboardStopped).toBe(false);
+
+    sidecar.ctx.store.endSession("dashboard-grace-session");
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(dashboardStopped).toBe(true);
+    cleanup();
+  });
+
+  it("should NOT invoke stopDashboardFn when sessions are still active", async () => {
+    let dashboardStopped = false;
+
+    sidecar.ctx.store.insertSession({
+      id: "dashboard-active-session",
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 600_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: () => {
+        // override — don't actually exit
+      },
+      stopDashboardFn: () => {
+        dashboardStopped = true;
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(dashboardStopped).toBe(false);
+    cleanup();
+  });
 });
 
 // ─── Vector Search Wiring ─────────────────────────────────────────────────

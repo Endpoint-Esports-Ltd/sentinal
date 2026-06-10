@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { DB_CONSTANTS } from "../memory/types.js";
+import { logDashboard } from "../utils/file-log.js";
 
 const PID_FILE = "server.pid";
 
@@ -88,29 +89,42 @@ export async function autoStartDashboard(
           const data = (await resp.json()) as { version?: string };
           if (data.version && data.version !== currentVersion) {
             // Version mismatch — restart with new binary
+            logDashboard(
+              `dashboard: version mismatch (running=${data.version} current=${currentVersion}) — restarting`,
+            );
             stopServer();
             // Small delay to allow port release
             await new Promise((r) => setTimeout(r, 200));
           } else {
+            logDashboard("dashboard: already running — skipping spawn");
             return; // Running and up-to-date
           }
         }
       } catch {
+        logDashboard("dashboard: already running — skipping spawn (health check failed)");
         return; // Can't reach — assume it's fine
       }
     } else {
+      logDashboard("dashboard: already running — skipping spawn");
       return; // Running, no version to check
     }
   }
 
   try {
     const cmd = findSentinalCmd();
-    if (!cmd) return;
+    if (!cmd) {
+      logDashboard("dashboard: spawn skipped — sentinal binary not found");
+      return;
+    }
     Bun.spawn([...cmd, "serve"], {
       stdio: ["ignore", "ignore", "ignore"],
     }).unref();
-  } catch {
+    logDashboard("dashboard: spawned");
+  } catch (err) {
     // Non-fatal — dashboard is supplementary
+    logDashboard(
+      `dashboard: spawn failed — ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -146,19 +160,25 @@ export function findSentinalBin(): string | null {
  */
 export function stopServer(): boolean {
   const pid = readPidFile();
-  if (pid === null) return false;
+  if (pid === null) {
+    logDashboard("dashboard: stop skipped — no pid file");
+    return false;
+  }
 
   if (!isProcessAlive(pid)) {
     removePidFile();
+    logDashboard(`dashboard: stop skipped — stale pid ${pid} cleaned`);
     return false;
   }
 
   try {
     process.kill(pid, "SIGTERM");
     removePidFile();
+    logDashboard(`dashboard: stopped pid=${pid}`);
     return true;
   } catch {
     removePidFile();
+    logDashboard(`dashboard: stop failed for pid=${pid} (already gone?)`);
     return false;
   }
 }

@@ -27,6 +27,7 @@ import {
   enableSessionAwareShutdown,
 } from "../../sidecar/server.js";
 import { logSidecar } from "../../utils/file-log.js";
+import { stopServer } from "../../dashboard/lifecycle.js";
 
 export function registerSidecarCommand(program: Command): void {
   const sidecar = program
@@ -94,6 +95,16 @@ export function registerSidecarCommand(program: Command): void {
         const shutdown = () => {
           logSidecar("sidecar: shutting down: signal");
           console.log("\nShutting down sidecar...");
+          // Stop the dashboard alongside the sidecar on explicit signal.
+          try {
+            const activeSessions = result.ctx.store.getActiveSessions();
+            if (activeSessions.length === 0) {
+              stopServer();
+              logSidecar("sidecar: dashboard stopped");
+            }
+          } catch {
+            /* non-fatal */
+          }
           stopSidecar(result.server, result.ctx, result.httpServer);
           process.exit(0);
         };
@@ -198,13 +209,13 @@ export function registerSidecarCommand(program: Command): void {
     .option("-n, --lines <n>", "Number of tail lines to show per file", "50")
     .option(
       "--file <name>",
-      "Which file to show: sidecar | plugin | all",
+      "Which file to show: sidecar | plugin | dashboard | all",
       "all",
     )
     .action((opts: { lines: string; file: string }) => {
       const n = parseInt(opts.lines, 10);
       const file = (
-        ["sidecar", "plugin", "all"].includes(opts.file) ? opts.file : "all"
+        ["sidecar", "plugin", "dashboard", "all"].includes(opts.file) ? opts.file : "all"
       ) as LogFileFilter;
       process.stdout.write(buildLogsReport({ lines: isNaN(n) ? 50 : n, file }));
     });
