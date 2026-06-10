@@ -21,7 +21,7 @@ Type: Bugfix
 4. `targets/opencode/skills/spec-verify/SKILL.md:17` — `Task(subagent_type="sentinal:spec-reviewer")` in the KEY CONSTRAINTS section
 5. `targets/opencode/skills/spec-verify/SKILL.md:100` — `subagent_type="sentinal:spec-reviewer",` in the Step 3.1 Task() launch snippet
 
-All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market research feature parity") via mass mirroring of Claude Code text into OpenCode files without scrubbing the plugin-namespace prefix.
+All 5 occurrences were introduced in commit `999cc5f` (2026-03-11) via mass mirroring of Claude Code text into OpenCode files without scrubbing the plugin-namespace prefix.
 
 ## Investigation
 
@@ -92,7 +92,7 @@ All 5 occurrences were introduced in commit `999cc5f` (2026-03-11, "feat: market
 
 The tests have no mocking — they read the real asset files from disk. Pattern is deliberately simple because the test is a structural invariant, not a unit test.
 
-**Defense-in-depth:** The structural test IS the defense layer. Without it, the next mass mirror from Claude Code in a future "market research parity" style commit would silently reintroduce the leak. The test adds ~30 lines of scanner code and catches the whole class of bug automatically.
+**Defense-in-depth:** The structural test IS the defense layer. Without it, a future mass mirror from Claude Code into OpenCode files would silently reintroduce the leak. The test adds ~30 lines of scanner code and catches the whole class of bug automatically.
 
 ## Progress
 

@@ -18,7 +18,7 @@ describe("slugFromFilename", () => {
 });
 
 describe("parsePlanContent — new format", () => {
-  const newFormatContent = `# market research Feature Parity Implementation Plan
+  const newFormatContent = `# Market Research Feature Parity Implementation Plan
 
 Created: 2026-03-09
 Status: IN PROGRESS
@@ -48,17 +48,17 @@ Some summary text.
   it("should extract title", () => {
     const spec = parsePlanContent(
       newFormatContent,
-      "/plans/2026-03-09-market research-parity.md",
+      "/plans/2026-03-09-market-research-parity.md",
     );
-    expect(spec.title).toBe("market research Feature Parity Implementation Plan");
+    expect(spec.title).toBe("Market Research Feature Parity Implementation Plan");
   });
 
   it("should extract slug from filename", () => {
     const spec = parsePlanContent(
       newFormatContent,
-      "/plans/2026-03-09-market research-parity.md",
+      "/plans/2026-03-09-market-research-parity.md",
     );
-    expect(spec.id).toBe("2026-03-09-market research-parity");
+    expect(spec.id).toBe("2026-03-09-market-research-parity");
   });
 
   it("should extract status", () => {

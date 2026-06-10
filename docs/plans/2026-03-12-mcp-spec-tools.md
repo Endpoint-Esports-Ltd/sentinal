@@ -11,7 +11,7 @@ Type: Feature
 
 **Goal:** Add ~10 new MCP tools to the sentinal MCP server that eliminate Bash shell-outs during the spec workflow, add missing worktree CLI subcommands (`detect`, `create`, `sync`), and update all skill/command files to reference the new MCP tools instead of Bash invocations.
 
-**Architecture:** New tools are registered in `src/spec/mcp-tools.ts` (spec tools) and a new `src/worktree/mcp-tools.ts` (worktree tools). The worktree domain is moved from `src/git/worktree-*.ts` to `src/worktree/` for clean separation. Both MCP modules receive the shared `MemoryStore` from the MCP server and construct their domain stores internally. Missing CLI subcommands are added to `src/cli/commands/worktree.ts` using a slug-resolution helper. All `SENTINAL_*` env vars are renamed to `SENTINAL_*` across all skill/command files. All 10+ skill/command files are updated to document MCP tool equivalents alongside the existing Bash patterns.
+**Architecture:** New tools are registered in `src/spec/mcp-tools.ts` (spec tools) and a new `src/worktree/mcp-tools.ts` (worktree tools). The worktree domain is moved from `src/git/worktree-*.ts` to `src/worktree/` for clean separation. Both MCP modules receive the shared `MemoryStore` from the MCP server and construct their domain stores internally. Missing CLI subcommands are added to `src/cli/commands/worktree.ts` using a slug-resolution helper. Legacy env var prefixes are renamed to `SENTINAL_*` across all skill/command files. All 10+ skill/command files are updated to document MCP tool equivalents alongside the existing Bash patterns.
 
 **Tech Stack:** TypeScript, Bun, `@modelcontextprotocol/sdk`, Zod, `bun:sqlite`, `node:fs` (for file watching)
 
@@ -24,7 +24,7 @@ Type: Feature
 - 3 missing CLI subcommands: `worktree detect`, `worktree create`, `worktree sync`
 - Slug-resolution helper for worktree commands (plan slug → worktree ID)
 - Move worktree domain from `src/git/worktree-*.ts` to `src/worktree/` (manager.ts, store.ts, types.ts, mcp-tools.ts)
-- Rename all `SENTINAL_*` env vars to `SENTINAL_*` across 16 target `.md` files
+- Rename all legacy env var prefixes to `SENTINAL_*` across 16 target `.md` files
 - Update all 10+ skill/command `.md` files to document MCP tool usage
 - Unit tests for all new tools and CLI subcommands
 - Build + update cycle to propagate changes
@@ -73,7 +73,7 @@ Type: Feature
   - `fs.watch()` on macOS uses FSEvents which is reliable for file creation but may not fire for writes to existing files. Use `fs.watchFile()` as fallback for polling.
   - MCP tools run in the MCP server process, which persists across tool calls. The `MemoryStore` stays open — no per-call overhead.
   - Worktree `create` involves git operations (`git worktree add`, `git checkout -b`) that can take seconds. The MCP tool must be async.
-  - The `spec_config` tool reads `SENTINAL_*` environment variables from the MCP server's process environment. These are renamed from the old `SENTINAL_*` prefix. The env vars are set by OpenCode/Claude Code console settings before launching the MCP server.
+  - The `spec_config` tool reads `SENTINAL_*` environment variables from the MCP server's process environment. The env vars are set by OpenCode/Claude Code console settings before launching the MCP server.
 
 - **Domain context:**
   - The spec workflow has 4 phases: plan → implement → verify → (loop or done). Each phase invokes sentinal CLI commands via Bash for plan registration, worktree management, and notification.
@@ -133,7 +133,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - Created: `src/worktree/` directory with `manager.ts`, `store.ts`, `types.ts`, `mcp-tools.ts`
 - Removed: `src/git/worktree-manager.ts`, `src/git/worktree-store.ts` (moved to `src/worktree/`)
 - Modified: `src/cli/commands/worktree.ts`
-- Modified: 16+ target `.md` files (`SENTINAL_*` → `SENTINAL_*` rename + MCP tool references)
+- Modified: 16+ target `.md` files (env var rename to `SENTINAL_*` + MCP tool references)
 - Created: `src/spec/mcp-tools.test.ts`, `src/worktree/mcp-tools.test.ts`
 - Modified: `src/cli/embedded-assets.ts` (auto-generated after build)
 
@@ -143,7 +143,7 @@ _Assume this plan failed. Most likely internal reasons:_
 2. `src/spec/mcp-tools.ts` → `SpecStore` + `MemoryStore` → `spec_register`, `spec_config`, `spec_plan_parse`, `spec_notify`, `spec_events`, `spec_wait_file`
 3. `src/worktree/mcp-tools.ts` → `WorktreeManager` + `WorktreeStore` → `worktree_detect`, `worktree_create`, `worktree_diff`, `worktree_sync`
 4. `src/cli/commands/worktree.ts` → imports from `src/worktree/` → `detect`, `create`, `sync` subcommands
-5. Skills/commands → `SENTINAL_*` env vars (renamed from `SENTINAL_*`) → reference MCP tools as preferred, Bash as fallback
+5. Skills/commands → `SENTINAL_*` env vars → reference MCP tools as preferred, Bash as fallback
 
 ## Progress Tracking
 
@@ -157,7 +157,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [x] Task 8: Add `worktree_diff` and `worktree_sync` MCP tools
 - [x] Task 9: Add missing CLI subcommands (`detect`, `create`, `sync`)
 - [x] Task 10: Wire new tool modules into MCP server
-- [x] Task 11: Rename `SENTINAL_*` → `SENTINAL_*` env vars + update skill/command files to reference MCP tools
+- [x] Task 11: Rename legacy env var prefixes → `SENTINAL_*` + update skill/command files to reference MCP tools
 - [x] Task 12: Build, update, and verify
       **Total Tasks:** 12 | **Completed:** 12 | **Remaining:** 0
 
@@ -545,9 +545,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - `npx tsc --noEmit`
 
-### Task 11: Rename `SENTINAL_*` → `SENTINAL_*` env vars + update skill/command files to reference MCP tools
+### Task 11: Rename legacy env var prefixes → `SENTINAL_*` + update skill/command files to reference MCP tools
 
-**Objective:** Rename all `SENTINAL_*` environment variable references to `SENTINAL_*` across all target files, and add MCP tool references so agents know to use MCP tools instead of Bash.
+**Objective:** Rename all legacy environment variable prefix references to `SENTINAL_*` across all target files, and add MCP tool references so agents know to use MCP tools instead of Bash.
 
 **Dependencies:** Tasks 1-10
 
@@ -566,10 +566,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-**Env var rename (`SENTINAL_*` → `SENTINAL_*`):**
+**Env var rename (legacy prefix → `SENTINAL_*`):**
 
 - Bulk find-replace across 16 target `.md` files (skills, commands, rules)
-- Mapping: `SENTINAL_PLAN_QUESTIONS_ENABLED` → `SENTINAL_PLAN_QUESTIONS_ENABLED`, `SENTINAL_PLAN_REVIEWER_ENABLED` → `SENTINAL_PLAN_REVIEWER_ENABLED`, `SENTINAL_PLAN_APPROVAL_ENABLED` → `SENTINAL_PLAN_APPROVAL_ENABLED`, `SENTINAL_SPEC_REVIEWER_ENABLED` → `SENTINAL_SPEC_REVIEWER_ENABLED`, `SENTINAL_WORKTREE_ENABLED` → `SENTINAL_WORKTREE_ENABLED`, `SENTINAL_SESSION_ID` → `SENTINAL_SESSION_ID`
+- Mapping: all legacy-prefixed env vars renamed to `SENTINAL_PLAN_QUESTIONS_ENABLED`, `SENTINAL_PLAN_REVIEWER_ENABLED`, `SENTINAL_PLAN_APPROVAL_ENABLED`, `SENTINAL_SPEC_REVIEWER_ENABLED`, `SENTINAL_WORKTREE_ENABLED`, `SENTINAL_SESSION_ID`
 - Also update `targets/opencode/commands/spec.md` (OpenCode dispatcher) which references these
 - No TypeScript source code reads these env vars directly — only the `.md` target files and the auto-generated `embedded-assets.ts` (rebuilt from targets)
 
@@ -596,8 +596,8 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] All `SENTINAL_*` references renamed to `SENTINAL_*` across 16+ target files
-- [ ] Zero `SENTINAL_` references remain in `targets/` (verify with `rg 'SENTINAL_' targets/`)
+- [ ] All legacy env var prefixes renamed to `SENTINAL_*` across 16+ target files
+- [ ] Zero legacy prefixed env vars remain in `targets/` (verify with `rg 'SENTINAL_' targets/` for completeness)
 - [ ] All 10 skill/command files have MCP tool references
 - [ ] `targets/claude-code/commands/spec.md` dispatcher updated
 - [ ] `targets/opencode/commands/spec.md` dispatcher updated (if exists)

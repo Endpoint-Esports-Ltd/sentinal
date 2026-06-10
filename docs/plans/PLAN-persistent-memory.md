@@ -6,11 +6,11 @@
 
 Implement a persistent memory system that captures and preserves context across Claude Code and OpenCode sessions. Users maintain continuity across compaction boundaries and between sessions -- decisions, discoveries, and debugging insights are never lost.
 
-## Comparison with prior art (market research)
+## Comparison with Prior Art (Market Research)
 
-prior art uses a **dual-database architecture**: SQLite for structured storage + ChromaDB for vector embeddings. After detailed analysis of their implementation, here is how Sentinal's approach compares:
+Prior art uses a **dual-database architecture**: SQLite for structured storage + ChromaDB for vector embeddings. After detailed analysis of that implementation, here is how Sentinal's approach compares:
 
-| Aspect             | prior art (market research)                   | Sentinal (This Plan)                     |
+| Aspect             | Prior art (market research)                | Sentinal (This Plan)                     |
 | ------------------ | ------------------------------------------ | ---------------------------------------- |
 | Structured storage | SQLite                                     | SQLite                                   |
 | Keyword search     | SQLite FTS5                                | SQLite FTS5                              |
@@ -18,7 +18,7 @@ prior art uses a **dual-database architecture**: SQLite for structured storage +
 | Embedding model    | ChromaDB default (sentence-transformers)   | Configurable: local (onnxruntime) or API |
 | Process model      | Worker service + ChromaDB subprocess + MCP | Single process (SQLite + extension)      |
 | Search strategy    | 3-layer progressive disclosure             | 3-layer progressive disclosure (adopted) |
-| Document model     | Granular (each field is a separate vector) | Granular (adopted from prior art)       |
+| Document model     | Granular (each field is a separate vector) | Granular (adopted from prior art)        |
 | Recency filtering  | 90-day window                              | 90-day window (configurable)             |
 | Token savings      | ~10x via progressive disclosure            | ~10x via progressive disclosure          |
 | Dual-target        | Claude Code only                           | Claude Code + OpenCode                   |

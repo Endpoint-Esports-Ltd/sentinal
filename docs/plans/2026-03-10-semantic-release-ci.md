@@ -11,7 +11,7 @@ Type: Feature
 
 **Goal:** Replace the manual tag-push release workflow with fully automated semantic versioning using `semantic-release`. On every push to `main`, the pipeline analyzes Conventional Commit messages, determines the next version, updates `package.json` and a `VERSION` file, generates/updates `CHANGELOG.md`, creates a git tag, cross-compiles 4 platform binaries with the new version baked in, publishes the package to the private npm registry at `npm.cloud.endpoint.gg`, and publishes a GitHub Release with binary artifacts.
 
-**References:** market research Parity Plan Task 12 (installer improvements — skipping devcontainers). Existing release workflow at `.github/workflows/release.yml`.
+**References:** Market Research Parity Plan Task 12 (installer improvements — skipping devcontainers). Existing release workflow at `.github/workflows/release.yml`.
 
 **Architecture:** Single GitHub Actions workflow triggered on `push` to `main`. Uses `semantic-release` with plugins for changelog generation, npm/git asset management, and a custom `exec` plugin to compile binaries. The `VERSION` file mirrors `package.json` version for consumers that prefer a flat file.
 

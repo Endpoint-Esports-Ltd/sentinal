@@ -1,4 +1,4 @@
-# market research Feature Parity Implementation Plan
+# Market Research Feature Parity Implementation Plan
 
 Created: 2026-03-11
 Status: VERIFIED
@@ -9,9 +9,9 @@ Type: Feature
 
 ## Summary
 
-**Goal:** Achieve full feature parity between Sentinal and market research across commands, rules, and agents — while adapting all references to Sentinal branding (Vexor instead of semantic search CLI, `sentinal` instead of `competitor-cli`).
+**Goal:** Achieve full feature parity according to market research across commands, rules, and agents — while adapting all references to Sentinal branding (Vexor for semantic search, `sentinal` as the CLI name).
 
-**Architecture:** This is primarily a content upgrade — rewriting markdown command/rule/agent files to match the depth and structure of market research's equivalents. The embed-assets script automatically picks up new files from `targets/claude-code/` directories, so no build system changes are needed. OpenCode targets need parallel updates (commands → commands, skills → skills).
+**Architecture:** This is primarily a content upgrade — rewriting markdown command/rule/agent files to match the depth and structure identified by market research. The embed-assets script automatically picks up new files from `targets/claude-code/` directories, so no build system changes are needed. OpenCode targets need parallel updates (commands → commands, skills → skills).
 
 **Tech Stack:** Markdown (commands, rules, agents), TypeScript (embed-assets verification), Bun (test runner)
 
@@ -19,14 +19,14 @@ Type: Feature
 
 ### In Scope
 
-- Upgrade 8 Claude Code commands to full market research depth (~479 → ~2,000 lines)
+- Upgrade 8 Claude Code commands to full market research reference depth (~479 → ~2,000 lines)
 - Add 11 new workflow/tool rules to `targets/claude-code/rules/` (~1,100 lines)
 - Upgrade 2 agent definitions (plan-reviewer, spec-reviewer)
 - Update 5 OpenCode skills and 3 OpenCode commands to match
 - Update 2 OpenCode agents to match
 - Verify embed-assets picks up all new files
 - Verify install process deploys everything correctly
-- Adapt all references: `competitor-cli` → `sentinal`, `semantic search CLI` → `Vexor`, `~/.legacy/` → `~/.sentinal/`
+  - Adapt all references to Sentinal branding: `sentinal` CLI, `Vexor` for semantic search, `~/.sentinal/` paths
 
 ### Out of Scope
 
@@ -40,7 +40,7 @@ Type: Feature
 
 > Write for an implementer who has never seen the codebase.
 
-- **Patterns to follow:** Compare `~/.claude/commands/spec-plan.md` (market research's full version, 375 lines) with `targets/claude-code/commands/spec-plan.md` (Sentinal's current version, 76 lines). The full version has env var toggle reading, AskUserQuestion integration, detailed plan templates with pre-mortem and goal verification sections.
+- **Patterns to follow:** Compare the market-research reference version of `spec-plan.md` (~375 lines) with `targets/claude-code/commands/spec-plan.md` (Sentinal's current version, 76 lines). The full version has env var toggle reading, AskUserQuestion integration, detailed plan templates with pre-mortem and goal verification sections.
 
 - **Conventions:**
   - Claude Code commands go in `targets/claude-code/commands/*.md` with YAML frontmatter
@@ -62,16 +62,16 @@ Type: Feature
   - OpenCode skills use a different structure than Claude Code commands (subdirectories with SKILL.md)
 
 - **Domain context:**
-  - Sentinal uses `sentinal` CLI binary (not `competitor-cli`)
-  - Sentinal uses `Vexor` for semantic code search (not `semantic search CLI`)
-  - Sentinal stores data in `~/.sentinal/` (not `~/.legacy/`)
-  - Sentinal's MCP tools use prefix `mcp__plugin_sentinal_` (not `mcp__plugin_legacy_`)
-  - All market research env vars like `$SENTINAL_WORKTREE_ENABLED` map to the same names (shared infrastructure via rules)
+  - Sentinal uses `sentinal` CLI binary
+  - Sentinal uses `Vexor` for semantic code search
+  - Sentinal stores data in `~/.sentinal/`
+  - Sentinal's MCP tools use prefix `mcp__plugin_sentinal_`
+  - Env vars like `$SENTINAL_WORKTREE_ENABLED` control feature toggles
 
 ## Assumptions
 
 - Embed-assets script auto-discovers new files in targets directories — supported by reading `scripts/embed-assets.mjs:28-34` — All tasks depend on this
-- Existing hooks are at functional parity with market research — supported by comparing hooks.json configurations — Tasks 1-9 depend on this
+- Existing hooks are at functional parity with the market research reference — supported by comparing hooks.json configurations — Tasks 1-9 depend on this
 - OpenCode skills follow the same content structure as Claude Code commands — supported by comparing existing files — Tasks 7-8 depend on this
 - Rules without `globs` frontmatter load every session — supported by Claude Code plugin docs — Task 1-2 depend on this
 
@@ -96,19 +96,19 @@ Type: Feature
 _Assume this plan failed. Most likely internal reasons:_
 
 1. **Rules reference tools that don't exist in Sentinal** (Tasks 1-2) → Trigger: A rule references `probe search` or `legacy worktree` instead of Sentinal equivalents. Check: grep all new files for "probe " and "legacy " after creation.
-2. **Commands reference wrong hook entry points** (Tasks 3-6) → Trigger: A command says `uv run python "${CLAUDE_PLUGIN_ROOT}/hooks/..."` (market research's Python hooks) instead of `sentinal hook ...`. Check: grep for "uv run" and ".py" in commands.
+2. **Commands reference wrong hook entry points** (Tasks 3-6) → Trigger: A command uses a legacy Python hook pattern instead of `sentinal hook ...`. Check: grep for "uv run" and ".py" in commands.
 3. **Embed-assets fails silently on new files** (Task 10) → Trigger: New rules don't appear in `embedded-assets.ts`. Check: count rules in generated file vs files in directory.
 
 ## Goal Verification
 
 ### Truths
 
-1. All 8 Claude Code commands match market research's depth (line count within 20%)
+1. All 8 Claude Code commands match the market research reference depth (line count within 20%)
 2. All 12 new rules exist in `targets/claude-code/rules/` (17 total including 5 existing standards) and are non-empty
 3. Both agents have detailed review phases and structured output
 4. OpenCode targets match Claude Code targets in content
 5. `bun run embed-assets` succeeds and includes all new files
-6. No references to `competitor-cli`, `probe`, or `~/.legacy/` remain in Sentinal's target files
+6. No references to legacy branding or paths remain in Sentinal's target files
 7. `bun test` passes with 0 failures
 
 ### Artifacts
@@ -149,7 +149,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Task 1: Add Core Workflow Rules
 
-**Objective:** Create 6 core workflow rule files adapted from market research's equivalents, with Sentinal branding.
+**Objective:** Create 6 core workflow rule files adapted from the market research reference, with Sentinal branding.
 
 **Dependencies:** None
 
@@ -164,8 +164,8 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- Adapt from market research's `~/.claude/rules/` equivalents
-- Replace `semantic search CLI` → `Vexor`, `competitor-cli` → `sentinal`, `~/.legacy/` → `~/.sentinal/`
+- Adapt from market research reference rule equivalents
+- Apply Sentinal branding: Vexor for semantic search, `sentinal` CLI, `~/.sentinal/` paths
 - `testing.md` includes TDD workflow, test strategy, coverage requirements, property-based testing
 - `verification.md` includes execution verification, evidence-based claims, stop signals
 - `development-practices.md` includes search priority (Vexor first), debugging methodology, git rules, constraint classification
@@ -175,10 +175,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] All 6 files created with content adapted from market research
+- [ ] All 6 files created with content adapted from market research reference
 - [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/` in any file
 - [ ] Each file has appropriate frontmatter (no `globs` — these load every session)
-- [ ] Content is functionally equivalent to market research's rules
+- [ ] Content is functionally equivalent to the market research reference rules
 
 **Verify:**
 
@@ -203,15 +203,15 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- `cli-tools.md` documents the `sentinal` CLI binary and `Vexor` semantic search (adapted from market research's semantic search CLI reference)
+- `cli-tools.md` documents the `sentinal` CLI binary and `Vexor` semantic search
 - `mcp-servers.md` documents Sentinal's MCP servers with `mcp__plugin_sentinal_` prefix
 - `research-tools.md` establishes Vexor as the primary search tool with fallback chain
-- `playwright-cli.md` can be copied mostly as-is (browser automation is tool-agnostic) with session isolation using `$SENTINAL_SESSION_ID` (do NOT introduce `$SENTINAL_SESSION_ID` — this env var is injected by the market research infrastructure and shared across both systems)
+- `playwright-cli.md` can be copied mostly as-is (browser automation is tool-agnostic) with session isolation using `$SENTINAL_SESSION_ID`
 - `team-sharing.md` is a placeholder noting Sentinal doesn't have team features but documenting how to share `.claude/` assets manually
 
 **Definition of Done:**
 
-- [ ] All 5 files created with content adapted from market research
+- [ ] All 5 files created with content adapted from market research reference
 - [ ] `cli-tools.md` references `sentinal` CLI commands and `vexor` for search
 - [ ] `mcp-servers.md` uses `mcp__plugin_sentinal_` prefix throughout
 - [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/`
@@ -235,7 +235,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- This is 192 lines in market research — the most complex rule
+- This is 192 lines in the market research reference — the most complex rule
 - Covers: plan mode guidance, task complexity triage, task management, sub-agent usage, /spec workflow overview, deviation handling, plan registration, worktree isolation
 - Must reference `sentinal register-plan`, `sentinal worktree`, `sentinal check-context`
 - Must reference Sentinal's sub-agent types: `sentinal:plan-reviewer` and `sentinal:spec-reviewer` (confirmed: plugin.json name is "sentinal", agents are namespaced as `plugin-name:agent-name`)
@@ -246,7 +246,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] File created with full task management, /spec orchestration, and deviation handling
 - [ ] All CLI references use `sentinal` commands
 - [ ] Workflow dispatch table matches Sentinal's command structure
-- [ ] Content is functionally equivalent to market research's task-and-workflow.md
+- [ ] Content is functionally equivalent to the market research reference task-and-workflow.md
 
 **Verify:**
 
@@ -258,7 +258,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Task 4: Upgrade spec.md Command
 
-**Objective:** Upgrade the /spec dispatcher command to match market research's depth — add env var toggle reading, structured dispatch logic, and detailed constraints.
+**Objective:** Upgrade the /spec dispatcher command to match market research reference depth — add env var toggle reading, structured dispatch logic, and detailed constraints.
 
 **Dependencies:** Tasks 1-3 (rules must exist for commands to reference)
 
@@ -268,19 +268,18 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- Current: 48 lines. Target: ~80 lines (matching market research)
+- Current: 48 lines. Target: ~80 lines (matching market research reference)
 - Add: env var toggle checking (`$SENTINAL_WORKTREE_ENABLED`, `$SENTINAL_PLAN_QUESTIONS_ENABLED`, `$SENTINAL_PLAN_APPROVAL_ENABLED`)
 - Add: detailed dispatch constraints (⛔ No substantive work here)
 - Add: model routing table (Opus for planning, Sonnet for implementation)
 - Add: proper YAML frontmatter with `user-invocable: true` and `model: sonnet`
-- Keep env var names as `$SENTINAL_*` since the rules already reference them and they're set by the installed infrastructure
 
 **Definition of Done:**
 
 - [ ] Command has proper YAML frontmatter (description, argument-hint, user-invocable, model)
 - [ ] Includes env var toggle reading step
 - [ ] Includes model routing table
-- [ ] Includes dispatch constraints matching market research
+- [ ] Includes dispatch constraints matching market research reference
 
 **Verify:**
 
@@ -290,7 +289,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Task 5: Upgrade spec-plan.md Command
 
-**Objective:** Upgrade the feature planning command to full depth — the biggest single command upgrade.
+**Objective:** Upgrade the feature planning command to full market research reference depth — the biggest single command upgrade.
 
 **Dependencies:** Tasks 1-3
 
@@ -300,7 +299,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- Current: 76 lines. Target: ~375 lines (matching market research)
+- Current: 76 lines. Target: ~375 lines (matching market research reference)
 - Add: Step 0 (toggle configuration reading)
 - Add: AskUserQuestion integration with batched questions
 - Add: Detailed plan template with all sections (Summary, Scope, Context for Implementer, Runtime Environment, Assumptions, Testing Strategy, Risks, Pre-Mortem, Goal Verification, Progress Tracking, Implementation Tasks)
@@ -309,12 +308,11 @@ _Assume this plan failed. Most likely internal reasons:_
 - Add: Migration/refactoring Feature Inventory workflow
 - Add: Worktree creation during planning
 - Add: Notification hooks (`sentinal notify`)
-- Replace: `~/.legacy/bin/legacy` → `sentinal` throughout
 - Add: YAML frontmatter with `model: opus` and `user-invocable: false`
 
 **Definition of Done:**
 
-- [ ] Command has all 8 steps from market research's spec-plan (Step 0 through Step 1.8)
+- [ ] Command has all 8 steps from the market research reference spec-plan (Step 0 through Step 1.8)
 - [ ] Includes detailed plan template with all required sections
 - [ ] Includes AskUserQuestion integration
 - [ ] All CLI references use `sentinal` commands
@@ -338,7 +336,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- Current: 72 lines. Target: ~134 lines (matching market research)
+- Current: 72 lines. Target: ~134 lines (matching market research reference)
 - Add: Critical constraints section (no sub-agents, TDD mandatory, never skip tasks, plan is source of truth)
 - Add: Feedback loop awareness (multiple implementation cycles)
 - Add: Step 2.1b (Worktree detection/resumption using `sentinal worktree`)
@@ -350,7 +348,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] Command has all steps (2.1 through 2.5) matching market research
+- [ ] Command has all steps (2.1 through 2.5) matching market research reference
 - [ ] Includes worktree detection via `sentinal worktree`
 - [ ] Includes pre-mortem and assumption checking during TDD loop
 - [ ] All CLI references use `sentinal` commands
@@ -373,7 +371,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Key Decisions / Notes:**
 
-- Current: 63 lines. Target: ~360 lines (matching market research)
+- Current: 63 lines. Target: ~360 lines (matching market research reference)
 - Add: Step 0 (toggle configuration for spec reviewer)
 - Add: Step 3.0 (Runtime profile classification: Minimal/API/Full)
 - Add: Phase A (Finalize code) — launch reviewer, automated checks, feature parity, collect results, fix
@@ -381,11 +379,11 @@ _Assume this plan failed. Most likely internal reasons:_
 - Add: Final phase — regression check, worktree sync, post-merge verification, status update
 - Add: Detailed spec-reviewer launch instructions with Task(subagent_type=...)
 - Add: Bash polling for reviewer results (not TaskOutput)
-- Replace: `~/.legacy/bin/legacy` → `sentinal`, `$SENTINAL_SESSION_ID` → `$SENTINAL_SESSION_ID` (keep as-is, shared env var)
+- Replace any legacy path references with `sentinal`
 
 **Definition of Done:**
 
-- [ ] Command has all verification phases matching market research
+- [ ] Command has all verification phases matching market research reference
 - [ ] Includes runtime profile classification
 - [ ] Includes Phase A (code finalization) and Phase B (runtime verification)
 - [ ] Includes spec-reviewer sub-agent launch
@@ -399,7 +397,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Task 8: Upgrade Bugfix Commands
 
-**Objective:** Upgrade both bugfix commands (spec-bugfix-plan.md, spec-bugfix-verify.md) to match market research depth.
+**Objective:** Upgrade both bugfix commands (spec-bugfix-plan.md, spec-bugfix-verify.md) to match market research reference depth.
 
 **Dependencies:** Tasks 1-3
 
@@ -412,6 +410,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - spec-bugfix-plan: Current 77 lines → Target ~257 lines. Add: Step 0 (toggles), systematic investigation phases, Behavior Contract with formal notation, worktree creation, plan-reviewer for complex bugs, notification hooks, approval gate
 - spec-bugfix-verify: Current 45 lines → Target ~90 lines. Add: Step 0 (toggles), detailed Behavior Contract audit, regression test confirmation, defense-in-depth validation, quality checks without sub-agents
+
 
 **Definition of Done:**
 
@@ -428,7 +427,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 ### Task 9: Upgrade learn.md and sync.md Commands
 
-**Objective:** Upgrade the learn and sync utility commands to full market research depth.
+**Objective:** Upgrade the learn and sync utility commands to full market research reference depth.
 
 **Dependencies:** Tasks 1-3
 
@@ -550,7 +549,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - [ ] `bun run embed-assets` succeeds
 - [ ] Generated `embedded-assets.ts` includes all 17 rules, 8 commands, 2 agents for Claude Code
-- [ ] `grep -rli "\\blegacy\\b\|\\bprobe\\b" targets/claude-code/ targets/opencode/` returns no matches (excluding env var names like $SENTINAL_WORKTREE_ENABLED which are shared)
+- [ ] `grep -rli "\\blegacy\\b\|\\bprobe\\b" targets/claude-code/ targets/opencode/` returns no matches
 - [ ] `bun test` passes with 0 failures
 - [ ] Template files in `templates/` are updated to match targets
 
@@ -558,7 +557,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - `bun run embed-assets 2>&1 | tail -20`
 - `bun test`
-- `grep -rn "\\bprobe\\b" targets/claude-code/ targets/opencode/ | grep -v SENTINAL_ | head -20` → empty
+- `grep -rn "\\bprobe\\b" targets/claude-code/ targets/opencode/ | head -20` → empty
 
 ## Open Questions
 

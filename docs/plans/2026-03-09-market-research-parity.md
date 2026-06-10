@@ -1,4 +1,4 @@
-# market research Feature Parity Implementation Plan
+# Market Research Feature Parity Implementation Plan
 
 Created: 2026-03-09
 Status: VERIFIED
@@ -9,9 +9,9 @@ Type: Feature
 
 ## Summary
 
-**Goal:** Build a standalone Sentinal ecosystem that eliminates all market research dependencies — a `sentinal` CLI binary, persistent memory system with SQLite, console dashboard (htmx), model routing, session management, auto-updater, shell integration, and installer improvements.
+**Goal:** Build a standalone Sentinal ecosystem informed by market research — a `sentinal` CLI binary, persistent memory system with SQLite, console dashboard (htmx), model routing, session management, auto-updater, shell integration, and installer improvements.
 
-**Architecture:** The `sentinal` CLI binary (compiled via `bun build --compile`) becomes the central process — managing sessions, memory, worktrees, and serving the console dashboard. All data stored in SQLite via `bun:sqlite` (Bun's built-in SQLite module) at `~/.sentinal/sentinal.db`. The CLI replaces every `competitor-cli` binary reference. Dashboard served as static HTML + htmx with JSON API endpoints, built into the CLI's `serve` command.
+**Architecture:** The `sentinal` CLI binary (compiled via `bun build --compile`) becomes the central process — managing sessions, memory, worktrees, and serving the console dashboard. All data stored in SQLite via `bun:sqlite` (Bun's built-in SQLite module) at `~/.sentinal/sentinal.db`. Dashboard served as static HTML + htmx with JSON API endpoints, built into the CLI's `serve` command.
 
 **Tech Stack:** TypeScript, Bun (compile + runtime), bun:sqlite (storage — built-in, no native module compilation needed), htmx (dashboard), commander.js (CLI parsing)
 
@@ -63,7 +63,7 @@ Type: Feature
 
 **Key files:**
 
-- `src/hooks/context-monitor.ts` — Currently calls `~/.legacy/bin/legacy check-context --json` (line 12) — must be replaced
+- `src/hooks/context-monitor.ts` — Currently calls a market-research-era dependency for check-context (line 12) — must be replaced
 - `src/hooks/session-end.ts` — No-op placeholder (8 lines) — must implement
 - `targets/claude-code/hooks/hooks.json` — Hook pipeline definition
 - `targets/claude-code/settings.json` — Permissions and env vars
@@ -83,7 +83,7 @@ Type: Feature
 
 **Domain context:**
 
-- market research's `check-context` returns `{"percent": N}` where N is 0-100 raw context usage
+- The prior check-context tool returns `{"percent": N}` where N is 0-100 raw context usage
 - Claude Code reserves ~16.5% as compaction buffer, triggering at ~83.5% raw
 - Effective % rescales: `effective = raw / 0.835 * 100`, capped at 100
 - Sessions are per-Claude-Code-instance, identified by `session_id` from hook input
