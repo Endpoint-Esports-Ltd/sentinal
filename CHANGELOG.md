@@ -1,3 +1,10 @@
+## [1.31.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.1...v1.31.2) (2026-06-10)
+
+
+### Bug Fixes
+
+* **opencode:** prevent plugin double-load and bogus version-mismatch respawn ([82f046a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/82f046a2b99ce8a18af40bb2d205bee0a0928a01))
+
 ## [1.31.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.0...v1.31.1) (2026-06-10)
 
 
