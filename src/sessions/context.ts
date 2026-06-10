@@ -2,7 +2,7 @@
  * Context Usage Estimation
  *
  * Estimates AI assistant context window usage from transcript file size.
- * Replaces the broken `~/.legacy/bin/legacy check-context --json` dependency.
+ * Replaces the broken legacy check-context dependency.
  *
  * Configurable via environment variables:
  *   SENTINAL_BYTES_PER_TOKEN  — bytes per token estimate (default: 3)

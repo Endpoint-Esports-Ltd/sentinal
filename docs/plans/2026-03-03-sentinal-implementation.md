@@ -1785,14 +1785,14 @@ async function main(): Promise<void> {
   let rawPercent: number;
   try {
     const proc = Bun.spawnSync(
-      ["sh", "-c", "~/.legacy/bin/legacy check-context --json 2>/dev/null"],
+      ["sh", "-c", "legacy-tool check-context --json 2>/dev/null"],
       { stdout: "pipe", stderr: "pipe", timeout: 5000 },
     );
     if (proc.exitCode !== 0) return;
     const data = JSON.parse(proc.stdout.toString());
     rawPercent = data.percent ?? 0;
   } catch {
-    return; // legacy not available, skip context monitoring
+    return; // legacy tool not available, skip context monitoring
   }
 
   const warning = getContextWarning(rawPercent);

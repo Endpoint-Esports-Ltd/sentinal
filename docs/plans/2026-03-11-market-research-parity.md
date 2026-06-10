@@ -88,14 +88,14 @@ Type: Feature
 | ---------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------- |
 | Rules too large for context window                   | Low        | Medium | Keep rules concise; use conditional loading (`globs`) where possible |
 | Command depth causes slower skill loading            | Low        | Low    | Claude Code loads commands on-demand; only the invoked command loads |
-| Branding inconsistencies (missed `competitor-cli` references) | Medium     | Low    | Grep for "legacy" and "Probe" after all changes                       |
+| Branding inconsistencies (missed legacy references) | Medium     | Low    | Grep for legacy tool names after all changes                       |
 | OpenCode skills diverge from Claude Code commands    | Medium     | Medium | Update both targets in the same task                                 |
 
 ## Pre-Mortem
 
 _Assume this plan failed. Most likely internal reasons:_
 
-1. **Rules reference tools that don't exist in Sentinal** (Tasks 1-2) → Trigger: A rule references `probe search` or `legacy worktree` instead of Sentinal equivalents. Check: grep all new files for "probe " and "legacy " after creation.
+1. **Rules reference tools that don't exist in Sentinal** (Tasks 1-2) → Trigger: A rule references legacy tool commands instead of Sentinal equivalents. Check: grep all new files for legacy tool names after creation.
 2. **Commands reference wrong hook entry points** (Tasks 3-6) → Trigger: A command uses a legacy Python hook pattern instead of `sentinal hook ...`. Check: grep for "uv run" and ".py" in commands.
 3. **Embed-assets fails silently on new files** (Task 10) → Trigger: New rules don't appear in `embedded-assets.ts`. Check: count rules in generated file vs files in directory.
 
@@ -176,14 +176,14 @@ _Assume this plan failed. Most likely internal reasons:_
 **Definition of Done:**
 
 - [ ] All 6 files created with content adapted from market research reference
-- [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/` in any file
+- [ ] No legacy tool or path references in any file
 - [ ] Each file has appropriate frontmatter (no `globs` — these load every session)
 - [ ] Content is functionally equivalent to the market research reference rules
 
 **Verify:**
 
 - `ls targets/claude-code/rules/ | wc -l` → should be 11 (5 existing + 6 new)
-- `grep -r "legacy\|probe" targets/claude-code/rules/testing.md targets/claude-code/rules/verification.md targets/claude-code/rules/development-practices.md targets/claude-code/rules/context-management.md targets/claude-code/rules/code-review-reception.md targets/claude-code/rules/sentinal-memory.md` → should return nothing
+- Grep the 6 new rule files for legacy tool names → should return nothing
 
 ---
 
@@ -214,7 +214,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] All 5 files created with content adapted from market research reference
 - [ ] `cli-tools.md` references `sentinal` CLI commands and `vexor` for search
 - [ ] `mcp-servers.md` uses `mcp__plugin_sentinal_` prefix throughout
-- [ ] No references to `competitor-cli`, `probe`, or `~/.legacy/`
+- [ ] No legacy tool or path references
 
 **Verify:**
 
@@ -549,7 +549,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 - [ ] `bun run embed-assets` succeeds
 - [ ] Generated `embedded-assets.ts` includes all 17 rules, 8 commands, 2 agents for Claude Code
-- [ ] `grep -rli "\\blegacy\\b\|\\bprobe\\b" targets/claude-code/ targets/opencode/` returns no matches
+- [ ] Grep of `targets/claude-code/ targets/opencode/` for legacy tool names returns no matches
 - [ ] `bun test` passes with 0 failures
 - [ ] Template files in `templates/` are updated to match targets
 

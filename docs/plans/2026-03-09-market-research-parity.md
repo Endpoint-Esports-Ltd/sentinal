@@ -21,7 +21,7 @@ Type: Feature
 
 - `sentinal` CLI binary with all commands (check-context, register-plan, worktree, sessions, serve, greet, notify, update)
 - SQLite-backed persistent memory (observations: CRUD, search, timeline)
-- Memory MCP server (replaces legacy's mem-search backend)
+- Memory MCP server (replaces the legacy mem-search backend)
 - Session management (tracking, parallel sessions, lifecycle)
 - Context monitor rescaling (effective 0-100% with compaction buffer)
 - Console dashboard (Dashboard, Specifications, Memories, Sessions, Settings views)
@@ -92,7 +92,7 @@ Type: Feature
 ## Runtime Environment
 
 - **Start command:** `sentinal serve` (dashboard) or `sentinal` (launch Claude Code)
-- **Port:** 41778 (avoid conflict with legacy's 41777)
+- **Port:** 41778 (avoid conflict with the legacy tool's 41777)
 - **Health check:** `GET /api/health`
 - **Database:** `~/.sentinal/sentinal.db` (SQLite)
 
@@ -336,7 +336,7 @@ bun test src/memory/
 - `src/sessions/context.ts` (63 lines) — `estimateContextUsage(transcriptPath)` with file-size estimation, bytes-per-token ratio (default 3), context window (default 200K), compaction buffer rescaling (raw / 0.835)
 - `src/sessions/context.test.ts` (99 lines) — 7 tests covering missing file, empty file, known size, cap at 100%, env var overrides
 - OpenCode plugin parity: session insert/end integrated into `targets/opencode/plugins/sentinal.ts` event handlers
-- Context estimation used by `src/hooks/context-monitor.ts` (replaces broken `legacy check-context` dependency)
+- Context estimation used by `src/hooks/context-monitor.ts` (replaces broken legacy check-context dependency)
 - Schema v4 migration: `transcript_path TEXT` column added to sessions table (idempotent via PRAGMA check)
 - `src/cli/commands/sessions.ts` — `sentinal sessions list/cleanup` with `--active`, `--project`, `--json`, `--threshold` flags
 - `src/cli/commands/check-context.ts` — `sentinal check-context <path>` or `--session <id>` with `--json` flag
@@ -425,7 +425,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 
 ---
 
-### Task 6: Hook Integration — Replace legacy Dependency + Context Rescaling
+### Task 6: Hook Integration — Replace Legacy Dependency + Context Rescaling
 
 **Objective:** Update all hooks to use `sentinal` CLI instead of `competitor-cli`, implement context rescaling to effective 0-100% range, and implement the SessionEnd hook.
 
@@ -433,7 +433,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 
 **Files:**
 
-- Modify: `src/hooks/context-monitor.ts` — Replace `legacy check-context` with `sentinal check-context`, add rescaling
+- Modify: `src/hooks/context-monitor.ts` — Replace legacy check-context with `sentinal check-context`, add rescaling
 - Modify: `src/hooks/session-end.ts` — Implement session cleanup and notification
 - Modify: `src/hooks/pre-compact.ts` — Save session state to SQLite (via `sentinal notify` or `sentinal session update`) in addition to compact-state.json, so dashboard and memory search can surface compaction events
 - Modify: `targets/claude-code/hooks/hooks.json` — Add SessionStart session tracking hook (all starts, not just compact)
@@ -449,12 +449,12 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 - `session-start.ts` hook: reads `session_id` and `transcript_path` from stdin, calls `sentinal session start <id> --transcript <path> --project <cwd>`
 - `session-end.ts` hook: calls `sentinal session end <id>`, sends notification to dashboard. If no active sessions remain after ending, kill dashboard server via PID file.
 - `pre-compact.ts`: continues writing compact-state.json (fast local fallback) AND saves state to SQLite via `sentinal notify compaction "Pre-compact" "<plan_path>" --plan-path <plan_path>` so dashboard surfaces it
-- Replace `~/.legacy/bin/legacy` with `~/.sentinal/bin/sentinal` in all hook code
+- Replace the legacy binary path with `~/.sentinal/bin/sentinal` in all hook code
 - Update hooks.json to add SessionStart hook (not matcher "compact" — all starts)
 
 **Definition of Done:**
 
-- [x] No references to `~/.legacy/bin/legacy` remain in hook source code
+- [x] No references to the legacy binary remain in hook source code
 - [x] Context monitor uses native estimation with valid rescaled percentage (calls `estimateContextUsage()` directly instead of shelling out)
 - [x] SessionStart hook registers sessions in SQLite (`src/hooks/session-start.ts` — `store.insertSession()`)
 - [~] SessionEnd hook ends sessions, sends notification, kills server if last session (ends session done; notification and server kill not implemented)
@@ -467,7 +467,7 @@ bun test src/git/ && bun test src/spec/ && ./dist/sentinal register-plan docs/pl
 
 **What was implemented (differs from plan):**
 
-- `src/hooks/context-monitor.ts` — REWRITTEN: replaced `legacy check-context` with native `estimateContextUsage()` from `src/sessions/context.ts`. Thresholds: 80%/90%/95% effective. Plain text warnings (no visualization bar).
+- `src/hooks/context-monitor.ts` — REWRITTEN: replaced legacy check-context with native `estimateContextUsage()` from `src/sessions/context.ts`. Thresholds: 80%/90%/95% effective. Plain text warnings (no visualization bar).
 - `src/hooks/session-start.ts` — NEW: reads `session_id`/`cwd` from stdin, calls `store.insertSession()` directly (not via CLI subcommand as plan specified)
 - `src/hooks/session-end.ts` — Updated: calls `store.endSession()` + cleans up event buffer file
 - `src/hooks/pre-compact.ts` — Refactored: uses shared `findActivePlan()` from `src/spec/detect.ts`, syncs active spec to SQLite via `SpecStore.syncFromPlanFile()`, writes compact-state.json
@@ -500,7 +500,7 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 
 ### Task 7: Memory MCP Server
 
-**Objective:** Create a standalone MCP server backed by the SQLite memory system, compatible with Claude Code's MCP protocol. This replaces legacy's mem-search backend.
+**Objective:** Create a standalone MCP server backed by the SQLite memory system, compatible with Claude Code's MCP protocol. This replaces the legacy mem-search backend.
 
 **Dependencies:** Task 3
 
@@ -516,7 +516,7 @@ bun test src/hooks/ && echo '{"session_id":"test","transcript_path":"/dev/null",
 - Use `@modelcontextprotocol/sdk` for MCP server implementation (standard SDK)
 - Server runs via `bun src/mcp/memory-server.ts` (stdio transport)
 - 4 tools exposed: `search`, `timeline`, `get_observations`, `save_memory`
-- Tool schemas match legacy's mem-search API for compatibility with existing rules
+- Tool schemas match the legacy mem-search API for compatibility with existing rules
 - `search` params: query (required), limit, type, project, dateStart, dateEnd
 - `timeline` params: anchor (ID) or query, depth_before, depth_after
 - `get_observations` params: ids (array, required)
@@ -850,7 +850,7 @@ _Assume this plan failed. Most likely internal reasons:_
 2. The `sentinal check-context --json` command returns accurate context usage percentage
 3. The console dashboard at `http://localhost:41778` shows real-time session and spec data
 4. Persistent memory survives across sessions — observations saved in one session are searchable in the next
-5. No references to `~/.legacy/bin/legacy` exist in any source file
+5. No references to the legacy binary exist in any source file
 6. The installer works from a fresh `curl | bash` invocation on a machine with only Node.js and Bun
 
 ### Artifacts
