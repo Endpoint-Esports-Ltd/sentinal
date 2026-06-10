@@ -24,6 +24,9 @@ import { DB_CONSTANTS } from "./types.js";
 /** Where `sentinal memory setup` installs runtime deps for compiled binaries. */
 export const DEPS_DIR = join(homedir(), DB_CONSTANTS.DB_DIR, "deps");
 
+/** Self-contained transformers bundle, relative to the deps dir. */
+export const BUNDLE_REL_PATH = join("bundle", "transformers.bundle.mjs");
+
 export const SETUP_HINT = "Run: sentinal memory setup";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -82,6 +85,21 @@ export async function resolveTransformers(
     return (await importer("@xenova/transformers")) as TransformersModule;
   } catch (e) {
     errors?.push(`transformers bare import: ${(e as Error).message}`);
+  }
+
+  // Self-contained bundle (built by `sentinal memory setup`) — the ONLY
+  // variant that loads inside compiled binaries, where node_modules
+  // resolution for external modules' bare imports is unavailable.
+  try {
+    const bundlePath = join(depsDir, BUNDLE_REL_PATH);
+    if (existsSync(bundlePath)) {
+      return (await importer(
+        pathToFileURL(bundlePath).href,
+      )) as TransformersModule;
+    }
+    errors?.push(`transformers bundle: ${bundlePath} not found`);
+  } catch (e) {
+    errors?.push(`transformers bundle import: ${(e as Error).message}`);
   }
 
   try {

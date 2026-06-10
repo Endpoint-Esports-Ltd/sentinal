@@ -77,6 +77,66 @@ describe("native-deps", () => {
       });
       expect(result).toBeNull();
     });
+
+    it("should prefer the self-contained bundle over the node_modules entry", async () => {
+      // Both the bundle and the node_modules package exist
+      mkdirSync(join(tmpDeps, "bundle"), { recursive: true });
+      writeFileSync(
+        join(tmpDeps, "bundle", "transformers.bundle.mjs"),
+        "export const pipeline = 1;",
+      );
+      const pkgDir = join(tmpDeps, "node_modules", "@xenova", "transformers");
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgDir, "package.json"),
+        JSON.stringify({ main: "./index.js" }),
+      );
+      writeFileSync(join(pkgDir, "index.js"), "");
+
+      const fake = { pipeline: () => {}, env: {} };
+      const calls: string[] = [];
+      const result = await resolveTransformers({
+        depsDir: tmpDeps,
+        importer: async (spec: string) => {
+          calls.push(spec);
+          if (spec === "@xenova/transformers") {
+            throw new Error("Cannot find module");
+          }
+          return fake;
+        },
+      });
+
+      expect(result).toBe(fake as never);
+      // Second attempt must be the BUNDLE (works in compiled binaries),
+      // not the node_modules entry (which does not).
+      expect(calls[1]!).toContain("transformers.bundle.mjs");
+    });
+
+    it("should fall back to node_modules entry when no bundle exists", async () => {
+      const pkgDir = join(tmpDeps, "node_modules", "@xenova", "transformers");
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgDir, "package.json"),
+        JSON.stringify({ main: "./index.js" }),
+      );
+      writeFileSync(join(pkgDir, "index.js"), "");
+
+      const fake = { pipeline: () => {}, env: {} };
+      const calls: string[] = [];
+      const result = await resolveTransformers({
+        depsDir: tmpDeps,
+        importer: async (spec: string) => {
+          calls.push(spec);
+          if (spec === "@xenova/transformers") {
+            throw new Error("Cannot find module");
+          }
+          return fake;
+        },
+      });
+
+      expect(result).toBe(fake as never);
+      expect(calls[1]!).toContain("index.js");
+    });
   });
 
   describe("resolveSqliteVecPath", () => {

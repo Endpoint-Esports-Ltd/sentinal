@@ -46,6 +46,7 @@ import {
   stripJsoncComments,
 } from "../../utils/shell.js";
 import { greet } from "./greet.js";
+import { runAutoSetup } from "./auto-setup.js";
 import { detectShell, applyShellInit } from "./shell-init.js";
 import { isStatuslineActive } from "./statusline.js";
 import {
@@ -141,13 +142,41 @@ export function registerInstallCommand(program: Command): void {
         opts?: { local?: boolean; bundled?: boolean },
       ) => {
         try {
-          await installDispatcher(target, opts);
+          await runInstallAction(target, opts);
         } catch (e) {
           err(`Install failed: ${(e as Error).message}`);
           process.exit(1);
         }
       },
     );
+}
+
+// ─── Install action (dispatch + post-install auto-setup) ───────────────────
+
+export interface InstallActionDeps {
+  /** Injectable dispatcher for tests. Default: installDispatcher. */
+  dispatcher?: (
+    target?: string,
+    opts?: { local?: boolean; bundled?: boolean },
+  ) => Promise<void>;
+  /** Injectable auto-setup for tests. Default: runAutoSetup. */
+  autoSetup?: (label: string) => Promise<void>;
+}
+
+/**
+ * The `install` command action: dispatch to the target installer(s), then
+ * provision semantic search exactly once per user-facing install. The setup
+ * call lives HERE (not inside installClaudeCode/installOpenCode) so that
+ * `update --reinstall-plugins` — which calls both installers — doesn't
+ * trigger setup multiple times. runAutoSetup() is non-fatal by design.
+ */
+export async function runInstallAction(
+  target?: string,
+  opts?: { local?: boolean; bundled?: boolean },
+  deps: InstallActionDeps = {},
+): Promise<void> {
+  await (deps.dispatcher ?? installDispatcher)(target, opts);
+  await (deps.autoSetup ?? runAutoSetup)("install");
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────

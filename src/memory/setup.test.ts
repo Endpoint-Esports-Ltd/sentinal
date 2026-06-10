@@ -7,7 +7,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SETUP_HINT } from "./native-deps.js";
@@ -78,6 +84,120 @@ describe("memory setup", () => {
       expect(versions.transformers).toBe(
         rootPkg.dependencies["@xenova/transformers"]!,
       );
+    });
+  });
+
+  describe("runMemorySetup — fast no-op, lock, and bundling", () => {
+    it("should fast no-op without spawning when deps resolve and the bundle is fresh", async () => {
+      const calls: SpawnCall[] = [];
+      const result = await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls }),
+        statusFn: async () => okStatus,
+        bundleFreshFn: () => true,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.report).toContain("Already provisioned");
+      expect(calls).toHaveLength(0);
+    });
+
+    it("should skip when another setup holds a live lock", async () => {
+      const calls: SpawnCall[] = [];
+      writeFileSync(
+        join(depsDir, ".setup.lock"),
+        JSON.stringify({ pid: process.pid, time: Date.now() }),
+      );
+
+      const result = await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls }),
+        statusFn: async () => missingStatus,
+        bundleFreshFn: () => false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.report).toContain("already running");
+      expect(calls).toHaveLength(0);
+    });
+
+    it("should ignore a stale lock (older than 10 minutes)", async () => {
+      const calls: SpawnCall[] = [];
+      writeFileSync(
+        join(depsDir, ".setup.lock"),
+        JSON.stringify({
+          pid: 999999,
+          time: Date.now() - 11 * 60 * 1000,
+        }),
+      );
+
+      const result = await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls }),
+        statusFn: async () => okStatus,
+        bundleFreshFn: () => false,
+        bundleBuilder: async () => ({
+          ok: true,
+          bundler: "bun" as const,
+          report: ["Bundled (test)"],
+        }),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(calls.length).toBeGreaterThan(0); // install ran despite stale lock
+    });
+
+    it("should release the lock after completion", async () => {
+      await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls: [] }),
+        statusFn: async () => okStatus,
+        bundleFreshFn: () => false,
+        bundleBuilder: async () => ({
+          ok: true,
+          bundler: "bun" as const,
+          report: [],
+        }),
+      });
+      expect(existsSync(join(depsDir, ".setup.lock"))).toBe(false);
+    });
+
+    it("should run the bundle builder after install and include its report", async () => {
+      const calls: SpawnCall[] = [];
+      let builderDepsDir: string | null = null;
+      const result = await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls }),
+        statusFn: async () => okStatus,
+        bundleFreshFn: () => false,
+        bundleBuilder: async (o) => {
+          builderDepsDir = o.depsDir ?? null;
+          return {
+            ok: true,
+            bundler: "bun" as const,
+            report: ["Bundled @xenova/transformers 2.17.2 via bun."],
+          };
+        },
+      });
+
+      expect(builderDepsDir as string | null).toBe(depsDir);
+      expect(result.report).toContain("Bundled @xenova/transformers");
+    });
+
+    it("should surface bundle failure in the report without crashing", async () => {
+      const result = await runMemorySetup({
+        depsDir,
+        spawner: recordingSpawner({ calls: [] }),
+        statusFn: async () => okStatus,
+        bundleFreshFn: () => false,
+        bundleBuilder: async () => ({
+          ok: false,
+          bundler: null,
+          report: ["Bundling failed — semantic search needs bun"],
+        }),
+      });
+
+      expect(result.report).toContain("Bundling failed");
     });
   });
 
@@ -240,7 +360,7 @@ describe("memory setup", () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.report).toContain("compiled sentinal binary");
+      expect(result.report).toContain("compiled sentinal binaries");
       expect(result.report).toContain("bun");
     });
   });

@@ -26,6 +26,7 @@ import {
   uninstallOpenCode,
 } from "./uninstall.js";
 import { installClaudeCode, installOpenCode } from "./install.js";
+import { runAutoSetup } from "./auto-setup.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -497,6 +498,10 @@ export function registerUpdateCommand(program: Command): void {
       // re-spawns, so recursion is impossible by construction.
       if (opts.reinstallPlugins) {
         await reinstallPlugins();
+        // Provision semantic search ONCE per update, after both installers
+        // ran. This executes in the NEW binary (runPostUpdateReinstall
+        // spawns `<new-binary> update --reinstall-plugins`). Non-fatal.
+        await runAutoSetup("update");
         return;
       }
 

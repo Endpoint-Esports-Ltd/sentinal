@@ -20,6 +20,7 @@ import {
 import { backfillVectors } from "../memory/backfill.js";
 import { logSidecar } from "../utils/file-log.js";
 import { notifyVectorUnavailableOnce } from "./vector-stats.js";
+import { maybeSelfHealVectorDeps } from "./self-heal.js";
 import type { MemoryStore } from "../memory/store.js";
 import type { SidecarContext, SidecarServerOptions } from "./server.js";
 
@@ -47,6 +48,8 @@ export interface InitVectorSearchDeps {
     vectorStore: VectorStore,
   ) => SearchOrchestrator;
   depsStatus?: () => Promise<NativeDepsStatus>;
+  /** Injectable self-heal hook for tests. Defaults to maybeSelfHealVectorDeps. */
+  selfHeal?: typeof maybeSelfHealVectorDeps;
 }
 
 /** True when vector search should initialize for these options/env. */
@@ -145,6 +148,17 @@ async function markVectorUnavailable(
   } catch {
     /* notification is best-effort */
   }
+  // Fire-and-forget self-heal: compiled binaries with missing deps spawn
+  // their own `memory setup` and re-init. Recursion is impossible — the
+  // self-heal writes its version-scoped backoff key at attempt START, so
+  // when the injected reinit re-enters initVectorSearch and degrades again,
+  // the second self-heal invocation is a no-op.
+  void (deps.selfHeal ?? maybeSelfHealVectorDeps)(ctx, {
+    reinit: () => initVectorSearch(ctx, deps),
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    logSidecar(`sidecar: vector self-heal failed — ${message}`);
+  });
 }
 
 /** Fire-and-forget background vector init. Never blocks the listen path. */

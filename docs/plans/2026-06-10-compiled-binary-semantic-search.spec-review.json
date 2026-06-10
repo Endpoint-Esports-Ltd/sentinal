@@ -1,0 +1,77 @@
+{
+  "pass_summary": "Implementation matches the plan closely, including all four review-driven constraints (dispatcher-level setup wiring, process.execPath spawn target, backoff-at-attempt-START, setup lockfile), with strong injectable-spawner test coverage and all six goal truths evidenced. Two narrow should_fix items remain: the setup lockfile acquisition is check-then-write (TOCTOU) rather than atomic, and a failed bundle import smoke still yields ok:true, weakening the stated 'verify after building' risk mitigation.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "Setup lockfile acquisition is check-then-write, not atomic (TOCTOU race)",
+      "description": "src/memory/setup.ts: runMemorySetup calls lockHolder() and then acquireLock() as two separate steps; acquireLock uses plain writeFileSync with no exclusive flag. The exact scenario the lock exists for — install-foreground auto-setup racing the sidecar self-heal background spawn — can have both processes observe lockHolder()===null in the same window and both proceed, running bun/npm install + bundle builds concurrently into the same deps dir (potential node_modules corruption, duplicate ~150MB work). The freshness fast path does not close this window because neither run has completed yet.",
+      "suggested_fix": "Make acquisition atomic: writeFileSync(lockPath, payload, { flag: \"wx\" }) inside try/catch; on EEXIST, read the lock for the live/stale decision, unlink-and-retry-once if stale, otherwise return the 'setup already running (pid N)' skip. Add a test where two acquire attempts interleave."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "Bundle build reports ok:true even when the post-build import smoke fails",
+      "description": "src/memory/setup-bundle.ts:249-264: a non-zero smoke exit only pushes 'Warning: bundle import smoke failed' and the function still returns { ok: true } and writes fresh meta. The risk table's mitigation for version-layout drift is 'bundle build verifies with an import+embed smoke after building' — as implemented the verification is non-enforcing. Worse, when setup runs under a source checkout (e.g. `sentinal install` from source), statusFn resolves transformers via the bare import, so setup prints 'Setup complete' while shipping a broken-but-fresh bundle that only the compiled binary will ever exercise; the compiled sidecar then degrades and the single backoff-keyed self-heal attempt rebuilds the same broken bundle.",
+      "suggested_fix": "When the smoke runs and exits non-zero, treat the bundle as failed: return ok:false and skip writing .bundle-meta.json (so the bundle is never 'fresh'), keeping the current best-effort skip only when bun is absent. Add a unit test: smoke exit 1 → ok:false, no meta written."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Bundle path literal duplicated; planned BUNDLE_PATH helper in native-deps not exported",
+      "description": "The plan's artifact table promises native-deps.ts exports a BUNDLE_PATH helper. Instead, setup-bundle.ts exports BUNDLE_REL_PATH while src/memory/native-deps.ts independently inlines join(depsDir, \"bundle\", \"transformers.bundle.mjs\"). The 'bundle must live one directory below deps root' invariant (relative ../bin native require) is now encoded in two files that can drift.",
+      "suggested_fix": "Have native-deps.ts build the path from a single shared constant (export BUNDLE_REL_PATH from native-deps.ts to avoid an import cycle, and consume it in setup-bundle.ts), or export a bundlePath(depsDir) helper used by both."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "Thrown init errors bypass self-heal (vector-init catch path)",
+      "description": "src/sidecar/vector-init.ts:118-122: when initVectorSearch throws (rather than degrading via isAvailable()===false), ctx.vectorState is set to unavailable directly without calling markVectorUnavailable, so neither the one-time notification nor the self-heal hook fires. Today missing-deps always surfaces via the isAvailable() paths (embeddings.doInitialize catches internally), so this is latent — but a future refactor that lets a missing-deps error propagate would silently lose self-heal.",
+      "suggested_fix": "Route the catch block through the same degrade handling (call markVectorUnavailable when a vectorStore exists, or extract the notify+self-heal tail into a helper callable from both paths), or add a comment in the catch documenting why self-heal is intentionally skipped there."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "setup-bundle defaultSpawner uses runtime require() in an ESM module",
+      "description": "src/memory/setup-bundle.ts:96-110: defaultSpawner obtains spawnSync via a bare CJS require() inside an ESM TypeScript module. This works under Bun (the only supported runtime) but is inconsistent with src/memory/setup.ts, which statically imports spawnSync from node:child_process, and would break under strict ESM Node execution.",
+      "suggested_fix": "Replace with a static `import { spawnSync } from \"node:child_process\";` at the top of the file, matching setup.ts."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/memory/setup-bundle.ts exists and src/memory/setup.ts greps buildTransformersBundle",
+      "status": "verified",
+      "evidence": "setup-bundle.ts exists (267 lines, exports buildTransformersBundle + isBundleFresh); setup.ts imports both and invokes bundleBuilder in step 2b before status verification."
+    },
+    {
+      "truth": "src/memory/native-deps.ts greps bundle/transformers.bundle.mjs (resolution path)",
+      "status": "verified",
+      "evidence": "resolveTransformers gained a bundle file-URL import between the bare import and the node_modules entry, with errors captured under 'transformers bundle import:' prefix — exactly the planned order."
+    },
+    {
+      "truth": "After dist/sentinal memory setup: bundle + bin/napi-v3 exist; re-run completes <2s (idempotent no-op)",
+      "status": "verified",
+      "evidence": "Statically: fast no-op path (preStatus + isBundleFresh) and bin-tree cpSync implemented and unit-tested ('Already provisioned' test). Runtime: plan Verification Results record 2.07s build / 0.11s re-run via the compiled binary."
+    },
+    {
+      "truth": "Compiled-binary sidecar logs 'vector search ready' and a keyword-free semantic query returns the expected observation",
+      "status": "verified",
+      "evidence": "Runtime evidence recorded in plan Verification Results: 'vector search ready (752 vectors)', memory_stats status: ready, paraphrase query returned obs #131 through the compiled binary; orchestrator confirms E2E was just proven live."
+    },
+    {
+      "truth": "install.ts and the update --reinstall-plugins path grep a runMemorySetup/auto-setup invocation",
+      "status": "verified",
+      "evidence": "runInstallAction calls runAutoSetup('install') after the dispatcher (command action level, not inside installClaudeCode/installOpenCode); update.ts:504 calls runAutoSetup('update') once in the --reinstall-plugins mode after both reinstalls. Old-binary in-process fallback (update.ts:473) correctly omits setup per Pre-Mortem #2."
+    },
+    {
+      "truth": "Degraded init with missing deps spawns self-heal setup exactly once; SENTINAL_NO_AUTO_SETUP=1 suppresses it",
+      "status": "verified",
+      "evidence": "self-heal.test.ts covers: spawns on missing-deps degrade, backoff key prevents second attempt, key written at START even when spawn throws, env opt-out, extension-load failures excluded, source runs excluded, success reinit+notification, plus initVectorSearch wiring test. Spawn target is process.execPath (self-heal.ts:126), never BIN_PATH."
+    }
+  ]
+}

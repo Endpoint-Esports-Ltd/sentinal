@@ -12,9 +12,12 @@ import {
   checkForUpdateWithStore,
   reinstallPlugins,
   runPostUpdateReinstall,
+  registerUpdateCommand,
 } from "./update.js";
+import { Command } from "commander";
 import * as uninstallModule from "./uninstall.js";
 import * as installModule from "./install.js";
+import * as autoSetupModule from "./auto-setup.js";
 import { MemoryStore } from "../../memory/store.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -226,6 +229,36 @@ describe("reinstallPlugins", () => {
       "uninstall-opencode",
       "install-opencode",
     ]);
+  });
+});
+
+describe("update --reinstall-plugins auto-setup wiring", () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("invokes semantic search auto-setup after the plugin reinstall", async () => {
+    const calls: string[] = [];
+
+    // reinstallPlugins() starts by detecting targets — record it as the
+    // reinstall step and return "none installed" so it no-ops afterwards.
+    spyOn(uninstallModule, "detectInstalledTargets").mockImplementation(() => {
+      calls.push("reinstall");
+      return { claude: false, opencode: false };
+    });
+    spyOn(autoSetupModule, "runAutoSetup").mockImplementation(
+      async (label: string) => {
+        calls.push(`setup:${label}`);
+      },
+    );
+
+    const program = new Command();
+    registerUpdateCommand(program);
+    await program.parseAsync(["update", "--reinstall-plugins"], {
+      from: "user",
+    });
+
+    expect(calls).toEqual(["reinstall", "setup:update"]);
   });
 });
 

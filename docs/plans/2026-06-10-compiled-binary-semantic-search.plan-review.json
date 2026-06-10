@@ -1,0 +1,42 @@
+{
+  "review_summary": "Plan aligns well with the user request (zero-touch provisioning at install/update + sidecar self-heal, bun-primary/esbuild-fallback bundling, spike-proven recipes) and all claimed code references verified against the codebase. Three design gaps need tightening: the self-heal spawn target (BIN_PATH vs execPath) can re-introduce the stale-old-binary failure mode, concurrent setup runs can race on ~/.sentinal/deps, and the auto-setup call-site placement can triple-invoke setup during updates.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Self-heal spawn target: BIN_PATH vs process.execPath inconsistency risks old-binary provisioning and false triggers on dev machines",
+      "description": "Assumptions say 'process.execPath-based self-heal spawn: in compiled binaries execPath IS the sentinal binary' but Task 3 gate (d) says 'spawn target exists: BIN_PATH from update.ts constants (skip in source runs)'. These conflict, and BIN_PATH has two failure modes: (1) if the running sidecar binary is newer than (or different from) the binary at ~/.sentinal/bin/sentinal, self-heal provisions with the OLD binary's pinned versions — the new binary's isBundleFresh then reports stale forever, leaving vector search permanently degraded (exactly the stale-asset-from-old-process class of incident the user flagged via Pre-Mortem #2 / memory #124); (2) the 'skip in source runs' gate relies on BIN_PATH NOT existing, but on any dev machine with sentinal installed BIN_PATH exists, so a source-run sidecar (the documented dev workflow: 'bun src/cli/index.ts sidecar start -d') would spawn the installed binary's setup unexpectedly.",
+      "suggested_fix": "In Task 3, spawn `process.execPath memory setup` when running compiled (detect compiled-ness, e.g. execPath basename !== 'bun' or an embedded build flag), and skip self-heal entirely in source runs regardless of BIN_PATH existence. Update the Assumptions/Task 3 text to one consistent mechanism and add a unit test: source-run context with BIN_PATH present does NOT spawn."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "No concurrency guard for setup writing ~/.sentinal/deps (install auto-setup vs sidecar self-heal race)",
+      "description": "Once Tasks 2 and 3 land, two setups can run concurrently against the same depsDir: install/update runs auto-setup in the foreground while a degraded sidecar (restarted by the same install) spawns background self-heal setup. Two concurrent npm installs + bundle builds + `cp -R` into ~/.sentinal/deps can interleave and produce a corrupt bundle/bin tree, and the post-build smoke may validate the other process's partial output. The plan's idempotency check (isBundleFresh) does not protect against in-flight overlap, only completed prior runs.",
+      "suggested_fix": "Add a lock to Task 1's buildTransformersBundle/runMemorySetup (e.g. `<depsDir>/.setup.lock` containing PID + timestamp, with staleness expiry): second entrant skips with a 'setup already in progress' log. Self-heal treats lock-present as 'attempt made' for this cycle. Add a unit test for the skip path."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Auto-setup call site ambiguity causes duplicate/triple setup invocations during update",
+      "description": "Key files list `installClaudeCode`/`installOpenCode` as the auto-setup call sites, but update.ts:383/398 (`--reinstall-plugins` mode) calls those exact functions, and Task 2 ALSO adds a separate setup invocation to the reinstall-plugins path. Result: `sentinal install both` runs setup twice, and an update runs it up to three times (claude install + opencode install + update-mode hook). Idempotency makes repeats cheap but each prints a visible step (confusing UX) and each re-checks npm/installed versions (not free). Pre-Mortem #2's 'setup invoked from --reinstall-plugins mode only' contradicts wiring it inside the install functions.",
+      "suggested_fix": "Pick one seam and state it in Task 2: invoke setup once at the install command dispatcher level (after all platform installs complete) and once at the end of the --reinstall-plugins handler — NOT inside installClaudeCode/installOpenCode. Add a test asserting setup is invoked exactly once per `install both` and once per update reinstall."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Backoff key write timing unspecified (Pre-Mortem #3 mitigation)",
+      "description": "Task 3 gates on `vector_autosetup_attempted_<version>` being unset but never states WHEN the key is written. If written only after a failed attempt, a crash/restart mid-setup re-attempts (mild storm risk on permanently-broken machines — the exact Pre-Mortem #3 scenario); the storm-safe semantics require writing the key at attempt START. Also unspecified: whether a successful heal leaves the key set (it should — deps wiped mid-version then rely on manual `sentinal memory setup`, which the plan already offers).",
+      "suggested_fix": "Add to Task 3 notes: 'set the backoff settings key immediately before spawning (attempt-start semantics); key persists on success' and assert this ordering in the self-heal unit test."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Existing subprocess-spawning tests not audited for the new SENTINAL_NO_AUTO_SETUP env",
+      "description": "The plan correctly mandates SENTINAL_DISABLE_VECTOR_SEARCH=1 / SENTINAL_NO_AUTO_SETUP=1 for new subprocess tests (Gotchas), and SENTINAL_DISABLE_VECTOR_SEARCH=1 already short-circuits initVectorSearch (vector-init.ts:55) before the degrade path, so self-heal is covered there. But existing tests that exercise install/update CLI paths as subprocesses (rather than the mocked update.test.ts paths) are not audited — any such test would trigger a real 150MB install once Task 2 lands.",
+      "suggested_fix": "Add a Task 2 DoD bullet: grep existing tests for subprocess invocations of `install`/`update` CLI commands and ensure each sets SENTINAL_NO_AUTO_SETUP=1 (or relies on mocked installClaudeCode/installOpenCode seams)."
+    }
+  ]
+}
