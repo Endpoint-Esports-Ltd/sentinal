@@ -36,6 +36,10 @@ import { isAngularFile } from "../../../src/checkers/angular.js";
 import { detectFramework } from "../../../src/checkers/detect.js";
 import { checkFileLength } from "../../../src/utils/file-length.js";
 import {
+  ensureDashboard,
+  getBinaryVersion,
+} from "../../../src/opencode/dashboard-ensure.js";
+import {
   analyzeEvent,
   EventBuffer,
   MIN_CAPTURE_CONFIDENCE,
@@ -171,69 +175,11 @@ function log(message: string): void {
   logToFile(PLUGIN_LOG_FILE, message);
 }
 
-/**
- * Validate `sentinal --version` stdout. A binary caught mid-update once
- * printed the literal string "undefined", which passed the `?? "unknown"`
- * guard and triggered a bogus version-mismatch respawn. Only bare
- * MAJOR.MINOR.PATCH (optionally with prerelease/build suffix) is a version.
- *
- * ⛔ Input is typed `string` but treated as UNKNOWN: under OpenCode's
- * embedded Bun runtime, child_process stdout arrived as a non-string
- * (Buffer-like), and the resulting `stdout.trim is not a function`
- * TypeError escaped the caller's try/catch (thrown in the runtime's
- * internal callback context) and killed the ENTIRE plugin at load
- * (2026-06-10 OSX incident). This function must never throw.
- */
-export function parseBinaryVersion(stdout: string): string | null {
-  let s: string;
-  if (typeof stdout === "string") {
-    s = stdout;
-  } else if (stdout == null) {
-    return null;
-  } else {
-    try {
-      s = String(stdout);
-    } catch {
-      return null;
-    }
-  }
-  const trimmed = s.trim();
-  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(trimmed)
-    ? trimmed
-    : null;
-}
-
-/**
- * Read the installed binary's version string (e.g. "1.30.1"). Cached after
- * first call.
- *
- * Uses SYNCHRONOUS spawnSync with explicit utf8 encoding — the previous
- * async execFile+promisify path let a TypeError thrown inside the runtime's
- * child-process callback escape this function's try/catch under OpenCode's
- * embedded Bun, failing the entire plugin load (2026-06-10 OSX incident).
- * spawnSync keeps every throw inside this stack frame.
- */
-let _cachedBinaryVersion: string | null | undefined = undefined; // undefined = not yet fetched; null = fetch failed
-async function getBinaryVersion(): Promise<string | null> {
-  if (_cachedBinaryVersion !== undefined) return _cachedBinaryVersion;
-  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
-  if (!existsSync(binPath)) {
-    _cachedBinaryVersion = null;
-    return null;
-  }
-  try {
-    const { spawnSync } = await import("node:child_process");
-    const result = spawnSync(binPath, ["--version"], {
-      encoding: "utf8",
-      timeout: 3000,
-    });
-    _cachedBinaryVersion = parseBinaryVersion(result.stdout as string);
-    return _cachedBinaryVersion;
-  } catch {
-    _cachedBinaryVersion = null; // cache the failure — don't retry every call
-    return null;
-  }
-}
+// ⛔ Version + dashboard-ensure helpers live in src/opencode/dashboard-ensure.ts
+// and are intentionally NOT re-exported from this module: OpenCode invokes
+// EVERY function export of a plugin module as a plugin factory (upstream
+// getLegacyPlugins) — exporting helpers from here caused the 2026-06-10
+// plugin-load failures. This module must export ONLY the plugin function.
 
 /** Spawn a sentinal sub-command if the PID file is stale or missing. */
 function autoStartProcess(pidFile: string, ...args: string[]): void {
@@ -279,62 +225,6 @@ function stopDashboard(): void {
   stopProcess("server.pid");
 }
 
-// ─── Version-aware dashboard ensure ─────────────────────────────────────────
-
-export interface EnsureDashboardOptions {
-  currentVersion: string;
-  probeFn?: () => Promise<{ version?: string; pid?: number } | null>;
-  spawnFn?: () => void;
-}
-
-/**
- * Ensure the dashboard is running at the current version.
- * Exported as `ensureDashboardForTest` so tests can inject probe/spawn fns.
- * - If health probe returns null → spawn
- * - If running at a different version → spawn (idempotent serve handles takeover)
- * - If running at same version → skip
- * Never throws.
- */
-export async function ensureDashboardForTest(
-  opts: EnsureDashboardOptions,
-): Promise<void> {
-  const probe = opts.probeFn ?? defaultDashboardProbe;
-  const spawn = opts.spawnFn ?? defaultDashboardSpawn;
-  try {
-    const health = await probe();
-    if (health && health.version === opts.currentVersion) {
-      log(`dashboard ensure: already running version=${health.version} pid=${health.pid ?? "unknown"}`);
-      return;
-    }
-    if (health && health.version) {
-      log(`dashboard ensure: version mismatch (running=${health.version} current=${opts.currentVersion}) — respawning`);
-    } else {
-      log("dashboard ensure: not running — spawning");
-    }
-    spawn();
-  } catch (err) {
-    log(`dashboard ensure: error — ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-async function defaultDashboardProbe(): Promise<{ version?: string; pid?: number } | null> {
-  try {
-    const resp = await fetch("http://127.0.0.1:41778/api/health", {
-      signal: AbortSignal.timeout(1000),
-    });
-    if (!resp.ok) return null;
-    return (await resp.json()) as { version?: string; pid?: number };
-  } catch {
-    return null;
-  }
-}
-
-function defaultDashboardSpawn(): void {
-  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
-  if (!existsSync(binPath)) return;
-  const c = spawn(binPath, ["serve", "--background"], { stdio: "ignore", detached: true });
-  c.unref();
-}
 function stopSidecar(): void {
   stopProcess("sidecar.pid");
 }
@@ -449,7 +339,7 @@ export const SentinalPlugin: Plugin = async ({
   // loader (an escaped init error fails the whole plugin with all handlers).
   void (async () => {
     const ver = await getBinaryVersion();
-    await ensureDashboardForTest({ currentVersion: ver ?? "unknown" });
+    await ensureDashboard({ currentVersion: ver ?? "unknown" });
   })().catch((e) => {
     try {
       log(`init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`);

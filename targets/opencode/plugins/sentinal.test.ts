@@ -1,56 +1,12 @@
 import { describe, expect, it } from "bun:test";
 // NOTE: import the .ts source explicitly — a stale tracked sentinal.js
 // artifact in this directory would otherwise shadow it in bun's resolution.
-import {
-  SentinalPlugin,
-  ensureDashboardForTest,
-  parseBinaryVersion,
-} from "./sentinal.ts";
-
-/**
- * parseBinaryVersion — regression guard for the 2026-06-10 incident where a
- * mid-update binary printed the literal string "undefined" for --version,
- * which sailed past the `?? "unknown"` guard and triggered a version-mismatch
- * respawn ("running=1.30.0 current=undefined"). Only MAJOR.MINOR.PATCH...
- * stdout counts as a version; anything else is null (= unknown, no respawn).
- */
-describe("parseBinaryVersion", () => {
-  it("accepts plain semver", () => {
-    expect(parseBinaryVersion("1.31.1\n")).toBe("1.31.1");
-  });
-
-  it("accepts prerelease/build suffixes", () => {
-    expect(parseBinaryVersion("1.31.1-beta.2")).toBe("1.31.1-beta.2");
-    expect(parseBinaryVersion("2.0.0+build.5\n")).toBe("2.0.0+build.5");
-  });
-
-  it("rejects the literal string 'undefined'", () => {
-    expect(parseBinaryVersion("undefined")).toBeNull();
-    expect(parseBinaryVersion("undefined\n")).toBeNull();
-  });
-
-  it("rejects empty and garbage output", () => {
-    expect(parseBinaryVersion("")).toBeNull();
-    expect(parseBinaryVersion("   \n")).toBeNull();
-    expect(parseBinaryVersion("error: something broke")).toBeNull();
-    expect(parseBinaryVersion("v1.2.3")).toBeNull(); // binary prints bare semver, no v-prefix
-  });
-
-  // Regression guard for the 2026-06-10 OSX incident: under OpenCode's
-  // embedded Bun runtime, execFile+promisify resolved stdout as a NON-STRING
-  // (Buffer-like), and the resulting `stdout.trim is not a function`
-  // TypeError escaped getBinaryVersion's try/catch (thrown in the runtime's
-  // internal callback context), killing the ENTIRE plugin at load:
-  //   ERROR failed to load plugin ... error="stdout.trim is not a function"
-  // parseBinaryVersion must accept unknown input and never throw.
-  it("never throws on non-string input (Buffer, undefined, null, number, object)", () => {
-    expect(parseBinaryVersion(Buffer.from("1.31.3\n") as unknown as string)).toBe("1.31.3");
-    expect(parseBinaryVersion(undefined as unknown as string)).toBeNull();
-    expect(parseBinaryVersion(null as unknown as string)).toBeNull();
-    expect(parseBinaryVersion(42 as unknown as string)).toBeNull();
-    expect(parseBinaryVersion({} as unknown as string)).toBeNull();
-  });
-});
+// NOTE: parseBinaryVersion / ensureDashboard helper tests moved to
+// src/opencode/dashboard-ensure.test.ts — the helpers no longer live in (or
+// export from) this module because OpenCode invokes every plugin-module
+// export as a plugin factory (see src/opencode/plugin-exports.test.ts).
+import { SentinalPlugin } from "./sentinal.ts";
+import { ensureDashboard } from "../../../src/opencode/dashboard-ensure.js";
 
 /**
  * Plugin load smoke test.
@@ -109,10 +65,10 @@ describe("SentinalPlugin init (load smoke)", () => {
 
 // ─── ensureDashboard logic ────────────────────────────────────────────────────
 
-describe("ensureDashboardForTest", () => {
+describe("ensureDashboard", () => {
   it("should spawn when health probe returns null (not running)", async () => {
     let spawned = false;
-    await ensureDashboardForTest({
+    await ensureDashboard({
       currentVersion: "1.30.1",
       probeFn: async () => null,
       spawnFn: () => { spawned = true; },
@@ -122,7 +78,7 @@ describe("ensureDashboardForTest", () => {
 
   it("should not spawn when same version is live", async () => {
     let spawned = false;
-    await ensureDashboardForTest({
+    await ensureDashboard({
       currentVersion: "1.30.1",
       probeFn: async () => ({ version: "1.30.1", pid: 1234 }),
       spawnFn: () => { spawned = true; },
@@ -132,7 +88,7 @@ describe("ensureDashboardForTest", () => {
 
   it("should spawn when different version is live (serve handles takeover)", async () => {
     let spawned = false;
-    await ensureDashboardForTest({
+    await ensureDashboard({
       currentVersion: "1.30.1",
       probeFn: async () => ({ version: "1.30.0", pid: 1234 }),
       spawnFn: () => { spawned = true; },
@@ -142,7 +98,7 @@ describe("ensureDashboardForTest", () => {
 
   it("should not throw when spawnFn throws", async () => {
     await expect(
-      ensureDashboardForTest({
+      ensureDashboard({
         currentVersion: "1.30.1",
         probeFn: async () => null,
         spawnFn: () => { throw new Error("spawn failed"); },

@@ -75,3 +75,29 @@ Type: Bugfix
 ## Deferred Issues
 
 - Takeover is direction-agnostic: an OLDER binary will take over a NEWER running dashboard (observed live — a local 1.31.1 build downgraded the 1.31.2 dashboard). In practice spawns use the installed binary, but a semver comparison gate (only newer replaces older) would be safer. Defer to a follow-up.
+
+## ⛔ ROOT CAUSE CORRECTION (iteration 3, same day)
+
+The v1.31.4 "runtime hardening" diagnosis was WRONG. The real mechanism
+(verified in upstream packages/opencode/src/plugin/index.ts):
+`getLegacyPlugins` invokes EVERY function export of a plugin module as a
+plugin factory with PluginInput and pushes each return into the hooks array.
+
+- v1.31.3 exported `parseBinaryVersion` (for tests) → OpenCode called it
+  with PluginInput → `input.trim()` → "stdout.trim is not a function" →
+  whole module load failed. (Not Bun internals, not Buffer stdout.)
+- v1.31.4's input coercion let the module load, but the helper exports
+  returned null (`parseBinaryVersion`) and undefined (`ensureDashboardForTest`)
+  into the hooks array → "plugin config hook failed: undefined/null is not
+  an object (evaluating 'j.config')" → later hook triggers threw → OpenCode
+  died silently after init ("Unexpected server error").
+- `ensureDashboardForTest`-as-plugin also explains the doubled
+  "dashboard ensure" lines since v1.31.0 (one from init, one from the
+  helper invoked as a plugin per instance).
+
+Fix (v1.31.5): plugin module exports ONLY the plugin function (default +
+SentinalPlugin, same reference — deduped by OpenCode). Helpers moved to
+src/opencode/dashboard-ensure.ts; export-surface regression test imports
+the real embedded artifact and pins Object.keys === [SentinalPlugin, default];
+loader-semantics simulation (exact getLegacyPlugins replication) verified
+1 factory, 0 null hooks, clean j.config iteration.
