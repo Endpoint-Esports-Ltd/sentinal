@@ -1,3 +1,11 @@
+## [1.31.6](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.5...v1.31.6) (2026-06-11)
+
+
+### Bug Fixes
+
+* **spec:** session-aware stop-guard + liveness tracking + worktree plan placement ([7f0e858](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7f0e858cc270e8731ccb51d680eaf0e67b9b7b7e))
+* **tests:** remove process.exit(2) leaking test — caused CI exit code 2 ([414bd37](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/414bd371269861cb340a17a15d2ddca3acc55e45))
+
 ## [1.31.5](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.4...v1.31.5) (2026-06-10)
 
 
