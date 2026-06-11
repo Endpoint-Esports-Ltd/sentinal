@@ -227,9 +227,11 @@ async function runPreCompact(): Promise<void> {
   try {
     const client = await SidecarClient.connect();
     if (client) {
+      // Bump heartbeat via sidecar (fire-and-forget — non-critical)
+      client.touchSession(input.session_id).catch(() => {});
       const restored = await client.restoreContext(input.cwd, semanticQuery);
       if (restored.hasMemory) memoryContext = restored.markdown;
-      if (active) await client.syncSpec(active.filePath, input.cwd);
+      if (active) await client.syncSpec(active.filePath, input.cwd, input.session_id);
     } else {
       // Direct fallback
       const { MemoryStore } = await import("../../memory/store.js");
@@ -237,6 +239,8 @@ async function runPreCompact(): Promise<void> {
       const { restoreContext } = await import("../../memory/restore.js");
       const { SpecStore } = await import("../../spec/store.js");
       const store = new MemoryStore();
+      // Bump heartbeat on every pre-compact (hook runs frequently → reliable liveness signal)
+      store.touchSession(input.session_id);
       const service = new MemoryService(store);
       const restored = await restoreContext(service, {
         projectPath: input.cwd,
@@ -245,7 +249,7 @@ async function runPreCompact(): Promise<void> {
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) {
         const specStore = new SpecStore(store);
-        specStore.syncFromPlanFile(active.filePath, input.cwd);
+        specStore.syncFromPlanFile(active.filePath, input.cwd, input.session_id);
       }
       service.close();
     }

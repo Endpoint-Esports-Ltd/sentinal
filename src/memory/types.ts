@@ -51,6 +51,7 @@ export const SessionSchema = z.object({
   observationCount: z.number().default(0),
   summary: z.string().nullable(),
   transcriptPath: z.string().nullable().default(null),
+  lastActive: z.number().nullable().optional().default(null),
 });
 
 export interface ListSessionsOptions {
@@ -62,6 +63,14 @@ export interface ListSessionsOptions {
 }
 
 export const STALE_SESSION_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * A session is considered "alive" if its last_active heartbeat is within this window.
+ * Chosen to be comfortably above typical idle gaps between tool calls (PostToolUse
+ * fires frequently), and explicitly bumped on the Stop/idle path so a session that
+ * is about-to-stop counts as alive during its own stop decision.
+ */
+export const SESSION_LIVENESS_WINDOW_MS = 45 * 60 * 1000; // 45 minutes
 
 export const SearchFiltersSchema = z.object({
   project: z.string().optional(),
@@ -156,6 +165,7 @@ export interface RawSession {
   observation_count: number;
   summary: string | null;
   transcript_path: string | null;
+  last_active: number | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -205,7 +215,7 @@ export interface RawNotification {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 10,
+  SCHEMA_VERSION: 11,
 } as const;
 
 // ─── TDD Cycle Types ──────────────────────────────────────────────────────────

@@ -92,11 +92,15 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
    # Returns: {"path": "...", "branch": "spec/<slug>", "base_branch": "main"}
    ```
 
-   If creation fails: continue without worktree, set to `No`.
+   Capture `worktreePath` = the returned `path`. If creation fails: continue without worktree, set to `No`, use CWD as base.
 
-3. **Generate filename:** `docs/plans/YYYY-MM-DD-<feature-slug>.md` — slug from first 3-4 words.
+3. **Generate filename — ALWAYS use the worktree path as base when a worktree exists:**
+   - Worktree (`Worktree: Yes`): `<worktreePath>/docs/plans/YYYY-MM-DD-<feature-slug>.md`
+   - No worktree: `docs/plans/YYYY-MM-DD-<feature-slug>.md` (relative to CWD)
 
-4. `mkdir -p docs/plans`
+   **⚠️ This is critical for multi-session isolation.** If the plan lands in the MAIN checkout's `docs/plans/`, other sessions' stop-guards will see it and may block cross-session.
+
+4. `mkdir -p <planDir>` (where `<planDir>` is the directory part of the generated path)
 
 5. **Write initial header:**
 

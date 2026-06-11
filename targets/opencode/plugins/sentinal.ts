@@ -48,6 +48,7 @@ import {
 } from "../../../src/memory/capture.js";
 import type { ToolEvent } from "../../../src/memory/capture.js";
 import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
+import { resolveStopDecision } from "../../../src/spec/ownership.js";
 import { processInstructionsLoaded } from "../../../src/hooks/instructions-loaded.js";
 import { processPostCompact } from "../../../src/hooks/post-compact.js";
 import { processTaskCreated } from "../../../src/hooks/task-created.js";
@@ -720,7 +721,7 @@ export const SentinalPlugin: Plugin = async ({
       try {
         if (sidecar) {
           if (active)
-            await sidecar.syncSpec(active.filePath, projectRootForSidecar);
+            await sidecar.syncSpec(active.filePath, projectRootForSidecar, sessionId ?? undefined);
           const restored = await sidecar.restoreContext(
             projectRootForSidecar,
             sq,
@@ -1111,14 +1112,32 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (event.type === "session.idle") {
-        const active = findActivePlan(projectRootForSidecar);
-        const reason = shouldBlockStop(active?.spec.status ?? null);
-        if (reason) {
+        // Session-aware stop decision: only warn when THIS session owns the plan
+        // (or the plan is unowned/orphaned). Never warn for a different live session's plan.
+        let ocStore: import("../../../src/memory/store.js").MemoryStore | null = null;
+        try {
+          const { MemoryStore } = await import("../../../src/memory/store.js");
+          ocStore = new MemoryStore();
+          if (sessionId) ocStore.touchSession(sessionId);
+        } catch {
+          /* fail-safe: store stays null → blocks on any active plan */
+        }
+        const decision = resolveStopDecision({
+          searchDir: projectRootForSidecar || process.cwd(),
+          currentSessionId: sessionId ?? "",
+          store: ocStore,
+        });
+        try {
+          ocStore?.close();
+        } catch {
+          /* non-fatal */
+        }
+        if (decision.block && decision.reason) {
           await client.app.log({
             body: {
               service: "sentinal",
               level: "warn",
-              message: `[Sentinal] ${reason}`,
+              message: `[Sentinal] ${decision.reason}`,
             },
           });
         }

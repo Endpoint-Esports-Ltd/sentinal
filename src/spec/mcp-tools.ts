@@ -110,8 +110,13 @@ function registerSpecRegisterTool(
           writeFileSync(plan_path, updated);
         }
 
+        // Thread SENTINAL_SESSION_ID when available so the registering session
+        // is stamped as the plan's owner. This is how /spec register establishes
+        // ownership for the session-aware stop-guard.
+        const registeringSession = process.env["SENTINAL_SESSION_ID"] ?? undefined;
+
         if (client) {
-          await client.syncSpec(plan_path, projectPath);
+          await client.syncSpec(plan_path, projectPath, registeringSession);
           // syncSpec returns void; parse the file for the response
           const parsed = parsePlanFile(plan_path);
           const done = parsed.tasks.filter(
@@ -121,7 +126,7 @@ function registerSpecRegisterTool(
           return mcpText(text);
         }
 
-        const spec = specStore!.syncFromPlanFile(plan_path, projectPath);
+        const spec = specStore!.syncFromPlanFile(plan_path, projectPath, registeringSession);
         const done = spec.tasks.filter((t) => t.status === "complete").length;
         const text = `Registered: ${spec.id} (${spec.status}, ${done}/${spec.tasks.length} tasks)`;
         return mcpText(text);

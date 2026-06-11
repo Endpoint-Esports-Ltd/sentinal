@@ -34,6 +34,7 @@ import {
   DB_CONSTANTS,
   SEARCH_CONSTANTS,
   STALE_SESSION_THRESHOLD_MS,
+  SESSION_LIVENESS_WINDOW_MS,
 } from "./types.js";
 import { runMigrations } from "./migrations.js";
 
@@ -246,7 +247,7 @@ export class MemoryStore {
 
   // ─── Sessions ─────────────────────────────────────────────────────────
 
-  insertSession(session: Omit<Session, "observationCount">): Session {
+  insertSession(session: Omit<Session, "observationCount" | "lastActive">): Session {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO sessions (id, start_time, end_time, project_path, assistant, summary, transcript_path)
@@ -310,6 +311,61 @@ export class MemoryStore {
       )
       .all(...params, opts.limit ?? 50, opts.offset ?? 0) as RawSession[];
     return rows.map((r) => this.deserializeSession(r));
+  }
+
+  /**
+   * Bump the last_active heartbeat for a session.
+   * Called on every hook invocation that touches the session, and on Stop/idle.
+   * @param id - Session ID
+   * @param timestamp - Optional explicit timestamp (defaults to Date.now())
+   */
+  touchSession(id: string, timestamp?: number): void {
+    const ts = timestamp ?? Date.now();
+    this.db
+      .prepare("UPDATE sessions SET last_active = ? WHERE id = ?")
+      .run(ts, id);
+  }
+
+  /**
+   * Determine whether a session is currently alive based on its last_active heartbeat.
+   *
+   * A session is alive when:
+   * 1. end_time IS NULL (session not explicitly ended), AND
+   * 2. last_active is within the liveness window (falls back to start_time when last_active IS NULL
+   *    for pre-V11 rows — null start_time treated as infinitely stale).
+   *
+   * isSessionAlive is the SOLE liveness authority for the stop-guard decision.
+   * cleanupStaleSessions (start_time-based) is a separate cleanup path and is
+   * not consulted here — intentionally avoids a dual-source-of-truth.
+   *
+   * @param id - Session ID
+   * @param withinMs - Liveness window in ms (defaults to SESSION_LIVENESS_WINDOW_MS = 45 min)
+   */
+  isSessionAlive(id: string, withinMs: number = SESSION_LIVENESS_WINDOW_MS): boolean {
+    const row = this.db
+      .prepare("SELECT end_time, last_active, start_time FROM sessions WHERE id = ?")
+      .get(id) as { end_time: number | null; last_active: number | null; start_time: number } | null;
+
+    if (!row) return false;
+    if (row.end_time !== null) return false; // explicitly ended
+
+    const cutoff = Date.now() - withinMs;
+    // Prefer last_active; fall back to start_time for pre-V11 rows
+    const heartbeat = row.last_active ?? row.start_time;
+    return heartbeat >= cutoff;
+  }
+
+  /**
+   * Stamp a session as the owner of a spec row (only when spec has no owner yet).
+   * Uses a conditional UPDATE so it never overwrites an existing owner.
+   * This is idempotent — calling multiple times with the same session ID is safe.
+   */
+  stampPlanOwner(specId: string, sessionId: string): void {
+    this.db
+      .prepare(
+        "UPDATE specs SET session_id = ? WHERE id = ? AND (session_id IS NULL OR session_id = '')",
+      )
+      .run(sessionId, specId);
   }
 
   cleanupStaleSessions(
@@ -697,6 +753,7 @@ export class MemoryStore {
       observationCount: row.observation_count,
       summary: row.summary,
       transcriptPath: row.transcript_path,
+      lastActive: row.last_active ?? null,
     };
   }
 }

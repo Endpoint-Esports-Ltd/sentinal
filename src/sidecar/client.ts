@@ -447,8 +447,16 @@ export class SidecarClient {
 
   // ─── Specs ─────────────────────────────────────────────────────────────
 
-  async syncSpec(planPath: string, projectPath: string): Promise<void> {
-    await this.post("/spec/sync", { planPath, projectPath });
+  async syncSpec(planPath: string, projectPath: string, sessionId?: string): Promise<void> {
+    await this.post("/spec/sync", { planPath, projectPath, sessionId: sessionId ?? null });
+  }
+
+  /**
+   * Bump the last_active heartbeat for a session.
+   * Fire-and-forget — callers should .catch(() => {}) as this is non-critical.
+   */
+  async touchSession(sessionId: string): Promise<void> {
+    await this.post("/session/touch", { sessionId });
   }
 
   async getCurrentSpec(projectPath: string): Promise<Spec | null> {

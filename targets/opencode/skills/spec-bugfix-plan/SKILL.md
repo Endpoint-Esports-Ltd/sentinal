@@ -69,10 +69,15 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
 
    **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
 
-   Same pattern as spec-plan Step 1.1 using `sentinal worktree detect/create`.
+   Same pattern as spec-plan Step 1.1. Capture `worktreePath` = the returned `path`. If creation fails: continue without worktree, set to `No`, use CWD as base.
 
-3. **Generate filename:** `docs/plans/YYYY-MM-DD-<bug-slug>.md`
-4. `mkdir -p docs/plans`
+3. **Generate filename — ALWAYS use the worktree path as base when a worktree exists:**
+   - Worktree (`Worktree: Yes`): `<worktreePath>/docs/plans/YYYY-MM-DD-<bug-slug>.md`
+   - No worktree: `docs/plans/YYYY-MM-DD-<bug-slug>.md` (relative to CWD)
+
+   **⚠️ This is critical for multi-session isolation.** If the plan lands in the MAIN checkout's `docs/plans/`, other sessions' stop-guards will see it and may block cross-session.
+
+4. `mkdir -p <planDir>` (where `<planDir>` is the directory part of the generated path)
 5. **Write header:**
 
    ```markdown

@@ -32,9 +32,14 @@ effort: xhigh
 
 ## Step 1.1: Create Master Plan File Header
 
-1. **Parse worktree** from arguments: `--worktree=yes|no`. Strip flag.
-2. **Generate filename:** `docs/plans/YYYY-MM-DD-<slug>.md`
-3. `mkdir -p docs/plans`
+1. **Parse worktree** from arguments: `--worktree=yes|no`. Strip flag. If yes, create worktree early via `worktree_detect`/`worktree_create` MCP tools. Capture `worktreePath` = the returned `path`. If creation fails, continue without worktree.
+2. **Generate filename — ALWAYS use the worktree path as base when a worktree exists:**
+   - Worktree (`Worktree: Yes`): `<worktreePath>/docs/plans/YYYY-MM-DD-<slug>.md`
+   - No worktree: `docs/plans/YYYY-MM-DD-<slug>.md` (relative to CWD)
+
+   **⚠️ This is critical for multi-session isolation.** If the plan lands in the MAIN checkout's `docs/plans/`, other sessions' stop-guards will see it and may block cross-session.
+
+3. `mkdir -p <planDir>` (where `<planDir>` is the directory part of the generated path)
 4. **Write initial header:**
 
 ```markdown

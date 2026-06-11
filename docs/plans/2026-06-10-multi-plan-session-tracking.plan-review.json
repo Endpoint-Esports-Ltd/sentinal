@@ -1,0 +1,63 @@
+{
+  "review_summary": "The plan correctly diagnoses the session-blind stop-guard root cause (verified at detect.ts:26 and spec-stop-guard.ts:21-22) and honors all three approved design decisions (block-own/orphaned, stamp-on-register+status-change, last_active heartbeat). All cited file:lines verified accurate (hook.ts:232/:248 drop session_id; syncFromPlanFile takes optional sessionId at store.ts:85; SCHEMA_VERSION is 10 so V11 is correct; OC session.idle at sentinal.ts:1113 is session-blind). However, the plan misses a THIRD ownership-stamping site in the OpenCode plugin (sentinal.ts:723), under-specifies the orphan-claim race/TOCTOU between filesystem detection and DB ownership, and does not address the cross-worktree vs same-checkout multi-session distinction the user explicitly asked about.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Missing ownership-stamping site: OpenCode syncSpec at sentinal.ts:723",
+      "description": "The plan lists only two stamping sites that drop session_id (hook.ts:232 and :248) and the sidecar syncSpec signature. But targets/opencode/plugins/sentinal.ts:723 (`await sidecar.syncSpec(active.filePath, projectRootForSidecar)` inside `experimental.session.compacting`) is a THIRD active-plan sync that also omits the in-scope module-level `sessionId` (declared sentinal.ts:327). If this site is not updated, an OpenCode session that compacts will re-sync its plan WITHOUT stamping ownership, and because syncFromPlanFile uses COALESCE(excluded.session_id, specs.session_id) the row keeps whatever (possibly null/other) owner it had. OpenCode plans could remain unowned/mis-owned despite the fix. The plan's Files list mentions sentinal.ts only for 'session-aware session.idle' — it must also cover the line 723 stamping path.",
+      "suggested_fix": "Add sentinal.ts:723 to the ownership-stamping work in Fix Approach step 5 and the Files list. Thread the module-level `sessionId` into `sidecar.syncSpec(active.filePath, projectRootForSidecar, sessionId)`. Also audit the `/spec register` path (mcp-tools.ts:114/124) which calls syncSpec/syncFromPlanFile without a session arg and should stamp the registering session."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "TOCTOU / orphan-claim race between findActivePlan (filesystem) and ownership (DB) acknowledged abstractly but unresolved",
+      "description": "The user explicitly flagged 'two sessions claiming the same orphaned plan' and the TOCTOU between findActivePlan (filesystem scan, detect.ts:26) and ownership (DB specs.session_id). The plan's rule says unowned → block (claimable) and stale-owner → block (adoptable), but never specifies WHEN/HOW a session actually claims ownership of an orphan, nor whether resolveStopDecision is read-only. Stamping happens only at sync sites (register/compact), NOT in the stop-guard, so the guard reads ownership that may lag the filesystem: a session can be blocked as 'orphan' for a plan another session is mid-registering. If two live sessions both see an unowned plan, both block (safe, no crash) — but the 'adoptable' wording implies a write that has no atomic guard.",
+      "suggested_fix": "State explicitly that resolveStopDecision is READ-ONLY (no claim write) and ownership is established solely at sync/register sites. Add a test asserting two concurrent sessions resolving the same unowned plan both deterministically get 'block'. If adoption-on-stop is actually intended, specify an atomic conditional `UPDATE ... WHERE session_id IS NULL` plus a race test. Document the accepted one-sync-cycle staleness lag, made safe by the block fail-safe."
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "Cross-worktree vs same-checkout multi-session distinction not addressed (user explicitly asked)",
+      "description": "The user asked to flag whether worktree isolation changes the reasoning, noting 'each worktree has its own docs/plans/'. The plan treats all multi-session cases uniformly via findActivePlan(gitRoot ?? cwd). But findGitRoot inside a worktree resolves to the WORKTREE root (separate docs/plans/), so two worktree sessions scan disjoint plan dirs and won't collide on the same file — the bug primarily manifests in SAME-CHECKOUT multi-session (shared docs/plans/). Meanwhile specs.session_id ownership lives in a shared memory DB keyed by project_path; the plan never states whether project_path is the worktree root or main checkout, so cross-worktree ownership/liveness semantics are undefined.",
+      "suggested_fix": "Add a subsection clarifying (a) the primary failure mode is same-checkout multi-session; (b) confirm whether the project_path passed to syncFromPlanFile is the worktree root or main checkout, and assert ownership rows are scoped so a worktree session is never blocked by a main-checkout plan and vice-versa. Add a test with two distinct searchDirs proving no cross-worktree blocking."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Heartbeat write cadence and staleness-window value are unspecified",
+      "description": "Step 1 bumps last_active 'from the existing session-touch path in hook.ts', but the recency window (withinMs) is left as an unvalued TODO ('liveness window constant' in types.ts). Too short → a genuinely-live but idle session (no recent hooks) is misclassified stale, its plan becomes 'orphaned', and another session blocks on it — partially reintroducing the bug. Too long → a dead session's plan stays 'owned' and the survivor can never stop. The plan doesn't state which hook events touch the session, which directly determines a safe window.",
+      "suggested_fix": "Propose a concrete window (e.g. 30-60 min) justified against the heartbeat cadence; confirm which events bump last_active (PostToolUse is frequent; an idle-but-alive session may only emit Stop/idle). Add boundary tests (just inside vs just outside window). Consider bumping last_active on the Stop/idle path so 'about-to-stop' sessions stay counted alive during the decision."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Fail-safe degrade-to-block asserted but sidecar-reachable-but-errors path not enumerated/tested",
+      "description": "The plan correctly states (lines 57, 83) no store/sidecar → block, and the sibling-hook SidecarClient.connect() pattern is verified. But there are three failure modes: (1) sidecar unreachable → direct SpecStore fallback; (2) SpecStore also throws (DB locked/corrupt) → must block; (3) sidecar REACHABLE but the new ownership route errors/returns malformed payload → must block. The test list (line 79) only names 'degrades to block when store unavailable' and omits (2) and (3).",
+      "suggested_fix": "Enumerate all three degrade paths in the Behavior Contract and add tests: (a) sidecar null + SpecStore ok, (b) sidecar null + SpecStore throws → block, (c) sidecar route throws/malformed → block. Ensure the new client method wraps errors so the hook's catch defaults to block, never allow."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "OpenCode session.idle resolves the plan from projectRootForSidecar, not git root — decision divergence from CC",
+      "description": "CC resolves searchDir via findGitRoot(input.cwd) (spec-stop-guard.ts:20-21); OpenCode session.idle calls findActivePlan(projectRootForSidecar) directly (sentinal.ts:1114). The plan promises 'parity' but does not flag that the two targets compute the candidate plan from different roots. Where projectRootForSidecar and gitRoot diverge (nested git, monorepo, worktree), the targets could select different active plans and reach different block/allow decisions for the same session, undermining the dual-target parity the user requires.",
+      "suggested_fix": "Note the root-resolution difference and either normalize both targets to a shared root-resolution helper, or explicitly accept/document it with rationale. Verify in Task 3 that both targets' decision inputs match."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "cleanupStaleSessions still ages by start_time — flaw noted but fix not scheduled",
+      "description": "Investigation (line 27) identifies cleanupStaleSessions() uses start_time < cutoff (store.ts:315), wrongly aging long-lived sessions. The new last_active column is the right signal, but neither Fix Approach nor Tasks state whether cleanupStaleSessions is updated to use it. If it keeps using start_time, a long-lived owner could be marked stale by cleanup while last_active is fresh — an inconsistency between isSessionAlive (last_active) and cleanupStaleSessions (start_time), i.e. two sources of truth for liveness.",
+      "suggested_fix": "Either explicitly scope it out ('isSessionAlive is the sole liveness authority for the guard; cleanupStaleSessions left as-is') or include updating cleanupStaleSessions to prefer last_active. Add a one-line decision to avoid a dual-source-of-truth."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "No end-to-end assertion that the CC deny→re-prompt loop is actually broken",
+      "description": "The user's primary pain is the CC LOOP. The contract proves 'does not block Session B', but a unit test on processSpecStopGuard asserting no denyExit is not the same as proving the loop is gone (the loop is a CC runtime behavior of exit-2 re-prompting). The repo's own sentinal-live-smoke skill exists precisely because unit tests pass while the compiled dispatcher path stays old.",
+      "suggested_fix": "Add a Task 3 live-smoke step: pipe a HookInput with a foreign-live-owner plan through the actual `sentinal hook` dispatcher and assert exit 0 (no deny), confirming the compiled CC path — not just the exported function — allows the stop."
+    }
+  ]
+}

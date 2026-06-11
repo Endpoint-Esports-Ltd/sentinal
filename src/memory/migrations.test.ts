@@ -213,7 +213,7 @@ describe("runMigrations", () => {
     expect(rows[2]!.quality_score).toBe(1.0); // null metadata → default
   });
 
-  it("should set schema version to 10 after V10 migration", () => {
+  it("should have V9/V10 columns and set schema version to current (11)", () => {
     tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, "test.db");
     db = new Database(dbPath, { create: true });
@@ -222,7 +222,7 @@ describe("runMigrations", () => {
     const row = db
       .prepare("SELECT MAX(version) as version FROM schema_version")
       .get() as { version: number };
-    expect(row.version).toBe(10);
+    expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION); // 11
 
     // V9 adds parent and wave columns to specs
     const cols = db.prepare("PRAGMA table_info(specs)").all() as Array<{
@@ -234,5 +234,11 @@ describe("runMigrations", () => {
     // V10 adds started_at and completed_at to specs
     expect(cols.some((c) => c.name === "started_at")).toBe(true);
     expect(cols.some((c) => c.name === "completed_at")).toBe(true);
+
+    // V11 adds last_active to sessions
+    const sessCols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{
+      name: string;
+    }>;
+    expect(sessCols.some((c) => c.name === "last_active")).toBe(true);
   });
 });

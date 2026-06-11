@@ -81,6 +81,7 @@ export {
   SEARCH_CONSTANTS,
   DB_CONSTANTS,
   STALE_SESSION_THRESHOLD_MS,
+  SESSION_LIVENESS_WINDOW_MS,
   TDD_CYCLE_STATES,
   SPEC_EVENT_TYPES,
 } from "./memory/types.js";
@@ -131,6 +132,10 @@ export {
   detectSpecType,
 } from "./spec/detect.js";
 export { SpecStore } from "./spec/store.js";
+export { resolveStopDecision } from "./spec/ownership.js";
+export type { StopDecisionInput, StopDecision } from "./spec/ownership.js";
+export { resolvePlansDir, resolvePlanFilePath } from "./spec/plans-dir.js";
+export type { ResolvePlansDirOptions, ResolvePlanFilePathOptions } from "./spec/plans-dir.js";
 export { registerSpecTools } from "./spec/mcp-tools.js";
 export type { SpecToolsDeps } from "./spec/mcp-tools.js";
 export type {

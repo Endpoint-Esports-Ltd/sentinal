@@ -58,6 +58,9 @@ export async function handleSidecarRequest(
     if (path === "/session/active" && method === "GET") {
       return ok(ctx.store.getActiveSessions());
     }
+    if (path === "/session/touch" && method === "POST") {
+      return handleTouchSession(req, ctx);
+    }
 
     // TDD State
     if (path === "/tdd-state" && method === "GET") {
@@ -287,8 +290,18 @@ async function handleSyncSpec(
   req: Request,
   ctx: SidecarContext,
 ): Promise<Response> {
-  const body = await readBody<{ planPath: string; projectPath: string }>(req);
-  ctx.specStore.syncFromPlanFile(body.planPath, body.projectPath);
+  const body = await readBody<{ planPath: string; projectPath: string; sessionId?: string | null }>(req);
+  ctx.specStore.syncFromPlanFile(body.planPath, body.projectPath, body.sessionId ?? undefined);
+  return ok();
+}
+
+async function handleTouchSession(
+  req: Request,
+  ctx: SidecarContext,
+): Promise<Response> {
+  const body = await readBody<{ sessionId: string }>(req);
+  if (!body.sessionId) return fail("Missing sessionId");
+  ctx.store.touchSession(body.sessionId);
   return ok();
 }
 
