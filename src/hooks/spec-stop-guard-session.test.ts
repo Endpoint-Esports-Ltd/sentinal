@@ -1,16 +1,11 @@
 /**
  * spec-stop-guard — session-aware behavior tests
  *
- * RED phase: tests fail until processSpecStopGuard is wired to resolveStopDecision.
- *
- * These tests complement src/hooks/spec-stop-guard.test.ts (which tests
- * the legacy shouldBlockStop behavior). We test here via processSpecStopGuard
- * being session-aware and the degrade-to-block fail-safe.
- *
- * NOTE: processSpecStopGuard calls denyExit() which calls process.exit(2) when
- * blocking — so tests that expect a BLOCK must use the imported
- * resolveStopDecision directly. Tests that expect ALLOW go through the real fn
- * (returns without exiting = pass through).
+ * Tests the session-aware stop decision via resolveStopDecision directly.
+ * processSpecStopGuard itself is NOT called in tests — it calls denyExit()
+ * which calls process.exit(2), terminating the bun test runner with a
+ * non-zero exit code (CI failure). The behavioral contract is fully covered
+ * by resolveStopDecision tests and the compiled-path live-smoke in the bugfix plan.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -135,56 +130,10 @@ describe("spec-stop-guard — session-aware stop decisions", () => {
   });
 });
 
-// ─── processSpecStopGuard — ALLOW path (returns without exiting) ──────────────
-
-describe("processSpecStopGuard — ALLOW when foreign-live session owns plan", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir();
-    writePlan(tmpDir, "2026-06-10-other-plan.md");
-  });
-
-  afterEach(() => {
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
-  });
-
-  it("should return (no denyExit) when the active plan belongs to a different live session", async () => {
-    // This test verifies processSpecStopGuard ALLOWS when it should.
-    // We can safely call processSpecStopGuard here because it will NOT
-    // call denyExit (process.exit) when the decision is ALLOW.
-    // The sidecar will be unavailable in test → falls back to direct SpecStore.
-    // The plan has no owner (no stampPlanOwner called for "other-session") →
-    // the store has no record → orphan → blocks.
-    // For the ALLOW path we test via resolveStopDecision directly (tested above).
-    // This test is here to document the integration contract.
-
-    // Import here to ensure it's the real function
-    const { processSpecStopGuard } = await import("./spec-stop-guard.js");
-
-    const input = {
-      session_id: "session-this",
-      transcript_path: "",
-      cwd: tmpDir,
-      permission_mode: "auto",
-      hook_event_name: "Stop",
-      agent_type: "main",
-    };
-
-    // Should not throw (and since plan has no owner → orphan → this will block
-    // if the guard is not session-aware; once session-aware it will check DB).
-    // This test validates the function completes without an unexpected throw.
-    // Detailed block/allow is covered by resolveStopDecision tests.
-    // (We can't assert exit code here without spawning a subprocess.)
-    // See Task 4 live-smoke for the compiled-path test.
-    let threw = false;
-    try {
-      await processSpecStopGuard(input);
-    } catch {
-      threw = true;
-    }
-    expect(threw).toBe(false);
-  });
-});
+// Note: processSpecStopGuard integration tests are intentionally omitted here.
+// processSpecStopGuard calls denyExit() → process.exit(2) on any blocking decision,
+// which terminates the bun test runner with exit code 2 (CI failure).
+// The behavioral contract is fully covered by:
+//   1. resolveStopDecision tests above (decision matrix, fail-safe, cross-worktree)
+//   2. The compiled-path live-smoke in Task 4 of the bugfix plan
+//      (pipes HookInput through the real `sentinal hook` dispatcher, asserts exit 0)
