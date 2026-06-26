@@ -38,7 +38,13 @@ export function formatContextBar(
 
 /**
  * Get a context warning message based on effective usage.
- * Thresholds: 80% (info), 90% (warning), 95%+ (urgent).
+ *
+ * Stays SILENT until compaction is genuinely close — the monitor should only
+ * speak when there is a valid pending compaction to warn about, not narrate
+ * routine usage. Thresholds (on the compaction-adjusted effective percentage):
+ *   90-94% — approaching: finish the current task before starting new work
+ *   95%+   — imminent: complete the current task now
+ *
  * Includes a visual context bar when a warning is triggered.
  */
 export function getContextWarning(usage: ContextUsage): string | null {
@@ -46,10 +52,8 @@ export function getContextWarning(usage: ContextUsage): string | null {
   const bar = formatContextBar(percent, tokens);
 
   if (percent >= 95)
-    return `${bar}\nContext ~${percent}% effective. Complete current task — auto-compaction imminent. Run /learn if this session has extractable knowledge.`;
+    return `${bar}\nContext ~${percent}% effective — auto-compaction imminent. Complete the current task. Run /learn if this session has extractable knowledge.`;
   if (percent >= 90)
-    return `${bar}\nContext ~${percent}% effective. Complete current work, don't start complex new tasks. Consider running /learn.`;
-  if (percent >= 80)
-    return `${bar}\nContext ~${percent}% effective. Work normally — auto-compaction handles the rest. Consider running /learn if valuable.`;
+    return `${bar}\nContext ~${percent}% effective — approaching auto-compaction. Finish the current task before starting complex new work. Consider running /learn.`;
   return null;
 }

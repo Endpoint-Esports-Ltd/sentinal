@@ -33,8 +33,33 @@ function makeUserMsg(): SessionMessage {
   return { info: { role: "user" } };
 }
 
+function makeAssistantMsgModel(
+  input: number,
+  modelID: string,
+  cacheRead = 0,
+): SessionMessage {
+  return {
+    info: {
+      role: "assistant",
+      modelID,
+      tokens: {
+        input,
+        output: 0,
+        reasoning: 0,
+        cache: { read: cacheRead, write: 0 },
+      },
+    },
+  };
+}
+
 describe("aggregateTokenUsage", () => {
   const origContextWindow = process.env.SENTINAL_CONTEXT_WINDOW;
+
+  beforeEach(() => {
+    // Tests assume the default window unless they set it explicitly — make them
+    // independent of any ambient SENTINAL_CONTEXT_WINDOW in the environment.
+    delete process.env.SENTINAL_CONTEXT_WINDOW;
+  });
 
   afterEach(() => {
     if (origContextWindow !== undefined) {
@@ -100,9 +125,25 @@ describe("aggregateTokenUsage", () => {
   });
 
   it("should cap at 100%", () => {
+    // Pin the window so live-evidence doesn't infer a larger tier from the 250k.
+    process.env.SENTINAL_CONTEXT_WINDOW = "200000";
     const messages = [makeAssistantMsg(250_000, 1000)];
     const result = aggregateTokenUsage(messages);
     expect(result.percent).toBe(100);
+  });
+
+  it("infers the window from the message modelID", () => {
+    // gpt-4o → 128k window; 100k / 128k ≈ 78%
+    const r = aggregateTokenUsage([makeAssistantMsgModel(100_000, "gpt-4o")]);
+    expect(r.percent).toBe(78);
+  });
+
+  it("bumps to a larger tier via live evidence when usage exceeds the model window", () => {
+    // claude standard 200k, but 260k observed ⇒ must be the 1M tier; 260k/1M = 26%
+    const r = aggregateTokenUsage([
+      makeAssistantMsgModel(260_000, "claude-3-5-sonnet"),
+    ]);
+    expect(r.percent).toBe(26);
   });
 
   it("should warn at 80% threshold", () => {
