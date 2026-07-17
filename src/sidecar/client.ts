@@ -447,8 +447,16 @@ export class SidecarClient {
 
   // ─── Specs ─────────────────────────────────────────────────────────────
 
-  async syncSpec(planPath: string, projectPath: string, sessionId?: string): Promise<void> {
-    await this.post("/spec/sync", { planPath, projectPath, sessionId: sessionId ?? null });
+  async syncSpec(
+    planPath: string,
+    projectPath: string,
+    sessionId?: string,
+  ): Promise<void> {
+    await this.post("/spec/sync", {
+      planPath,
+      projectPath,
+      sessionId: sessionId ?? null,
+    });
   }
 
   /**
@@ -457,6 +465,18 @@ export class SidecarClient {
    */
   async touchSession(sessionId: string): Promise<void> {
     await this.post("/session/touch", { sessionId });
+  }
+
+  /**
+   * Check whether a session is currently alive (store-side isSessionAlive).
+   * Lets the OpenCode plugin resolve liveness without importing MemoryStore
+   * (which would pull bun:sqlite into the plugin bundle).
+   */
+  async isSessionAlive(sessionId: string): Promise<boolean> {
+    const res = (await this.get(
+      `/session/alive?id=${encodeURIComponent(sessionId)}`,
+    )) as { alive?: boolean };
+    return res?.alive === true;
   }
 
   async getCurrentSpec(projectPath: string): Promise<Spec | null> {

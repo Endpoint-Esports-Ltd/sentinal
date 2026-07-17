@@ -74,7 +74,8 @@
     },
     "sentinal": {
       "type": "local",
-      "command": ["sentinal", "mcp-server"]
+      "command": ["sentinal", "mcp-server"],
+      "timeout": 30000
     }
   },
 

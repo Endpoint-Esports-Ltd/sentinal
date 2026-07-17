@@ -15,6 +15,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { join } from "node:path";
 import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
+import {
+  withAbort,
+  emitProgress,
+  type ProgressExtra,
+} from "../mcp/tool-runtime.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
@@ -372,36 +377,56 @@ function registerQualityReportTool(
         .optional()
         .describe("Per-check timeout in milliseconds (default 30000)"),
     },
-    async ({ project, file, checks, timeout_ms }) => {
+    async ({ project, file, checks, timeout_ms }, extra) => {
       try {
+        const progressExtra = extra as ProgressExtra | undefined;
+        const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+        await emitProgress(progressExtra, {
+          progress: 0,
+          message: "running quality checks",
+        });
         let result: QualityCheckResult;
 
-        // Try sidecar first, fall back to direct execution
+        // Try sidecar first, fall back to direct execution.
+        // withAbort makes the tool return promptly on client cancellation even
+        // if the underlying subprocess lingers (reaped by the sidecar's
+        // runWithTimeout; the activeChecks/MAX_CONCURRENT guards release in a finally).
         if (client) {
           try {
-            result = await client.qualityCheck({
-              projectPath: project,
-              filePath: file,
-              checks,
-              timeout: timeout_ms,
-            });
-          } catch {
+            result = await withAbort(
+              signal,
+              client.qualityCheck({
+                projectPath: project,
+                filePath: file,
+                checks,
+                timeout: timeout_ms,
+              }),
+            );
+          } catch (err) {
+            if (signal?.aborted) throw err;
             // Sidecar failed — fall back to direct
-            result = await runQualityChecks({
+            result = await withAbort(
+              signal,
+              runQualityChecks({
+                projectPath: project,
+                filePath: file,
+                checks: checks as CheckName[] | undefined,
+                timeout: timeout_ms,
+              }),
+            );
+          }
+        } else {
+          result = await withAbort(
+            signal,
+            runQualityChecks({
               projectPath: project,
               filePath: file,
               checks: checks as CheckName[] | undefined,
               timeout: timeout_ms,
-            });
-          }
-        } else {
-          result = await runQualityChecks({
-            projectPath: project,
-            filePath: file,
-            checks: checks as CheckName[] | undefined,
-            timeout: timeout_ms,
-          });
+            }),
+          );
         }
+        await emitProgress(progressExtra, { progress: 1, message: "done" });
 
         return mcpText(formatQualityReport(project, file, result));
       } catch (err) {

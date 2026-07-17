@@ -3,7 +3,8 @@
     "sentinal": {
       "command": "sentinal",
       "args": ["mcp-server"],
-      "alwaysLoad": true
+      "alwaysLoad": true,
+      "timeout": 120000
     }
   }
 }

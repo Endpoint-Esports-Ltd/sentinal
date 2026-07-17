@@ -54,6 +54,8 @@ import { processPostCompact } from "../../../src/hooks/post-compact.js";
 import { processTaskCreated } from "../../../src/hooks/task-created.js";
 import { handleCompactionAutocontinue } from "../../../src/opencode/compaction-autocontinue.js";
 import { buildCompactionContext } from "../../../src/opencode/compaction-context.js";
+import { disposePlugin } from "../../../src/opencode/plugin-dispose.js";
+import { buildLivenessProbe } from "../../../src/opencode/session-liveness.js";
 import { createTddStatusTool } from "../../../src/opencode/native-tdd-status.js";
 import { buildSemanticQuery } from "../../../src/memory/restore.js";
 import {
@@ -1082,20 +1084,20 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (event.type === "session.deleted") {
-        if (sessionId) {
-          try {
-            if (sidecar) {
-              await sidecar.endSession(sessionId, { notification: true });
-              const active = await sidecar.getActiveSessions();
-              if (active.length === 0) {
-                stopDashboard();
-                stopSidecar();
-              }
-            }
-            log(`Session ended: ${sessionId}`);
-          } catch (e) {
-            log(`endSession failed: ${e instanceof Error ? e.message : e}`);
-          }
+        // Teardown via the extracted, testable disposePlugin. OpenCode 1.18.3
+        // has no native `dispose` hook (spike verified), so this runs here; the
+        // same helper can be wired to a native dispose hook when one ships.
+        if (sessionId && sidecar) {
+          const sc = sidecar;
+          await disposePlugin({
+            sessionId,
+            endSession: (id) => sc.endSession(id, { notification: true }),
+            getActiveSessions: () => sc.getActiveSessions(),
+            stopDashboard,
+            stopSidecar,
+            log,
+          });
+          log(`Session ended: ${sessionId}`);
         }
         if (projectRoot) {
           const bufferPath = join(
@@ -1112,26 +1114,59 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (event.type === "session.idle") {
-        // Session-aware stop decision: only warn when THIS session owns the plan
-        // (or the plan is unowned/orphaned). Never warn for a different live session's plan.
-        let ocStore: import("../../../src/memory/store.js").MemoryStore | null = null;
+        // Session-aware stop decision (ADVISORY on OpenCode — warn log only; OC
+        // has no hard-deny equivalent). Only warn when THIS session owns the plan
+        // (or it's unowned/orphaned). Never warn for a different live session's plan.
+        //
+        // Store-free by design: the plugin does NOT import MemoryStore (that pulls
+        // bun:sqlite/sqlite-vec/@xenova into the plugin bundle and crashes OpenCode
+        // load on machines with node_modules in ~/.config/opencode/). Ownership +
+        // liveness are resolved via the SDK client and the sidecar instead.
+        if (sessionId) sidecar?.touchSession(sessionId).catch(() => {});
+
+        // Liveness: prefer the OpenCode SDK active-sessions API (authoritative);
+        // fall back to the sidecar's store-side isSessionAlive.
+        let livenessProbe: ((id: string) => boolean) | undefined;
         try {
-          const { MemoryStore } = await import("../../../src/memory/store.js");
-          ocStore = new MemoryStore();
-          if (sessionId) ocStore.touchSession(sessionId);
+          const probe = await buildLivenessProbe({ client });
+          if (probe) livenessProbe = probe;
         } catch {
-          /* fail-safe: store stays null → blocks on any active plan */
+          /* fall through to sidecar-backed liveness cache below */
         }
+
+        // Ownership: read the current spec's owner from the sidecar (store-free).
+        let ownerLookup: ((specId: string) => string | null) | undefined;
+        const aliveCache = new Map<string, boolean>();
+        try {
+          if (sidecar) {
+            const current = await sidecar.getCurrentSpec(
+              projectRootForSidecar,
+            );
+            const ownerId = current?.sessionId ?? null;
+            const currentSpecId = current?.id ?? null;
+            // Only vouch for ownerId when the sidecar's current spec matches the
+            // spec resolveStopDecision actually resolved (findActivePlan). If they
+            // diverge (multiple plans / post-switch race), return null → orphaned
+            // → fail-safe block, never a wrong-owner ALLOW.
+            ownerLookup = (specId: string) =>
+              specId === currentSpecId ? ownerId : null;
+            // When no SDK probe, prime a sidecar-backed liveness fallback.
+            if (!livenessProbe && ownerId) {
+              aliveCache.set(ownerId, await sidecar.isSessionAlive(ownerId));
+              livenessProbe = (id) => aliveCache.get(id) === true;
+            }
+          }
+        } catch {
+          /* ownerLookup stays undefined → resolveStopDecision fail-safe blocks */
+        }
+
         const decision = resolveStopDecision({
           searchDir: projectRootForSidecar || process.cwd(),
           currentSessionId: sessionId ?? "",
-          store: ocStore,
+          store: null,
+          ownerLookup,
+          livenessProbe,
         });
-        try {
-          ocStore?.close();
-        } catch {
-          /* non-fatal */
-        }
         if (decision.block && decision.reason) {
           await client.app.log({
             body: {

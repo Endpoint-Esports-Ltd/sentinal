@@ -61,6 +61,10 @@ export async function handleSidecarRequest(
     if (path === "/session/touch" && method === "POST") {
       return handleTouchSession(req, ctx);
     }
+    if (path === "/session/alive" && method === "GET") {
+      const id = url.searchParams.get("id");
+      return ok({ alive: id ? ctx.store.isSessionAlive(id) : false });
+    }
 
     // TDD State
     if (path === "/tdd-state" && method === "GET") {

@@ -215,3 +215,176 @@ describe("resolveStopDecision — decision matrix", () => {
     expect(result.block).toBe(true);
   });
 });
+
+// ─── Ownership class (for background-work suppression, Task 2) ────────────────
+
+describe("resolveStopDecision — ownership class", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(":memory:");
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it("tags a self-owned block with ownership 'self'", () => {
+    writePlan(tmpDir, "2026-06-10-self.md");
+    registerPlan(store, tmpDir, "2026-06-10-self.md");
+    makeSession(store, "session-A", tmpDir);
+    store.stampPlanOwner("2026-06-10-self", "session-A");
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-A",
+      store,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("self");
+  });
+
+  it("tags an unowned block with ownership 'orphaned'", () => {
+    writePlan(tmpDir, "2026-06-10-orphan.md");
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  });
+
+  it("tags a stale-owner block with ownership 'stale-owner'", () => {
+    writePlan(tmpDir, "2026-06-10-stale.md");
+    registerPlan(store, tmpDir, "2026-06-10-stale.md");
+    makeSession(store, "session-A", tmpDir, {
+      alive: true,
+      lastActiveOffsetMs: -2 * 3_600_000,
+    });
+    store.stampPlanOwner("2026-06-10-stale", "session-A");
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("stale-owner");
+  });
+});
+
+// ─── livenessProbe injection (Task 5 — backward-compat + SDK source) ─────────
+
+describe("resolveStopDecision — injected livenessProbe", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(":memory:");
+    writePlan(tmpDir, "2026-06-10-probe.md");
+    registerPlan(store, tmpDir, "2026-06-10-probe.md");
+    makeSession(store, "owner-X", tmpDir, {
+      alive: false, // store says dead
+      lastActiveOffsetMs: -5 * 3_600_000,
+    });
+    store.stampPlanOwner("2026-06-10-probe", "owner-X");
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it("uses the injected probe over store.isSessionAlive when provided", () => {
+    // Store thinks owner-X is dead; probe says alive → ALLOW (different live owner)
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store,
+      livenessProbe: (id) => id === "owner-X", // alive per SDK
+    });
+    expect(r.block).toBe(false);
+  });
+
+  it("is byte-identical to store.isSessionAlive when probe is omitted (CC path)", () => {
+    // No probe → falls back to store (owner-X dead) → block as stale-owner
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("stale-owner");
+  });
+});
+
+// ─── ownerLookup injection (store-free OpenCode path) ────────────────────────
+
+describe("resolveStopDecision — injected ownerLookup (no store needed)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    writePlan(tmpDir, "2026-07-17-owned.md");
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  it("resolves ownership via ownerLookup + livenessProbe with store=null (no fail-safe block)", () => {
+    // store is null, but ownerLookup + livenessProbe are supplied → full decision.
+    // Owner is a DIFFERENT LIVE session → ALLOW.
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store: null,
+      ownerLookup: () => "owner-live",
+      livenessProbe: (id) => id === "owner-live",
+    });
+    expect(r.block).toBe(false);
+  });
+
+  it("blocks with ownership 'self' when ownerLookup returns the current session", () => {
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "me",
+      store: null,
+      ownerLookup: () => "me",
+      livenessProbe: () => true,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("self");
+  });
+
+  it("blocks 'orphaned' when ownerLookup returns null (unowned)", () => {
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store: null,
+      ownerLookup: () => null,
+      livenessProbe: () => true,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  });
+
+  it("still fail-safe blocks when store is null AND no ownerLookup provided", () => {
+    const r = resolveStopDecision({
+      searchDir: tmpDir,
+      currentSessionId: "session-B",
+      store: null,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  });
+});

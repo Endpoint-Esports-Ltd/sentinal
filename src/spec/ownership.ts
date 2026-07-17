@@ -25,6 +25,17 @@ import type { MemoryStore } from "../memory/store.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/** Why a block was issued, used to decide whether background-work suppression is safe. */
+export type OwnershipClass = "self" | "orphaned" | "stale-owner";
+
+/**
+ * Optional liveness probe. When provided, it is the authoritative source for
+ * "is session <id> alive?" and OVERRIDES `store.isSessionAlive`. Used by the
+ * OpenCode side to consult the SDK active-sessions API. When omitted, behavior
+ * is byte-identical to the store-based path (Claude Code).
+ */
+export type LivenessProbe = (sessionId: string) => boolean;
+
 export interface StopDecisionInput {
   /** The directory to search for active plans (git root or cwd). */
   searchDir: string;
@@ -35,12 +46,26 @@ export interface StopDecisionInput {
    * Pass null to simulate an unavailable store → triggers fail-safe block.
    */
   store: MemoryStore | null;
+  /**
+   * Optional authoritative liveness probe (e.g. OpenCode SDK active sessions).
+   * When omitted, falls back to `store.isSessionAlive` (no behavior change).
+   */
+  livenessProbe?: LivenessProbe;
+  /**
+   * Optional owner lookup (spec id → owning session id, or null if unowned).
+   * Lets a caller resolve ownership WITHOUT a MemoryStore (e.g. the OpenCode
+   * plugin via the sidecar, avoiding a `bun:sqlite` import in the plugin bundle).
+   * When omitted, ownership is read from `store`.
+   */
+  ownerLookup?: (specId: string) => string | null;
 }
 
 export interface StopDecision {
   block: boolean;
   /** Human-readable reason, present when block === true. */
   reason?: string;
+  /** Why the block was issued (present when block === true). */
+  ownership?: OwnershipClass;
 }
 
 // ── Decision Logic ────────────────────────────────────────────────────────────
@@ -52,7 +77,8 @@ export interface StopDecision {
  * Claude Code (spec-stop-guard.ts) and OpenCode (plugins/sentinal.ts session.idle).
  */
 export function resolveStopDecision(input: StopDecisionInput): StopDecision {
-  const { searchDir, currentSessionId, store } = input;
+  const { searchDir, currentSessionId, store, livenessProbe, ownerLookup } =
+    input;
 
   // 1. Find the active plan (filesystem scan — fast, no DB needed for candidate)
   const active = findActivePlan(searchDir);
@@ -62,37 +88,43 @@ export function resolveStopDecision(input: StopDecisionInput): StopDecision {
   const baseReason = shouldBlockStop(active.spec.status ?? null);
   if (!baseReason) return { block: false };
 
-  // 3. If no store available → fail-safe: block (current behavior)
-  if (!store) {
-    return { block: true, reason: baseReason };
+  // 3. Need SOME ownership source: an injected ownerLookup (store-free, e.g. the
+  //    OpenCode sidecar path) OR a MemoryStore. Neither → fail-safe block.
+  if (!ownerLookup && !store) {
+    return { block: true, reason: baseReason, ownership: "orphaned" };
   }
 
   // 4. Try to resolve ownership; on any error → fail-safe: block
   try {
-    const ownerId = getSpecOwner(store, active.spec.id);
+    const ownerId = ownerLookup
+      ? ownerLookup(active.spec.id)
+      : getSpecOwner(store!, active.spec.id);
 
     // 4a. Plan has no owner (unowned/orphaned) → block (claimable by this session)
     if (!ownerId) {
-      return { block: true, reason: baseReason };
+      return { block: true, reason: baseReason, ownership: "orphaned" };
     }
 
     // 4b. Current session IS the owner → block (this session's own plan)
     if (ownerId === currentSessionId) {
-      return { block: true, reason: baseReason };
+      return { block: true, reason: baseReason, ownership: "self" };
     }
 
-    // 4c. A DIFFERENT session owns the plan — check if it's alive
-    const ownerAlive = store.isSessionAlive(ownerId);
+    // 4c. A DIFFERENT session owns the plan — check if it's alive.
+    // Prefer the injected authoritative probe (e.g. OpenCode SDK) over the store.
+    const ownerAlive = livenessProbe
+      ? livenessProbe(ownerId)
+      : store!.isSessionAlive(ownerId);
     if (ownerAlive) {
       // Different LIVE session owns this plan → ALLOW (the cross-session fix)
       return { block: false };
     } else {
       // Different STALE/DEAD session owned the plan → block (adoptable orphan)
-      return { block: true, reason: baseReason };
+      return { block: true, reason: baseReason, ownership: "stale-owner" };
     }
   } catch {
     // Fail-safe: any lookup error → block
-    return { block: true, reason: baseReason };
+    return { block: true, reason: baseReason, ownership: "orphaned" };
   }
 }
 

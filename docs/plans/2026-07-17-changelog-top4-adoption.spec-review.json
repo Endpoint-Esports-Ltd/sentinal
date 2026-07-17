@@ -1,0 +1,89 @@
+{
+  "pass_summary": "All four top-4 capabilities are implemented per the spike verdicts with strong test coverage and clean tsc. Backward-compat, fail-safe-block, self-owned-never-suppressed, and store-free-OC invariants are all verified. Two low-severity edge cases noted; no must_fix issues.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 9,
+  "truths_total": 9,
+  "output_path_note": "Intended output path .sentinal/worktrees/spec-2026-07-17-changelog-top4-adoption-417a4487/docs/plans/2026-07-17-changelog-top4-adoption.spec-review.json is blocked by an edit permission rule that only allows docs/plans/*.json relative to the main repo root. Written here instead; copy into the worktree if the orchestrator expects it there.",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "OC session.idle ownerLookup ignores the specId argument",
+      "description": "targets/opencode/plugins/sentinal.ts:1145-1146 builds `ownerLookup = () => ownerId` from `sidecar.getCurrentSpec(projectRootForSidecar)`, but resolveStopDecision calls `ownerLookup(active.spec.id)` where `active` comes from `findActivePlan(searchDir)` (ownership.ts:88). If findActivePlan resolves a different plan than the sidecar's current spec (multiple plan files, or a race after a spec switch), the returned ownerId is for the WRONG spec. In practice both usually resolve the same active plan, so impact is low, but the arrow function silently discards the specId it is handed.",
+      "suggested_fix": "Either (a) have ownerLookup compare the passed specId against `current?.id` and return ownerId only on match (else null -> orphaned, fail-safe), or (b) add a comment documenting the assumption that findActivePlan and getCurrentSpec resolve the same plan. Option (a) is safer and keeps the fail-toward-block posture."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "No live-smoke assertion for the SOFT_EXIT0 stop-guard path",
+      "description": "Spike verdict is SOFT_EXIT0, so hooks.json needed no continueOnBlock edit and the diff correctly leaves it untouched. The soft path is covered at the unit level (stopContext) but the plan's Task 2 Verify calls for a compiled-dispatcher live-smoke asserting exit 0 + additionalContext, which is not evidenced in the diff.",
+      "suggested_fix": "Optional: add a live-smoke that pipes a self-owned in-progress Stop HookInput through ./dist/sentinal hook shared spec-stop-guard and asserts exit code 0 plus additionalContext JSON, confirming the soft path end-to-end."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "memory_search embedding runs eagerly; abort returns promptly but work continues",
+      "description": "src/memory/mcp-tools.ts:96-111 constructs the search promise (which may kick off @xenova embedding cold-start) BEFORE withAbort wraps it. On client abort the tool returns promptly (correct per the plan's documented linger contract, pre-mortem #4), but the embedding still completes in the background with no cancellation. This matches the plan's stated acceptable behavior and is not a defect.",
+      "suggested_fix": "No change required. If tighter cancellation is ever wanted, thread extra.signal into MemoryService.search / client.memorySearch so the embedding itself can be aborted."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "spec-stop-guard.ts no longer calls denyExit on the normal in-progress path; uses stopContext soft path",
+      "status": "verified",
+      "evidence": "spec-stop-guard.ts:102-107 - denyExit only under SENTINAL_STOP_GUARD_HARD=1; default path calls stopContext(reason)."
+    },
+    {
+      "truth": "processSpecStopGuard reads background_tasks",
+      "status": "verified",
+      "evidence": "spec-stop-guard.ts:85-93 calls hasActiveBackgroundWork(input) + shouldSuppressForBackground; stop-background.ts reads input.background_tasks/session_crons."
+    },
+    {
+      "truth": "hook-output.ts exports a Stop-context helper (stopContext)",
+      "status": "verified",
+      "evidence": "hook-output.ts new export stopContext(reason): never writes hint('Stop', reason) JSON and exits 0."
+    },
+    {
+      "truth": "Soft stop path emits additionalContext at exit 0 (spike SOFT_EXIT0) and self-owned block is never silently allowed",
+      "status": "verified",
+      "evidence": "stopContext uses hint('Stop', reason) + process.exit(0); background suppression cannot fire for ownership 'self'/'undefined' (stop-background.test.ts:56-64,90-94). Live-smoke not re-run in this review but unit + logic confirm behavior."
+    },
+    {
+      "truth": "Both opencode.json and .mcp.json set an explicit timeout on the sentinal MCP server",
+      "status": "verified",
+      "evidence": ".mcp.json timeout:120000 (kept alwaysLoad:true); opencode.json timeout:30000. Both re-embedded in embedded-assets.ts:21719,21774-21775."
+    },
+    {
+      "truth": "memory_search and quality_report handlers declare extra and reference extra.signal",
+      "status": "verified",
+      "evidence": "memory/mcp-tools.ts:91,108-109 (extra + signal via withAbort); analysis/mcp-tools.ts:380-383,396-427 (extra, signal, withAbort, abort short-circuit at :406)."
+    },
+    {
+      "truth": "OC plugin has a dispose/teardown path",
+      "status": "verified",
+      "evidence": "plugin-dispose.ts (disposePlugin) imported and wired from session.deleted at sentinal.ts:1087-1099; stops sidecar/dashboard only when getActiveSessions()===0; never throws (plugin-dispose.test.ts)."
+    },
+    {
+      "truth": "Task 1 spike doc records the V2/dispose/session-API verdict",
+      "status": "verified",
+      "evidence": "docs/plans/2026-07-17-changelog-top4-adoption.spike.md exists; plan Progress records verdicts (SOFT_EXIT0, LEGACY_DISPOSE_FALLBACK, PROCEED)."
+    },
+    {
+      "truth": "bun test exits 0 and bunx tsc --noEmit is clean after all tasks",
+      "status": "verified",
+      "evidence": "check_diagnostics reports 0 TypeScript errors. Plan Task 8 records 1594 tests / 0 fail / exit 0 (test suite not re-executed in this review, but tsc independently confirmed clean)."
+    },
+    {
+      "truth": "resolveStopDecision backward-compat: no-probe path byte-identical; fail-safe block preserved on every error path",
+      "status": "verified",
+      "evidence": "ownership.test.ts:379-388 asserts no-probe path blocks as stale-owner via store; all catch/no-store branches return {block:true} with an ownership tag, never allow. store-free ownerLookup path tested."
+    },
+    {
+      "truth": "OC session.idle is store-free (no MemoryStore import, transitive included)",
+      "status": "verified",
+      "evidence": "No MemoryStore import or new MemoryStore() remains in sentinal.ts (only a comment at :1121). Liveness via buildLivenessProbe(SDK) + sidecar.isSessionAlive fallback; new /session/alive route (routes.ts:64-67) + client.isSessionAlive (client.ts:475-478)."
+    }
+  ]
+}

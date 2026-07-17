@@ -142,3 +142,20 @@ export function blockExit(reason: string): never {
   process.stdout.write(JSON.stringify({ decision: "block", reason }));
   process.exit(2);
 }
+
+/**
+ * Soft Stop-hook feedback via `hookSpecificOutput.additionalContext` at EXIT 0.
+ *
+ * Per Claude Code hook docs: a Stop hook emitting `additionalContext` as
+ * non-error feedback keeps the conversation going (labeled "Stop hook feedback")
+ * under the standard 8-consecutive-continuation cap — and the hook MUST exit 0
+ * for the JSON to be processed (exit 2 makes CC ignore the JSON). This is the
+ * opposite of `blockExit`'s exit-2 hard-deny route and is the correct mechanism
+ * for a non-blocking spec-status nudge (verified in the 2026-07-17 spike).
+ *
+ * Writes the JSON to stdout and exits 0.
+ */
+export function stopContext(reason: string): never {
+  process.stdout.write(JSON.stringify(hint("Stop", reason)));
+  process.exit(0);
+}

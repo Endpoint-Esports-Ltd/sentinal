@@ -12,6 +12,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { withAbort, emitProgress, type ProgressExtra } from "../mcp/tool-runtime.js";
 import type { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
@@ -87,19 +88,28 @@ function registerSearchTool(
         .optional()
         .describe("Max results (default 20)"),
     },
-    async ({ query, project, type, limit }) => {
-      const results = client
-        ? await client.memorySearch({
+    async ({ query, project, type, limit }, extra) => {
+      const progressExtra = extra as ProgressExtra | undefined;
+      // Embedding cold-start can be slow; emit an initial progress ping and
+      // honor client cancellation via extra.signal.
+      await emitProgress(progressExtra, { progress: 0, message: "searching" });
+      const searchPromise = client
+        ? client.memorySearch({
             query,
             project,
             type,
             limit: limit ?? 20,
           })
-        : await service!.search(query, {
+        : service!.search(query, {
             project,
             type: type as ObservationType | undefined,
             limit: limit ?? 20,
           });
+      const results = await withAbort(
+        (extra as { signal?: AbortSignal } | undefined)?.signal,
+        searchPromise,
+      );
+      await emitProgress(progressExtra, { progress: 1, message: "done" });
 
       if (results.length === 0) {
         return mcpText("No matching observations found.");
