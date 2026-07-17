@@ -23,9 +23,11 @@ import {
   rmSync,
   readdirSync,
   statSync,
+  mkdirSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { createSandbox, assertEnvContained } from "./harness/sandbox.ts";
 
 const REAL = process.env.SENTINAL_E2E_REAL === "1";
@@ -172,32 +174,39 @@ describe("Layer B — real-binary smoke (opt-in, SENTINAL_E2E_REAL=1)", () => {
     TIMEOUT,
   );
 
-  it.skipIf(!REAL)(
-    "copied credentials are removed even when the test body throws (fault injection)",
-    () => {
-      const sb = createSandbox();
-      const copied: string[] = [];
-      let threw = false;
-      try {
-        copied.push(...copyCredsIntoSandbox(sb.home));
-        // Force a throw AFTER cred copy to prove the finally scrubs them.
-        throw new Error("injected fault");
-      } catch {
-        threw = true;
-      } finally {
-        for (const c of copied) {
-          try {
-            rmSync(c, { force: true });
-          } catch {
-            /* ignore */
-          }
-        }
-        // Assert every copied cred file is gone.
-        for (const c of copied) expect(existsSync(c)).toBe(false);
-        sb.cleanup();
+  // NOT gated on SENTINAL_E2E_REAL: this proves the failure-safe cred-scrub
+  // logic using only pure fs ops (a SYNTHETIC cred file — never the real one),
+  // so it runs in CI and actually guards the "creds removed on throw" DoD.
+  it("the try/finally scrub removes cred files even when the test body throws", () => {
+    const sb = createSandbox();
+    // Simulate copied cred files with synthetic content inside the sandbox.
+    const fakeCreds = [
+      join(sb.home, ".claude", ".credentials.json"),
+      join(sb.home, ".config", "opencode", "auth.json"),
+    ];
+    const copied: string[] = [];
+    let threw = false;
+    try {
+      for (const f of fakeCreds) {
+        mkdirSync(dirname(f), { recursive: true });
+        writeFileSync(f, JSON.stringify({ token: "SYNTHETIC-TEST-ONLY" }));
+        copied.push(f);
       }
-      expect(threw).toBe(true);
-    },
-    TIMEOUT,
-  );
+      for (const c of copied) expect(existsSync(c)).toBe(true); // present before throw
+      throw new Error("injected fault");
+    } catch {
+      threw = true;
+    } finally {
+      for (const c of copied) {
+        try {
+          rmSync(c, { force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+      for (const c of copied) expect(existsSync(c)).toBe(false); // scrubbed on throw
+      sb.cleanup();
+    }
+    expect(threw).toBe(true);
+  });
 });

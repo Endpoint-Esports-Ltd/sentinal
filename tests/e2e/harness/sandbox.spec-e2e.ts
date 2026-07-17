@@ -15,6 +15,8 @@ import {
   createSandbox,
   assertEnvContained,
   hashTree,
+  snapshotRealDirs,
+  assertNoRealEscape,
   type Sandbox,
 } from "./sandbox.ts";
 
@@ -103,13 +105,16 @@ describe("createSandbox — install + cleanup", () => {
   });
 
   it(
-    "install('opencode') lands opencode.json under the sandbox .config",
+    "install('opencode') lands opencode.json under the sandbox .config without touching real dirs",
     () => {
+      const realBefore = snapshotRealDirs();
       sb = createSandbox();
       const r = sb.install("opencode");
       expect(r.exitCode).toBe(0);
       const cfg = join(sb.home, ".config", "opencode", "opencode.json");
       expect(sb.exists(cfg)).toBe(true);
+      // Also proves the backstop: a real install left the real dirs untouched.
+      assertNoRealEscape(realBefore);
     },
     180_000,
   );

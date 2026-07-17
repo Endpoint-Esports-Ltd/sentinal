@@ -26,7 +26,7 @@
 // spawn, so we assert both those assets AND real-dir immutability below.
 
 import { describe, it, expect, afterEach, beforeAll } from "bun:test";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -161,15 +161,18 @@ describe("install opencode (bundled) — network-freeness", () => {
     assertNoRealEscape(realBefore);
   });
 
+  // NOTE ON SCOPE (spec-review should_fix): no-egress for the bundled install
+  // is enforced by DESIGN (--bundled writes embedded assets from disk +
+  // SENTINAL_NO_AUTO_SETUP=1 skips the model download), NOT by the proxy env —
+  // proxy vars do not reliably intercept Bun's native fetch/socket, so a
+  // "still exits 0 with proxy set" result alone would be green-by-accident.
+  // This test therefore proves the DISK-ONLY signal directly: with an
+  // unreachable proxy set (best-effort egress block), the install both exits 0
+  // AND writes the embedded plugin bundle to disk (non-empty) — i.e. the
+  // activation asset came from the local bundle, not a network fetch.
   it(
-    "succeeds with network egress blocked via unreachable proxy env",
+    "bundled install writes assets from disk (no network dependency) with proxy blocked",
     () => {
-      // createSandbox().env is a mutable object — merge proxy vars pointed at
-      // an unreachable host so any fetch()/https during install would fail.
-      // Bundled mode + SENTINAL_NO_AUTO_SETUP=1 must make this CI-safe: no
-      // network is required, so the install still exits 0. (Verified by spike:
-      // the exact HTTPS_PROXY/HTTP_PROXY/ALL_PROXY vars are honored by the
-      // spawned process env; install succeeds regardless.)
       sb = createSandbox();
       sb.env.HTTPS_PROXY = "http://127.0.0.1:1";
       sb.env.HTTP_PROXY = "http://127.0.0.1:1";
@@ -178,13 +181,23 @@ describe("install opencode (bundled) — network-freeness", () => {
       const r = sb.install("opencode");
       expect(r.exitCode).toBe(0);
 
-      // Config still landed despite the blocked network.
+      // Config + the EMBEDDED plugin bundle landed from disk (non-empty proves
+      // it was written from the bundled asset, not fetched).
       const cfgPath = join(sb.home, ".config", "opencode", "opencode.json");
       expect(sb.exists(cfgPath)).toBe(true);
       const cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as {
         plugin?: unknown;
       };
       expect(cfg.plugin as string[]).toContain("./plugins/sentinal.mjs");
+      const pluginPath = join(
+        sb.home,
+        ".config",
+        "opencode",
+        "plugins",
+        "sentinal.mjs",
+      );
+      expect(sb.exists(pluginPath)).toBe(true);
+      expect(statSync(pluginPath).size).toBeGreaterThan(1000);
     },
     INSTALL_TIMEOUT,
   );
