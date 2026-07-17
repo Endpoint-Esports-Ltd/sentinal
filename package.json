@@ -40,6 +40,8 @@
     "build:all": "bun run build:claude && bun run build:opencode",
     "test": "bun test",
     "test:watch": "bun test --watch",
+    "e2e": "bun run build:cli && bun test ./tests/e2e/harness/sandbox.spec-e2e.ts ./tests/e2e/install.e2e.ts ./tests/e2e/hooks.e2e.ts ./tests/e2e/mcp.e2e.ts ./tests/e2e/spec-workflow.e2e.ts ./tests/e2e/sidecar-memory.e2e.ts ./tests/e2e/real-binary.e2e.ts",
+    "e2e:real": "SENTINAL_E2E_REAL=1 bun run e2e",
     "install:claude-code": "bun src/cli/index.ts install claude",
     "install:opencode": "bun src/cli/index.ts install opencode",
     "cli": "bun src/cli/index.ts",

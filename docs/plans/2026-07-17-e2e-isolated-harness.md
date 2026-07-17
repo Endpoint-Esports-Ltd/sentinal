@@ -168,7 +168,7 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 - [x] Task 4: MCP tools e2e + SDK client (Wave 2) — 28 tools, memory_search works in-subprocess
 - [x] Task 5: /spec workflow + stop-guard e2e (Wave 2) — owner-blocks/live-allows/stale-blocks
 - [x] Task 6: Sidecar + memory e2e (Wave 2) — sandbox socket + memory round-trip, no leaks
-- [ ] Task 8: Opt-in real-binary smoke layer (Wave 3)
+- [x] Task 8: Opt-in real-binary smoke layer (Wave 3) — green-by-skip verified (1 pass/3 skip, zero side effects); failure-safe cred cleanup; artifact-based assertion
 - [ ] Task 7: Runner script + docs (Wave 4)
       **Total Tasks:** 8 | **Completed:** 0 | **Remaining:** 8
 

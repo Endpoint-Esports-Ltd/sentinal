@@ -594,6 +594,39 @@ bun test:watch       # Watch mode
 bun test src/path/to/file.test.ts  # Single file
 ```
 
+### End-to-End Test Harness (isolated)
+
+An E2E harness under `tests/e2e/` installs Sentinal into a **fully isolated sandbox**
+(a temp `$HOME` with `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `SENTINAL_NO_AUTO_SETUP=1`,
+and `CLAUDE_PLUGIN_DATA` cleared) and exercises it end-to-end — **without ever touching
+your real `~/.claude`, `~/.config/opencode`, `~/.opencode`, or `~/.sentinal`.** Isolation
+is enforced structurally (`assertEnvContained` proves every spawned process stays inside
+the sandbox) plus a content-hash backstop over the real dirs (`assertNoRealEscape`).
+
+Two layers:
+
+- **Layer A — deterministic (default, CI-safe, no LLM):** builds the CLI, then drives
+  Sentinal's real entrypoints inside the sandbox — `sentinal install`, hook dispatch,
+  the MCP server (via the `@modelcontextprotocol/sdk` client), the session-aware
+  stop-guard, and sidecar + memory round-trips.
+
+  ```bash
+  bun run e2e          # build CLI + run Layer A
+  ```
+
+- **Layer B — opt-in real binaries (local-only):** drives the real `opencode`/`claude`
+  binaries headless and asserts Sentinal actually loaded. It needs LLM credentials, so
+  it is gated behind `SENTINAL_E2E_REAL=1` and **skipped by default**. When enabled it
+  prefers env-passthrough (`ANTHROPIC_API_KEY`) and, as a fallback, copies your real
+  credential files into the sandbox — deleting them afterward even if a test throws.
+
+  ```bash
+  bun run e2e:real     # local, authenticated (SENTINAL_E2E_REAL=1)
+  ```
+
+E2E files use `*.e2e.ts` / `*.spec-e2e.ts` names so a bare `bun test` never discovers
+them (they run only via `bun run e2e`).
+
 ### Architecture
 
 The codebase is organized into shared layers consumed by both targets:
