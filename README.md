@@ -615,14 +615,22 @@ Two layers:
   ```
 
 - **Layer B — opt-in real binaries (local-only):** drives the real `opencode`/`claude`
-  binaries headless and asserts Sentinal actually loaded. It needs LLM credentials, so
-  it is gated behind `SENTINAL_E2E_REAL=1` and **skipped by default**. When enabled it
-  prefers env-passthrough (`ANTHROPIC_API_KEY`) and, as a fallback, copies your real
-  credential files into the sandbox — deleting them afterward even if a test throws.
+  binaries headless and asserts the **Sentinal plugin actually loaded** (via a
+  `~/.sentinal` artifact — not the LLM exit code). Gated behind `SENTINAL_E2E_REAL=1`
+  and **skipped by default**.
 
   ```bash
   bun run e2e:real     # local, authenticated (SENTINAL_E2E_REAL=1)
   ```
+
+  - **OpenCode:** runs with your real subscription OAuth — it copies
+    `~/.local/share/opencode/auth.json` into the sandbox (deleted afterward, even on
+    throw). ✅ Verified: the plugin loads in a real `opencode run` session.
+  - **Claude Code:** requires a **portable** credential — `ANTHROPIC_API_KEY` or a
+    `~/.claude/.credentials.json` file. A Claude **subscription** stores its OAuth token
+    in the macOS Keychain (bound to your real profile), which cannot be transferred to a
+    sandbox `HOME`, so the Claude case **skips** for subscription-only auth. (A Docker
+    container would not help — it has no macOS Keychain either.)
 
 E2E files use `*.e2e.ts` / `*.spec-e2e.ts` names so a bare `bun test` never discovers
 them (they run only via `bun run e2e`).

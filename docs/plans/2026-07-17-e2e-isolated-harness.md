@@ -1,7 +1,7 @@
 # Isolated E2E Test Harness for OpenCode + Claude Code Implementation Plan
 
 Created: 2026-07-17
-Status: COMPLETE
+Status: VERIFIED
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -354,3 +354,15 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 - [ ] README section present.
 
 **Verify:** `bun run e2e` (Layer A green) + `bun test 2>&1 | rg -c "tests/e2e/"` returns 0 + `rg -n '"e2e"' package.json`
+
+## Layer B — Real-Binary Findings (verified 2026-07-17 with real subscription creds)
+
+Ran `SENTINAL_E2E_REAL=1` reusing the user's real OpenCode subscription OAuth:
+
+- **OpenCode real-binary test PASSES** — a real `opencode run "..." --model anthropic/claude-haiku-4-5` session in the isolated sandbox loads the Sentinal plugin (verified via `<sandbox>/.sentinal/plugin.debug.log` + `memory.db`). Real dirs byte-unchanged; no process leaks. Full `e2e:real`: 28 pass / 1 skip / 0 fail.
+- **Three harness bugs found + fixed** (the original Layer B never actually drove a real binary correctly):
+  1. OpenCode auth source path was wrong — it's `~/.local/share/opencode/auth.json` (XDG DATA dir), not `~/.config/opencode/auth.json`.
+  2. OpenCode invocation was wrong — `opencode run` takes the message as a POSITIONAL; `-p` is `--password` (not prompt); `--dangerously-skip-permissions` is not a `run` flag; a `--model` is required (no sandbox default).
+  3. Claude — subscription auth lives in the macOS Keychain (bound to the real profile) and CANNOT be copied into a sandbox; `claude -p` there reports "Not logged in".
+- **Correct Layer B assertion = "Sentinal plugin loaded" (artifact-based), NOT "the LLM turn succeeded"** — a full `opencode run` headless turn does NOT complete in a fresh sandbox HOME even with `--pure` (no plugins); that is an OpenCode-side limitation, not a Sentinal bug.
+- **Claude real-binary case is gated** behind a PORTABLE credential (`ANTHROPIC_API_KEY` or `~/.claude/.credentials.json`) and skips cleanly for subscription-only users. Docker would NOT help: a Linux container has no macOS Keychain, so Claude subscription auth is unavailable there too — the blocker is credential portability, not isolation.
