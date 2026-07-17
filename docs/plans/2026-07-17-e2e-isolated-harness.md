@@ -162,12 +162,12 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 
 ## Progress Tracking
 
-- [ ] Task 1: Sandbox builder + escape assertion (Wave 1)
-- [ ] Task 2: Install + activation e2e (Wave 2)
-- [ ] Task 3: Hooks-fire e2e (Wave 2)
-- [ ] Task 4: MCP tools e2e + test JSON-RPC client (Wave 2)
-- [ ] Task 5: /spec workflow + stop-guard e2e (Wave 2)
-- [ ] Task 6: Sidecar + memory e2e (Wave 2)
+- [x] Task 1: Sandbox builder + escape assertion (Wave 1) — 9/9 green; real dirs verified untouched; runner needs `./tests/e2e/` path prefix (bun quirk)
+- [x] Task 2: Install + activation e2e (Wave 2) — CLAUDE_CONFIG_DIR redirect verified (real ~/.claude untouched); network-free install proven
+- [x] Task 3: Hooks-fire e2e (Wave 2) — file-checker/spec-stop-guard/tdd-guard through real dispatcher
+- [x] Task 4: MCP tools e2e + SDK client (Wave 2) — 28 tools, memory_search works in-subprocess
+- [x] Task 5: /spec workflow + stop-guard e2e (Wave 2) — owner-blocks/live-allows/stale-blocks
+- [x] Task 6: Sidecar + memory e2e (Wave 2) — sandbox socket + memory round-trip, no leaks
 - [ ] Task 8: Opt-in real-binary smoke layer (Wave 3)
 - [ ] Task 7: Runner script + docs (Wave 4)
       **Total Tasks:** 8 | **Completed:** 0 | **Remaining:** 8
@@ -344,7 +344,7 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 - Modify: `README.md` (short "E2E test harness" section: what it isolates, how to run Layer A / Layer B, the credential-copy caveat)
 
 **Key Decisions / Notes:**
-- e2e files use the `*.e2e.ts` / `*.spec-e2e.ts` suffix so a bare `bun test` (default `**/*.test.ts` glob) never discovers them. They run ONLY via `bun run e2e` (explicit `bun test tests/e2e/` path, which overrides the discovery pattern) — the sqlite-vec preload still applies.
+- e2e files use the `*.e2e.ts` / `*.spec-e2e.ts` suffix so a bare `bun test` never discovers them (✓ verified: `bun test` runs 0 e2e files). **RUNNER FINDING (Wave 2):** bun's DIRECTORY scan also skips these suffixes (it requires a `.test.`/`.spec.`/`_test_`/`_spec_` token with dots), so `bun test tests/e2e/` finds nothing. The runner MUST enumerate files via shell-glob → explicit paths: `bun test ./tests/e2e/harness/*.spec-e2e.ts ./tests/e2e/*.e2e.ts` (explicit paths run regardless of the token rule; sqlite-vec preload still applies). Verified: all 25 tests pass via this form.
 - `e2e` builds the CLI first so the sandbox installs the compiled binary users actually get.
 
 **Definition of Done:**
