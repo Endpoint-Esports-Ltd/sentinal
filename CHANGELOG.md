@@ -1,3 +1,27 @@
+# [1.32.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.6...v1.32.0) (2026-07-18)
+
+
+### Bug Fixes
+
+* **build:** embed-assets consumers must build the plugin bundle first ([eb81f5e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/eb81f5ee7b32cdb2bb79c1104e2818acb22ec449))
+* **build:** generate embedded-assets.ts instead of committing it ([1788dc3](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1788dc3e5c75ff2961adfe081bfc635e23a7e172))
+* **e2e:** make Layer B actually drive real binaries; verified live with subscription OAuth ([ebb01d2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ebb01d270044bebc9961ba1a37d73717560f8c1a))
+* **rules:** correct stale memory tool references + add recall cues ([800ab0b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/800ab0b7b2dc60b5fca43348dddb16b375a1726a))
+* **spec:** add name: frontmatter so master skills load on OpenCode ([70a2a82](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/70a2a821175329abcd87c4554b3db3e2ce3d6fad))
+
+
+### Features
+
+* **changelog:** adopt top-4 CC/OC changelog recommendations ([50a90ce](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/50a90ce4757c94802cce6e818f2385189ce89e20))
+* **e2e:** harness binary override + config knobs (release-gate task 1) ([05cab2f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/05cab2fb2dc392a6405b16b5ee1445794a673205)), closes [#1](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/1)
+* **e2e:** isolated sandbox harness (task 1) ([6dcbe34](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/6dcbe3479d3de99db218914cb1393fcf7db0b621))
+* **e2e:** opt-in real-binary smoke layer (task 8) ([85c432d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/85c432d5cb55637979ec30b298b6770b36a5bbed))
+* **e2e:** pre-release gate runner + docs (task 5) ([3bb9d87](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3bb9d87a557c68243e288d77dac3f2d35d704843))
+* **e2e:** release-gate tests + download helper (wave 2, tasks 2/3/4/6) ([7c96aa5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7c96aa5ee835aea099a521df3c0ff2c2a71d3d83))
+* **e2e:** runner scripts + docs (task 7) ([4137e1c](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4137e1c39bad3012bbf1d423e25ab01f8eeea0b5))
+* **e2e:** Wave 2 deterministic layers (tasks 2-6) ([d146fce](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d146fce950cd6989ad497147ef6868a420fd904b))
+* **spec:** use memory_search/memory_save at planning and pivot points ([3d05208](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3d05208d21a64b90e9cea0224de386527f10aa85))
+
 ## [1.31.6](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.5...v1.31.6) (2026-06-11)
 
 
