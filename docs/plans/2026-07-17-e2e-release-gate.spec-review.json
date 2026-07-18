@@ -1,0 +1,85 @@
+{
+  "pass_summary": "The release-gate implementation faithfully matches the plan across all 6 tasks and 9 Goal-Verification truths. Every pre-mortem trap (dev-build fallback, backward-compat break, green-by-accident deps test) is defended with concrete, falsifiable assertions and proving tests. No must_fix issues found; a few minor deviations and hardening suggestions only.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 9,
+  "truths_total": 9,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "pre-release.mjs uses node:child_process instead of the plan-specified Bun.spawn APIs",
+      "description": "Plan line 293 explicitly says 'The script uses only Bun-compatible APIs (Bun.spawnSync/Bun.spawn)'. scripts/pre-release.mjs:23 imports { execSync, spawnSync } from 'node:child_process' and uses them (pre-release.mjs:58-64, 93). This is functionally correct because the script is launched via `bun scripts/pre-release.mjs` (package.json:45) so the spawned `bun test` still inherits the bunfig.toml sqlite-vec preload, and node:child_process is fully supported under Bun. It is a documentation-vs-implementation deviation, not a defect.",
+      "suggested_fix": "Either update the plan note, or switch to Bun.spawnSync for consistency with the stated design. No behavioral change required."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "downloadReleaseAsset mismatch test monkeypatches globalThis.fetch without unref/AbortController hardening",
+      "description": "tests/e2e/harness/release-asset.test.ts:124-166 replaces globalThis.fetch and restores it in a finally block (correct). However, the fixture destDir is `/tmp/sentinal-release-asset-test-${Date.now()}` and is never cleaned up. Because the download throws on checksum mismatch BEFORE mkdirSync/writeFileSync (release-asset.ts:163-171 runs after verifyChecksum at :163), no dir is actually created on the mismatch path — so there is no real leak today. But if the assertion order in downloadReleaseAsset ever changes so files are written before verification, this test would silently leave /tmp artifacts.",
+      "suggested_fix": "Wrap the fixture dir in a rmSync({recursive:true,force:true}) in the finally block alongside the fetch restore, to future-proof against write-before-verify regressions."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "pre-release:download passes an extra `--` token; relies on it being harmless",
+      "description": "package.json:47 defines pre-release:download as `bun scripts/pre-release.mjs -- --download`. Because pre-release.mjs:29-30 does `process.argv.slice(2)` and `args.includes('--download')`, argv becomes ['--','--download'] and the includes() check still returns true, so it works. The stray `--` is inert but slightly misleading (it mimics npm-script arg forwarding, which is unnecessary when invoking a .mjs file directly).",
+      "suggested_fix": "Simplify to `bun scripts/pre-release.mjs --download` for clarity; behavior is unchanged."
+    },
+    {
+      "severity": "suggestion",
+      "category": "goal_achievement",
+      "title": "0-tests guard depends on bun's 'Ran N tests' string format",
+      "description": "pre-release.mjs:105-109 parses `/Ran (\\d+) tests/` from combined stdout+stderr to enforce the non-zero-tests guard (plan DoD line 302, correctly capturing STDERR per the earlier fixed bug). This is the documented bun:test summary format, but it is brittle to a future bun output-wording change — if the phrase changes, `ran` would parse to 0 and the gate would ALWAYS throw '0 tests' even on a green run (fail-closed, which is the safe direction, but noisy).",
+      "suggested_fix": "Optionally also accept the pass-count phrasing (e.g. /(\\d+) pass/) as a fallback signal, or pin the bun version. Low priority since fail-closed is acceptable."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "sandbox.ts honors SENTINAL_E2E_BINARY in entry(); a sandbox test proves a custom binary path is used.",
+      "status": "verified",
+      "evidence": "sandbox.ts:91-104 resolveEntry() returns [resolve(override)] when set; sandbox.spec-e2e.ts:143-151 proves binaryPath===resolve(fake). Also THROWS on missing (sandbox.ts:95-100; test :153-156)."
+    },
+    {
+      "truth": "createSandbox/install accept options defaulting to today's behavior; full existing e2e suite passes unchanged.",
+      "status": "verified",
+      "evidence": "Options default bundled=true (sandbox.ts:155) and NO_AUTO_SETUP='1' (sandbox.ts:116); plan progress line 158 records 'existing e2e 32 pass/2 skip unchanged'. Backward-compat tests at sandbox.spec-e2e.ts:177-187."
+    },
+    {
+      "truth": "Version-identity gate asserts --version AND that resolved binary is the release artifact path.",
+      "status": "verified",
+      "evidence": "release-identity.e2e.ts:80-102 asserts sb.binaryPath===resolve(BIN), rejects bun-src fallback and conditionally the dev dist path; :108-110 asserts --version. Comment at :3-7 correctly notes --version alone is insufficient — binaryPath is the falsifiable core."
+    },
+    {
+      "truth": "Release-config install gate runs the release binary and asserts install/activation assets land.",
+      "status": "verified",
+      "evidence": "release-install.e2e.ts:65-98 asserts opencode.json + plugin ./plugins/sentinal.mjs + mcp.sentinal via bundled:false; :112-140 asserts Claude assets land and REAL ~/.claude byte-unchanged."
+    },
+    {
+      "truth": "release-asset.ts downloads+verifies sha256; pure helpers unit-tested in a default-suite .test.ts.",
+      "status": "verified",
+      "evidence": "release-asset.ts:130-174 downloadReleaseAsset verifies sha256 (:163) and throws on mismatch (:164-166). release-asset.test.ts (a real .test.ts) covers assetNameFor, parseChecksums, verifyChecksum, selectAssetIds incl. partial-match rejection (:109-112) and mismatch throw (:124-166)."
+    },
+    {
+      "truth": "Native-dep gate proves deps resolve via a real memory round-trip; skips cleanly without flags.",
+      "status": "verified",
+      "evidence": "release-deps.e2e.ts:44 GATED on BOTH flags; :152-177 real memory_save+memory_search against sb.binaryPath (NOT the dev-hardcoded McpTestClient — deliberately re-implemented at :55-92); :182 asserts REAL ~/.sentinal/deps hash unchanged; :105-112 green-by-skip smoke."
+    },
+    {
+      "truth": "package.json has pre-release (offline local build) and a download variant; README documents them.",
+      "status": "verified",
+      "evidence": "package.json:45-47 pre-release / :deps / :download all via `bun scripts/pre-release.mjs`. README 'Pre-release gate' section documents all three plus the cross-platform CI-linux caveat."
+    },
+    {
+      "truth": "Default-suite exclusion falsifiable both ways: bare bun test discovers release-asset.test.ts but no .e2e.ts.",
+      "status": "verified",
+      "evidence": "New unit file uses .test.ts (release-asset.test.ts) so bare `bun test` discovers it; all gate tests use .e2e.ts/.spec-e2e.ts suffixes bun's dir-scan skips. pre-release.mjs:74-83 enumerates explicit ./ paths for the gate."
+    },
+    {
+      "truth": "Cross-platform coverage pinned: offline gate validates only current host artifact; linux run coverage via CI.",
+      "status": "verified",
+      "evidence": "pre-release.mjs:34-42 derives current-platform asset only; README caveat + pre-release.mjs:18-21 header document that a Mac cannot execute sentinal-linux-* and linux run coverage requires a Linux CI runner; download mode is fetch+checksum only."
+    }
+  ]
+}

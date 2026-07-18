@@ -102,7 +102,8 @@ function runGate(binaryPath) {
   const combined = (proc.stdout ?? "") + (proc.stderr ?? "");
   process.stdout.write(proc.stdout ?? "");
   process.stderr.write(proc.stderr ?? "");
-  const ranMatch = /Ran (\d+) tests/.exec(combined);
+  // bun prints "Ran N tests across M files"; also guard the "0 tests"/"no tests" cases.
+  const ranMatch = /Ran (\d+) tests?/.exec(combined);
   const ran = ranMatch ? Number(ranMatch[1]) : 0;
   if (ran === 0) {
     throw new Error("[pre-release] gate ran 0 tests — a gate path is likely mistyped");

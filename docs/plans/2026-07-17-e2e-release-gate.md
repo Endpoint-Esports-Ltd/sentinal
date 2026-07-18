@@ -1,7 +1,7 @@
 # E2E Release-Artifact Gate Implementation Plan
 
 Created: 2026-07-17
-Status: IN_PROGRESS
+Status: COMPLETE
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -160,8 +160,8 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 - [x] Task 3: Release-config install gate test (Wave 2) — bundled:false → embedded install; real ~/.claude untouched
 - [x] Task 4: Download + checksum-verify asset helper (+ 17 unit tests, selectAssetIds) (Wave 2)
 - [x] Task 6: Opt-in native-dep gate test (Wave 2) — real memory round-trip vs sb.binaryPath; real deps-dir isolation. Also: mcp-client honors SENTINAL_E2E_BINARY
-- [ ] Task 5: pre-release runner scripts + docs (Wave 3)
-      **Total Tasks:** 6 | **Completed:** 0 | **Remaining:** 6
+- [x] Task 5: pre-release runner scripts + docs (Wave 3) — `bun run pre-release` builds real sentinal-darwin-arm64 + gate 35 pass; exclusion proven both ways
+      **Total Tasks:** 6 | **Completed:** 6 | **Remaining:** 0
 
 ## Implementation Tasks
 

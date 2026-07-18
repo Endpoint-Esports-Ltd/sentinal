@@ -44,7 +44,7 @@
     "e2e:real": "SENTINAL_E2E_REAL=1 bun run e2e",
     "pre-release": "bun scripts/pre-release.mjs",
     "pre-release:deps": "SENTINAL_E2E_DEPS=1 bun scripts/pre-release.mjs",
-    "pre-release:download": "bun scripts/pre-release.mjs -- --download",
+    "pre-release:download": "bun scripts/pre-release.mjs --download",
     "install:claude-code": "bun src/cli/index.ts install claude",
     "install:opencode": "bun src/cli/index.ts install opencode",
     "cli": "bun src/cli/index.ts",
