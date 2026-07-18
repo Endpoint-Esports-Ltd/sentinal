@@ -35,7 +35,7 @@
     "build:claude:watch": "tsc -p targets/claude-code/tsconfig.json --watch",
     "build:opencode": "bun build targets/opencode/plugins/sentinal.ts --outfile targets/opencode/dist/sentinal.mjs --target node --format esm --external bun:sqlite --external @xenova/transformers --external sqlite-vec",
     "deploy:opencode": "bun run build:opencode && cp targets/opencode/dist/sentinal.mjs ~/.config/opencode/plugins/sentinal.mjs",
-    "embed-assets": "bun run build:opencode && node scripts/embed-assets.mjs",
+    "embed-assets": "bun run build:opencode && bun scripts/embed-assets.mjs",
     "build:cli": "bun run embed-assets && bun build --compile src/cli/index.ts --outfile dist/sentinal --external @xenova/transformers --external sqlite-vec --define __SENTINAL_VERSION__=\"'$(node -p \"require('./package.json').version\")'\"",
     "build:all": "bun run build:claude && bun run build:opencode",
     "test": "bun test",
@@ -50,8 +50,18 @@
     "cli": "bun src/cli/index.ts",
     "memory": "bun src/memory/cli.ts",
     "mcp": "bun src/mcp/server.ts",
-    "validate:plugin": "claude plugin validate targets/claude-code 2>&1 | tee /tmp/sentinal-plugin-validate.log || true"
+    "validate:plugin": "claude plugin validate targets/claude-code 2>&1 | tee /tmp/sentinal-plugin-validate.log || true",
+    "prepack": "bun run embed-assets"
   },
+  "files": [
+    "src/",
+    "targets/",
+    "bin/",
+    "scripts/",
+    "bunfig.toml",
+    "tsconfig.json",
+    "VERSION"
+  ],
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.27.1",

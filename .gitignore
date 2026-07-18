@@ -1,6 +1,9 @@
 node_modules/
 dist/
 targets/claude-code/hooks/dist/
+# Generated at build/install/test time — never committed (see scripts/embed-assets.mjs).
+# Kept in the npm tarball via the "files" allowlist in package.json.
+src/cli/embedded-assets.ts
 *.tsbuildinfo
 .DS_Store
 # OpenCode-local tool state — only .opencode/skills/ is tracked
