@@ -10,3 +10,5 @@ src/cli/embedded-assets.ts
 .opencode/package-lock.json
 # .sentinal/ contents controlled by .sentinal/.gitignore (ignores all except rules/, skills/, project-memory.json)
 .idea/
+# Local debugging artifacts (logs, ps dumps, diagnostics) — never commit; may contain PII/paths.
+docs/bug_reports/
