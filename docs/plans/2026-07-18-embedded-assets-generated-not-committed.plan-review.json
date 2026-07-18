@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is directionally sound but contains one release-breaking gap (npm publish would ship WITHOUT the generated file because there is no `files`/`.npmignore` and `exports` publishes `./src/`), plus a CI toolchain gap (test job has no setup-node yet `embed-assets` invokes `node`) and a factual error (package.json DOES have a devDependencies block).",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "npm publish will ship WITHOUT embedded-assets.ts once it is gitignored",
+      "description": "package.json has NO `files` field and there is NO `.npmignore` in the repo (verified: only .gitignore and bunfig.toml exist at root). When neither is present, `npm publish` (invoked by @semantic-release/npm in .releaserc.json:14) falls back to using .gitignore to decide tarball contents. Since `exports` (package.json:6-9) publishes `./src/index.ts` — i.e. the raw source tree — the published package REQUIRES src/cli/embedded-assets.ts to exist because install.ts:82 imports EMBEDDED_* from it unconditionally. Adding `src/cli/embedded-assets.ts` to .gitignore (plan Fix Approach line 48) would EXCLUDE it from the npm tarball, publishing a package whose `sentinal install` path is broken at import resolution. This is the single most dangerous omission — the plan's premise 'the committed copy is consumed by nothing except import resolution + tests' overlooks the npm-published source tree, which is a real consumer that CANNOT regenerate the file at install time.",
+      "suggested_fix": "Before gitignoring, add an explicit `files` allowlist to package.json that INCLUDES the generated path (e.g. `\"files\": [\"src\", \"targets\", \"bin\", \"VERSION\"]`), OR add a `.npmignore` with a `!src/cli/embedded-assets.ts` un-ignore, OR add a `prepack`/`prepublishOnly` script that regenerates it (npm runs `prepack` before creating the tarball, so a freshly generated ignored file WILL be included). The `prepack: bun run embed-assets` approach is cleanest and mirrors the plan's lifecycle-hook strategy. Add a Task step to verify with `npm pack --dry-run | grep embedded-assets` that the file is present in the tarball listing."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "CI test job has no setup-node, but `prepare`->embed-assets invokes `node`",
+      "description": "The plan wires `prepare: bun run embed-assets` (line 51). `embed-assets` (package.json:38) is `bun run build:opencode && node scripts/embed-assets.mjs` — it shells out to `node`. The release.yml `test` job (lines 17-24) only sets up Bun (oven-sh/setup-bun) and does `bun install` then `bun test`. There is NO actions/setup-node step in the test job (the `release` job at lines 35-37 has setup-node, but test does not). If `prepare` fires during `bun install` in the test job and `node` is not on PATH, `bun install` will fail. ubuntu-latest images DO ship a system node, so this may work by luck, but the plan asserts 'prepare ordering is safe' without verifying node availability in the test job specifically.",
+      "suggested_fix": "Either (a) convert scripts/embed-assets.mjs invocation to `bun scripts/embed-assets.mjs` (Bun can run .mjs, removing the node dependency entirely and making it consistent with the Bun-first project), or (b) add `- uses: actions/setup-node@v4` to the test job. Option (a) is preferred — it also removes node from the `prepack`/`prepare` critical path on contributor machines that may only have Bun."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Factual error: plan/context claims package.json has NO devDependencies block",
+      "description": "The review context states 'package.json has NO devDependencies block shown; verify.' This is FALSE — package.json:13-21 defines a devDependencies block (semantic-release, typescript, @types/node, bun-types, etc.). This matters for the bootstrapping concern (question 3): `bun install` installs devDependencies by default, and `build:opencode` uses only `bun build` (a Bun builtin, needs no dep) while `embed-assets.mjs` uses only node:fs/node:path builtins. So generation at `prepare` time needs NO devDependency — the bootstrapping risk is LOW. But the plan should correct the false premise so implementers don't chase a non-issue or wrongly assume deps are absent.",
+      "suggested_fix": "Correct the Investigation note: devDependencies exist (package.json:13-21); embed-assets depends only on Bun's builtin `bun build` and node stdlib, so no dependency-availability risk exists at prepare time. Remove the speculative 'verify devDependencies present' framing."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "`bun test` does NOT run `pretest` — the belt-and-suspenders guarantee is unreliable",
+      "description": "Plan line 52 adds `pretest` as a fallback but hedges 'Confirm during impl that bun test honors pretest'. Bun's test runner (`bun test`) is a direct runner and does NOT execute npm-style `pretest`/`posttest` lifecycle scripts — those only run via `bun run test` (which invokes the `test` script at package.json:41). CI runs `bun test --timeout 30000` DIRECTLY (release.yml:24), NOT `bun run test`, so `pretest` will NEVER fire in CI. The `prepare` hook (via `bun install` at line 23) is therefore the ONLY generation trigger in CI — pretest adds nothing there. The plan already identifies bunfig.toml preload (src/memory/test-preload.ts) as the alternative; that IS the correct mechanism for `bun test`-direct invocations.",
+      "suggested_fix": "Drop `pretest` as the primary safety net for `bun test` and instead add generation to the existing bunfig.toml preload OR a dedicated preload that ensures embedded-assets.ts exists (generate-if-missing, cheap ~0.1s). Keep `prepare` for the install path. Note explicitly: CI's `bun test` (not `bun run test`) bypasses pretest, so preload or prepare are the only reliable triggers."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "CI drift guard is under-specified and self-contradictory in the plan text",
+      "description": "Line 53 proposes `git diff --exit-code` then immediately notes it 'won't work because the file is untracked', then pivots to a 'content freshness assertion' but leaves the exact form 'to finalize in impl'. Leaving the guard undefined weakens defense-in-depth guarantee #3. Since the file is gitignored, git-diff is indeed useless. The correct guard given determinism (after removing the timestamp) is a two-run byte-identical check PLUS a content-presence assertion (e.g. that specific known targets/ content such as the spec-master-plan skill appears in the generated output).",
+      "suggested_fix": "Specify the CI guard concretely: (1) run embed-assets, capture output hash; (2) run embed-assets again, assert byte-identical (determinism); (3) assert a sentinel string from a known targets/ asset is present in the generated file (freshness). This can be a single test file (the plan's new src/cli/embed-assets.test.ts) run in CI's existing `bun test`, avoiding a bespoke YAML step entirely — the test job already runs `bun test`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Double-generation during release is harmless but ordering should be stated explicitly",
+      "description": "Question 1 (double-generation): During the release job, `bun install` (release.yml:43) fires `prepare` -> embed-assets, generating the file once. Then `npx semantic-release` (line 49) runs @semantic-release/exec prepareCmd (.releaserc.json:11) which calls release-build.mjs, which regenerates via build:opencode + embed-assets (release-build.mjs:39-40) before compiling. This is a harmless double-generation (idempotent once deterministic), and ordering is correct: prepare runs first at install, release-build regenerates later at compile. No race. But note the @semantic-release/git assets list (.releaserc.json:18) does NOT include embedded-assets.ts — good, it stays untracked and won't be committed back. This is correct and should be called out as verified.",
+      "suggested_fix": "Add a note confirming: (a) double-generation is idempotent post-determinism, (b) @semantic-release/git assets (package.json, VERSION, CHANGELOG.md) correctly exclude embedded-assets.ts so it will not be re-committed, (c) release-build.mjs remains the authoritative generator for shipped binaries. No code change needed — documentation only."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Determinism: confirm no nondeterminism sources remain beyond the timestamp",
+      "description": "Question 4: Verified that readDir (embed-assets.mjs:30-33) and readSkillDirs (44-50) both call .sort() before mapping, so directory-iteration order is stable. The ONLY nondeterministic line is 143 (`Generated at: ${new Date().toISOString()}`). Removing it is sufficient for byte-level determinism. escapeForTemplate is pure. No Date, Math.random, or unordered Object iteration elsewhere. This confirms the plan's core assumption — removing the timestamp is both necessary AND sufficient for determinism.",
+      "suggested_fix": "No change required; the determinism analysis holds. Optionally the new test should also assert the generator output contains NO ISO-8601 timestamp pattern, to prevent regression if someone re-adds a 'Generated at' line."
+    }
+  ]
+}
