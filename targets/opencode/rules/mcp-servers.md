@@ -12,34 +12,34 @@ All Sentinal MCP servers use the `mcp__plugin_sentinal_` prefix. Tools are avail
 
 ---
 
-### mem-search — Persistent Memory
+### memory — Persistent Memory (sentinal server)
 
-**Purpose:** Search past work, decisions, and context across sessions.
+**Purpose:** Recall past work, decisions, and context across sessions; persist new ones.
 
-**3-step workflow (token-efficient — never skip to step 3):**
+**3-step read workflow (token-efficient — never skip to step 3):**
 
-| Step | Tool               | Purpose                                       |
-| ---- | ------------------ | --------------------------------------------- |
-| 1    | `search`           | Find observations → returns index with IDs    |
-| 2    | `timeline`         | Get chronological context around an anchor ID |
-| 3    | `get_observations` | Fetch full details for specific IDs only      |
+| Step | Tool              | Purpose                                       |
+| ---- | ----------------- | --------------------------------------------- |
+| 1    | `memory_search`   | Find observations → returns index with IDs    |
+| 2    | `memory_timeline` | Get chronological context around an anchor ID |
+| 3    | `memory_get`      | Fetch full details for specific IDs only      |
 
-| Tool               | Key Params                                                  |
-| ------------------ | ----------------------------------------------------------- |
-| `search`           | `query`, `limit`, `type`, `project`, `dateStart`, `dateEnd` |
-| `timeline`         | `anchor` (ID) or `query`, `depth_before`, `depth_after`     |
-| `get_observations` | `ids` (array, required)                                     |
-| `save_memory`      | `text` (required), `title`, `project`                       |
+| Tool              | Key Params                                               |
+| ----------------- | -------------------------------------------------------- |
+| `memory_search`   | `query` (required), `project`, `type`, `limit`           |
+| `memory_timeline` | `anchor` (ID, required), `depth`, `project`              |
+| `memory_get`      | `ids` (array, required)                                  |
+| `memory_save`     | `title`, `content`, `type` (required), `project`, `tags` |
+| `memory_stats`    | (none)                                                   |
+| `memory_share`    | `ids`, `project`                                         |
 
-**Types:** `bugfix`, `feature`, `refactor`, `discovery`, `decision`, `change`
+**Observation types:** `decision`, `discovery`, `error`, `fix`, `pattern`.
 
 ```
-ToolSearch(query="+mem-search search")
-
-mcp__plugin_sentinal_mem-search__search(query="authentication flow", limit=5)
-mcp__plugin_sentinal_mem-search__timeline(anchor=22865, depth_before=3, depth_after=3)
-mcp__plugin_sentinal_mem-search__get_observations(ids=[22865, 22866])
-mcp__plugin_sentinal_mem-search__save_memory(text="Important finding", title="Short title")
+memory_search(query="authentication flow", project="/path/to/repo", limit=5)
+memory_timeline(anchor=22865, depth=3)
+memory_get(ids=[22865, 22866])
+memory_save(title="Short title", content="Important finding", type="discovery", project="/path/to/repo")
 ```
 
 ---
@@ -122,12 +122,12 @@ mcp__plugin_sentinal_web-fetch__fetch_url(url="https://docs.nestjs.com/guards")
 
 ### Tool Selection Quick Reference
 
-| Need                     | Server/Tool                 | Reference                                  |
-| ------------------------ | --------------------------- | ------------------------------------------ |
-| **Codebase search**      | **Vexor** (`vexor "query"`) | `cli-tools.md`                             |
-| Past work / decisions    | mem-search                  | `search` → `timeline` → `get_observations` |
-| Library/framework docs   | context7                    | `resolve-library-id` → `query-docs`        |
-| Web search               | web-search                  | `search`                                   |
-| GitHub README            | web-search                  | `fetchGithubReadme`                        |
-| Production code examples | grep-mcp                    | `searchGitHub`                             |
-| Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                 |
+| Need                     | Server/Tool                 | Reference                                          |
+| ------------------------ | --------------------------- | -------------------------------------------------- |
+| **Codebase search**      | **Vexor** (`vexor "query"`) | `cli-tools.md`                                     |
+| Past work / decisions    | memory (sentinal)           | `memory_search` → `memory_timeline` → `memory_get` |
+| Library/framework docs   | context7                    | `resolve-library-id` → `query-docs`                |
+| Web search               | web-search                  | `search`                                           |
+| GitHub README            | web-search                  | `fetchGithubReadme`                                |
+| Production code examples | grep-mcp                    | `searchGitHub`                                     |
+| Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                         |

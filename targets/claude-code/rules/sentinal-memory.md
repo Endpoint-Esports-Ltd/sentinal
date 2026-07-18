@@ -13,11 +13,13 @@ Sentinal provides these MCP tools for direct memory operations:
 | `memory_stats`    | Database statistics (totals, breakdowns by type/project)                     |
 | `memory_share`    | Promote observations to shared `.sentinal/project-memory.json` (committable) |
 
-**Use `memory_save` proactively** for decisions, discoveries, error patterns, and fixes worth preserving across sessions. Use `memory_search` before starting work to check for relevant past context.
+**Recall before you start.** At the beginning of any non-trivial task — and again at a pivot point (a stuck fix, a library/architecture decision, an invalidated assumption) — run `memory_search` for prior decisions, bugs, and patterns in that area. Recalling a past decision is cheaper than re-deriving it. Best-effort: if empty or unavailable, continue.
+
+**Save proactively.** Use `memory_save` for decisions, discoveries, error patterns, and fixes worth preserving across sessions (types: `decision`, `discovery`, `error`, `fix`, `pattern`).
 
 **Team sharing:** Use `memory_share` to promote valuable observations to `.sentinal/project-memory.json` — this file is committed to git and automatically restored for all team members.
 
-See also `mcp-servers.md` → mem-search for the external 3-step search workflow.
+See also `mcp-servers.md` → the `memory` tools (`memory_search` → `memory_timeline` → `memory_get`) for the 3-step read workflow.
 
 Use `<private>` tags to exclude content from storage. Web viewer at the Sentinal dashboard.
 

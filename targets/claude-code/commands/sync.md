@@ -434,11 +434,11 @@ Use `paths` frontmatter to scope rules to specific files — unscoped rules load
 
 ## Phase 7: Sync MCP Rules
 
-**Document user-configured MCP servers.** Skip Sentinal core servers (context7, mem-search, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.
+**Document user-configured MCP servers.** Skip Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.
 
 ### Step 7.1: Discover
 
-Parse `.mcp.json`, exclude Sentinal core servers (context7, mem-search, web-search, web-fetch, grep-mcp).
+Parse `.mcp.json`, exclude Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp).
 
 ### Step 7.2: Smoke-Test
 

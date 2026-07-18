@@ -25,7 +25,7 @@ vexor "database connection setup"
 
 **No fixes without root cause investigation. Complete phases sequentially.**
 
-**Phase 1 — Root Cause:** Read errors completely, reproduce consistently, check recent changes (git diff), instrument at boundaries.
+**Phase 1 — Root Cause:** Read errors completely, reproduce consistently, check recent changes (git diff), instrument at boundaries. Also run `memory_search` for this error/component — a past session may have recorded the root cause or fix. Best-effort.
 
 **Phase 2 — Pattern Analysis:** Use Vexor to find working examples in codebase by intent. Compare against references, identify ALL differences.
 
@@ -33,7 +33,7 @@ vexor "database connection setup"
 
 **Phase 4 — Implementation:** Create failing test first (TDD), implement single fix, verify completely.
 
-**3+ failed fixes = architectural problem.** Question the pattern, don't fix again.
+**3+ failed fixes = architectural problem.** Question the pattern, don't fix again. Before re-deriving, `memory_search` prior `error`/`decision` observations on this subsystem — the architectural truth may already be recorded.
 
 **Red Flags → STOP:** "Quick fix for now", multiple changes at once, proposing fixes before tracing data flow, 2+ failed fixes.
 
