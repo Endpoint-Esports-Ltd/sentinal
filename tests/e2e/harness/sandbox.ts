@@ -33,7 +33,12 @@ export interface SandboxEnv {
   HOME: string;
   XDG_CONFIG_HOME: string;
   CLAUDE_CONFIG_DIR: string;
-  SENTINAL_NO_AUTO_SETUP: string;
+  /**
+   * "1" by default (skips the ~150MB native-dep/model provisioning). Deleted
+   * (undefined) when createSandbox({ autoSetup: true }) — used by the release
+   * native-dep gate so the binary really provisions ~/.sentinal/deps.
+   */
+  SENTINAL_NO_AUTO_SETUP?: string;
   CLAUDE_PLUGIN_DATA: string;
   [key: string]: string | undefined;
 }
@@ -44,13 +49,31 @@ export interface SpawnResult {
   stderr: string;
 }
 
+export interface CreateSandboxOptions {
+  /**
+   * When true, do NOT set (and DELETE any inherited) SENTINAL_NO_AUTO_SETUP so
+   * the sentinal binary provisions native deps as a real user would. Default false.
+   */
+  autoSetup?: boolean;
+}
+
+export interface InstallOptions {
+  /** Pass --bundled (default true). A release binary self-selects embedded mode. */
+  bundled?: boolean;
+}
+
 export interface Sandbox {
   home: string;
   env: SandboxEnv;
-  /** Run the sentinal CLI with the sandbox env (compiled binary if built, else bun src). */
+  /**
+   * The resolved binary the harness runs. Either the SENTINAL_E2E_BINARY
+   * override (release artifact), the dev `dist/sentinal`, or the bun-src fallback.
+   */
+  binaryPath: string;
+  /** Run the sentinal CLI with the sandbox env (binaryPath). */
   run(args: string[], opts?: { stdin?: string; cwd?: string }): SpawnResult;
-  /** Install a target (opencode/claude/both) into the sandbox, bundled mode. */
-  install(target: "opencode" | "claude" | "both"): SpawnResult;
+  /** Install a target (opencode/claude/both) into the sandbox. */
+  install(target: "opencode" | "claude" | "both", opts?: InstallOptions): SpawnResult;
   /** Path existence within the sandbox. */
   exists(path: string): boolean;
   /** Tear down: kill sandbox-owned sidecar/dashboard, then remove the HOME. */
@@ -59,8 +82,32 @@ export interface Sandbox {
 
 // ── Sandbox construction ─────────────────────────────────────────────────────
 
-export function createSandbox(): Sandbox {
+/**
+ * Resolve the binary the harness will run.
+ * - SENTINAL_E2E_BINARY set → MUST exist, else THROW (never silently fall back to
+ *   the dev build — a bad release path would otherwise produce a green gate).
+ * - unset → dev `dist/sentinal` if present, else `bun src/cli/index.ts`.
+ */
+function resolveEntry(): string[] {
+  const override = process.env.SENTINAL_E2E_BINARY;
+  if (override) {
+    const abs = resolve(override);
+    if (!existsSync(abs)) {
+      throw new Error(
+        `SENTINAL_E2E_BINARY is set to "${override}" but that file does not exist. ` +
+          `Refusing to silently fall back to the dev build.`,
+      );
+    }
+    return [abs];
+  }
+  return existsSync(CLI_COMPILED) ? [CLI_COMPILED] : ["bun", CLI_SRC];
+}
+
+export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
   const home = mkdtempSync(join(tmpdir(), "sentinal-e2e-"));
+  const entryCmd = resolveEntry(); // may throw on a bad SENTINAL_E2E_BINARY
+  const binaryPath = entryCmd[entryCmd.length - 1] ?? "";
+
   const env: SandboxEnv = {
     ...(process.env as Record<string, string | undefined>),
     HOME: home,
@@ -69,24 +116,24 @@ export function createSandbox(): Sandbox {
     SENTINAL_NO_AUTO_SETUP: "1",
     CLAUDE_PLUGIN_DATA: "", // cleared — must not relocate the memory DB outside HOME
   };
+  if (opts.autoSetup) {
+    // Must DELETE (not just skip): an inherited process.env value survives the spread.
+    delete env.SENTINAL_NO_AUTO_SETUP;
+  }
 
   const cwdTmp = join(home, "work");
 
-  function entry(): string[] {
-    return existsSync(CLI_COMPILED) ? [CLI_COMPILED] : ["bun", CLI_SRC];
-  }
-
   function run(
     args: string[],
-    opts: { stdin?: string; cwd?: string } = {},
+    ropts: { stdin?: string; cwd?: string } = {},
   ): SpawnResult {
     // Structural guarantee: never spawn with an env that escapes the sandbox.
     assertEnvContained(env, home);
-    const cmd = [...entry(), ...args];
+    const cmd = [...entryCmd, ...args];
     const proc = Bun.spawnSync(cmd, {
       env: env as Record<string, string>,
-      cwd: opts.cwd ?? cwdTmp,
-      stdin: opts.stdin ? Buffer.from(opts.stdin) : undefined,
+      cwd: ropts.cwd ?? cwdTmp,
+      stdin: ropts.stdin ? Buffer.from(ropts.stdin) : undefined,
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -97,11 +144,17 @@ export function createSandbox(): Sandbox {
     };
   }
 
-  function install(target: "opencode" | "claude" | "both"): SpawnResult {
+  function install(
+    target: "opencode" | "claude" | "both",
+    iopts: InstallOptions = {},
+  ): SpawnResult {
     // Bundled mode avoids the ~/.npmrc scoped-registry network requirement.
     // Explicit target skips setupProjectSymlinks/setupShellIntegration (cwd/shell rc).
+    // A release binary self-selects embedded mode regardless of --bundled.
     Bun.spawnSync(["mkdir", "-p", cwdTmp]);
-    return run(["install", target, "--bundled"]);
+    const bundled = iopts.bundled ?? true;
+    const args = bundled ? ["install", target, "--bundled"] : ["install", target];
+    return run(args);
   }
 
   function cleanup(): void {
@@ -116,6 +169,7 @@ export function createSandbox(): Sandbox {
   return {
     home,
     env,
+    binaryPath,
     run,
     install,
     exists: (p: string) => existsSync(p),

@@ -8,9 +8,9 @@
 // RED phase: fails until tests/e2e/harness/sandbox.ts exists.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   createSandbox,
   assertEnvContained,
@@ -124,5 +124,65 @@ describe("createSandbox — install + cleanup", () => {
     const home = local.home;
     local.cleanup();
     expect(hashTree(home)).toBe("<absent>");
+  });
+});
+
+// ── Task 1: binary override + config knobs (release-gate) ────────────────────
+
+describe("createSandbox — SENTINAL_E2E_BINARY override", () => {
+  let sb: Sandbox | null = null;
+  const savedEnv = process.env.SENTINAL_E2E_BINARY;
+
+  afterEach(() => {
+    sb?.cleanup();
+    sb = null;
+    if (savedEnv === undefined) delete process.env.SENTINAL_E2E_BINARY;
+    else process.env.SENTINAL_E2E_BINARY = savedEnv;
+  });
+
+  it("uses the caller-supplied binary path and exposes it as binaryPath", () => {
+    // A fake executable file stands in for a release binary.
+    const fake = join(mkdtempSync(join(tmpdir(), "e2e-bin-")), "sentinal-fake");
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n");
+    chmodSync(fake, 0o755);
+    process.env.SENTINAL_E2E_BINARY = fake;
+    sb = createSandbox();
+    expect(sb.binaryPath).toBe(resolve(fake));
+  });
+
+  it("THROWS when SENTINAL_E2E_BINARY is set but the file does not exist (no silent dev fallback)", () => {
+    process.env.SENTINAL_E2E_BINARY = join(tmpdir(), "does-not-exist-" + Date.now());
+    expect(() => createSandbox()).toThrow(/SENTINAL_E2E_BINARY/);
+  });
+
+  it("falls back to the default entry when SENTINAL_E2E_BINARY is unset", () => {
+    delete process.env.SENTINAL_E2E_BINARY;
+    sb = createSandbox();
+    // binaryPath is the dev dist/sentinal or the bun-src fallback — NOT thrown.
+    expect(sb.binaryPath.length).toBeGreaterThan(0);
+  });
+});
+
+describe("createSandbox — autoSetup + install bundled knobs", () => {
+  let sb: Sandbox | null = null;
+  const savedNoAuto = process.env.SENTINAL_NO_AUTO_SETUP;
+
+  afterEach(() => {
+    sb?.cleanup();
+    sb = null;
+    if (savedNoAuto === undefined) delete process.env.SENTINAL_NO_AUTO_SETUP;
+    else process.env.SENTINAL_NO_AUTO_SETUP = savedNoAuto;
+  });
+
+  it("default sandbox sets SENTINAL_NO_AUTO_SETUP=1 (backward-compatible)", () => {
+    sb = createSandbox();
+    expect(sb.env.SENTINAL_NO_AUTO_SETUP).toBe("1");
+  });
+
+  it("autoSetup:true DELETES SENTINAL_NO_AUTO_SETUP even when inherited from process.env", () => {
+    // Set it in the parent env — the spread must NOT let it bleed through.
+    process.env.SENTINAL_NO_AUTO_SETUP = "1";
+    sb = createSandbox({ autoSetup: true });
+    expect(sb.env.SENTINAL_NO_AUTO_SETUP).toBeUndefined();
   });
 });
