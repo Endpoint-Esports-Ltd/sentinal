@@ -155,11 +155,11 @@ _Assume this plan failed after full execution. Most likely internal reasons:_
 
 ## Progress Tracking
 
-- [ ] Task 1: Harness binary override + config knobs (backward-compat) (Wave 1)
-- [ ] Task 2: Version/identity gate test (Wave 2)
-- [ ] Task 3: Release-config install gate test (Wave 2)
-- [ ] Task 4: Download + checksum-verify asset helper (+ unit tests) (Wave 2)
-- [ ] Task 6: Opt-in native-dep gate test (Wave 2)
+- [x] Task 1: Harness binary override + config knobs (backward-compat) (Wave 1) — binaryPath override (throws on missing), autoSetup deletes NO_AUTO_SETUP, install bundled knob; existing e2e 32 pass/2 skip unchanged
+- [x] Task 2: Version/identity gate test (Wave 2) — binaryPath===override + dev-fallback rejected + --version check
+- [x] Task 3: Release-config install gate test (Wave 2) — bundled:false → embedded install; real ~/.claude untouched
+- [x] Task 4: Download + checksum-verify asset helper (+ 17 unit tests, selectAssetIds) (Wave 2)
+- [x] Task 6: Opt-in native-dep gate test (Wave 2) — real memory round-trip vs sb.binaryPath; real deps-dir isolation. Also: mcp-client honors SENTINAL_E2E_BINARY
 - [ ] Task 5: pre-release runner scripts + docs (Wave 3)
       **Total Tasks:** 6 | **Completed:** 0 | **Remaining:** 6
 

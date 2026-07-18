@@ -27,9 +27,22 @@ export interface McpToolResult {
   [k: string]: unknown;
 }
 
-// Resolve the server command+args. Prefer the compiled binary (bundles
-// sqlite-vec — no vec0/preload issue for memory tools); else run bun on src.
+// Resolve the server command+args. Honors SENTINAL_E2E_BINARY (the same
+// override the sandbox harness uses) FIRST so release-gate tests spawn the
+// binary under test — THROWS if set-but-missing (no silent dev fallback).
+// Otherwise prefers the compiled dist/sentinal (bundles sqlite-vec — no
+// vec0/preload issue for memory tools); else runs bun on src.
 function serverCommand(): { command: string; args: string[] } {
+  const override = process.env.SENTINAL_E2E_BINARY;
+  if (override) {
+    const abs = resolve(override);
+    if (!existsSync(abs)) {
+      throw new Error(
+        `SENTINAL_E2E_BINARY is set to "${override}" but that file does not exist.`,
+      );
+    }
+    return { command: abs, args: ["mcp-server"] };
+  }
   if (existsSync(CLI_COMPILED)) {
     return { command: CLI_COMPILED, args: ["mcp-server"] };
   }
