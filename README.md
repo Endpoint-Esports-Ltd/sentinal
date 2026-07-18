@@ -635,6 +635,31 @@ Two layers:
 E2E files use `*.e2e.ts` / `*.spec-e2e.ts` names so a bare `bun test` never discovers
 them (they run only via `bun run e2e`).
 
+### Pre-release gate
+
+`bun run pre-release` validates the **actual release artifact** (not just the dev build)
+before tagging. It builds the current platform's `sentinal-<os>-<arch>` binary exactly as
+the release pipeline does (embedded assets, externalized native deps, injected version),
+points the isolated harness at it via `SENTINAL_E2E_BINARY`, and runs the pinned gate
+suite — including a **version-identity** check (fails if the wrong binary is under test)
+and a **release-config install** check (embedded mode, the `install.sh` user path).
+
+```bash
+bun run pre-release            # offline, current-platform release artifact
+bun run pre-release:deps       # + real native-dep provisioning (network, ~150MB)
+bun run pre-release:download   # test a PUBLISHED asset (needs GITHUB_TOKEN)
+```
+
+- **`:deps`** unsets `SENTINAL_NO_AUTO_SETUP` so the release binary provisions
+  `~/.sentinal/deps` and a real memory round-trip (embeddings + sqlite-vec) is exercised —
+  the #1 thing that passes the bundled harness but can fail a real user. Opt-in (slow).
+- **`:download`** fetches the latest (or `SENTINAL_E2E_TAG`) release asset **and verifies
+  its sha256 against `checksums.txt`** (hard-fail on mismatch) before testing it.
+- **Cross-platform caveat:** a host can only *execute* its own platform's binary (a Mac
+  can't run `sentinal-linux-*`). Run `bun run pre-release` on a **Linux CI runner** for the
+  authoritative Linux `run` coverage; `:download` can fetch + checksum-verify a Linux asset
+  from any host but not execute it.
+
 ### Architecture
 
 The codebase is organized into shared layers consumed by both targets:
