@@ -1,0 +1,42 @@
+{
+  "review_summary": "The core diagnosis and frontmatter-only fix are correct and well-verified against the authoritative facts. However, the plan's deploy/verify step is wrong: `bun run deploy:opencode` only copies the plugin bundle (sentinal.mjs) and does NOT refresh installed skill markdown, so live installs stay broken. The plan also omits the repo-mandatory `bun run embed-assets` regeneration after editing targets/**.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "deploy:opencode does NOT fix live skill installs — wrong command for the stated goal",
+      "description": "The plan claims (line 23, 62, 84) that `bun run deploy:opencode` will 'refresh ~/.config/opencode/skills/ so live installs are corrected.' This is false. package.json line 37 defines `deploy:opencode` as `bun run build:opencode && cp targets/opencode/dist/sentinal.mjs ~/.config/opencode/plugins/sentinal.mjs` — it ONLY copies the plugin bundle, and never touches ~/.config/opencode/skills/. Skills are installed exclusively by `sentinal install` (src/cli/commands/install.ts:709-729), which reads from `resolveAssetsDir()` (the EMBEDDED assets), not the live targets/ tree. So running deploy:opencode leaves the two broken master skills exactly as-is on disk for real users — defeating the plan's own stated requirement ('A redeploy is required to fix live installs', line 23).",
+      "suggested_fix": "Replace the deploy step. To fix live installs the user must re-run the installer (`sentinal install` / `bun run install:opencode`) AFTER regenerating embedded assets, because the installer copies from embedded-assets, not from targets/. Concretely: (1) `bun run embed-assets` (regenerate src/cli/embedded-assets.ts from the fixed targets/), then (2) `bun run build:cli` (recompile the binary embedding the fixed skills), then (3) `bun run install:opencode` (or manually re-copy the two SKILL.md files to ~/.config/opencode/skills/spec-master-{plan,execute}/). Update Task 2 and lines 62/84 to reflect this. If a manual hotfix is acceptable, the minimal live fix is a direct copy of the two corrected SKILL.md files into ~/.config/opencode/skills/."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Missing `bun run embed-assets` — repo convention for any targets/** change",
+      "description": "The fix edits four files under targets/ (2 OpenCode skills, 2 CC commands). This entire repo's convention (documented in sentinal-project.md, sentinal-dual-target.md, and ~12 prior plans) is that ANY change to targets/**/*.md MUST be followed by `bun run embed-assets` to regenerate src/cli/embedded-assets.ts, which is the source the installer actually ships. The plan never mentions embed-assets. Without it, the committed embedded-assets.ts still contains the OLD broken frontmatter (verified: embedded-assets.ts currently mirrors targets verbatim), so fresh `sentinal install` from the built binary keeps shipping broken master skills even after this fix merges.",
+      "suggested_fix": "Add `bun run embed-assets` to Task 2 verify (before build/install), and add a Definition-of-Done bullet: 'git diff src/cli/embedded-assets.ts shows the two master skills now have name: and no argument-hint.' This is the same gate every prior targets/ plan uses."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "user-invocable: false on CC master commands — verify dispatcher still routes them",
+      "description": "The plan adds `user-invocable: false` to targets/claude-code/commands/spec-master-{plan,execute}.md for parity with spec-plan.md. Verified that all 5 working CC spec sub-phase commands carry this flag (spec-plan/bugfix-plan/implement/verify/bugfix-verify all have user-invocable: false at line 4), so the pattern is correct and low-risk. The one unverified assumption: that the /spec dispatcher on Claude Code invokes these master commands via a mechanism unaffected by user-invocable: false (i.e., the flag only hides them from the user's slash-command palette, not from programmatic dispatch). Given 5 working precedents that are ALSO dispatcher-invoked and ALSO flagged false, this is almost certainly safe — but it is the only behavior-changing edit in an otherwise cosmetic fix.",
+      "suggested_fix": "Add a one-line verification to Task 1: confirm the CC /spec dispatcher (spec.md / task-and-workflow.md) references spec-master-plan/execute the same way it references the other 5 sub-phases (which already have user-invocable: false and work). If the reference shape matches, no behavior change. This is a grep, not a code change."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Regression test asserts structure but not the actual runtime failure mode",
+      "description": "The proposed test (walk targets/opencode/skills/*/SKILL.md, assert non-empty name matching folder, assert no argument-hint) is sound and directly catches this bug class — the existing target-assets.test.ts already has the walkMarkdown helper (line 40) and the same describe-block style, so integration is clean. However, the test validates the SOURCE frontmatter only. It does NOT assert that embedded-assets.ts (the shipped copy) is in sync. Because the real regression reached users via the embedded/installed copy, a green source-only test could still coexist with a stale embedded blob if embed-assets is skipped (see the embed-assets issue above).",
+      "suggested_fix": "Either (a) keep the source-frontmatter test as-is AND rely on the added embed-assets DoD bullet, or (b) add one assertion that EMBEDDED_* asset content for the two master skills contains 'name: spec-master-plan'/'name: spec-master-execute' (mirroring the existing embedded-plugin assertion at test line 197). Option (b) is strictly stronger and closes the source-vs-shipped gap that caused this exact bug."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Dropping argument-hint is correct and safe — no functional risk",
+      "description": "Confirmed via the authoritative facts and the working-skill contrast: OpenCode's SkillTool.Parameters accepts only { name }; argument-hint is a valid COMMAND field (still present and correct in targets/opencode/commands/spec.md) but is a dead, ignored field on skills. None of the 5 working skills declare it. Dropping it from the 2 master skills carries zero functional risk — skill args are threaded through the /spec command prompt text, not the skill frontmatter. The plan's reasoning here is correct. The only (minor) consideration: the master SKILL.md bodies reference --worktree=yes / plan-path inputs in prose; confirm those prose instructions remain intact so the skill still knows to read args from context after the frontmatter hint is removed.",
+      "suggested_fix": "No change required to the drop decision. Optionally add a one-line note to Task 1: 'after removing argument-hint frontmatter, confirm the skill body still documents the --worktree / plan-path input in prose so the model reads it from the dispatched prompt context.' The current spec-master-plan body (line 8-10) already does this."
+    }
+  ]
+}
