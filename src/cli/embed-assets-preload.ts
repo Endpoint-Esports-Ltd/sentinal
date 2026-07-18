@@ -24,10 +24,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
 const GENERATED = join(REPO_ROOT, "src", "cli", "embedded-assets.ts");
-const GENERATOR = join(REPO_ROOT, "scripts", "embed-assets.mjs");
 
 if (!existsSync(GENERATED)) {
-  const result = spawnSync("bun", [GENERATOR], {
+  // Use the full `embed-assets` script — it runs build:opencode first, which
+  // produces the plugin bundle (targets/opencode/dist/sentinal.mjs) that the
+  // generator requires. Calling the bare generator on a clean checkout (where
+  // dist/ does not yet exist) fails with "Plugin bundle not found".
+  const result = spawnSync("bun", ["run", "embed-assets"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
   });

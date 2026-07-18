@@ -22,13 +22,14 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
-const GENERATOR = join(REPO_ROOT, "scripts", "embed-assets.mjs");
 const OUTPUT = join(REPO_ROOT, "src", "cli", "embedded-assets.ts");
 
 function generateOnce(): string {
-  // Run the real generator (Bun-run, matching package.json). It writes to
-  // src/cli/embedded-assets.ts; capture that content.
-  execFileSync("bun", [GENERATOR], {
+  // Run the full `embed-assets` script (build:opencode + generator). The bare
+  // generator requires the plugin bundle (targets/opencode/dist/sentinal.mjs),
+  // which does not exist on a clean checkout — so `bun run embed-assets` builds
+  // it first. It writes to src/cli/embedded-assets.ts; capture that content.
+  execFileSync("bun", ["run", "embed-assets"], {
     cwd: REPO_ROOT,
     stdio: "ignore",
   });

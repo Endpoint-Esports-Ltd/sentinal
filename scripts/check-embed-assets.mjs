@@ -18,14 +18,19 @@
  * Usage: bun scripts/check-embed-assets.mjs
  */
 
-import { execFileSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const GENERATOR = "scripts/embed-assets.mjs";
 const OUTPUT = "src/cli/embedded-assets.ts";
 
 function generate() {
-  execFileSync("bun", [GENERATOR], { stdio: "ignore" });
+  // Use the full `embed-assets` script (build:opencode + embed-assets.mjs) —
+  // the generator requires the freshly-built plugin bundle
+  // (targets/opencode/dist/sentinal.mjs), which does NOT exist on a clean CI
+  // checkout (dist/ is gitignored). Running the bare generator here fails with
+  // "Plugin bundle not found". Do NOT swallow output: surface the real error so
+  // a build failure is diagnosable instead of an opaque exit 1.
+  execSync("bun run embed-assets", { stdio: "inherit" });
   return readFileSync(OUTPUT, "utf-8");
 }
 
