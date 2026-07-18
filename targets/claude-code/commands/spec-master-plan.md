@@ -1,6 +1,7 @@
 ---
 description: Master plan creation - multi-phase project with waves and parallel execution
 argument-hint: "<task description> --worktree=yes|no"
+user-invocable: false
 model: opus
 effort: xhigh
 ---

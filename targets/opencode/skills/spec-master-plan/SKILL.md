@@ -1,6 +1,6 @@
 ---
+name: spec-master-plan
 description: Master plan creation - multi-phase project with waves and parallel execution
-argument-hint: "<task description> --worktree=yes|no"
 ---
 
 # /spec-master-plan - Master Plan Planning Phase

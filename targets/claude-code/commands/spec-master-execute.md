@@ -1,6 +1,7 @@
 ---
 description: Master plan execution - orchestrate wave-based parallel child plan execution
 argument-hint: "<path/to/master-plan.md>"
+user-invocable: false
 model: sonnet
 ---
 
