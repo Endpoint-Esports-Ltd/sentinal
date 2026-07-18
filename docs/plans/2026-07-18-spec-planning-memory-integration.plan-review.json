@@ -1,0 +1,28 @@
+{
+  "review_summary": "Iteration-2 plan is well-aligned with the expanded request: all 6 pivot moments plus 3 planning recalls are covered across 5 skills x 2 targets, and every anchor line I spot-checked (spec-implement OC:110/113/181 + CC:112/115/185, master-execute OC:120-122, bugfix OC:123/162) matches the real files. The master-execute phase-fail insertion correctly lands in the orchestrator's Failure Handling block, not inside the subagent spawn. Two should-fix concerns remain: intra-file line drift will invalidate the hard-coded pivot anchors once earlier insertions shift them, and memory_save at the fix-attempt-limit risks duplicate 'error' observations across retries/tasks.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Hard-coded pivot line anchors will drift as earlier insertions shift them within the same file",
+      "description": "The implementer notes pin pivots to exact line numbers (spec-implement OC:110/113/181, CC:112/115/185). I verified these are correct in the CURRENT files. But Task 4 inserts memory blocks at all THREE spec-implement pivots in one file — inserting at the deviation table (line 110) pushes the fix-limit (113) and surprise (181) anchors down by however many lines were added. The same applies to bugfix-plan (Check Recent Changes 123 shifts Escalation 162) and to any planning insertion above a pivot. The line numbers are guidance, not test-enforced (the regression test uses position only for planning, presence for pivots — a good choice, confirmed sound), so this won't false-fail CI, but a mechanical implementer following the numbers after the first edit will target the wrong location.",
+      "suggested_fix": "In Tasks 4 and 5 (and Task 2's escalation), instruct the implementer to anchor by HEADING/TEXT ('the Fix attempt limit paragraph', 'the Escalation line', 'the Surprise discovery bullet') rather than by line number, OR to apply the multiple insertions in a single file bottom-up (highest line first) so earlier edits don't invalidate lower anchors. Add a one-line note: 'line numbers are pre-edit; re-locate by heading text after each insertion.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "memory_save at fix-attempt-limit can produce duplicate/noisy 'error' observations across retries and tasks",
+      "description": "Issue-3 concern is real. The fix-attempt-limit fires after 3 auto-fix attempts PER TASK (spec-implement line 113/115), and spec-implement runs once per task across many tasks in a wave loop. A recurring failure mode (e.g. a flaky test or a shared type error) could trigger a memory_save('error') on every task that hits it, plus again on each spec-verify -> spec-implement feedback iteration (the phase is explicitly re-entrant, line 32). The plan's 'save only high-signal points' mitigation (Risk row 2) addresses exploration chatter but not same-blocker repetition. The plan already prescribes memory_search BEFORE the save at this anchor — that recall is the natural dedup gate, but the plan doesn't tell the agent to SKIP the save when the search already returns this blocker.",
+      "suggested_fix": "In Task 4's fix-limit note, make the save conditional on the preceding recall: 'memory_search first; only memory_save the blocker as `error` if that search did NOT already surface this same failure — otherwise skip the save to avoid duplicates.' This closes the loop the plan already opened (search-then-save at the same anchor) and directly answers the retry/multi-task duplication risk."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Deferring spec-verify / spec-bugfix-verify recall is defensible but the deferral rationale is thin for bugfix-verify",
+      "description": "Out-of-scope excludes verify phases with 'recall adds little at pure pass/fail verification'. For spec-verify (feature) this is reasonable. For spec-bugfix-verify it is slightly weaker: a bugfix verify that fails is exactly the moment prior-error recall ('has this regression recurred before?') would pay off, mirroring the value the plan itself assigns to the master-execute phase-fail recall (point 8). This is a YAGNI-consistent deferral, not a gap that would fail the request, but the stated rationale doesn't fully hold for the failing-verify branch.",
+      "suggested_fix": "Either (a) tighten the Out-of-Scope note to 'verify phases deferred; bugfix-verify failure-branch recall is a candidate follow-up' so the asymmetry with master-execute phase-fail is acknowledged, or (b) leave as-is — no action required for this iteration since the user's 'all 6 recall points' were the pivot moments, and verify was never in the enumerated set."
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "pass_summary": "All 6 recall moments landed in both targets (10 files) with correct dedup guard, orchestrator-scoped phase-fail recall, recall-only bugfix escalation, and never-stop-preserving wording; the embedded copy is verifiably in sync (memory content present in EMBEDDED_OC_SKILLS) and frontmatter is untouched. The regression test guards presence + planning position + delivery-path sync. Minor: the test asserts memory_save presence but not its finalize position, and a couple of insertions are somewhat soft.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "Position assertion covers memory_search only, not memory_save-at-finalize",
+      "description": "src/cli/spec-memory-integration.test.ts:47-65 asserts the FIRST memory_search precedes the anchor step (correct), and asserts memory_save PRESENCE (line 72,77) but does not assert memory_save appears at/after the approval step. A future edit could move the finalize save above the anchor or drop it from the approval branch while still passing. Given the plan's emphasis that the save must fire on BOTH the 'Yes' and auto-approve branches, the position/branch coverage is thinner than the recall coverage. This is acceptable per plan scope (presence-only for save was specified) but leaves a small regression gap.",
+      "suggested_fix": "Optional: add an assertion that the planning files' memory_save text co-locates with the finalize/approval anchor (e.g. content.indexOf('memory_save') > anchorMatch.index) and that the finalize note references the auto-approve branch (SENTINAL_PLAN_APPROVAL_ENABLED)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "bugfix-plan 'Check Recent Changes' recall is a passing mention, not an anchored step",
+      "description": "The plan (Task 2) asked to reference recall 'inside Check Recent Changes (1.2.2) as a complement to git log'. The implementation folds this into the Step 1.1b block as a trailing sentence ('Also recall it during Step 1.2.2 (Check Recent Changes) as a complement to git log.') rather than at the 1.2.2 anchor itself (targets/opencode/skills/spec-bugfix-plan/SKILL.md:117, targets/claude-code/commands/spec-bugfix-plan.md:120). Because it lives in the recall block above Root Cause Investigation, at the moment the agent reaches 1.2.2 the instruction is out of view. Runtime behavior impact is low (the search already ran once at 1.1b) but the 1.2.2-specific reinforcement is weaker than requested.",
+      "suggested_fix": "Optionally add a one-line 'memory_search (complement to git log)' note directly at the Step 1.2.2 Check Recent Changes location so it is present when the agent is there."
+    },
+    {
+      "severity": "suggestion",
+      "category": "goal_achievement",
+      "title": "Embedded-assets regeneration relies on manual embed-assets; preload only regenerates when file is ABSENT",
+      "description": "src/cli/embed-assets-preload.ts:29 regenerates embedded-assets.ts only 'if (!existsSync(GENERATED))'. When a stale copy already exists on disk, the test preload does NOT refresh it, so the delivery-path assertion in spec-memory-integration.test.ts:104-122 would pass against a stale embedded copy and give false confidence. In THIS review the on-disk EMBEDDED_OC_SKILLS was verified to already contain the new memory content (targets were correctly re-embedded, e.g. embedded-assets.ts:20539 carries the phase-fail recall), so the change is shipped correctly. The residual risk is process-level: a future contributor who edits a target but forgets 'bun run embed-assets' will still see the delivery-path test pass locally against the stale file.",
+      "suggested_fix": "Consider making the preload regenerate unconditionally (it is deterministic and ~100ms) OR add a freshness check that diffs targets/ SKILL.md content against EMBEDDED_OC_SKILLS and fails loudly on drift, so the delivery guard cannot pass against a stale embed."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Each of the 5 OpenCode skills contains memory_search",
+      "status": "verified",
+      "evidence": "git diff shows memory_search added to spec-plan/SKILL.md:130, spec-bugfix-plan:114+172, spec-master-plan:63, spec-implement:113+114+183, spec-master-execute:121 (Step 1.1b / pivot / failure-handling blocks)."
+    },
+    {
+      "truth": "Each of the 5 Claude Code commands contains memory_search",
+      "status": "verified",
+      "evidence": "git diff shows identical memory_search insertions in commands/spec-plan.md, spec-bugfix-plan.md, spec-master-plan.md, spec-implement.md, spec-master-execute.md — wording matches the OC pairs."
+    },
+    {
+      "truth": "Planning skills contain memory_save at finalize; spec-implement contains memory_save at a pivot; both targets",
+      "status": "verified",
+      "evidence": "Finalize saves present in spec-plan (:416 CC/:413 OC), spec-master-plan, spec-bugfix-plan approval steps and explicitly fire on both 'Yes' and SENTINAL_PLAN_APPROVAL_ENABLED=false auto-approve. spec-implement carries memory_save at fix-limit (type error), pivot (decision), surprise (discovery)."
+    },
+    {
+      "truth": "In the 3 planning files memory_search appears BEFORE the anchor step (depth-agnostic, fail-loud)",
+      "status": "verified",
+      "evidence": "Step 1.1b recall blocks inserted after 'Create Plan File Header' and before Step 1.2 in all 3 planning skills (both targets). Test PLANNING map (test:35-45) uses /^#{2,3}\\s+Step 1\\.2: (Task Understanding|Root Cause Investigation)/m, throws on missing anchor (test:54-59), and asserts indexOf(memory_search) < anchorMatch.index (test:60-64)."
+    },
+    {
+      "truth": "EMBEDDED_OC_SKILLS for all 5 skills contains memory_search (after embed-assets)",
+      "status": "verified",
+      "evidence": "Read of the gitignored generated file confirms the new content is embedded — e.g. embedded-assets.ts:20539 contains the spec-master-execute phase-fail 'memory_search'/'memory_save' block with the orchestrator-not-subagent wording. Grep skips this file (gitignored) but Read confirms sync. Generator embeds all skills/<name>/SKILL.md into EMBEDDED_OC_SKILLS (scripts/embed-assets.mjs:45-49,185)."
+    },
+    {
+      "truth": "Quality guards intact: never-stop preserved, fix-limit dedup guard present, frontmatter undisturbed",
+      "status": "verified",
+      "evidence": "spec-implement fix-limit carries the dedup guard 'do not re-save a blocker the search just returned' + 'best-effort, single-shot — if they error, continue immediately'; pivot + surprise both use 'single call ... if empty or errors, continue immediately (do not stall)' and note memory_search is a valid next action (preserves 'NEVER stop during implementation'). OpenCode name: frontmatter verified intact on spec-master-plan (name: spec-master-plan) and spec-master-execute (name: spec-master-execute). Bugfix escalation is recall-only (no memory_save added)."
+    }
+  ]
+}
