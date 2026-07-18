@@ -1,0 +1,42 @@
+{
+  "review_summary": "Bug diagnosis and stale-ref locations are accurate and fully verified against source. Two must-fix issues: the no-stale regression test's type-string check (bugfix/feature/refactor/change) will massively false-positive on legitimate prose, and the delivery guard only checks EMBEDDED_RULES (OpenCode) while Claude Code rules embed into the separate EMBEDDED_CC_RULES record — leaving the CC copy unverified.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "No-stale test's memory-type-string check (bugfix|feature|refactor|change) will false-positive on legitimate prose",
+      "description": "Review question 4 is the real hazard. Grepping bugfix|feature|refactor|change across targets/opencode/rules returned 40 legitimate matches with ZERO memory relevance: development-practices.md (\"undo the change\", \"multiple changes at once\"), testing.md (\"bug fixes (reproduce first)\", \"config changes\", \"bugfix preservation properties\"), standards-angular.md (\"OnPush change detection\", \"lazy loading for all feature routes\"), task-and-workflow.md (spec-bugfix-plan/spec-bugfix-verify skill names, \"Bugfix:\" branch labels), standards-nestjs.md (\"schema changes\", \"every feature gets its own module\"), code-review-reception.md (\"complex fixes (refactoring, logic changes)\"). A test that walks ALL rules and fails on any occurrence of these four words will fail immediately on legitimate content and be untunable. Note also the plan's own Behavior Contract (line 49) and Fix Approach embed these exact strings — the test would flag the plan-adjacent docs too. The ONLY file where these type strings are actually stale is mcp-servers.md:34 ('Types: bugfix, feature, refactor, discovery, decision, change').",
+      "suggested_fix": "Do NOT scan for the bare words bugfix|feature|refactor|change globally. Scope the type-string assertion to the single known offender line pattern: assert mcp-servers.md does not contain the literal stale Types line (e.g. regex /Types:.*\\b(bugfix|refactor|change)\\b/ anchored to a 'Types:' label), OR assert the corrected string 'decision`, `discovery`, `error`, `fix`, `pattern' IS present in mcp-servers.md. Keep the global walk ONLY for the unambiguous identifier strings mem-search, save_memory, get_observations, mcp__plugin_sentinal_mem-search — those have zero legitimate uses (grep confirmed). Split Test 1 into (a) global identifier guard and (b) targeted type-string guard on mcp-servers.md only."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Delivery guard checks only EMBEDDED_RULES; Claude Code rules embed into EMBEDDED_CC_RULES",
+      "description": "Review question 6 exposes a real gap. In scripts/embed-assets.mjs, EMBEDDED_RULES is emitted from ocRules (OpenCode rules) at line 173, while Claude Code rules are emitted into a SEPARATE record EMBEDDED_CC_RULES at line 234. Test 3 as written ('EMBEDDED_RULES for mcp-servers.md/research-tools.md contains memory_search and NOT mem-search') only validates the OpenCode embedded copy. Since the fix touches BOTH targets and the bug exists in BOTH targets' shipped rules, a stale mem-search could survive in the Claude Code embedded assets and ship undetected. Commands embed into EMBEDDED_COMMANDS (ocCommands, line 167) — the CC sync.md path (targets/claude-code/commands/sync.md) similarly needs its own embedded verification if CC commands use a separate record.",
+      "suggested_fix": "Test 3 must assert against BOTH EMBEDDED_RULES (OpenCode) AND EMBEDDED_CC_RULES (Claude Code) for mcp-servers.md and research-tools.md: each must contain memory_search and NOT contain mem-search/save_memory/get_observations. Confirm which record CC commands land in (grep for ccCommands emitRecord in embed-assets.mjs) and add sync.md coverage there too. Otherwise the regression net has a hole exactly the size of one shipped target."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "mcp-servers.md line 11 hardcodes the mcp__plugin_sentinal_ prefix convention — not in the plan's edit list",
+      "description": "Review question 1 asked whether any file was missed. The stale-ref list is complete for the mem-search/save_memory/get_observations identifiers. However mcp-servers.md:11 states 'All Sentinal MCP servers use the mcp__plugin_sentinal_ prefix' and lines 39-42 (the mem-search examples the plan removes) plus lines 61/63/82/83/105/106/118 use the mcp__plugin_sentinal_<server>__<tool> form for context7/web-search/grep-mcp/web-fetch. The plan's Naming note (line 42) correctly says docs should use the bare memory_search form. If the memory section switches to bare names while the surrounding servers keep the mcp__plugin_ prefix, mcp-servers.md becomes internally inconsistent about naming convention. This is a should_fix consistency question, not a blocker — but the plan should state explicitly whether the memory section alone drops the prefix or whether line 11's global claim needs a caveat.",
+      "suggested_fix": "In the mcp-servers.md rewrite, add one sentence clarifying the memory tools surface as bare memory_* (or sentinal_memory_* per the server prefix) while the other core servers use their documented prefix — OR keep the memory examples in the same prefixed style as the neighboring server blocks for local consistency. Either is fine; the plan should pick one so the implementer doesn't leave a half-converted section."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Enhancement to always-loaded rules is appropriately restrained; OpenCode global-load bloat risk is acceptable",
+      "description": "Review question 5: the plan's 'lean, 2-3 decision points only, best-effort/never-block wording' restraint (lines 68, 92) is adequate. The additions are a single memory_search cue in research-tools.md Search Priority and two cues in development-practices.md (debugging Phase 1, 3+ failed fixes). Given OpenCode loads all rules globally with no paths: scoping (confirmed by sentinal-opencode-rules.md), adding a few words to two already-loaded files is negligible token cost and does not introduce a new always-loaded file. No action needed.",
+      "suggested_fix": "No change required. If minimizing further, phrase the development-practices.md cues as a clause appended to existing bullets rather than new bullets, so line count of the always-loaded rule stays flat."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "sync.md core-server replacement mem-search -> sentinal is correct; no legacy alias exists",
+      "description": "Review question 3 verified: mem-search is not a legacy server alias. The single MCP server is named sentinal (targets/claude-code/settings.json:70 lists mcp__plugin_sentinal_sentinal__* as the memory-hosting server permission; .mcp.json/opencode.json define server 'sentinal'). memory_search/memory_save are the real tools (src/memory/mcp-tools.ts:75, :257) and mem-search/save_memory/get_observations are absent from src entirely (confirmed). Replacing mem-search -> sentinal in sync.md:435/439 is correct. One nuance: after removing mem-search from the core-server exclusion list, the list becomes (context7, sentinal, web-search, web-fetch, grep-mcp) — verify 'sentinal' isn't already implicitly excluded elsewhere to avoid a duplicate.",
+      "suggested_fix": "Confirm the corrected sync.md exclusion list reads 'context7, sentinal, web-search, web-fetch, grep-mcp' with no duplicate sentinal entry, and that the surrounding prose still parses (the list is used to skip Sentinal's own servers when documenting user-added ones)."
+    }
+  ]
+}
