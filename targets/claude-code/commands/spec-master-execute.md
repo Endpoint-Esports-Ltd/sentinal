@@ -121,11 +121,12 @@ Agent(
 If a child plan fails (verification rejects, or subagent reports errors):
 
 1. Read the child plan to understand what failed
-2. Report to user: "Phase N failed: [reason]"
-3. Ask: "Retry this phase?" / "Skip and continue?" / "Stop execution?"
-4. If retry: re-spawn the subagent for that plan
-5. If skip: mark as skipped, continue to next wave (dependent phases may also fail)
-6. If stop: leave master plan at IN_PROGRESS for later resume
+2. **Recall (Memory):** Run `memory_search` for prior occurrences of this failure/phase pattern — a past session may have hit and resolved it, which can inform the retry/skip/stop decision. Then `memory_save` the failure (type `error`: phase, symptom, cause if known) for future recall. Best-effort — the orchestrator (not the subagent) does this; if memory is empty or errors, continue immediately, never block the user prompt.
+3. Report to user: "Phase N failed: [reason]"
+4. Ask: "Retry this phase?" / "Skip and continue?" / "Stop execution?"
+5. If retry: re-spawn the subagent for that plan
+6. If skip: mark as skipped, continue to next wave (dependent phases may also fail)
+7. If stop: leave master plan at IN_PROGRESS for later resume
 
 ---
 

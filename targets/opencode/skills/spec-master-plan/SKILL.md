@@ -57,6 +57,16 @@ Type: Master
 
 ---
 
+## Step 1.1b: Recall Prior Context (Memory)
+
+**Before scoping the project, recall prior architecture and phase decisions for this area.**
+
+Run the `memory_search` MCP tool for prior `decision`/`pattern` observations relevant to this multi-phase effort — e.g. `memory_search({ query: "<project domain + architecture terms>", project: "<repo path>" })`. Fold hits into the phase breakdown and wave design; don't re-decide settled architecture.
+
+**Best-effort — never block:** if memory is unavailable, errors, or returns nothing, note that briefly and continue.
+
+---
+
 ## Step 1.2: Task Understanding & Clarification
 
 1. Restate the project scope
@@ -205,5 +215,7 @@ Launch plan-reviewer (when enabled) for the master plan.
 ## Step 1.8: Get User Approval
 
 On approval: Set `Approved: Yes`, invoke `Skill(skill='spec-master-execute', args='<plan-path>')`
+
+**On finalize — persist the decision (Memory):** When the master plan is finalized (approved or auto-approved via `SENTINAL_PLAN_APPROVAL_ENABLED="false"`), before invoking `spec-master-execute`, save the architecture + phase/wave decision with `memory_save` (type `decision`): one concise observation (chosen architecture, phase breakdown, why), so future `memory_search` recalls it. Best-effort — if it errors, continue.
 
 ARGUMENTS: $ARGUMENTS

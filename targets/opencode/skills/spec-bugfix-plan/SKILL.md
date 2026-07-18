@@ -109,6 +109,16 @@ If you catch yourself thinking any of these, STOP. Return to Step 1.2.
 
 ---
 
+## Step 1.1b: Recall Prior Context (Memory)
+
+**Before investigating, check whether this bug — or this class of bug — has been seen before.**
+
+Run the `memory_search` MCP tool for prior `error`/`fix` observations in this area — e.g. `memory_search({ query: "<symptom + component + key terms>", project: "<repo path>" })`. A past root cause or fix may point straight at the source. Also recall it during Step 1.2.2 (Check Recent Changes) as a complement to `git log`.
+
+**Best-effort — never block:** if memory is unavailable, errors, or returns nothing, note that briefly and continue the investigation normally.
+
+---
+
 ## Step 1.2: Root Cause Investigation
 
 **Complete each sub-step before the next. No shortcuts.**
@@ -159,7 +169,7 @@ State clearly:
 
 If confidence is Low: gather more evidence. Don't guess.
 
-**Escalation:** If 3+ hypotheses have failed, STOP — this is likely an architectural problem. `AskUserQuestion` to discuss with user before continuing.
+**Escalation:** If 3+ hypotheses have failed, STOP — this is likely an architectural problem. Before declaring it architectural, run `memory_search` for prior `error`/`decision` observations on this subsystem — the architectural truth may already be recorded from a past session. Then `AskUserQuestion` to discuss with user before continuing. Best-effort: if memory is empty or errors, proceed with the escalation anyway.
 
 ---
 
@@ -285,6 +295,8 @@ Type: Bugfix
 2. AskUserQuestion: "Yes, proceed" | "No, let me edit"
 3. **Yes:** Set `Approved: Yes`, invoke `Skill(skill='spec-implement', args='<plan-path>')`
    **No:** User edits, re-read, ask again. **Other feedback:** Incorporate, re-ask.
+
+**On finalize — persist the fix (Memory):** When the plan is finalized — on "Yes" AND on the auto-approve path (`SENTINAL_PLAN_APPROVAL_ENABLED="false"`, e.g. `/quick`) — before invoking `spec-implement`, save the root cause + fix approach with `memory_save` (type `fix`): one concise observation (symptom, root cause at file:line, fix approach), so future `memory_search` recalls this bug class. Best-effort — if it errors, continue.
 
 ---
 

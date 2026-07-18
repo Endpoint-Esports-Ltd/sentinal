@@ -127,6 +127,16 @@ When adding tasks to an existing plan: load it, parse structure, verify compatib
 
 ---
 
+### Step 1.1b: Recall Prior Context (Memory)
+
+**Before questions or exploration, recall what past sessions already learned about this area.**
+
+Run the `memory_search` MCP tool for the task's prior decisions, past bugs, and established patterns — e.g. `memory_search({ query: "<feature/area + key terms>", project: "<repo path>" })`. Fold any hits into your Batch 1 questions and design (don't re-litigate settled decisions; don't re-hit known bugs).
+
+**Best-effort — never block:** if memory is unavailable, errors, or returns nothing, note that briefly and continue planning normally. Memory recall is additive, not a gate.
+
+---
+
 ### Step 1.2: Task Understanding, Discuss & Clarify
 
 1. Restate the task in your own words — core problem, assumptions
@@ -403,5 +413,7 @@ Then Read the file once. Fix findings: must_fix → should_fix immediately.
 2. AskUserQuestion: "Yes, proceed" or "No, I need to make changes"
 3. **If "Yes":** Set `Approved: Yes`, invoke `Skill(skill='sentinal:spec-implement', args='<plan-path>')`
 4. **If "No":** Tell user to edit plan, wait for "ready", re-read, ask again
+
+**On finalize — persist the decision (Memory):** When the plan is finalized — on the interactive "Yes" above AND on the auto-approve path (`SENTINAL_PLAN_APPROVAL_ENABLED="false"`, e.g. `/quick`) — before invoking `spec-implement`, save the chosen approach with `memory_save` (type `decision`): one concise observation with the chosen approach, why it was chosen over alternatives, and key files, so future `memory_search` recalls it. Best-effort — if it errors, continue.
 
 ARGUMENTS: $ARGUMENTS

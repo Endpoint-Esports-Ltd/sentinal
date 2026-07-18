@@ -112,9 +112,11 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 | **Ask user**                 | STOP, describe the issue, wait for decision | New DB tables, switching libraries, changing API contracts, architectural changes, scope expansion         |
 | **Out of scope**             | Note in plan `## Deferred Issues`, continue | Pre-existing bugs, issues in files not touched by this plan, performance issues unrelated to current task  |
 
-**Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. Document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task.
+**Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. **Before deferring, run `memory_search` for this exact failure/error** — a known fix or workaround may already exist. If the search did NOT surface this exact blocker, `memory_save` it (type `error`: the symptom + what was tried) so a future session recalls it — but **do not re-save a blocker the search just returned** (this step is re-entrant across the verify→implement loop; duplicate saves are noise). Then document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task. Memory calls are best-effort, single-shot — if they error, continue immediately.
 
 **Scope boundary:** Only fix issues caused by current task's changes. Pre-existing issues go to `## Deferred Issues`.
+
+**Pivot recall (Ask-user deviations):** Before you STOP to ask the user about a pivot (switching libraries, changing an API contract, an architectural change), run `memory_search` for prior `decision`/`discovery` observations on that library/subsystem — the pivot may already have a recorded answer that changes what you ask. When the pivot is resolved, `memory_save` the outcome (type `decision`). Best-effort, single call — `memory_search` is itself a valid next action and never a stall; if empty or it errors, proceed to ask the user.
 
 ---
 
@@ -182,7 +184,7 @@ FOR each wave (1, 2, 3, ...):
    - **REFACTOR:** Improve while keeping tests green
    - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
    - Skip TDD for: docs, config, IaC, formatting-only changes
-   - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing.
+   - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing. Also run `memory_search` for this contradiction — a past session may have already hit and explained it. If it's a genuinely new finding, `memory_save` it (type `discovery`: the invalidated assumption + the actual behavior). Best-effort, single call — if memory is empty or errors, continue immediately (do not stall).
 7. **Verify tests pass** — run full test suite
    - Jest: `npx jest --testPathPattern=<test-file> --verbose`
    - Vitest: `npx vitest run <test-file>`
