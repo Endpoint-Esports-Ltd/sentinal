@@ -224,6 +224,86 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  describe("targets/opencode/skills/ — every SKILL.md must have valid OpenCode skill frontmatter", () => {
+    // Root cause guard for the 2026-07-18 master-workflow failure: OpenCode's
+    // skill schema (@opencode-ai/sdk v2 AppSkillsResponses = { name, description,
+    // location, content }) REQUIRES `name`, and `name` must match the skill's
+    // folder name. Skills failing validation are filtered out and never shown to
+    // the model, so `Skill(skill='spec-master-plan')` silently fails to resolve.
+    // The spec-master-plan / spec-master-execute skills shipped with only
+    // `description:` + `argument-hint:` (the latter copied from a Claude Code
+    // COMMAND template — argument-hint is not a valid skill field; OpenCode's
+    // SkillTool.Parameters is Schema.Struct({ name }), so skills take no args).
+    const SKILLS_DIR = join(OPENCODE_DIR, "skills");
+
+    function parseFrontmatter(content: string): Record<string, string> {
+      const m = content.match(/^---\n([\s\S]*?)\n---/);
+      if (!m) return {};
+      const fields: Record<string, string> = {};
+      for (const line of m[1].split("\n")) {
+        const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+        if (kv) fields[kv[1]] = kv[2].trim();
+      }
+      return fields;
+    }
+
+    const skillFolders = readdirSync(SKILLS_DIR).filter((entry) =>
+      statSync(join(SKILLS_DIR, entry)).isDirectory(),
+    );
+
+    for (const folder of skillFolders) {
+      const skillPath = join(SKILLS_DIR, folder, "SKILL.md");
+      const content = readFileSync(skillPath, "utf-8");
+      const fm = parseFrontmatter(content);
+
+      it(`${folder}/SKILL.md declares a non-empty name matching its folder`, () => {
+        expect(fm.name, `${folder}/SKILL.md is missing 'name:' frontmatter`).toBe(
+          folder,
+        );
+      });
+
+      it(`${folder}/SKILL.md declares a non-empty description`, () => {
+        expect(
+          (fm.description ?? "").length,
+          `${folder}/SKILL.md has empty 'description:'`,
+        ).toBeGreaterThan(0);
+      });
+
+      it(`${folder}/SKILL.md does NOT declare 'argument-hint' (invalid on skills)`, () => {
+        expect(
+          fm["argument-hint"],
+          `${folder}/SKILL.md declares 'argument-hint' — invalid on OpenCode ` +
+            `skills (valid only on commands). OpenCode skills take no arguments.`,
+        ).toBeUndefined();
+      });
+    }
+
+    it("targets/opencode/commands/spec.md STILL declares argument-hint (valid on commands — preservation)", () => {
+      const specCmd = readFileSync(
+        join(OPENCODE_DIR, "commands", "spec.md"),
+        "utf-8",
+      );
+      expect(parseFrontmatter(specCmd)["argument-hint"]).toBeDefined();
+    });
+
+    it("embedded EMBEDDED_OC_SKILLS copy is in sync — master skills carry name (actual user delivery path)", async () => {
+      // `sentinal install` ships skills from EMBEDDED_OC_SKILLS in
+      // embedded-assets.ts, NOT the live targets/ tree. If embed-assets wasn't
+      // re-run after fixing targets/, the installed copy stays broken.
+      const { EMBEDDED_OC_SKILLS } = await import("./embedded-assets.js");
+      for (const folder of ["spec-master-plan", "spec-master-execute"]) {
+        const key = `${folder}/SKILL.md`;
+        const embedded = (EMBEDDED_OC_SKILLS as Record<string, string>)[key];
+        expect(embedded, `embedded skill missing: ${key}`).toBeDefined();
+        expect(
+          parseFrontmatter(embedded)["name"],
+          `embedded ${key} missing 'name:' — run 'bun run embed-assets' after ` +
+            `editing targets/`,
+        ).toBe(folder);
+      }
+    });
+  });
+
   describe("targets/claude-code/ — must KEEP Claude Code namespace prefixes (preservation guard)", () => {
     it("Claude Code rules/task-and-workflow.md still references 'sentinal:plan-reviewer' and 'sentinal:spec-reviewer'", () => {
       const file = join(CLAUDE_DIR, "rules", "task-and-workflow.md");
