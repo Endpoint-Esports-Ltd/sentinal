@@ -1,0 +1,42 @@
+{
+  "review_summary": "Task 6's shared-helper refactor and double-application safety are sound, but the plan has a real correctness gap: store.searchFTS applies LIMIT/OFFSET in SQL BEFORE searchFtsOnly can re-rank, so freshness only reorders the already-cut page (a fresher item on page 2 never surfaces). The plan says 're-rank then LIMIT' without specifying over-fetch, and misplaces the orderBy branch.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "store.searchFTS LIMITs in SQL before searchFtsOnly can re-rank — page-2 fresher items never surface",
+      "description": "Task 6 (line 305) instructs searchFtsOnly to 'assign positional base scores, apply applyFreshness, re-sort desc, then LIMIT'. But searchFtsOnly does not control the LIMIT — it calls store.searchFTS (store.ts:170-186) which applies `ORDER BY rank ... LIMIT ? OFFSET ?` in SQL (store.ts:181-182) and returns an already-truncated, already-deserialized Observation[]. searchFtsOnly (service.ts:160) therefore only ever sees `filters.limit` rows in bm25 order. Re-ranking that page by freshness cannot promote a fresher/higher-quality row that bm25 ranked at position `limit+1` — it was already dropped by SQL. The whole point of Task 6 (make decay/memory_update move ranking) is defeated for anything past the first page boundary, which is exactly where a decayed/stale item would sink to. The plan never mentions over-fetching a larger candidate set.",
+      "suggested_fix": "In searchFtsOnly, when orderBy is the default relevance mode, over-fetch a candidate window before re-ranking: call store.searchFTS with an inflated limit (mirror hybrid's `filters.limit * 2`, or a fixed candidate cap) at offset 0, apply applyFreshness to positional base scores, sort desc, THEN slice to `filters.offset .. filters.offset + filters.limit`. Since store.searchFTS takes a SearchFilters object, over-fetch is feasible by passing a cloned filters with a larger limit and offset 0 — no signature change needed. Add an explicit DoD line asserting a fresher item ranked bm25-position > limit surfaces into the returned page after re-rank."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "orderBy branch lives in store.searchFTS SQL, not searchFtsOnly — plan's 'only re-rank relevance mode' guard has no clear home",
+      "description": "Task 6 (line 312) says: respect filters.orderBy — keep chronological order for date_asc/date_desc, only re-rank the default relevance mode. Reviewer question 4: the branch that distinguishes modes is store.searchFTS (store.ts:180: `ORDER BY date_desc?...:date_asc?...:rank`), NOT searchFtsOnly. searchFtsOnly (service.ts:148-167) currently has zero orderBy awareness — it blindly maps whatever store.searchFTS returns. The plan does not say WHERE the guard lives. If the implementer adds re-rank unconditionally in searchFtsOnly, it will clobber the date_asc/date_desc ordering that store.searchFTS correctly produced.",
+      "suggested_fix": "Specify that searchFtsOnly must read filters.orderBy (already parsed at service.ts:152 via SearchFiltersSchema) and ONLY apply the freshness re-rank + over-fetch when orderBy === 'relevance' (the default). For date_asc/date_desc, pass through store.searchFTS's result unchanged (it already ordered + LIMITed correctly). Add a DoD assertion that an explicit date_desc request returns pure timestamp order, unaffected by freshness."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Positional base (1 - index*0.05) discards bm25 magnitude — plan's 'strong text match still wins' claim is not guaranteed",
+      "description": "Reviewer question 3: store.searchFTS returns deserialized Observation[] and DROPS the raw `rank` column (store.ts:172 SELECTs rank but store.ts:185 deserializes only Observation fields — rank is not on the Observation type). So the FTS-only path genuinely cannot use bm25 magnitude; positional base is the only option without a signature change. But that means text-relevance is compressed to fixed 0.05 steps: position 0 = 1.0, position 1 = 0.95, etc. With quality as a bounded multiplier (>=0.1) and recency <=+0.1, the claim 'a much stronger text match still wins' (line 311) is only true for SMALL positional gaps. Example: a decayed obs at position 0 (base 1.0 * quality 0.1 = 0.10) vs a fresh strong-quality obs at position 1 (base 0.95 * 1.0 = 0.95 + recency) — the position-1 item wins, which is desired. But two items one position apart with a 10x quality gap can invert order even when bm25 considered them near-equal OR far apart — positional base cannot tell the difference. The plan's ranking-test (b) 'quality never fully overrides a far stronger text match' cannot actually be proven, because positional base has already erased the 'far stronger' signal.",
+      "suggested_fix": "Either (a) accept the limitation and reword test (b) to what positional base CAN guarantee — e.g. 'an item bm25-adjacent (within N positions) is only reordered by freshness, and items many positions apart cannot be inverted by a single 0.1-floor quality step' — and drop the unprovable 'far stronger text match' claim; OR (b) if true bm25-magnitude weighting is wanted, note that store.searchFTS must additionally return the raw `rank` (a signature/return-shape change, currently out of the plan's scope). Recommend (a) to stay in scope, but make the DoD honest about what positional base can assert."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "applyFreshness takes `now`, but plan doesn't require hybrid + searchFtsOnly to PASS an injectable now — test determinism at risk",
+      "description": "Reviewer question 6: the helper signature applyFreshness(baseScore, obs, now) correctly parameterizes now (good). But hybrid.ts:80 currently computes `const now = Date.now()` inline, and searchFtsOnly has no now at all. The plan (line 304) says hybrid should call applyFreshness 'behavior-preserving', which implies passing its existing Date.now(). Nothing requires the freshness re-rank tests to inject a fixed now — so the FTS-only ranking tests (equal-text-fresher-wins) will depend on wall-clock Date.now() at test time, and the recency boost (age < 90d window) is time-sensitive. Per this repo's sentinal-test-timing rule, hardcoded timestamps against a rolling window break in CI.",
+      "suggested_fix": "State that the two new FTS-only ranking tests must construct observation timestamps as dynamic offsets from Date.now() (e.g. now - 1h vs now - 60d), NOT hardcoded ISO dates, per .sentinal/rules/sentinal-testing.md. applyFreshness's `now` param already enables this — the DoD should note callers pass a single captured `now = Date.now()` per search invocation (matching hybrid.ts:80) so all obs in one result set are aged against the same instant."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "Behavior-preserving hybrid refactor: verify recency-ADD-before-quality-MULTIPLY order is captured exactly",
+      "description": "Reviewer question 1: hybrid's current formula (hybrid.ts:91-101) is: combinedScore = v*0.7 + f*0.3; THEN += recencyFactor*0.1 (conditional on age<window); THEN *= max(quality,0.1). The recency boost is ADDED to the combined score and the quality multiply applies to the (score + recency) sum — so quality scales the recency boost too. The plan's applyFreshness sketch (line 303) writes it as `baseScore * max(quality,0.1) PLUS the recency boost`, which reverses the order (multiply THEN add) and would NOT scale recency by quality. If implemented as written in the plan text, hybrid results change and existing hybrid tests break. This is a real order-of-operations trap.",
+      "suggested_fix": "Fix the plan's applyFreshness description to match hybrid EXACTLY: `let s = baseScore; if (age < RECENCY_WINDOW_MS) s += (1 - age/RECENCY_WINDOW_MS) * MAX_RECENCY_BOOST; s *= Math.max(obs.qualityScore ?? 1, 0.1); return s;` — recency ADDED first, quality MULTIPLIES the sum last. The plan's current one-line sketch (multiply-then-add) is the wrong order and must be corrected before implementation, or the 'hybrid tests stay green' DoD will fail."
+    }
+  ]
+}
