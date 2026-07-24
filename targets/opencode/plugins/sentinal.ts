@@ -345,7 +345,9 @@ export const SentinalPlugin: Plugin = async ({
     await ensureDashboard({ currentVersion: ver ?? "unknown" });
   })().catch((e) => {
     try {
-      log(`init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`);
+      log(
+        `init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } catch {
       /* even logging must not throw during init */
     }
@@ -399,7 +401,10 @@ export const SentinalPlugin: Plugin = async ({
   if (experimental_workspace) {
     experimental_workspace.register(
       "sentinal-spec-worktree",
-      createSpecWorktreeAdaptor(sidecar),
+      // Wire `log` so the adaptor's loud "worktree unresolved" warning surfaces
+      // in plugin.debug.log instead of being silently swallowed — this is what
+      // makes the silent-main-fallback fix visible to the user (2026-07-24).
+      createSpecWorktreeAdaptor(sidecar, undefined, { logger: log }),
     );
     log("workspace adaptor registered: sentinal-spec-worktree");
   }
@@ -723,7 +728,11 @@ export const SentinalPlugin: Plugin = async ({
       try {
         if (sidecar) {
           if (active)
-            await sidecar.syncSpec(active.filePath, projectRootForSidecar, sessionId ?? undefined);
+            await sidecar.syncSpec(
+              active.filePath,
+              projectRootForSidecar,
+              sessionId ?? undefined,
+            );
           const restored = await sidecar.restoreContext(
             projectRootForSidecar,
             sq,
@@ -824,8 +833,7 @@ export const SentinalPlugin: Plugin = async ({
         const keys = Object.keys(output);
         log(`system.transform output keys: [${keys.join(", ")}]`);
         const systemArr = (output.system ?? output.context) as
-          | string[]
-          | undefined;
+          string[] | undefined;
         if (!Array.isArray(systemArr)) {
           log(
             `system.transform: no usable array in output — skipping injection`,
@@ -1139,9 +1147,7 @@ export const SentinalPlugin: Plugin = async ({
         const aliveCache = new Map<string, boolean>();
         try {
           if (sidecar) {
-            const current = await sidecar.getCurrentSpec(
-              projectRootForSidecar,
-            );
+            const current = await sidecar.getCurrentSpec(projectRootForSidecar);
             const ownerId = current?.sessionId ?? null;
             const currentSpecId = current?.id ?? null;
             // Only vouch for ownerId when the sidecar's current spec matches the
