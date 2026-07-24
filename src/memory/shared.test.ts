@@ -186,32 +186,93 @@ describe(".sentinal/.gitignore", () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
+  const gitignoreOf = (dir: string) => join(dir, ".sentinal", ".gitignore");
+
+  // The exact v1 content Sentinal used to generate (byte-for-byte incl. the
+  // trailing newline). Existing files matching this are safe to upgrade.
+  const V1_CONTENT =
+    "# Ignore everything in .sentinal/ except shared project memory\n" +
+    "*\n" +
+    "!.gitignore\n" +
+    "!project-memory.json\n";
+
   it("should create .gitignore when writing shared memory", () => {
     writeSharedMemory(projectDir, [makeSharedObs()]);
 
-    const gitignorePath = join(projectDir, ".sentinal", ".gitignore");
-    expect(existsSync(gitignorePath)).toBe(true);
-
-    const content = readFileSync(gitignorePath, "utf-8");
-    expect(content).toContain("*");
-    expect(content).toContain("!.gitignore");
+    const content = readFileSync(gitignoreOf(projectDir), "utf-8");
+    expect(existsSync(gitignoreOf(projectDir))).toBe(true);
     expect(content).toContain("!project-memory.json");
+    expect(content).toContain("!skills/");
+    expect(content).toContain("!skills/**");
+    expect(content).toContain("!rules/");
+    expect(content).toContain("!rules/**");
   });
 
-  it("should not overwrite existing .gitignore", () => {
+  // BEHAVIORAL proof (string assertions can't catch the nested-un-ignore
+  // gotcha): init a real git repo, generate the file, and use `git check-ignore`
+  // to confirm what is actually tracked vs ignored. `git check-ignore <path>`
+  // exits 0 when the path IS ignored, non-zero when it is NOT (i.e. tracked).
+  it("tracks skills/rules (.md + .sh) and project-memory.json; ignores other files", () => {
+    const { execFileSync } = require("node:child_process");
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null", // insulate from global git config
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
+    execFileSync("git", ["init", "-q"], { cwd: projectDir, env });
+
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+    const s = join(projectDir, ".sentinal");
+    mkdirSync(join(s, "skills", "my-skill"), { recursive: true });
+    mkdirSync(join(s, "rules"), { recursive: true });
+    writeFileSync(join(s, "skills", "my-skill", "SKILL.md"), "# skill\n");
+    writeFileSync(join(s, "skills", "my-skill", "run.sh"), "echo hi\n");
+    writeFileSync(join(s, "rules", "standards.md"), "# rule\n");
+    writeFileSync(join(s, "scratch.log"), "noise\n");
+
+    // git check-ignore: exit 0 = ignored, non-zero = tracked.
+    const isIgnored = (rel: string): boolean => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", rel], {
+          cwd: projectDir,
+          env,
+        });
+        return true; // exit 0
+      } catch {
+        return false; // non-zero
+      }
+    };
+
+    // Tracked (NOT ignored):
+    expect(isIgnored(".sentinal/project-memory.json")).toBe(false);
+    expect(isIgnored(".sentinal/skills/my-skill/SKILL.md")).toBe(false);
+    expect(isIgnored(".sentinal/skills/my-skill/run.sh")).toBe(false);
+    expect(isIgnored(".sentinal/rules/standards.md")).toBe(false);
+    // Ignored:
+    expect(isIgnored(".sentinal/scratch.log")).toBe(true);
+  });
+
+  it("upgrades an existing .gitignore that matches a known prior version", () => {
     mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
-    writeFileSync(
-      join(projectDir, ".sentinal", ".gitignore"),
-      "custom content\n",
-    );
+    writeFileSync(gitignoreOf(projectDir), V1_CONTENT);
 
     writeSharedMemory(projectDir, [makeSharedObs()]);
 
-    const content = readFileSync(
-      join(projectDir, ".sentinal", ".gitignore"),
-      "utf-8",
+    const content = readFileSync(gitignoreOf(projectDir), "utf-8");
+    expect(content).not.toBe(V1_CONTENT); // was upgraded
+    expect(content).toContain("!skills/**");
+    expect(content).toContain("!rules/**");
+  });
+
+  it("preserves a user-customized .gitignore (no known-prior match)", () => {
+    mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+    writeFileSync(gitignoreOf(projectDir), "custom content\n");
+
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+
+    expect(readFileSync(gitignoreOf(projectDir), "utf-8")).toBe(
+      "custom content\n",
     );
-    expect(content).toBe("custom content\n");
   });
 });
 

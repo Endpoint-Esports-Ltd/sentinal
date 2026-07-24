@@ -258,14 +258,43 @@ export function registerSharedTools(
 
 // ─── Gitignore ────────────────────────────────────────────────────────────────
 
-const GITIGNORE_CONTENT = `# Ignore everything in .sentinal/ except shared project memory
+const GITIGNORE_CONTENT = `# Ignore everything in .sentinal/ except shared project memory, rules, and skills
 *
 !.gitignore
 !project-memory.json
+!rules
+!rules/
+!rules/**
+!skills
+!skills/
+!skills/**
 `;
+
+/**
+ * Exact byte-for-byte content of every prior Sentinal-generated .gitignore.
+ * An existing file whose content matches one of these was written by an older
+ * Sentinal and is safe to upgrade to GITIGNORE_CONTENT. Anything else is treated
+ * as user-customized and left untouched. Append future revisions here.
+ */
+const KNOWN_PRIOR_GITIGNORES: readonly string[] = [
+  // v1
+  `# Ignore everything in .sentinal/ except shared project memory
+*
+!.gitignore
+!project-memory.json
+`,
+];
 
 function ensureGitignore(sentinalDir: string): void {
   const gitignorePath = join(sentinalDir, ".gitignore");
-  if (existsSync(gitignorePath)) return;
+
+  if (existsSync(gitignorePath)) {
+    // Upgrade only if the existing file is a known prior Sentinal-generated
+    // version (exact match). Otherwise it may be user-customized — leave it.
+    const existing = readFileSync(gitignorePath, "utf-8");
+    if (existing === GITIGNORE_CONTENT) return; // already current
+    if (!KNOWN_PRIOR_GITIGNORES.includes(existing)) return; // user-customized
+  }
+
   writeFileSync(gitignorePath, GITIGNORE_CONTENT, "utf-8");
 }
