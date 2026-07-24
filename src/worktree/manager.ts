@@ -5,8 +5,8 @@
  * Orchestrates git commands (via utils.ts) with SQLite persistence (via WorktreeStore).
  */
 
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, rmSync, realpathSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { WorktreeStore } from "./store.js";
 import {
   gitExec,
@@ -29,6 +29,32 @@ import {
 } from "./types.js";
 
 // ─── Manager ────────────────────────────────────────────────────────────────
+
+/** Options for {@link WorktreeManager.cleanup}. */
+export interface CleanupOptions {
+  /**
+   * Opt-in: also remove ORPHANED sentinal worktrees whose directory still
+   * exists (crashed/abandoned sessions). Off by default — without this the
+   * cleanup only removes worktrees whose directory is already gone.
+   */
+  force?: boolean;
+  /**
+   * The project to scope the `force` pass to. REQUIRED for `force`. Must be the
+   * real caller's project — never the sidecar's process.cwd().
+   */
+  projectPath?: string;
+  /**
+   * The caller's current worktree directory, if any. Never removed. Must be
+   * threaded from the real caller (not the sidecar cwd).
+   */
+  currentWorktree?: string;
+  /**
+   * Predicate: does the plan for this slug have an active (IN_PROGRESS) spec?
+   * Returning true excludes that worktree from `force` removal. Defaults to
+   * "never active" — callers wanting the guard MUST supply a real resolver.
+   */
+  isPlanActive?: (slug: string) => boolean;
+}
 
 export class WorktreeManager {
   constructor(
@@ -338,26 +364,86 @@ export class WorktreeManager {
    * - Worktrees for specs that are verified/cancelled
    * Returns count of cleaned up worktrees.
    */
-  cleanup(): number {
-    const active = this.store.listAll("active");
+  cleanup(opts?: CleanupOptions): number {
     let cleaned = 0;
 
-    for (const wt of active) {
-      let shouldClean = false;
+    // ── Default pass: worktrees whose directory no longer exists ─────────────
+    // Byte-identical to the historical behavior. Runs regardless of `force`.
+    for (const wt of this.store.listAll("active")) {
+      if (existsSync(wt.worktreePath)) continue;
+      // Remove git worktree reference if still tracked
+      gitExec(["worktree", "prune"], wt.projectPath);
+      // Delete branch if it exists
+      gitExec(["branch", "-D", wt.branchName], wt.projectPath);
+      this.store.updateStatus(wt.id, "abandoned");
+      cleaned++;
+    }
 
-      // Check if directory still exists
-      if (!existsSync(wt.worktreePath)) {
-        shouldClean = true;
-      }
+    // ── Opt-in `force` pass: orphaned worktrees whose directory STILL EXISTS ──
+    // Reconciles `git worktree list` against the DB and removes stale sentinal
+    // worktrees left by crashed/abandoned sessions. Heavily guarded to NEVER
+    // delete an in-use, in-progress, or non-sentinal worktree.
+    if (opts?.force && opts.projectPath) {
+      cleaned += this.forceCleanupOrphans(opts.projectPath, opts);
+    }
 
-      if (shouldClean) {
-        // Remove git worktree reference if still tracked
-        gitExec(["worktree", "prune"], wt.projectPath);
-        // Delete branch if it exists
-        gitExec(["branch", "-D", wt.branchName], wt.projectPath);
-        this.store.updateStatus(wt.id, "abandoned");
-        cleaned++;
+    return cleaned;
+  }
+
+  /**
+   * Remove stale sentinal-owned worktrees in `projectPath` whose directory
+   * still exists. Four independent safety guards prevent over-deletion:
+   *   1. only branches matching the sentinal prefix (`config.branchPrefix`),
+   *   2. only paths inside `projectPath`,
+   *   3. never the caller's `currentWorktree`,
+   *   4. never a worktree whose plan is IN_PROGRESS (`isPlanActive`).
+   */
+  private forceCleanupOrphans(
+    projectPath: string,
+    opts: CleanupOptions,
+  ): number {
+    const repoRoot = getRepoRoot(projectPath);
+    const prefix = this.config.branchPrefix; // e.g. "sentinal/spec-"
+    const current = opts.currentWorktree
+      ? resolveRealPath(opts.currentWorktree)
+      : null;
+    const isPlanActive = opts.isPlanActive ?? (() => false);
+    let cleaned = 0;
+
+    for (const gwt of listGitWorktrees(repoRoot)) {
+      // Guard 1: only sentinal-owned branches.
+      if (!gwt.branch.startsWith(prefix)) continue;
+      // Guard 2: only worktrees inside the target project.
+      if (!isInside(gwt.path, repoRoot)) continue;
+      // Guard 3: never the caller's current worktree.
+      if (current && resolveRealPath(gwt.path) === current) continue;
+
+      const slug = gwt.branch.slice(prefix.length);
+      // Guard 4: never an in-progress plan.
+      if (isPlanActive(slug)) continue;
+
+      // Remove the worktree fully. Best-effort per entry — one failure must not
+      // abort the whole pass.
+      const removed = gitExec(
+        ["worktree", "remove", "--force", gwt.path],
+        repoRoot,
+      );
+      if (removed.exitCode !== 0) {
+        try {
+          rmSync(gwt.path, { recursive: true, force: true });
+          gitExec(["worktree", "prune"], repoRoot);
+        } catch {
+          continue; // could not remove — skip, do not count
+        }
       }
+      gitExec(["branch", "-D", gwt.branch], repoRoot);
+
+      // Reconcile the DB: mark the record abandoned if one exists (class 1);
+      // no-op for git-only orphans (class 2).
+      const rec = this.store.resolveBySlug(slug, repoRoot);
+      if (rec) this.store.updateStatus(rec.id, "abandoned");
+
+      cleaned++;
     }
 
     return cleaned;
@@ -394,6 +480,22 @@ function listGitWorktrees(repoRoot: string): GitWorktreeEntry[] {
     if (path && branch) entries.push({ path, head, branch });
   }
   return entries;
+}
+
+/** Canonicalize a path (resolve symlinks); fall back to a plain resolve. */
+function resolveRealPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
+/** True if `child` is strictly inside `parent` (both resolved). */
+function isInside(child: string, parent: string): boolean {
+  const c = resolveRealPath(child);
+  const pRoot = resolveRealPath(parent);
+  return c !== pRoot && c.startsWith(pRoot.endsWith(sep) ? pRoot : pRoot + sep);
 }
 
 // ─── Diff Parsing ───────────────────────────────────────────────────────────

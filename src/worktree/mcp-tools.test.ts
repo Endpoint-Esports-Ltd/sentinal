@@ -641,4 +641,30 @@ describe("worktree_cleanup MCP tool", () => {
       WorktreeManager.prototype.cleanup = origCleanup;
     }
   });
+
+  it("passes force + project + an isPlanActive guard to cleanup() on the direct path", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    let received: unknown = "NOT_CALLED";
+    WorktreeManager.prototype.cleanup = function (opts?: unknown) {
+      received = opts;
+      return 1;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_cleanup")!;
+      await handler({ project: tmpDir, force: true });
+
+      const opts = received as {
+        force?: boolean;
+        projectPath?: string;
+        isPlanActive?: (slug: string) => boolean;
+      };
+      expect(opts.force).toBe(true);
+      expect(opts.projectPath).toBe(tmpDir);
+      expect(typeof opts.isPlanActive).toBe("function");
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
 });

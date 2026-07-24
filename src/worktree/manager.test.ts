@@ -328,6 +328,112 @@ describe("WorktreeManager", () => {
     });
   });
 
+  // ── cleanup(force) — orphaned worktrees whose directory STILL EXISTS ─────────
+  // Crashed/abandoned /spec sessions leave sentinal worktrees on disk that the
+  // default (dir-gone-only) cleanup cannot remove. Opt-in `force` reconciles
+  // `git worktree list` against the DB and removes stale sentinal worktrees,
+  // guarded to NEVER delete an in-use / in-progress / non-sentinal worktree.
+  describe("cleanup(force) — orphaned present-dir worktrees", () => {
+    /** List sentinal worktree paths git currently tracks in repoDir. */
+    function gitWorktreePaths(): string[] {
+      const r = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+        cwd: repoDir,
+      });
+      return String(r.stdout)
+        .split("\n")
+        .filter((l) => l.startsWith("worktree "))
+        .map((l) => l.slice("worktree ".length));
+    }
+
+    it("default (no force) does NOT remove an orphan whose directory still exists", () => {
+      const wt = manager.create("2026-07-24-orphan-a", repoDir);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+
+      // Default cleanup — preservation guarantee: byte-identical behavior.
+      const cleaned = manager.cleanup();
+      expect(cleaned).toBe(0);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    });
+
+    it("force removes a DB-active orphan whose directory still exists (class 1)", () => {
+      const wt = manager.create("2026-07-24-orphan-b", repoDir);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+
+      const cleaned = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+      });
+
+      expect(cleaned).toBeGreaterThanOrEqual(1);
+      expect(existsSync(wt.worktreePath)).toBe(false);
+      expect(gitWorktreePaths()).not.toContain(wt.worktreePath);
+      expect(wtStore.get(wt.id)!.status).toBe("abandoned");
+    });
+
+    it("force removes a git-only orphan with no DB record (class 2)", () => {
+      const wt = manager.create("2026-07-24-orphan-c", repoDir);
+      const path = wt.worktreePath;
+      // Simulate a crash between `git worktree add` and DB insert: drop the DB
+      // record but leave the git worktree on disk.
+      wtStore.delete(wt.id);
+      expect(existsSync(path)).toBe(true);
+
+      const cleaned = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+      });
+
+      expect(cleaned).toBeGreaterThanOrEqual(1);
+      expect(existsSync(path)).toBe(false);
+      expect(gitWorktreePaths()).not.toContain(path);
+    });
+
+    it("force does NOT remove a worktree whose plan is IN_PROGRESS", () => {
+      const wt = manager.create("2026-07-24-inprogress", repoDir);
+      const cleaned = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: (slug) => slug.includes("2026-07-24-inprogress"),
+      });
+      expect(cleaned).toBe(0);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    });
+
+    it("force does NOT remove the caller's current worktree", () => {
+      const wt = manager.create("2026-07-24-current", repoDir);
+      const cleaned = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        currentWorktree: wt.worktreePath,
+        isPlanActive: () => false,
+      });
+      expect(cleaned).toBe(0);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+    });
+
+    it("force does NOT touch a non-sentinal worktree", () => {
+      // A worktree on a branch that does NOT match the sentinal prefix.
+      const other = join(tmpDir, "feature-wt");
+      Bun.spawnSync(["git", "worktree", "add", "-b", "feature/x", other], {
+        cwd: repoDir,
+      });
+      expect(existsSync(other)).toBe(true);
+
+      manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+      });
+
+      expect(existsSync(other)).toBe(true);
+      expect(gitWorktreePaths()).toContain(other);
+    });
+  });
+
   describe("resolveWithReconcile", () => {
     it("should return the existing record when index and disk agree", () => {
       const wt = manager.create("2026-06-09-agree", repoDir);

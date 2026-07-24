@@ -264,5 +264,44 @@ describe("worktree-routes", () => {
         WorktreeManager.prototype.cleanup = origCleanup;
       }
     });
+
+    it("threads force/project/currentWorktree from the request body into cleanup()", async () => {
+      const origCleanup = WorktreeManager.prototype.cleanup;
+      let received: unknown = "NOT_CALLED";
+      WorktreeManager.prototype.cleanup = function (opts?: unknown) {
+        received = opts;
+        return 1;
+      };
+
+      try {
+        const req = new Request("http://localhost/worktree/cleanup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project: "/real/caller/project",
+            force: true,
+            currentWorktree: "/real/caller/project/.sentinal/worktrees/spec-x",
+          }),
+        });
+        const res = await handleWorktreeRequest(req, ctx);
+        expect(res).not.toBeNull();
+
+        const opts = received as {
+          force?: boolean;
+          projectPath?: string;
+          currentWorktree?: string;
+          isPlanActive?: (slug: string) => boolean;
+        };
+        expect(opts.force).toBe(true);
+        expect(opts.projectPath).toBe("/real/caller/project");
+        expect(opts.currentWorktree).toBe(
+          "/real/caller/project/.sentinal/worktrees/spec-x",
+        );
+        // An isPlanActive resolver must be supplied (the IN_PROGRESS guard).
+        expect(typeof opts.isPlanActive).toBe("function");
+      } finally {
+        WorktreeManager.prototype.cleanup = origCleanup;
+      }
+    });
   });
 });

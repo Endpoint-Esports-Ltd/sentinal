@@ -83,7 +83,23 @@ async function handleCleanupWorktrees(
   req: Request,
   ctx: SidecarContext,
 ): Promise<Response> {
+  // Read force/project/currentWorktree from the REQUEST BODY — never the
+  // sidecar's process.cwd(), which is meaningless for the caller's project.
+  const body = (await req.json().catch(() => ({}))) as {
+    project?: string;
+    force?: boolean;
+    currentWorktree?: string;
+  };
   const manager = new WorktreeManager(ctx.wtStore, DEFAULT_WORKTREE_CONFIG);
-  const cleaned = manager.cleanup();
+
+  const cleaned = manager.cleanup({
+    force: body.force === true,
+    projectPath: body.project,
+    currentWorktree: body.currentWorktree,
+    // A plan is "active" if its spec exists and is IN_PROGRESS — never remove
+    // its worktree during a force cleanup.
+    isPlanActive: (slug) =>
+      ctx.specStore.getSpec(slug)?.status === "IN_PROGRESS",
+  });
   return ok({ cleaned });
 }

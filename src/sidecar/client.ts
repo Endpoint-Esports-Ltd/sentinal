@@ -504,8 +504,15 @@ export class SidecarClient {
     await this.post("/worktree/abandon", { worktree_id: worktreeId });
   }
 
-  async cleanupWorktrees(projectPath?: string): Promise<{ cleaned: number }> {
-    return this.post("/worktree/cleanup", { project: projectPath });
+  async cleanupWorktrees(
+    projectPath?: string,
+    opts?: { force?: boolean; currentWorktree?: string },
+  ): Promise<{ cleaned: number }> {
+    return this.post("/worktree/cleanup", {
+      project: projectPath,
+      force: opts?.force,
+      currentWorktree: opts?.currentWorktree,
+    });
   }
 
   // ─── Notifications ─────────────────────────────────────────────────────

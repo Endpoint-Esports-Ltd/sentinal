@@ -14,6 +14,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MemoryStore } from "../memory/store.js";
+import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { DEFAULT_WORKTREE_CONFIG } from "./types.js";
@@ -51,7 +52,7 @@ export function registerWorktreeTools(
   registerWorktreeDiffTool(server, client, manager);
   registerWorktreeSyncTool(server, client, manager);
   registerWorktreeAbandonTool(server, client, manager);
-  registerWorktreeCleanupTool(server, client, manager);
+  registerWorktreeCleanupTool(server, client, manager, effectiveStore);
 }
 
 // --- worktree_detect ---
@@ -285,23 +286,46 @@ function registerWorktreeCleanupTool(
   server: McpServer,
   client: SidecarClient | null,
   manager: WorktreeManager,
+  store: MemoryStore,
 ): void {
   server.tool(
     "worktree_cleanup",
-    "Clean up all stale worktrees whose directories no longer exist on disk. Returns count of cleaned entries.",
+    "Clean up stale worktrees. By default removes only worktrees whose " +
+      "directory no longer exists. With force=true, ALSO removes orphaned " +
+      "sentinal worktrees whose directory still exists (from crashed/abandoned " +
+      "sessions) — DESTRUCTIVE: this deletes worktree directories and branches. " +
+      "It never removes a worktree whose plan is IN_PROGRESS, the current " +
+      "worktree, a non-sentinal branch, or one outside the project.",
     {
       project: z.string().optional().describe("Project path (defaults to CWD)"),
+      force: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also remove orphaned worktrees whose directory still exists " +
+            "(DESTRUCTIVE — deletes dirs + branches). Default false.",
+        ),
     },
-    async ({ project }) => {
+    async ({ project, force }) => {
       try {
         const projectPath = project ?? process.cwd();
         let cleaned: number;
 
         if (client) {
-          const result = await client.cleanupWorktrees(projectPath);
+          const result = await client.cleanupWorktrees(projectPath, {
+            force: force === true,
+          });
           cleaned = result.cleaned;
         } else {
-          cleaned = manager.cleanup();
+          // Direct path: build the IN_PROGRESS guard from the spec store so a
+          // running plan's worktree is never force-removed even offline.
+          const specStore = new SpecStore(store);
+          cleaned = manager.cleanup({
+            force: force === true,
+            projectPath,
+            isPlanActive: (slug) =>
+              specStore.getSpec(slug)?.status === "IN_PROGRESS",
+          });
         }
 
         return mcpText(
