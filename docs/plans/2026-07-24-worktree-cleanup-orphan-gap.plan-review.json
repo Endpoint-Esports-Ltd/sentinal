@@ -1,0 +1,42 @@
+{
+  "review_summary": "The plan correctly diagnoses the orphan gap and confirms the sidecar calls manager.cleanup() directly (single-point fix). However, the primary safety gate has no reliable input signal: cleanup() takes NO arguments today, so 'exclude the current working directory' and 'is this plan still IN_PROGRESS?' are not implementable as written. Making cleanup() destructive to present-dir DB-active worktrees inverts its documented contract and risks deleting an in-progress spec's worktree — including the caller's own if run from inside one.",
+  "alignment_score": "medium",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "cleanup() has no cwd/projectPath signal — the 'not current working directory' safety gate is unimplementable as scoped",
+      "description": "The plan's #1 defense against over-deletion (Fix Approach step 2: 'NEVER remove the current working directory / the caller's active worktree') requires cleanup() to know the current directory. But `cleanup(): number` at manager.ts:341 takes ZERO arguments — no projectPath, no cwd, no repoRoot. It iterates `store.listAll('active')` globally across ALL projects. The sidecar handler (worktree-routes.ts:82-89) also passes nothing. So there is no reliable in-process signal for 'current worktree'. `process.cwd()` inside the long-lived sidecar is the sidecar's cwd (~/.sentinal or the repo root), NOT the user's active worktree — it will never match a spec-* worktree path, giving a FALSE sense of safety while excluding nothing. This is the crux of the user's Q1: as designed, cleanup() cannot exclude the worktree the user is actively working in, and if a user ran `sentinal` from inside a worktree via the direct (non-sidecar) `manager.cleanup()` path, it could delete that worktree out from under them.",
+      "suggested_fix": "Change the signature to `cleanup(opts?: { currentWorktreePath?: string; repoRoot?: string })` and thread the caller's real cwd from BOTH entry points: the MCP tool (mcp-tools.ts:304 — pass the tool's projectPath/cwd arg) and the sidecar route (worktree-routes.ts — read cwd from the request body, since the sidecar's own process.cwd() is meaningless). Compare resolved absolute paths. If no currentWorktreePath can be supplied, the present-dir destructive branch must be disabled (fall back to today's gone-dir-only behavior) rather than guessing."
+    },
+    {
+      "severity": "must_fix",
+      "category": "scope_alignment",
+      "title": "Deleting DB-'active' + present-dir worktrees will destroy legitimately in-progress spec sessions, not just crashed ones",
+      "description": "cleanup() iterates `store.listAll('active')`. Orphan class 1 (crashed/abandoned) and a LIVE in-progress /spec session are INDISTINGUISHABLE in the DB — both are status='active' with a present directory and a `sentinal/spec-*` branch. The plan's 'stale = sentinal-owned + not current dir' definition (step 2, line 62) therefore classifies a legitimately running spec (that merely isn't the cwd of THIS cleanup call) as stale and deletes it. The active plan for THIS very repo (2026-04-20-...-changelog-audit, Status: IN_PROGRESS) demonstrates that IN_PROGRESS specs are the norm. The plan itself flags this ('If a finer is-this-plan-still-in-progress signal is cheap via the store, prefer it') but leaves it optional — for a destructive operation across all active worktrees, it must be mandatory, not a maybe.",
+      "suggested_fix": "Require a liveness check before deleting any present-dir worktree: cross-reference the SpecStore/plan status (VERIFIED/COMPLETE/abandoned/cancelled => cleanable; PENDING/IN_PROGRESS => preserve). For git-only orphans with no DB and no plan, gate on a staleness heuristic (e.g. branch/worktree mtime older than a threshold) rather than deleting on sight. Do NOT treat 'active in DB + present on disk' as stale by default."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Changing default cleanup() semantics from non-destructive to destructive violates the documented tool contract",
+      "description": "worktree_cleanup is documented (mcp-tools.ts:11 and the tool description at :291) as 'Clean up all stale worktrees whose directories no longer exist' — explicitly non-destructive to present directories. The MCP catalog rule (.sentinal/rules/sentinal-mcp-servers.md) lists worktree_sync/memory_maintain as the destructive tools requiring clear flagging; worktree_cleanup is NOT in that set. Silently making the default `cleanup()` delete present, possibly-active worktree directories is a surprising, unflagged destructive behavior change — exactly the user's Q6 concern. Existing tests (manager.test.ts:320-324 'should not cleanup worktrees that still exist' expecting count 0) encode the current contract and would have to be inverted, which is a red flag that this is a contract break, not a bug fix.",
+      "suggested_fix": "Make present-dir removal OPT-IN: add a `force`/`includeOrphans` boolean to the tool + route + cleanup() (default false = today's behavior). Update the tool description to document the destructive mode and flag it as destructive per the MCP design rule. Keep the existing 'still exist => not cleaned' test for the default path and add new tests for the opt-in path. This preserves backward compatibility and satisfies the Preservation Property without inverting the default contract."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Git-only orphan removal (class 2) relies solely on branch-pattern matching, which is not a strong ownership proof",
+      "description": "Q4: The plan gates class-2 (git-only, no DB) removal on the branch matching `sentinal/spec-*` (the configured branchPrefix). This is the ONLY guard for deleting a git worktree that has no DB record. If a user (or another tool/CI) ever created a branch under that prefix manually, or if branchPrefix was customized (config.branchPrefix is configurable — manager.ts:74), a legitimate worktree could match and be force-removed with `git branch -D` (data loss on unmerged commits). listGitWorktrees() correctly skips the main checkout, so main is safe, but sibling worktrees are not. There is no verification that the worktree path is actually under `config.directory` (the sentinal worktrees dir).",
+      "suggested_fix": "Add a second ownership signal for class-2 removals: require the worktree path to be inside `join(repoRoot, config.directory)` (the sentinal-managed worktrees directory) AND the branch to match the prefix. Both must hold. This makes it near-impossible to match a user's hand-made worktree elsewhere on disk."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Real temp-git-repo tests are the right call; existing patterns confirm it, but note CI git-availability",
+      "description": "Q5: Using a real `git init` + `git worktree add` temp repo (as manager.test.ts already does — beforeEach creates repoDir, and worktree-routes.test.ts does likewise) is correct over mocking gitExec, since this fix IS git-behavioral (git worktree remove/prune ordering matters). Git is available in this repo's test env. The main flakiness vector is cwd/path leakage between the temp repo and the real repo when cleanup() runs globally over listAll('active') — a test could accidentally match the developer's real worktrees if the store isn't fully isolated.",
+      "suggested_fix": "Ensure the test store is a fresh in-memory/tmp DB per test (already the pattern) and that cleanup() in the test is scoped to the temp repoRoot once the signature is threaded (issue 1). Assert against `git worktree list` in the temp repo only. Avoid asserting on process.cwd()."
+    }
+  ]
+}
