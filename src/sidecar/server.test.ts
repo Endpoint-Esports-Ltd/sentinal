@@ -1369,3 +1369,58 @@ describe("vector search wiring", () => {
     logSpy.mockRestore();
   });
 });
+
+// ─── Startup auto-decay ───────────────────────────────────────────────────
+
+describe("startSidecar throttled auto-decay", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>> | undefined;
+  let decayStatePath: string;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `sd-decay-${Date.now().toString(36)}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    decayStatePath = join(tmpDir, "last-decay.json");
+    prevEnv = process.env.SENTINAL_LAST_DECAY_PATH;
+    process.env.SENTINAL_LAST_DECAY_PATH = decayStatePath;
+  });
+
+  afterEach(() => {
+    if (sidecar) {
+      stopSidecar(sidecar.server, sidecar.ctx, sidecar.httpServer);
+      sidecar = undefined;
+    }
+    if (prevEnv === undefined) delete process.env.SENTINAL_LAST_DECAY_PATH;
+    else process.env.SENTINAL_LAST_DECAY_PATH = prevEnv;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("runs decay on startup (writes the throttle state file) off the hot path", async () => {
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+    // Off the hot path — allow the scheduled microtask/timer to run.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(existsSync(decayStatePath)).toBe(true);
+  });
+
+  it("does not crash startup when decay would fail (best-effort)", async () => {
+    // A directory in place of the state file makes the write fail; startup
+    // must still succeed and the server must be usable.
+    mkdirSync(decayStatePath, { recursive: true });
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sidecar.ctx).toBeDefined();
+  });
+});
