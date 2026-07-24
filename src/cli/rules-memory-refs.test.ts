@@ -104,7 +104,43 @@ describe("shipped rules — recall cues present at decision points", () => {
   }
 });
 
+describe("shipped rules — prefer-update guidance present", () => {
+  for (const target of TARGETS) {
+    it(`${target}/rules/sentinal-memory.md documents memory_update and memory_delete`, () => {
+      const content = readFileSync(
+        join(rulesDir(target), "sentinal-memory.md"),
+        "utf-8",
+      );
+      expect(
+        content,
+        `${target} sentinal-memory.md missing memory_update`,
+      ).toContain("memory_update");
+      expect(
+        content,
+        `${target} sentinal-memory.md missing memory_delete`,
+      ).toContain("memory_delete");
+    });
+  }
+});
+
 describe("delivery path — both embedded rule records reference real tools", () => {
+  it("EMBEDDED_RULES and EMBEDDED_CC_RULES include memory_update in sentinal-memory.md", async () => {
+    const { EMBEDDED_RULES, EMBEDDED_CC_RULES } =
+      await import("./embedded-assets.js");
+    const records: Array<[string, Record<string, string>]> = [
+      ["EMBEDDED_RULES", EMBEDDED_RULES as Record<string, string>],
+      ["EMBEDDED_CC_RULES", EMBEDDED_CC_RULES as Record<string, string>],
+    ];
+    for (const [label, rec] of records) {
+      const content = rec["sentinal-memory.md"];
+      expect(content, `${label} missing sentinal-memory.md`).toBeDefined();
+      expect(
+        content.includes("memory_update"),
+        `${label}[sentinal-memory.md] missing memory_update — run 'bun run embed-assets'`,
+      ).toBe(true);
+    }
+  });
+
   it("EMBEDDED_RULES and EMBEDDED_CC_RULES use memory_search, not mem-search", async () => {
     const { EMBEDDED_RULES, EMBEDDED_CC_RULES } =
       await import("./embedded-assets.js");
