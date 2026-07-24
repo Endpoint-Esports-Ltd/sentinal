@@ -153,6 +153,72 @@ export class MemoryStore {
     return true;
   }
 
+  /**
+   * Update an existing observation's content fields and RESET its staleness:
+   * `timestamp` → now and `quality_score` → fresh (same derivation as insert).
+   * This is what lets a correction supersede the original instead of appending
+   * a new "CORRECTION" observation. FTS stays in sync automatically via the
+   * `observations_au` AFTER UPDATE trigger — do not touch `observations_fts`.
+   * Returns the updated observation, or null if `id` doesn't exist.
+   *
+   * NOTE: this is the raw store primitive. Callers that must keep the vector
+   * index in sync should use `MemoryService.updateObservation` (remove + re-add).
+   */
+  updateObservation(
+    id: number,
+    patch: {
+      title?: string;
+      content?: string;
+      type?: ObservationType;
+      tags?: string[];
+      filePaths?: string[];
+      metadata?: Record<string, unknown>;
+    },
+  ): Observation | null {
+    const existing = this.getObservation(id);
+    if (!existing) return null;
+
+    // Reset quality the same way insertObservation does (confidence in [0,1]
+    // else fresh 1.0), using the incoming metadata if provided, else existing.
+    const metadata = patch.metadata ?? existing.metadata;
+    const confidence =
+      typeof metadata?.confidence === "number" ? metadata.confidence : null;
+    const qualityScore =
+      confidence != null && confidence > 0 && confidence <= 1
+        ? confidence
+        : 1.0;
+
+    const next = {
+      title: patch.title ?? existing.title,
+      content: patch.content ?? existing.content,
+      type: patch.type ?? existing.type,
+      tags: patch.tags ?? existing.tags,
+      filePaths: patch.filePaths ?? existing.filePaths,
+      metadata,
+    };
+
+    this.db
+      .prepare(
+        `UPDATE observations
+         SET title = ?, content = ?, type = ?, file_paths = ?, tags = ?, metadata = ?,
+             timestamp = ?, quality_score = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.title,
+        next.content,
+        next.type,
+        JSON.stringify(next.filePaths),
+        JSON.stringify(next.tags),
+        JSON.stringify(next.metadata),
+        Date.now(),
+        qualityScore,
+        id,
+      );
+
+    return this.getObservation(id);
+  }
+
   getRecentForProject(
     projectPath: string,
     limit: number = SEARCH_CONSTANTS.DEFAULT_LIMIT,
@@ -247,7 +313,9 @@ export class MemoryStore {
 
   // ─── Sessions ─────────────────────────────────────────────────────────
 
-  insertSession(session: Omit<Session, "observationCount" | "lastActive">): Session {
+  insertSession(
+    session: Omit<Session, "observationCount" | "lastActive">,
+  ): Session {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO sessions (id, start_time, end_time, project_path, assistant, summary, transcript_path)
@@ -341,10 +409,19 @@ export class MemoryStore {
    * @param id - Session ID
    * @param withinMs - Liveness window in ms (defaults to SESSION_LIVENESS_WINDOW_MS = 45 min)
    */
-  isSessionAlive(id: string, withinMs: number = SESSION_LIVENESS_WINDOW_MS): boolean {
+  isSessionAlive(
+    id: string,
+    withinMs: number = SESSION_LIVENESS_WINDOW_MS,
+  ): boolean {
     const row = this.db
-      .prepare("SELECT end_time, last_active, start_time FROM sessions WHERE id = ?")
-      .get(id) as { end_time: number | null; last_active: number | null; start_time: number } | null;
+      .prepare(
+        "SELECT end_time, last_active, start_time FROM sessions WHERE id = ?",
+      )
+      .get(id) as {
+      end_time: number | null;
+      last_active: number | null;
+      start_time: number;
+    } | null;
 
     if (!row) return false;
     if (row.end_time !== null) return false; // explicitly ended

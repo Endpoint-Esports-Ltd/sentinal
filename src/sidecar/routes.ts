@@ -15,6 +15,7 @@ import { restoreContext } from "../memory/restore.js";
 import type {
   AssistantType,
   NotificationType,
+  ObservationType,
   TddCycleState,
 } from "../memory/types.js";
 
@@ -101,6 +102,12 @@ export async function handleSidecarRequest(
     }
     if (path === "/memory/get" && method === "POST") {
       return handleMemoryGet(req, ctx);
+    }
+    if (path === "/memory/update" && method === "POST") {
+      return handleMemoryUpdate(req, ctx);
+    }
+    if (path === "/memory/delete" && method === "POST") {
+      return handleMemoryDelete(req, ctx);
     }
     if (path === "/memory/stats" && method === "GET") {
       return handleMemoryStats(ctx);
@@ -294,8 +301,16 @@ async function handleSyncSpec(
   req: Request,
   ctx: SidecarContext,
 ): Promise<Response> {
-  const body = await readBody<{ planPath: string; projectPath: string; sessionId?: string | null }>(req);
-  ctx.specStore.syncFromPlanFile(body.planPath, body.projectPath, body.sessionId ?? undefined);
+  const body = await readBody<{
+    planPath: string;
+    projectPath: string;
+    sessionId?: string | null;
+  }>(req);
+  ctx.specStore.syncFromPlanFile(
+    body.planPath,
+    body.projectPath,
+    body.sessionId ?? undefined,
+  );
   return ok();
 }
 
@@ -356,6 +371,39 @@ async function handleMemoryGet(
   const body = await readBody<{ ids: number[] }>(req);
   const observations = ctx.service.getObservations(body.ids);
   return ok(observations);
+}
+
+async function handleMemoryUpdate(
+  req: Request,
+  ctx: SidecarContext,
+): Promise<Response> {
+  const body = await readBody<{
+    id: number;
+    title?: string;
+    content?: string;
+    type?: string;
+    tags?: string[];
+    filePaths?: string[];
+  }>(req);
+  // Goes through the SERVICE so the vector embedding is re-indexed too.
+  const updated = ctx.service.updateObservation(body.id, {
+    title: body.title,
+    content: body.content,
+    type: body.type as ObservationType | undefined,
+    tags: body.tags,
+    filePaths: body.filePaths,
+  });
+  return ok(updated);
+}
+
+async function handleMemoryDelete(
+  req: Request,
+  ctx: SidecarContext,
+): Promise<Response> {
+  const body = await readBody<{ id: number }>(req);
+  // SERVICE delete removes the vector embedding, not just the FTS row.
+  const deleted = ctx.service.deleteObservation(body.id);
+  return ok({ deleted });
 }
 
 function handleMemoryStats(ctx: SidecarContext): Response {

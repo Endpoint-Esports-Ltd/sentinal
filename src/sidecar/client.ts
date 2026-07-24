@@ -386,6 +386,21 @@ export class SidecarClient {
     return this.post("/observation", obs);
   }
 
+  async updateObservation(patch: {
+    id: number;
+    title?: string;
+    content?: string;
+    type?: string;
+    tags?: string[];
+    filePaths?: string[];
+  }): Promise<unknown> {
+    return this.post("/memory/update", patch);
+  }
+
+  async deleteObservation(id: number): Promise<{ deleted: boolean }> {
+    return this.post("/memory/delete", { id });
+  }
+
   async restoreContext(
     projectPath: string,
     semanticQuery?: string,

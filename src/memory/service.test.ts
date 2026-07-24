@@ -285,6 +285,60 @@ describe("MemoryService", () => {
     });
   });
 
+  describe("updateObservation (vector re-index)", () => {
+    function makeVectorSpy() {
+      const indexCalls: unknown[][] = [];
+      const removeCalls: number[] = [];
+      const vectorStore = {
+        isAvailable: () => true,
+        indexObservation: (...args: unknown[]) => {
+          indexCalls.push(args);
+          return Promise.resolve(3);
+        },
+        removeObservation: (id: number) => {
+          removeCalls.push(id);
+        },
+      } as unknown as VectorStore;
+      const orchestrator = {
+        search: () => Promise.resolve([]),
+        isVectorAvailable: () => true,
+      } as unknown as SearchOrchestrator;
+      return { vectorStore, orchestrator, indexCalls, removeCalls };
+    }
+
+    it("updates the observation and re-indexes the vector (remove then index)", () => {
+      const { vectorStore, orchestrator, indexCalls, removeCalls } =
+        makeVectorSpy();
+      service.setSearchBackends(vectorStore, orchestrator);
+
+      const obs = service.addObservation(
+        makeObservation({ content: "before" }),
+      );
+      indexCalls.length = 0; // ignore the insert-time index call
+
+      const updated = service.updateObservation(obs.id, {
+        content: "after correction",
+      });
+
+      expect(updated!.content).toBe("after correction");
+      // Old embedding removed, new content re-indexed.
+      expect(removeCalls).toContain(obs.id);
+      expect(indexCalls).toHaveLength(1);
+      expect(indexCalls[0]?.[0]).toBe(obs.id);
+      expect(indexCalls[0]?.[2]).toBe("after correction"); // new content
+    });
+
+    it("returns null for a non-existent id and does not touch the vector store", () => {
+      const { vectorStore, orchestrator, indexCalls, removeCalls } =
+        makeVectorSpy();
+      service.setSearchBackends(vectorStore, orchestrator);
+
+      expect(service.updateObservation(999, { content: "x" })).toBeNull();
+      expect(removeCalls).toHaveLength(0);
+      expect(indexCalls).toHaveLength(0);
+    });
+  });
+
   describe("prune", () => {
     it("should prune old observations", () => {
       const now = Date.now();
@@ -296,6 +350,70 @@ describe("MemoryService", () => {
 
       const stats = service.getStats();
       expect(stats.totalObservations).toBe(1);
+    });
+  });
+
+  describe("searchFtsOnly freshness re-ranking (Task 6)", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    it("surfaces a fresher/higher-quality match that bm25 ranks past the limit", () => {
+      const now = Date.now();
+      // Several stale, low-quality items with a STRONG bm25 signal (keyword
+      // repeated) so they dominate raw bm25 order and fill the limit.
+      for (let i = 0; i < 6; i++) {
+        service.addObservation(
+          makeObservation({
+            title: `stale widget widget widget ${i}`,
+            content: "widget widget widget widget",
+            timestamp: now - 200 * DAY,
+            metadata: { confidence: 0.1 },
+          }),
+        );
+      }
+      // One fresh, high-quality item with a WEAKER bm25 signal (keyword once)
+      // → raw bm25 ranks it last, past a small limit.
+      service.addObservation(
+        makeObservation({
+          title: "fresh widget",
+          content: "recent and trustworthy",
+          timestamp: now,
+          metadata: { confidence: 1.0 },
+        }),
+      );
+
+      const results = service.searchSync("widget", { limit: 1 });
+      expect(results.length).toBe(1);
+      // With freshness re-ranking over an over-fetched candidate set, the
+      // fresh/high-quality item wins the single slot.
+      expect(results[0].title).toBe("fresh widget");
+    });
+
+    it("passes through explicit date_desc ordering without freshness re-rank", () => {
+      const now = Date.now();
+      const older = service.addObservation(
+        makeObservation({
+          title: "alpha older",
+          content: "alpha",
+          timestamp: now - 10 * DAY,
+          metadata: { confidence: 1.0 },
+        }),
+      );
+      const newer = service.addObservation(
+        makeObservation({
+          title: "alpha newer",
+          content: "alpha",
+          timestamp: now,
+          metadata: { confidence: 0.1 },
+        }),
+      );
+
+      const results = service.searchSync("alpha", {
+        limit: 10,
+        orderBy: "date_desc",
+      });
+      // date_desc must be preserved: newest first regardless of quality.
+      expect(results[0].id).toBe(newer.id);
+      expect(results[1].id).toBe(older.id);
     });
   });
 });

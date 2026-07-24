@@ -12,7 +12,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { withAbort, emitProgress, type ProgressExtra } from "../mcp/tool-runtime.js";
+import {
+  withAbort,
+  emitProgress,
+  type ProgressExtra,
+} from "../mcp/tool-runtime.js";
 import type { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
@@ -45,6 +49,7 @@ export function registerMemoryTools(
     registerTimelineTool(server, service, null);
     registerGetTool(server, service, null);
     registerSaveTool(server, service, store, null);
+    registerUpdateDeleteTools(server, service, null);
     registerStatsTool(server, service, null);
     registerMaintainTool(server, store);
     registerSharedTools(server, { service, client: null });
@@ -58,6 +63,7 @@ export function registerMemoryTools(
   registerTimelineTool(server, service, client);
   registerGetTool(server, service, client);
   registerSaveTool(server, service, store, client);
+  registerUpdateDeleteTools(server, service, client);
   registerStatsTool(server, service, client);
   if (store) registerMaintainTool(server, store);
   registerSharedTools(server, { client, service });
@@ -333,6 +339,67 @@ function registerSaveTool(
           : "";
       return mcpText(
         `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
+      );
+    },
+  );
+}
+
+// --- Update / Delete ---
+
+function registerUpdateDeleteTools(
+  server: McpServer,
+  service: MemoryService | null,
+  client: SidecarClient | null,
+): void {
+  server.tool(
+    "memory_update",
+    "Correct/supersede an existing memory in place (by ID from memory_search/memory_save) instead of saving a new CORRECTION observation. Updates the given fields AND refreshes the memory's staleness (recency + quality) so the corrected fact ranks fresh again. Keeps FTS and vector indexes in sync.",
+    {
+      id: z.number().describe("Observation ID to update"),
+      title: z.string().min(1).max(500).optional().describe("New title"),
+      content: z.string().min(1).optional().describe("New content"),
+      type: z
+        .enum(OBSERVATION_TYPES)
+        .optional()
+        .describe("New type: decision, discovery, error, fix, or pattern"),
+      tags: z.array(z.string()).optional().describe("New tags (replaces)"),
+      filePaths: z
+        .array(z.string())
+        .optional()
+        .describe("New file paths (replaces)"),
+    },
+    async ({ id, title, content, type, tags, filePaths }) => {
+      const patch = { id, title, content, type, tags, filePaths };
+      const updated = client
+        ? await client.updateObservation(patch)
+        : service!.updateObservation(id, {
+            title,
+            content,
+            type,
+            tags,
+            filePaths,
+          });
+      if (!updated) {
+        return mcpText(`Observation #${id} not found — nothing updated.`);
+      }
+      return mcpText(`Updated observation #${id} (staleness refreshed).`);
+    },
+  );
+
+  server.tool(
+    "memory_delete",
+    "Delete a memory by ID. DESTRUCTIVE and unrecoverable — removes the observation from FTS and vector search. Use to remove now-redundant CORRECTION observations after consolidating with memory_update.",
+    {
+      id: z.number().describe("Observation ID to delete"),
+    },
+    async ({ id }) => {
+      const result = client
+        ? await client.deleteObservation(id)
+        : { deleted: service!.deleteObservation(id) };
+      return mcpText(
+        result.deleted
+          ? `Deleted observation #${id}.`
+          : `Observation #${id} not found — nothing deleted.`,
       );
     },
   );

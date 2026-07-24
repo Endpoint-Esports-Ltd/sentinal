@@ -11,7 +11,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { decayQualityScores } from "./maintenance.js";
-import { formatMemoryStats } from "./mcp-tools.js";
+import { formatMemoryStats, registerMemoryTools } from "./mcp-tools.js";
+import { captureTools } from "../test-helpers.js";
 import type { CreateObservation, MemoryStats } from "./types.js";
 
 function makeTmpDb(): string {
@@ -251,5 +252,64 @@ describe("formatMemoryStats", () => {
     );
     expect(out).toContain("### Vector Search");
     expect(out).toContain("disabled");
+  });
+});
+
+describe("memory_update / memory_delete MCP tools", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `mem-ud-${Date.now()}-${Math.random()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    store = new MemoryStore(join(tmpDir, "test.db"));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function seed(content: string): number {
+    return new MemoryService(store).addObservation({
+      sessionId: "s",
+      projectPath: "/p",
+      timestamp: Date.now(),
+      type: "discovery",
+      title: "seed",
+      content,
+      filePaths: [],
+      tags: [],
+      metadata: {},
+    }).id;
+  }
+
+  it("registers both tools", () => {
+    const tools = captureTools(registerMemoryTools, { store });
+    expect(tools.has("memory_update")).toBe(true);
+    expect(tools.has("memory_delete")).toBe(true);
+  });
+
+  it("memory_update updates the observation via the service (direct path)", async () => {
+    const id = seed("original");
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_update")!({
+      id,
+      content: "corrected",
+    });
+    expect(result.content[0].text).toContain(String(id));
+    expect(store.getObservation(id)!.content).toBe("corrected");
+  });
+
+  it("memory_delete removes the observation via the service (direct path)", async () => {
+    const id = seed("to delete");
+    const tools = captureTools(registerMemoryTools, { store });
+    await tools.get("memory_delete")!({ id });
+    expect(store.getObservation(id)).toBeNull();
+  });
+
+  it("memory_update reports a graceful message for a missing id", async () => {
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_update")!({ id: 999, content: "x" });
+    expect(result.content[0].text.toLowerCase()).toContain("not found");
   });
 });

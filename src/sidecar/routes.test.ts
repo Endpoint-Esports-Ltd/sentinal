@@ -109,3 +109,84 @@ describe("/memory/stats vector enrichment", () => {
     expect(store.getNotifications().length).toBe(0);
   });
 });
+
+describe("/memory/update and /memory/delete routes", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = {
+      store,
+      service: new MemoryService(store),
+      specStore: new SpecStore(store),
+      wtStore: new WorktreeStore(store),
+    };
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function seed(content: string): number {
+    return ctx.service.addObservation({
+      sessionId: "s",
+      projectPath: "/p",
+      timestamp: Date.now(),
+      type: "discovery",
+      title: "seed",
+      content,
+      filePaths: [],
+      tags: [],
+      metadata: {},
+    }).id;
+  }
+
+  it("POST /memory/update updates the observation via the service", async () => {
+    const id = seed("original");
+    const res = await handleSidecarRequest(
+      new Request("http://localhost/memory/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, content: "corrected" }),
+      }),
+      ctx,
+    );
+    const body = (await res!.json()) as { ok: boolean; data: any };
+    expect(body.ok).toBe(true);
+    expect(body.data.content).toBe("corrected");
+    expect(store.getObservation(id)!.content).toBe("corrected");
+  });
+
+  it("POST /memory/update returns ok:false / null for a missing id", async () => {
+    const res = await handleSidecarRequest(
+      new Request("http://localhost/memory/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: 999, content: "x" }),
+      }),
+      ctx,
+    );
+    const body = (await res!.json()) as { ok: boolean; data: any };
+    // Either ok:false or ok:true with null data is acceptable; the row must not exist.
+    expect(store.getObservation(999)).toBeNull();
+    expect(body.data ?? null).toBeNull();
+  });
+
+  it("POST /memory/delete removes the observation via the service", async () => {
+    const id = seed("to delete");
+    const res = await handleSidecarRequest(
+      new Request("http://localhost/memory/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      }),
+      ctx,
+    );
+    const body = (await res!.json()) as { ok: boolean; data: any };
+    expect(body.ok).toBe(true);
+    expect(store.getObservation(id)).toBeNull();
+  });
+});
