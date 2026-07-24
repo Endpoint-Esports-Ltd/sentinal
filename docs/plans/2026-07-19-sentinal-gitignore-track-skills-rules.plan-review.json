@@ -1,0 +1,35 @@
+{
+  "review_summary": "Plan is well-scoped and its core claims (single generation site, git nested-un-ignore incantation, safe byte-match upgrade) verify against the actual code. One factual inaccuracy: the proposed GITIGNORE_CONTENT is NOT a byte-for-byte mirror of the repo's proven .gitignore (repo includes !continue-here.md), so the 'proven template' provenance for the behavioral guarantee is weaker than stated.",
+  "alignment_score": "high",
+  "risk_level": "low",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Proposed GITIGNORE_CONTENT does not match the repo's 'proven' template it claims to mirror",
+      "description": "The plan repeatedly asserts the new content 'mirrors the repo's proven template' and cites the repo's own .sentinal/.gitignore as byte-level proof that git check-ignore works (Context line 43, Task 1 Key Decisions line 124, Risk mitigation line 65). But the repo's actual /Users/evan/Projects/endpoint_esports/sentinal/.sentinal/.gitignore has 11 lines INCLUDING '!continue-here.md' (line 5), while the plan's proposed content (lines 125-136) omits it and reorders/reduces to a different string. Omitting continue-here.md is correct per the user's scope choice — that is NOT the problem. The problem is the CORRECTNESS ARGUMENT: the exact byte string the code will emit has never itself been run through git check-ignore. Removing a line and reordering !rules before !skills is almost certainly still correct git-wise, but the plan's proof rests on an untested string, not the one it points to.",
+      "suggested_fix": "Keep the behavioral git check-ignore test as the actual proof (it is — see line 57/140), and downgrade the prose from 'mirrors the proven template' to 'derived from the proven template, minus continue-here.md, validated by the behavioral test below.' The behavioral test is what makes this safe; make it the single source of truth rather than the untested inline string."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "KNOWN_PRIOR_GITIGNORES must include BOTH v1 forms; only one is documented",
+      "description": "The plan treats the safe-upgrade match set as {v1} = the current 4-line block (lines 50, 137). Verified: src/memory/shared.ts:261-265 GITIGNORE_CONTENT is exactly '# Ignore everything in .sentinal/ except shared project memory\\n*\\n!.gitignore\\n!project-memory.json\\n' (4 content lines + trailing newline). That single form is correct as the ONLY prior version — git history confirmation was not run in this review, but the constant currently has one shape. The risk is the exact-equality trap the plan itself flags (Pre-Mortem #2): the stored KNOWN_PRIOR string must include the trailing newline and use \\n (the template literal in shared.ts:261 is LF). Confirmed the source uses LF, not CRLF.",
+      "suggested_fix": "Store KNOWN_PRIOR_GITIGNORES[0] by referencing/reconstructing the exact current GITIGNORE_CONTENT literal (LF line endings, single trailing newline) rather than hand-retyping it, to eliminate any whitespace drift. A regression test that asserts the old literal is a member of the match set guards future edits."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Existing no-overwrite test at shared.test.ts:201 remains compatible — confirm rather than blindly replace",
+      "description": "Verified shared.test.ts:201-214 writes 'custom content\\n' then asserts it is preserved byte-for-byte. Under the new upgrade-or-preserve logic, 'custom content\\n' will NOT match KNOWN_PRIOR_GITIGNORES, so it is still preserved — the existing test would STILL PASS unchanged. The plan says this test 'must be REPLACED' (line 45). It does not strictly need replacing; it becomes the 'preserve user customization' case. writeSharedMemory is the only caller of ensureGitignore (shared.ts:82 via line 81 comment path), and no other code depends on the no-overwrite guarantee (grep across src confirms no other ensureGitignore/.gitignore writer). So there is no external dependency to break.",
+      "suggested_fix": "Keep the :201 test as the 'preserve non-matching (user-customized) file' case (it already proves that), and ADD a new 'upgrade exact-v1 file' test, rather than replacing. This preserves regression coverage of the preserve path with zero behavior-change risk."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "Behavioral git check-ignore test: guard against git-unavailable CI and note git init identity",
+      "description": "The plan's behavioral test (lines 57, 140) does 'git init' + 'git check-ignore' in a temp dir. This is the RIGHT verification (string assertions cannot catch the nested-un-ignore gotcha). Flakiness risk is low: git is available in this repo's CI (delta is wired as pager, semantic-release runs git), temp dirs are already used via makeTmpProject (shared.test.ts:183). check-ignore does not require a commit or user identity, so 'fatal: empty ident' is not a concern. One real gotcha: git check-ignore exit codes are inverted (exit 0 = path IS ignored, exit 1 = NOT ignored). The plan's Truth #2/#3 (lines 84-85) state this correctly, but the implementer must not conflate 'returns non-zero' with failure.",
+      "suggested_fix": "In the test, wrap git in a try/skip if the binary is absent (Bun.spawnSync git --version), and add an inline comment on the inverted exit-code semantics of git check-ignore (0=ignored, 1=tracked) to prevent an assertion-polarity bug. Set GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM to /dev/null in the spawn env to insulate from developer global gitignore/core.excludesfile affecting results."
+    }
+  ]
+}
