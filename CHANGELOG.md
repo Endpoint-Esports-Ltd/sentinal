@@ -1,3 +1,18 @@
+# [1.33.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.32.0...v1.33.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **opencode:** stop spec-worktree adaptor silently editing the main checkout ([f016621](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f016621c8efee6901ad3ec607dab82d2531f0762))
+* **worktree:** cleanup can remove orphaned worktrees whose dir still exists ([79d3c32](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/79d3c32514c79973d5b05871ca954e8f468f8490))
+
+
+### Features
+
+* **memory:** auto-run throttled quality decay on sidecar startup ([de081ad](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/de081ad538ac4f0f0c0327f89f907f0bbfbcdbd7))
+* **memory:** track .sentinal/skills and rules in generated .gitignore ([d4feb14](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d4feb1431bdc344156ed2ee96f508d6ca9b7d766))
+* **memory:** update/delete observations and rank FTS by freshness ([c8dda84](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c8dda842500a73f3de4362f3968b3a3cb4c2e05d))
+
 # [1.32.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.6...v1.32.0) (2026-07-18)
 
 
