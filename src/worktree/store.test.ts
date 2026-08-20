@@ -22,6 +22,9 @@ function makeWorktree(
     baseBranch: "main",
     baseCommit: "abc123def456",
     status: "active" as WorktreeStatus,
+    // Explicit: "unslotted" is a real state (pre-V12 rows, and reconciles that
+    // found no free slot). Slot allocation is `slots.ts`'s job, not the store's.
+    slot: null,
     createdAt: Date.now(),
     ...overrides,
   };
@@ -164,6 +167,60 @@ describe("WorktreeStore", () => {
 
     it("should return false for non-existent id", () => {
       expect(store.delete("nonexistent")).toBe(false);
+    });
+  });
+
+  describe("slot persistence", () => {
+    it("round-trips a slot and defaults an unslotted row to null (not undefined)", () => {
+      store.insert(makeWorktree({ id: "wt-slot", slot: 3 }));
+      store.insert(makeWorktree({ id: "wt-noslot" }));
+      expect(store.get("wt-slot")!.slot).toBe(3);
+      expect(store.get("wt-noslot")!.slot).toBeNull();
+    });
+
+    it("listLiveSlots reports both LIVE statuses, ascending, ignoring nulls", () => {
+      store.insert(makeWorktree({ id: "a", slot: 2, status: "active" }));
+      store.insert(
+        makeWorktree({ id: "b", slot: 1, status: "ready-to-merge" }),
+      );
+      store.insert(makeWorktree({ id: "c", slot: null }));
+      expect(store.listLiveSlots("/test/project")).toEqual([1, 2]);
+    });
+
+    it("listLiveSlots excludes terminal rows and other projects", () => {
+      store.insert(makeWorktree({ id: "a", slot: 1, status: "merged" }));
+      store.insert(makeWorktree({ id: "b", slot: 2, status: "abandoned" }));
+      store.insert(
+        makeWorktree({ id: "c", slot: 3, projectPath: "/other/project" }),
+      );
+      expect(store.listLiveSlots("/test/project")).toEqual([]);
+    });
+
+    it("assignSlot fills a null slot (lazy allocation for pre-V12 rows)", () => {
+      store.insert(makeWorktree({ id: "a", slot: null }));
+      store.assignSlot("a", 4);
+      expect(store.get("a")!.slot).toBe(4);
+    });
+
+    it("deleting a row frees its slot outright (removes the index entry)", () => {
+      store.insert(makeWorktree({ id: "a", slot: 1 }));
+      expect(store.listLiveSlots("/test/project")).toEqual([1]);
+      store.delete("a");
+      expect(store.listLiveSlots("/test/project")).toEqual([]);
+      expect(() =>
+        store.insert(makeWorktree({ id: "b", slot: 1 })),
+      ).not.toThrow();
+    });
+
+    it("runImmediate rolls the whole unit back on throw", () => {
+      expect(() =>
+        store.runImmediate(() => {
+          store.insert(makeWorktree({ id: "tx-a", slot: 1 }));
+          throw new Error("boom");
+        }),
+      ).toThrow("boom");
+      expect(store.get("tx-a")).toBeNull();
+      expect(store.listLiveSlots("/test/project")).toEqual([]);
     });
   });
 

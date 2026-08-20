@@ -190,7 +190,7 @@ FOR each wave (1, 2, 3, ...):
    - Vitest: `npx vitest run <test-file>`
    - Angular: `npx ng test --include=<test-file> --watch=false`
    - Bun: `bun test <test-file>`
-8. **Run actual program** — use plan's Runtime Environment section. Check port: `lsof -i :<port>`
+8. **Run actual program** — use plan's Runtime Environment section. **A worktree isolates code, not runtime:** ports, databases and caches are shared with the developer's checkout. Use the project's isolated-runtime command if it declares one; otherwise **determine what this run shares** (database, cache, queue, processes) and **state plainly what is shared and proceed** — do not stop to ask on every run. **Do not copy the repo-root `.env` into the worktree**. Record the PID you start and stop only that PID — **never terminate by name or pattern** (`pkill -f`, `killall`). **If the port you need is occupied, stop and ask — never switch to a different port.**
 9. **Run quality checks** — `quality_report` MCP tool. **Quality checks do NOT run automatically on edit.** You MUST call this after completing edits to each file. Runs tsc + eslint + prettier. Zero errors required.
 10. **Validate Definition of Done** — all criteria from plan
 11. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?

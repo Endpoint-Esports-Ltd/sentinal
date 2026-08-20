@@ -8,6 +8,16 @@ import {
   checkPlaywrightCli,
   buildPluginList,
 } from "./install.js";
+// Imported from its own module, not via a re-export from install.js: install.ts
+// is already past the 600-line block threshold, and adding lines to it purely
+// for test ergonomics made the split-out that justified this module pointless.
+import {
+  checkChromeDevToolsMcp,
+  defaultMcpConfigPaths,
+} from "./install-prereqs.js";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
 
 // ─── buildPluginList tests ───────────────────────────────────────────────────
 //
@@ -55,8 +65,16 @@ describe("buildPluginList", () => {
   });
 
   it("preserves non-sentinal plugin order in both modes", () => {
-    expect(buildPluginList(["a", "b"], true, FILE_REF)).toEqual(["a", "b", FILE_REF]);
-    expect(buildPluginList(["a", "b"], false, NPM_REF)).toEqual(["a", "b", NPM_REF]);
+    expect(buildPluginList(["a", "b"], true, FILE_REF)).toEqual([
+      "a",
+      "b",
+      FILE_REF,
+    ]);
+    expect(buildPluginList(["a", "b"], false, NPM_REF)).toEqual([
+      "a",
+      "b",
+      NPM_REF,
+    ]);
   });
 
   it("never returns undefined — the sentinal entry must always be present", () => {
@@ -194,6 +212,252 @@ describe("checkPlaywrightCli", () => {
 
     expect(() => checkPlaywrightCli(() => false)).not.toThrow();
     expect(() => checkPlaywrightCli(() => true)).not.toThrow();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── checkChromeDevToolsMcp tests ────────────────────────────────────────────
+//
+// D11: Chrome DevTools MCP is an equally viable E2E tool when installed.
+// Sentinal DETECTS it; Sentinal never installs or configures it.
+//
+// The predicate is deliberately TWO-part. `commandExists("chrome-devtools-mcp")`
+// alone would be always-false in practice — unlike @playwright/cli, Chrome
+// DevTools MCP has no global binary; it is conventionally launched via npx.
+// A naive PATH check would print a hint on every single install for a tool
+// nobody installs globally: noise, not signal. So:
+//   1. Chrome capability gates the path at all (no Chrome -> say nothing).
+//   2. MCP availability decides [OK] vs hint.
+
+describe("checkChromeDevToolsMcp", () => {
+  const capture = () => {
+    const logged: string[] = [];
+    spyOn(console, "log").mockImplementation((msg: string) => {
+      logged.push(msg);
+    });
+    return () => logged.join("\n");
+  };
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  it("says NOTHING when no Chrome/Chromium is present (no noise for non-Chrome users)", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: () => false,
+      pathExists: () => false,
+      mcpConfigPaths: [],
+      platform: "darwin",
+    });
+    expect(out()).toBe("");
+  });
+
+  it("still says nothing about Chrome DevTools MCP when the MCP binary exists but Chrome does not", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: (cmd) => cmd === "chrome-devtools-mcp",
+      pathExists: () => false,
+      mcpConfigPaths: [],
+      platform: "linux",
+    });
+    expect(out()).toBe("");
+  });
+
+  it("reports [OK] when Chrome is present AND the MCP binary is on PATH", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: (cmd) =>
+        cmd === "chromium" || cmd === "chrome-devtools-mcp",
+      pathExists: () => false,
+      mcpConfigPaths: [],
+      platform: "linux",
+    });
+    const combined = out();
+    expect(combined).toContain("[OK]");
+    expect(combined).toContain("Chrome DevTools MCP");
+    expect(combined).not.toContain("[i]");
+  });
+
+  it("detects Chrome via the macOS application bundle, not just $PATH", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: () => false,
+      pathExists: (p) => p === "/Applications/Google Chrome.app",
+      mcpConfigPaths: [],
+      platform: "darwin",
+    });
+    const combined = out();
+    // Chrome present, MCP absent -> the hint fires
+    expect(combined).toContain("[i]");
+    expect(combined).toContain("Chrome DevTools MCP");
+  });
+
+  it("ignores the macOS application bundle on non-darwin platforms", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: () => false,
+      pathExists: () => true,
+      mcpConfigPaths: [],
+      platform: "linux",
+    });
+    expect(out()).toBe("");
+  });
+
+  it("reports [OK] when the MCP server is already named in an existing MCP config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-cdmcp-"));
+    const cfg = join(dir, "opencode.json");
+    writeFileSync(
+      cfg,
+      JSON.stringify({
+        mcp: { "chrome-devtools": { command: ["npx", "chrome-devtools-mcp"] } },
+      }),
+    );
+    try {
+      const out = capture();
+      checkChromeDevToolsMcp({
+        commandExists: (cmd) => cmd === "chromium",
+        pathExists: () => false,
+        mcpConfigPaths: [cfg],
+        platform: "linux",
+      });
+      expect(out()).toContain("[OK]");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints a hint (never an error) when Chrome is present but the MCP is not available", () => {
+    const out = capture();
+    checkChromeDevToolsMcp({
+      commandExists: (cmd) => cmd === "google-chrome",
+      pathExists: () => false,
+      mcpConfigPaths: [],
+      platform: "linux",
+    });
+    const combined = out();
+    expect(combined).toContain("[i]");
+    expect(combined).toContain("optional");
+    expect(combined).toContain("chrome-devtools-mcp");
+  });
+
+  // ⛔ D11 scope guard, made testable rather than aspirational.
+  it("writes the detection result to NO config file — the config is byte-identical afterwards", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-cdmcp-"));
+    const cfg = join(dir, "opencode.json");
+    const original = JSON.stringify({ mcp: { sentinal: {} } }, null, 2) + "\n";
+    writeFileSync(cfg, original);
+    try {
+      capture();
+      // Run through every branch against the same config file.
+      checkChromeDevToolsMcp({
+        commandExists: () => true,
+        pathExists: () => true,
+        mcpConfigPaths: [cfg],
+        platform: "darwin",
+      });
+      checkChromeDevToolsMcp({
+        commandExists: () => false,
+        pathExists: () => false,
+        mcpConfigPaths: [cfg],
+        platform: "linux",
+      });
+      expect(readFileSync(cfg, "utf-8")).toBe(original);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("tolerates a missing or unparseable MCP config without throwing", () => {
+    capture();
+    expect(() =>
+      checkChromeDevToolsMcp({
+        commandExists: (cmd) => cmd === "chromium",
+        pathExists: () => false,
+        mcpConfigPaths: ["/nonexistent/path/opencode.json"],
+        platform: "linux",
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * ⛔ `~/.claude.json` routinely reaches TENS OF MEGABYTES for active Claude
+   * Code users — it stores per-project session state. Reading it whole,
+   * synchronously, during an install just to look for one 19-character marker
+   * is a real cost for zero benefit: the result only decides `[OK]` versus a
+   * hint. Skip anything implausibly large for a config file.
+   */
+  it("skips an oversized config file instead of reading it whole", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-cdmcp-"));
+    const cfg = join(dir, "huge.json");
+    // Marker present, but past the size ceiling -> must NOT be found.
+    writeFileSync(cfg, "chrome-devtools-mcp" + "x".repeat(3 * 1024 * 1024));
+    try {
+      const out = capture();
+      checkChromeDevToolsMcp({
+        commandExists: (cmd) => cmd === "chromium",
+        pathExists: () => false,
+        mcpConfigPaths: [cfg],
+        platform: "linux",
+      });
+      // Hint, not [OK] — proving the oversized file was never scanned.
+      expect(out()).toContain("[i]");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still scans a normal-sized config containing the marker", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-cdmcp-"));
+    const cfg = join(dir, "small.json");
+    writeFileSync(cfg, "chrome-devtools-mcp" + "x".repeat(1024));
+    try {
+      const out = capture();
+      checkChromeDevToolsMcp({
+        commandExists: (cmd) => cmd === "chromium",
+        pathExists: () => false,
+        mcpConfigPaths: [cfg],
+        platform: "linux",
+      });
+      expect(out()).toContain("[OK]");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * A user who configured Chrome DevTools MCP PROJECT-LOCALLY was still told it
+   * was "not configured", because only the two global OpenCode paths and
+   * `~/.claude.json` were consulted.
+   */
+  it("consults project-local and Claude Code settings paths by default", () => {
+    const paths = defaultMcpConfigPaths();
+    expect(paths).toContain(join(process.cwd(), ".opencode", "opencode.json"));
+    expect(paths).toContain(join(process.cwd(), ".mcp.json"));
+    expect(paths).toContain(join(homedir(), ".claude", "settings.json"));
+    // The pre-existing global paths must survive.
+    expect(paths).toContain(
+      join(homedir(), ".config", "opencode", "opencode.json"),
+    );
+    expect(paths).toContain(join(homedir(), ".claude.json"));
+  });
+
+  it("does not call process.exit under any circumstance (soft warning only)", () => {
+    capture();
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error(
+        "process.exit was called — checkChromeDevToolsMcp must never exit",
+      );
+    }) as unknown as (code?: number | undefined) => never);
+
+    expect(() =>
+      checkChromeDevToolsMcp({
+        commandExists: () => false,
+        pathExists: () => false,
+        mcpConfigPaths: [],
+        platform: "darwin",
+      }),
+    ).not.toThrow();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 });

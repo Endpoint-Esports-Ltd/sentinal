@@ -65,6 +65,14 @@ If no server-dependent commands were deferred: skip to Final.
 
 Otherwise: start service → run deferred commands → stop service → fix failures.
 
+**⚠️ A worktree isolates code, not runtime.** Ports, databases and caches are shared with the developer's checkout and with every other worktree.
+
+- Use the project's isolated-runtime command if it declares one.
+- Otherwise **determine what this run shares** — database, cache, queue, running processes. **State plainly what is shared and proceed**; do not stop to ask on every run.
+- **Do not copy the repo-root `.env` into the worktree** — it points at the developer's live state.
+- Record the PID you start and stop only that PID. **Never terminate by name or pattern** (`pkill -f`, `killall`).
+- **If the port you need is occupied, stop and ask — never switch to a different port.** A free port proves nothing about the database behind it.
+
 ## Step 3.6: Process Compliance Check
 
 Verify:

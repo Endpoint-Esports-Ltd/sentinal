@@ -47,7 +47,10 @@ describe("Migration V11 — sessions.last_active", () => {
       .prepare("SELECT MAX(version) as version FROM schema_version")
       .get() as { version: number };
     expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
-    expect(DB_CONSTANTS.SCHEMA_VERSION).toBe(11);
+    // V11's work has landed once the chain reaches at least 11. Do NOT pin the
+    // global constant here — later migrations legitimately move it (V12 added
+    // worktrees.slot). The V12 suite owns the exact-value assertion.
+    expect(DB_CONSTANTS.SCHEMA_VERSION).toBeGreaterThanOrEqual(11);
   });
 
   it("should allow null last_active (default for pre-V11 rows)", () => {
@@ -76,11 +79,12 @@ describe("Migration V11 — sessions.last_active", () => {
     // Run again — must not throw
     expect(() => runMigrations(db, dbPath)).not.toThrow();
 
-    // Schema version should still be 11
+    // Schema version should still be the head version, not double-applied
     const row = db
       .prepare("SELECT MAX(version) as version FROM schema_version")
       .get() as { version: number };
-    expect(row.version).toBe(11);
+    expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
+    expect(row.version).toBeGreaterThanOrEqual(11);
   });
 
   it("should preserve existing rows when upgrading from V10", () => {

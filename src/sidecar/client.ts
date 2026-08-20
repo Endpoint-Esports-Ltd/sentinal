@@ -13,7 +13,7 @@ import type { QualityCheckResult } from "./quality-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
 import type { Spec } from "../spec/types.js";
 import type { TddCycle, SpecEvent } from "../memory/types.js";
-import type { Worktree } from "../worktree/types.js";
+import type { ResolvedWorktree } from "../worktree/types.js";
 
 export class SidecarClient {
   // ─── Self-healing reconnect knobs (overridable in tests) ────────────────
@@ -506,10 +506,19 @@ export class SidecarClient {
 
   // ─── Worktrees ────────────────────────────────────────────────────────
 
+  /**
+   * Resolve (and reconcile) a worktree by plan slug.
+   *
+   * The response carries `warnings` — non-fatal seeding/slot problems raised by
+   * the sidecar's own `resolveWithReconcile`. Callers that surface output to a
+   * human or an LLM MUST forward them: this is the default detect path, and a
+   * silently unseeded worktree is what drives an agent to copy the repo-root
+   * `.env` in (issue #2).
+   */
   async resolveWorktreeBySlug(
     slug: string,
     project?: string,
-  ): Promise<Worktree | null> {
+  ): Promise<ResolvedWorktree | null> {
     const params = new URLSearchParams({ slug });
     if (project) params.set("project", project);
     return this.get(`/worktree/resolve?${params}`);

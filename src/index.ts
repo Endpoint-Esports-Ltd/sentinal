@@ -135,7 +135,10 @@ export { SpecStore } from "./spec/store.js";
 export { resolveStopDecision } from "./spec/ownership.js";
 export type { StopDecisionInput, StopDecision } from "./spec/ownership.js";
 export { resolvePlansDir, resolvePlanFilePath } from "./spec/plans-dir.js";
-export type { ResolvePlansDirOptions, ResolvePlanFilePathOptions } from "./spec/plans-dir.js";
+export type {
+  ResolvePlansDirOptions,
+  ResolvePlanFilePathOptions,
+} from "./spec/plans-dir.js";
 export { registerSpecTools } from "./spec/mcp-tools.js";
 export type { SpecToolsDeps } from "./spec/mcp-tools.js";
 export type {
@@ -226,6 +229,148 @@ export {
   DEFAULT_WORKTREE_CONFIG,
 } from "./worktree/types.js";
 export type { WorktreeStatus } from "./worktree/types.js";
+// Appended (Phase 2). Phase 3 appends below this — do not restructure.
+export {
+  LIVE_WORKTREE_STATUSES,
+  type LiveWorktreeStatus,
+  type ResolvedWorktree,
+} from "./worktree/types.js";
+// The two DECLARED opt-outs. `WorktreeConfig.stopOwnedRuntime` and
+// `.unknownSentinalTokens` are required and fail closed, so any consumer
+// building a config literal needs a way to say "nothing to do" on purpose.
+export { NO_RUNTIME_STOP, NO_TOKEN_CHECK } from "./worktree/types.js";
+export {
+  MAIN_CHECKOUT_SLOT,
+  FIRST_ALLOCATABLE_SLOT,
+  SLOT_ENV_RELATIVE_PATH,
+  SLOT_ENV_VAR,
+  findFreeSlot,
+  isAllocatableSlot,
+  allocateSlot,
+  tryAllocateSlot,
+  insertWithSlot,
+  readSlotFromWorktree,
+  formatSlot,
+} from "./worktree/slots.js";
+export type { InsertWithSlotOptions } from "./worktree/slots.js";
+export {
+  seedWorktreeConfig,
+  seedNonFatally,
+  discoverSeedSources,
+  interpolateSlot,
+  hasSlotPlaceholder,
+  notIsolatedWarning,
+  SLOT_PLACEHOLDER,
+  SEED_FILENAME,
+  SEED_TARGET_FILENAME,
+} from "./worktree/worktree-config.js";
+export type { SeedOptions, SeedResult } from "./worktree/worktree-config.js";
+export {
+  excludeFromGit,
+  isIgnored,
+  isTracked,
+} from "./worktree/git-exclude.js";
+export type {
+  ExcludeMechanism,
+  ExcludeResult,
+} from "./worktree/git-exclude.js";
+
+// ─── Runtime contract (Phase 3) ──────────────────────────────────────────────
+// `.sentinal/runtime.json` — project-authored, machine-readable up/readiness/
+// down + the isolation map. Absence of the file is inert by design.
+export {
+  RuntimeConfigSchema,
+  RUNTIME_CONFIG_RELATIVE_PATH,
+  RUNTIME_LOG_RELATIVE_PATH,
+  RUNTIME_LOG_TAIL_LINES,
+  RESOURCE_CLASSES,
+  ISOLATION_STATES,
+  isolationOf,
+  sharedResourceNames,
+} from "./runtime/schema.js";
+export type {
+  RuntimeConfig,
+  ResourceClass,
+  IsolationState,
+  IsolationVerdict,
+} from "./runtime/schema.js";
+export {
+  SLOT_TOKEN,
+  SENTINAL_TOKENS,
+  INTERPOLATED_FIELDS,
+  interpolateStrict,
+  unknownSentinalTokens,
+} from "./runtime/interpolate.js";
+export { stripJsonComments } from "./runtime/jsonc.js";
+export { loadRuntimeConfig } from "./runtime/loader.js";
+export type { LoadedRuntimeConfig } from "./runtime/loader.js";
+export { scaffoldRuntimeConfig } from "./runtime/scaffold.js";
+export type { ScaffoldResult } from "./runtime/scaffold.js";
+export { registerRuntimeTools } from "./runtime/mcp-tools.js";
+export type { RuntimeToolsDeps } from "./runtime/mcp-tools.js";
+
+// ─── Runtime lifecycle (Phase 4) ─────────────────────────────────────────────
+// Process OWNERSHIP: spawn detached into a group Sentinal owns, record it in a
+// worktree-local pidfile, and terminate exactly that group — the correct
+// alternative to `pkill -f`, which is the entire point of the master plan.
+//
+// ⛔ Nothing here ever signals a PID or PGID without ownership verification, and
+// everything refuses when verification is impossible. Read `ownership.ts` before
+// changing any of it.
+export { RUNTIME_PIDFILE_RELATIVE_PATH } from "./runtime/schema.js";
+// ⚠️ `isProcessAlive` is deliberately NOT re-exported here — the barrel already
+// publishes the dashboard's identically-named function (`:193`), and two
+// same-named liveness helpers on one public surface is a trap. The runtime copy
+// stays module-local; import it from `src/runtime/ownership.js` directly.
+export {
+  processBelongsToWorktree,
+  listGroupMembers,
+  verifiedGroupMembers,
+  maySignalGroup,
+} from "./runtime/ownership.js";
+export type {
+  OwnershipProbes,
+  GroupProbes,
+  GroupProbeResult,
+  SignalGateVerdict,
+} from "./runtime/ownership.js";
+export {
+  runtimePidfilePath,
+  readPidfile,
+  writePidfile,
+  markPidfileReady,
+  removePidfile,
+  inspectPidfile,
+  ownsLiveRuntime,
+} from "./runtime/pidfile.js";
+export type {
+  RuntimePidfile,
+  PidfileVerdict,
+  LiveRuntimeVerdict,
+} from "./runtime/pidfile.js";
+export {
+  spawnDetached,
+  resolvePgid,
+  runtimeLogPath,
+  readLogTail,
+} from "./runtime/spawn.js";
+export type {
+  SpawnDetachedOptions,
+  SpawnDetachedResult,
+} from "./runtime/spawn.js";
+export { awaitReadiness } from "./runtime/readiness.js";
+export type { ReadinessResult } from "./runtime/readiness.js";
+export { stopOwnedGroup, assertStillAlive } from "./runtime/teardown.js";
+export type { StopResult, TeardownDeps } from "./runtime/teardown.js";
+export {
+  runtimeUp,
+  runtimeStop,
+  readinessPort,
+  isPortBound,
+} from "./runtime/lifecycle.js";
+export type { RuntimeUpResult, RuntimeUpDeps } from "./runtime/lifecycle.js";
+export { registerRuntimeLifecycleTools } from "./runtime/lifecycle-mcp-tools.js";
+export { runtimeWorktreeConfig } from "./runtime/worktree-deps.js";
 
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
 export {

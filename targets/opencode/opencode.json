@@ -4,6 +4,10 @@
   "plugin": ["@endpoint/sentinal/opencode-plugin"],
 
   "permission": {
+    "bash": {
+      "pkill*": "ask",
+      "killall*": "ask"
+    },
     "skill": {
       "*": "allow",
       "spec-*": "allow"

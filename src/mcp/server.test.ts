@@ -73,6 +73,25 @@ describe("createSentinalServer", () => {
     expect(result.store).toBeInstanceOf(MemoryStore);
     result.store!.close();
   });
+
+  // A tool registered in its own domain module but never wired into the
+  // factory is invisible to every client — the module's own unit tests still
+  // pass, so nothing else catches it.
+  it("registers the runtime domain tools", async () => {
+    const { server } = createSentinalServer({ store });
+    const names = Object.keys(
+      (server as unknown as { _registeredTools: Record<string, unknown> })
+        ._registeredTools,
+    );
+    expect(names).toContain("runtime_config");
+    expect(names).toContain("runtime_init");
+    // Phase 4's lifecycle pair is registered by a SIBLING module that
+    // `registerRuntimeTools` delegates to — an indirection precisely so that
+    // this factory needed no edit, and therefore one this assertion has to
+    // cover or nothing does.
+    expect(names).toContain("runtime_up");
+    expect(names).toContain("runtime_stop");
+  });
 });
 
 // --- Memory Tool Logic Tests ---

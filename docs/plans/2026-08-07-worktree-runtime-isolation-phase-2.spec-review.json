@@ -1,0 +1,101 @@
+{
+  "pass_summary": "All 6 tasks are implemented and every Goal-Verification truth is backed by a real, behaviourally-red-able test — including all nine defects flagged in plan review (live-set index predicate, slot-0 reservation, NULL-slot safety, BEGIN IMMEDIATE atomicity, non-throwing reconcile, rollback of both worktree and DB row, never-overwrite .env, tier-3 tracked-.gitignore refusal, monorepo discovery). One genuine concurrency defect remains: the lazy `ensureSlot` allocation on the detect path repeats the exact non-atomic read-then-write shape the plan mandated be wrapped in a transaction, and can throw a raw SQLITE_CONSTRAINT from a read-shaped call.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 8,
+  "truths_total": 8,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "bugs",
+      "title": "Lazy slot allocation in `ensureSlot` is non-atomic and can throw SQLITE_CONSTRAINT from the read-only detect path",
+      "description": "`src/worktree/manager.ts` `ensureSlot()` does `tryAllocateSlot(...)` (SELECT via `store.listLiveSlots`) and then `this.store.assignSlot(wt.id, slot)` (UPDATE) as two separate statements, with no `runImmediate` wrapper, no retry, and no try/catch. This is the identical read-then-write race the plan explicitly called out for the insert path (\"⚠️ Allocate-then-insert is NOT atomic … Wrap allocate + insert in a single BEGIN IMMEDIATE transaction\") — and `insertWithSlot` correctly does exactly that, while this second write path does not. Two concurrent `worktree_detect` calls (CLI + MCP + sidecar all open the same DB file, and the sidecar builds a fresh manager per request) can both compute the same lowest free slot; the second `UPDATE worktrees SET slot = ?` then violates `idx_wt_slot_live` and raises a raw `SQLiteError` (`SQLITE_CONSTRAINT_UNIQUE`). That error propagates out of `resolveWithReconcile`, which the plan states in bold must NEVER hard-fail for slot reasons (`manager.ts` docblock: \"⛔ This sits on the `worktree_detect` read path and must never throw for slot reasons\"). The result is `mcpError(\"Error detecting worktree\", …)` for a purely read-shaped question, and the pre-V12 row is left unslotted. `insertWithSlot`'s `SLOT_RACE` retry/classification machinery is bypassed entirely here.",
+      "suggested_fix": "In `src/worktree/manager.ts`, wrap the allocate+assign in the same transaction/retry envelope used by `insertWithSlot`: e.g. add `WorktreeStore.tryAssignFreeSlot(id, projectPath, maxActive): number | null` that runs `listLiveSlots` + `assignSlot` inside `runImmediate`, retry `SLOT_INSERT_ATTEMPTS` times on `isSlotRace(err)` (export `isSlotRace` from `src/worktree/slots.ts`), and on a lost retry budget push `noFreeSlotWarning`/a transient-race warning and return the worktree unchanged rather than throwing. At minimum, wrap `this.store.assignSlot(...)` in a try/catch that degrades to a warning. Add a test in `src/worktree/manager.test.ts` mirroring `slots.test.ts`'s staged-race pattern (competitor row committed from a second connection between the SELECT and the UPDATE) asserting `resolveWithReconcile` does not throw."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "`SLOT_EXHAUSTED` IS reachable from `create()`; the in-code comment asserting otherwise is wrong and the path is untested",
+      "description": "`src/worktree/manager.ts` (create, inside the rollback envelope) states: \"`create()` checks countActive against the same bound at :84-90, so the pool can never be empty here — SLOT_EXHAUSTED is unreachable via this path and a caller who hits the cap sees MAX_ACTIVE instead.\" That is false. `WorktreeStore.countActive` counts only `status = 'active'`, while `listLiveSlots` (correctly) covers `('active','ready-to-merge')`. With `maxActive: 3`: create three worktrees (slots 1,2,3), move two to `ready-to-merge` → `countActive` is 1 so the MAX_ACTIVE guard passes, but `findFreeSlot` sees `[1,2,3]` and `onExhausted: \"throw\"` raises `SLOT_EXHAUSTED`, and the catch tears down the just-created git worktree. The plan's own Context section anticipated this asymmetry (\"`countActive` counts only 'active' … the slot design amplifies it\") but Task 3 then wrote the DoD as \"the 4th fails with MAX_ACTIVE, not SLOT_EXHAUSTED\" and the plan told the implementer \"Do not write a create()-path exhaustion test; it can never go red.\" The thrown error is arguably the right behaviour (its message names merge/abandon/worktree_cleanup), but the comment misleads future maintainers and the reachable branch has zero coverage.",
+      "suggested_fix": "Correct the comment in `src/worktree/manager.ts` to say SLOT_EXHAUSTED is reachable when `ready-to-merge` rows hold slots that `countActive` does not count, and add a `manager.test.ts` case under `describe(\"slots\") > describe(\"create()\")` with `testConfig.maxActive: 3` that fills the pool with `ready-to-merge` rows and asserts `create()` throws `WorktreeError` with code `SLOT_EXHAUSTED` (not `SLOT_RACE`) and that the git worktree directory was rolled back. Optionally change the MAX_ACTIVE guard to count the live set so the two bounds agree."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "Seeding/slot warnings are silently dropped in sidecar mode — the \"warn loudly\" mitigation does not hold on the default detect path",
+      "description": "`src/worktree/mcp-tools.ts` `worktree_detect` only collects warnings on the direct path: `const wt = client ? await client.resolveWorktreeBySlug(...) : manager.resolveWithReconcile(plan_slug, projectPath, warnings)`. In sidecar mode (`SidecarClient.connect()` succeeding is the normal production configuration — see `src/sidecar/*`), `/worktree/resolve` returns a bare `Worktree` with no warnings channel, so `noFreeSlotWarning`, `skipExistingWarning`, `notIsolatedWarning`, `noSeedSourceWarning` and `unexcluded`/tier-3 warnings produced by the sidecar's own `resolveWithReconcile` → `seedNonFatally` are computed and discarded. Task 5's Rule 2 (\"If no `.env.example` is found → warn loudly, never silently. Silence is what drives the agent back to copying the root `.env`\") and R11's not-isolated warning are therefore unenforced on the most common detect path. Task 6 discloses this as a known gap, but it defeats the phase's stated purpose rather than being cosmetic. `worktree_create` is unaffected (no sidecar route exists), so the create path is safe.",
+      "suggested_fix": "Extend `/worktree/resolve` in `src/sidecar/worktree-routes.ts` to return `{ worktree, warnings }` (or add a `warnings` field alongside the serialised `Worktree`), thread it through `SidecarClient.resolveWorktreeBySlug` in `src/sidecar/client.ts`, and pass it into `withWarnings(...)` in `src/worktree/mcp-tools.ts`. Add a case to `src/sidecar/worktree-routes.test.ts` asserting a warning survives the round trip, plus a `mcp-tools.test.ts` sidecar-mode case."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "An unreadable `.env.example` destroys the freshly-created worktree; the plan scoped the throwing case to write failures",
+      "description": "`src/worktree/worktree-config.ts` `seedWorktreeConfig` does an unguarded `readFileSync(join(repoRoot, sourceRel), \"utf-8\")` inside the per-source loop. The plan's failure semantics are explicit: \"Missing `.env.example` / slot-free `.env.example` → warn and continue\" vs \"**I/O failure while writing** → throw\". A seed source that `existsSync` finds during discovery but that cannot be read (permissions, a dangling symlink, a TOCTOU delete between `discoverSeedSources` and the loop) currently throws, and `create()`'s catch then runs `git worktree remove --force` plus `store.delete(id)` — the user loses an otherwise-healthy worktree over a source file Sentinal only ever wanted to copy. A missing source is treated as benign; an unreadable one is functionally the same condition.",
+      "suggested_fix": "In `src/worktree/worktree-config.ts`, wrap the `readFileSync` of the seed source in try/catch, push a warning modelled on `noSeedSourceWarning` naming the specific unreadable path, and `continue`. Keep the `write(...)` call unguarded so genuine write failures still throw into the rollback envelope. Add a `worktree-config.test.ts` case (a `.env.example` that exists per `existsSync` but whose read fails) asserting `seedWorktreeConfig` does not throw and emits a warning."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "`formatSlot(null)` always reads \"pre-V12 worktree\" even when the real cause was an exhausted slot pool",
+      "description": "`src/worktree/slots.ts` `formatSlot` returns the fixed string `\"not assigned (pre-V12 worktree)\"` for any nullish slot. But `slot = null` has a second, operationally very different origin that this phase introduces deliberately: `insertWithSlot({ onExhausted: \"null\" })` in `resolveWithReconcile`, and `ensureSlot` failing to find a free slot. A user or LLM reading `- **Slot:** not assigned (pre-V12 worktree)` on a worktree created five minutes ago is told a false cause and pointed at no remedy. The accompanying `noFreeSlotWarning` carries the truth, but only on the direct (non-sidecar) path — see the warnings-drop issue above — so in sidecar mode the misleading string is the only signal the caller gets.",
+      "suggested_fix": "In `src/worktree/slots.ts`, neutralise the wording, e.g. `\"not assigned (pre-V12 record, or no free slot — see warnings)\"`, or give `formatSlot` an optional reason argument. Update the corresponding assertions in `src/worktree/slots.test.ts` (`formatSlot` cases) and `src/worktree/mcp-tools.test.ts` (\"renders an unassigned slot as prose, never the token `null`\") — keep the existing invariant that the literal token `null` never appears."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Workspace glob scan can descend into `node_modules` before filtering, on the `create()` hot path",
+      "description": "`src/worktree/worktree-config.ts` `workspacePackageDirs` builds `${pattern}/package.json` and runs `new Bun.Glob(glob).scanSync({ cwd: repoRoot })`, filtering out `node_modules` only *after* the scan returns. Workspace patterns such as `packages/**` or `apps/**` (both legal in npm/pnpm workspaces) expand to `packages/**/package.json`, which walks every installed dependency's `package.json` in a large monorepo — precisely the project shape issue #2's reporter describes — on every `worktree create` and on every lazy-allocation reconcile. There is a `try/catch { continue }` so it degrades rather than fails, but a multi-second stall inside `create()`'s rollback envelope is a poor experience.",
+      "suggested_fix": "In `src/worktree/worktree-config.ts`, pass a `node_modules` exclusion to the scan if the installed Bun version supports it, or cap traversal by rejecting patterns containing `**` (falling back to a single-level `<pattern>/package.json` expansion). Add a `discoverSeedSources` test with a `packages/**` pattern and a populated `node_modules` fixture to lock the behaviour in."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_mitigation",
+      "title": "Reconcile can leave `.env` and `.sentinal/worktree.env` disagreeing about the slot without detecting it",
+      "description": "`readSlotFromWorktree` correctly makes the directory's own env file the preferred recovery slot in `resolveWithReconcile`, but `insertWithSlot` silently falls back to `findFreeSlot` when that preferred slot is taken or out of range. Meanwhile `seedNonFatally` → `seedWorktreeConfig` skips the existing `.env` (Rule 0, correct) but unconditionally overwrites `.sentinal/worktree.env` with the newly-allocated slot. The directory then holds a `.env` interpolated against slot N and a slot file declaring slot M — the exact port/database collision the phase exists to prevent, reachable through a plain `worktree_detect`. `skipExistingWarning` fires, but it says only that `.env` \"may therefore point at the wrong resources\"; nothing compares the two values or states that they are known to differ.",
+      "suggested_fix": "In `src/worktree/manager.ts` `resolveWithReconcile`, compare `readSlotFromWorktree(onDisk.path)` against `reregistered.slot` and, when both are non-null and differ, push a dedicated warning naming both numbers and the remedy (delete `.env` and re-run, or free slot N). Add a `manager.test.ts` case that occupies the on-disk slot before reconciling and asserts the mismatch warning."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "`PRAGMA table_info(worktrees)` includes a `slot` column after `runMigrations`",
+      "status": "verified",
+      "evidence": "`migrateV12` in `src/memory/migrations.ts` guards on the worktrees table, then `ALTER TABLE worktrees ADD COLUMN slot INTEGER`; `migrations-v12.test.ts` \"adds a slot column to the worktrees table\" asserts presence and INTEGER type, and \"is idempotent\" asserts exactly one such column after re-running."
+    },
+    {
+      "truth": "`DB_CONSTANTS.SCHEMA_VERSION === 12` in `src/memory/types.ts`",
+      "status": "verified",
+      "evidence": "Diff shows `SCHEMA_VERSION: 11 → 12`; `migrations-v12.test.ts` \"bumps SCHEMA_VERSION to 12\" asserts both the constant and `MAX(version)` in the DB. The version bump is gated behind re-verifying both the column and `idx_wt_slot_live` exist (the V11 unconditional-bump bug was deliberately not copied), and \"does not bump to 12 when the worktrees table is missing\" proves the guard leaves the version at 11 so the migration retries."
+    },
+    {
+      "truth": "Creating two worktrees in one project yields two distinct slots, neither of which is 0",
+      "status": "verified",
+      "evidence": "`slots.ts` `findFreeSlot` iterates from `FIRST_ALLOCATABLE_SLOT = 1`; `MAIN_CHECKOUT_SLOT = 0` is never returned and `isAllocatableSlot` rejects it. Covered by `slots.test.ts` \"findFreeSlot never returns 0, even when nothing is taken\", \"allocateSlot never returns 0 across a full pool lifetime\", \"ignores an out-of-range or reserved preferred slot\", and end-to-end by `manager.test.ts` \"gives two worktrees in one project distinct slots, neither of them 0\". `readSlotFromWorktree` also refuses to adopt 0 from disk."
+    },
+    {
+      "truth": "With `maxActive: 3`, three worktrees receive slots 1, 2, 3 and the fourth fails with `MAX_ACTIVE` (not `SLOT_EXHAUSTED`)",
+      "status": "verified",
+      "evidence": "`manager.test.ts` \"allocates 1..maxActive, and the (maxActive+1)th fails with MAX_ACTIVE — never SLOT_EXHAUSTED\", plus `slots.test.ts` \"capacity is unchanged by the reservation — maxActive 3 yields slots 1..3\". Note: this holds only while all held slots belong to `active` rows — see the should_fix on `ready-to-merge` making `SLOT_EXHAUSTED` reachable from `create()`."
+    },
+    {
+      "truth": "Abandoning a worktree frees its slot for reuse by the next `create`",
+      "status": "verified",
+      "evidence": "Release is emergent from the `idx_wt_slot_live` predicate — no code writes `slot = NULL`. `migrations-v12.test.ts` \"frees a slot when a live row transitions to abandoned\" proves it at the DB level; `slots.test.ts` \"frees the slot when a row becomes abandoned/merged/DELETED outright\" at the store level; `manager.test.ts` `describe(\"release is emergent — one test per exit path\")` covers abandon/squashMerge/cleanup and the remaining exit paths, with \"abandon() frees the slot, and the next create() gets it\" asserting reuse."
+    },
+    {
+      "truth": "5b. A `ready-to-merge` worktree does NOT free its slot — it is still live on disk",
+      "status": "verified",
+      "evidence": "The predicate is `WHERE status IN ('active', 'ready-to-merge')` in `migrateV12`, mirrored exactly by `store.listLiveSlots` and by `LIVE_WORKTREE_STATUSES` in `src/worktree/types.ts`. Crucially the proof is behavioural, not just SQL-text: `migrations-v12.test.ts` \"rejects two ready-to-merge rows sharing a slot\" and \"rejects one active + one ready-to-merge sharing a slot\" both go RED against an `active`-only predicate, as does \"rejects an UPDATE that moves a row into the live set onto a taken slot\". `slots.test.ts` \"counts ready-to-merge as LIVE — its slot is not reallocated\" and \"⛔ does NOT free the slot of a ready-to-merge worktree\" confirm it through the allocator."
+    },
+    {
+      "truth": "The worktree `.env` contains the allocated slot at every position `.env.example` had `${SENTINAL_WORKTREE_SLOT}`, with no unsubstituted `${` token",
+      "status": "verified",
+      "evidence": "`interpolateSlot` uses `text.split(PLACEHOLDER).join(String(slot))` (all occurrences) and deliberately leaves unrelated `${...}` tokens alone; `worktree-config.test.ts` \"substitutes EVERY occurrence, leaving no placeholder behind\", \"leaves unrelated ${...} tokens alone\", and \"seeds .env from .env.example with the slot substituted at every position\". Rule 0 is enforced by an `existsSync` check before every write and covered three ways (\"NEVER overwrites an existing worktree .env — skips and reports\", \"is safe to re-run\", plus the reconcile path); the slotless case is covered by \"a SLOTLESS worktree does not write a bogus slot into .env either\". Monorepo discovery covers `package.json workspaces` (array and `{packages:[]}`) and `pnpm-workspace.yaml`, excluding `node_modules`."
+    },
+    {
+      "truth": "Neither the seeded `.env` nor the slot env file appears in `git status` inside the worktree, and the main checkout's ignore behaviour is unchanged",
+      "status": "verified",
+      "evidence": "`git-exclude.ts` implements the spike's three tiers with zero common-dir writes; tier 3 explicitly refuses to touch a tracked `.gitignore` (`isTracked(worktreePath, ignoreRel)` → `unexcluded` + `trackedIgnoreWarning`) and the outcome is verified rather than assumed via a post-write `isIgnored` check. Proven by `git-exclude.test.ts` \"tier 3 — REFUSES to modify a tracked .gitignore and reports the path as unexcluded\" and \"never writes into the common dir — the main checkout is byte-unchanged\", by `worktree-config.test.ts` \"leaves `git status` clean inside the worktree and the main checkout untouched\" and \"with a TRACKED root .gitignore it reports .env as visible, but still hides the slot file\", and by the Task 1 spike (`worktree-exclude.test.ts`, incl. the two REJECTED candidates). The directory-scoped `.sentinal/.gitignore` keeps the slot env file excludable even under tier 3; the residual tier-3 `.env` visibility is a documented, warned accepted limitation."
+    }
+  ]
+}

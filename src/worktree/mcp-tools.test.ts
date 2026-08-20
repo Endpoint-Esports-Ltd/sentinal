@@ -361,7 +361,7 @@ describe("worktree_sync MCP tool", () => {
     WorktreeManager.prototype.hasConflicts = function () {
       return false;
     };
-    WorktreeManager.prototype.squashMerge = function () {
+    WorktreeManager.prototype.squashMerge = async function () {
       return "deadbeef1234567890";
     };
 
@@ -407,6 +407,32 @@ describe("worktree MCP tools (sidecar mode)", () => {
     const result = await handler({ plan_slug: "my-slug", project: "/test" });
     expect(result.content[0].text).toContain("spec/my-slug");
     expect(result.content[0].text).toContain("active");
+  });
+
+  it("worktree_detect SURFACES the warnings the sidecar computed", async () => {
+    // ⛔ Sidecar mode is the default production path. Warnings that reach the
+    // route but not the model make "warn loudly" a no-op where it matters most.
+    const mockClient = {
+      resolveWorktreeBySlug: async () => ({
+        id: "wt-warn",
+        worktreePath: "/tmp/wt",
+        branchName: "spec/warned-slug",
+        baseBranch: "main",
+        status: "active",
+        slot: null,
+        warnings: ["No .env.example found — nothing was seeded"],
+      }),
+    } as unknown as SidecarClient;
+
+    const tools = captureTools(registerWorktreeTools, { client: mockClient });
+    const result = await tools.get("worktree_detect")!({
+      plan_slug: "warned-slug",
+      project: "/test",
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain("### Warnings");
+    expect(text).toContain("No .env.example found");
   });
 });
 
@@ -557,7 +583,7 @@ describe("worktree_abandon MCP tool", () => {
 
     // Mock manager.abandon to avoid git operations
     const origAbandon = WorktreeManager.prototype.abandon;
-    WorktreeManager.prototype.abandon = function (worktreeId: string) {
+    WorktreeManager.prototype.abandon = async function (worktreeId: string) {
       // Just update status to abandoned in store (skip git ops)
       (this as unknown as { store: WorktreeStore }).store.updateStatus(
         worktreeId,
@@ -666,5 +692,224 @@ describe("worktree_cleanup MCP tool", () => {
     } finally {
       WorktreeManager.prototype.cleanup = origCleanup;
     }
+  });
+
+  // ── Guard 3's dead input (pre-existing defect, fixed in Task 5) ───────────
+  //
+  // ⛔ Neither path threaded `currentWorktree`, so guard 3 ("never the caller's
+  // current worktree") had NO effect in production: `worktree_cleanup --force`
+  // could delete the very directory the caller was working in. `client.ts`
+  // already forwarded the field (`:531-540`) and the sidecar route already read
+  // it from the body — the gap was purely caller-side.
+
+  it("threads currentWorktree on the DIRECT path, so guard 3 is live", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    let received: { currentWorktree?: string } = {};
+    WorktreeManager.prototype.cleanup = function (opts?: unknown) {
+      received = opts as { currentWorktree?: string };
+      return 0;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      await mockedTools.get("worktree_cleanup")!({
+        project: tmpDir,
+        force: true,
+        current_worktree: "/caller/project/.sentinal/worktrees/spec-live",
+      });
+      expect(received.currentWorktree).toBe(
+        "/caller/project/.sentinal/worktrees/spec-live",
+      );
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
+  it("defaults currentWorktree to the TOOL PROCESS's cwd, never the sidecar's", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    let received: { currentWorktree?: string } = {};
+    WorktreeManager.prototype.cleanup = function (opts?: unknown) {
+      received = opts as { currentWorktree?: string };
+      return 0;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      await mockedTools.get("worktree_cleanup")!({
+        project: tmpDir,
+        force: true,
+      });
+      // This process IS the caller's — the MCP server is spawned in the agent's
+      // working directory. The sidecar is a different, long-lived process, which
+      // is why the same default would be wrong there.
+      expect(received.currentWorktree).toBe(process.cwd());
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
+  it("threads currentWorktree on the SIDECAR path too", async () => {
+    const calls: { project?: string; opts?: unknown }[] = [];
+    const fakeClient = {
+      cleanupWorktrees: async (project?: string, opts?: unknown) => {
+        calls.push({ project, opts });
+        return { cleaned: 0 };
+      },
+    } as unknown as SidecarClient;
+
+    const clientTools = captureTools(registerWorktreeTools, {
+      store,
+      client: fakeClient,
+    });
+    await clientTools.get("worktree_cleanup")!({
+      project: tmpDir,
+      force: true,
+      current_worktree: "/caller/wt",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(
+      (calls[0]!.opts as { currentWorktree?: string }).currentWorktree,
+    ).toBe("/caller/wt");
+  });
+
+  it("surfaces guard-5 warnings — a skipped cleanup must never be silent", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function (opts?: unknown) {
+      (opts as { warnings?: string[] }).warnings?.push(
+        "Skipped /wt/spec-x: pid 4242 is running from it.",
+      );
+      return 0;
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const r = await mockedTools.get("worktree_cleanup")!({
+        project: tmpDir,
+        force: true,
+      });
+      expect(r.content[0].text).toContain("4242");
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
+  it("surfaces the sidecar's guard-5 warnings as well", async () => {
+    const fakeClient = {
+      cleanupWorktrees: async () => ({
+        cleaned: 0,
+        warnings: ["Skipped /wt/spec-y: pid 7777 is running from it."],
+      }),
+    } as unknown as SidecarClient;
+
+    const clientTools = captureTools(registerWorktreeTools, {
+      store,
+      client: fakeClient,
+    });
+    const r = await clientTools.get("worktree_cleanup")!({
+      project: tmpDir,
+      force: true,
+    });
+    expect(r.content[0].text).toContain("7777");
+  });
+});
+
+// --- Task 6: slot surfacing (D1 / D7) ---
+
+describe("slot surfacing in MCP tool output", () => {
+  let tmpDir: string;
+  let repoDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, ToolHandler>;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    Bun.spawnSync(["git", "init", "-b", "main"], { cwd: repoDir });
+    Bun.spawnSync(["git", "config", "user.email", "t@t.com"], { cwd: repoDir });
+    Bun.spawnSync(["git", "config", "user.name", "T"], { cwd: repoDir });
+    writeFileSync(join(repoDir, "README.md"), "# Test\n");
+    Bun.spawnSync(["git", "add", "."], { cwd: repoDir });
+    Bun.spawnSync(["git", "commit", "-m", "init"], { cwd: repoDir });
+
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(registerWorktreeTools, store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("worktree_create reports the slot and the slot-0 convention", async () => {
+    const result = await tools.get("worktree_create")!({
+      plan_slug: "2026-08-07-surface-create",
+      project: repoDir,
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain("**Slot:** 1");
+    // Without the convention the reader cannot know 0 is taken by their own stack.
+    expect(text).toContain("slot 0 is the main checkout");
+  });
+
+  it("worktree_detect reports the slot and the slot-0 convention", async () => {
+    const wtStore = new WorktreeStore(store);
+    new WorktreeManager(wtStore).create("2026-08-07-surface-detect", repoDir);
+
+    const result = await tools.get("worktree_detect")!({
+      plan_slug: "2026-08-07-surface-detect",
+      project: repoDir,
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain("**Slot:** 1");
+    expect(text).toContain("slot 0 is the main checkout");
+  });
+
+  it("⛔ renders an unassigned slot as prose, never the token `null`", async () => {
+    const origCreate = WorktreeManager.prototype.create;
+    WorktreeManager.prototype.create = function () {
+      return {
+        id: "wt-mock-null-slot",
+        specId: undefined,
+        projectPath: repoDir,
+        worktreePath: join(repoDir, "wt"),
+        branchName: "spec/x",
+        baseBranch: "main",
+        baseCommit: "abc123",
+        status: "active" as const,
+        slot: null,
+        createdAt: Date.now(),
+      };
+    };
+
+    try {
+      const mocked = captureTools(registerWorktreeTools, store);
+      const result = await mocked.get("worktree_create")!({
+        plan_slug: "x",
+        project: repoDir,
+      });
+
+      const text = result.content[0].text;
+      expect(text).toContain(
+        "not assigned (pre-V12 record, or no free slot — see warnings)",
+      );
+      expect(text).not.toContain("**Slot:** null");
+    } finally {
+      WorktreeManager.prototype.create = origCreate;
+    }
+  });
+
+  it("worktree_create surfaces seeding warnings so an unseeded worktree is never silent", async () => {
+    // No .env.example in this repo — the agent must be told, or it will fall
+    // back to copying the repo-root .env (the issue #2 failure mode).
+    const result = await tools.get("worktree_create")!({
+      plan_slug: "2026-08-07-surface-warn",
+      project: repoDir,
+    });
+
+    expect(result.content[0].text).toContain(".env.example");
   });
 });

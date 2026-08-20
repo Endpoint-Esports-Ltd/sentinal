@@ -1,6 +1,6 @@
 ---
 description: Spec-driven development - plan, implement, verify workflow
-argument-hint: "<task description>" or "<path/to/plan.md>"
+argument-hint: "<task description> or <path/to/plan.md>"
 ---
 
 # /spec - Unified Spec-Driven Development

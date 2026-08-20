@@ -78,6 +78,13 @@ const GATE_FILES = [
   "./tests/e2e/mcp.e2e.ts",
   "./tests/e2e/spec-workflow.e2e.ts",
   "./tests/e2e/sidecar-memory.e2e.ts",
+  // The only live proof of master DoD item 9 (the shipped OpenCode
+  // `permission.bash` map resolves benign commands to `allow`, not to
+  // `Permission.evaluate`'s ask-by-default). Its install round-trips are
+  // deterministic; its resolved-policy assertion `skipIf`s when no `opencode`
+  // binary is present, so it is safe on a bare runner and reports as a SKIP
+  // rather than a pass.
+  "./tests/e2e/permission-defaults.e2e.ts",
   "./tests/e2e/release-identity.e2e.ts",
   "./tests/e2e/release-install.e2e.ts",
 ];

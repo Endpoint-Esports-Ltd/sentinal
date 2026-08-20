@@ -56,7 +56,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
 - **Persistent Semantic Memory** — Vector-based knowledge storage with automatic capture/restore and hybrid keyword+semantic search
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (28 tools across 6 domains)
+- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (35 tools across 7 domains)
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 - **Long-Running Sidecar** — Background process holding a warm DB + embeddings; hooks connect via Unix socket for sub-15ms response times
 
@@ -547,6 +547,106 @@ Captures non-obvious solutions, workarounds, and workflows from the current sess
 /learn
 ```
 
+## Runtime Contract — `.sentinal/runtime.json`
+
+**Optional and project-authored.** If the file is absent, nothing changes: Sentinal behaves exactly as it did before this feature existed. If it is present, `/spec` verification stops guessing how to start your project and runs a declared lifecycle instead: **`up` → wait for `readiness` → tests → `down`.**
+
+Sentinal can **draft** the file (`/sync`, or the `runtime_init` MCP tool) but never owns it — you review it and commit it, so your teammates and CI get the same lifecycle.
+
+```jsonc
+{
+  // What `up` actually namespaces per-slot. OPTIONAL — see the warning below.
+  "isolation": { "ports": "isolated", "database": "shared", "cache": "none" },
+
+  "up": "./scripts/stack up ${SENTINAL_WORKTREE_SLOT}",
+  "down": "./scripts/stack down ${SENTINAL_WORKTREE_SLOT}",
+  "detached": false,
+
+  // Shorthand: a bare string means { "type": "http", "target": <string> }.
+  "readiness": {
+    "type": "http", // http | exec
+    "target": "http://localhost:3000/health", // URL, or a shell command for `exec`
+    "expectStatus": [200], // http only; default is any 2xx–3xx
+    "startupTimeoutMs": 60000,
+    "pollIntervalMs": 250
+  },
+
+  "shutdown": { "signal": "SIGTERM", "graceMs": 10000 }
+}
+```
+
+Comments are allowed (`//` and `/* */`); trailing commas are not.
+
+**Rules:**
+
+- `up` **requires** `readiness`. Starting something with no way to know it started is the failure this contract exists to prevent.
+- `down` may be omitted — Sentinal falls back to signal escalation on the process group. But `"detached": true` **requires** `down`, because a detaching starter's process group owns nothing.
+- `expectStatus` is valid only for `"type": "http"`. An `exec` probe passes on exit code 0.
+- Interpolation is scoped to Sentinal's own prefix. **`${SENTINAL_WORKTREE_SLOT}`** is substituted with the worktree's slot; any other `${SENTINAL_*}` token is a **validation error naming the token**, never a silent empty string. Everything else — `${PORT:-3000}`, `${DOCKER_HOST}`, bare `$VAR` — is passed to your shell **verbatim** and is none of Sentinal's business.
+- Interpolated fields are exactly `up`, `down` and `readiness.target`.
+
+### ⚠️ `isolation` is self-attested, and a false claim is worse than no file
+
+The map declares **the sharing that remains after `up` runs** — the common half-measure is a start command that parameterizes the port while the database URL still comes from a shared `.env`.
+
+| Declaration           | Blocks a run? | Reported?                |
+| --------------------- | ------------- | ------------------------ |
+| `"isolated"`          | no            | no                       |
+| `"shared"` (explicit) | **yes**       | yes                      |
+| `"none"`              | no            | no                       |
+| **absent**            | **no**        | yes, **non-blocking**    |
+
+- **Unstated means `unknown`, not `shared`, and `unknown` never prompts.** A prompt that fires on every run of every project carries no information, and a reflexively-accepted one teaches you to wave through "not isolated". You get a line of context instead.
+- **Only an explicit, human-written `"shared"` gates anything.** Deliberate, therefore rare, therefore worth reading.
+- **Sentinal cannot verify any of it, and never infers `"isolated"` on your behalf.** A wrong `"isolated"` is a confident, silent green light — strictly worse than having no file at all. That is why the `/sync` scaffolder **omits the map entirely** rather than guessing: omission is fail-safe, because omission means `unknown`.
+
+Vocabulary: `ports`, `database`, `cache`, `queue`, `filesystem`, `objectStorage`, `searchIndex`, `outboundEmail`, `browser`, plus `other: [{ "name": "…", "state": "shared" }]` for anything else. Note `browser` describes the E2E browser instance regardless of whether `up` starts it — declare it `"isolated"` when the run uses per-session isolation (`-s=$SENTINAL_SESSION_ID`, or a dedicated Chrome).
+
+### Running the lifecycle — `runtime_up` / `runtime_stop`
+
+Declaring the contract is half of it; the other half is that Sentinal, not the agent, executes it. Two MCP tools do that:
+
+| Tool           | Does                                                                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime_up`   | Runs `up` in a **new process group Sentinal owns**, records it, polls `readiness`, and returns only once the probe passes. Failures carry a log tail.       |
+| `runtime_stop` | **DESTRUCTIVE.** Runs `down`, then escalates `shutdown.signal` → `graceMs` → `SIGKILL` **to that group and nothing else**. Idempotent; safe to call twice.  |
+
+**The ownership record is a file, not a daemon.** `runtime_up` writes `<worktree>/.sentinal/runtime.pid` — pid, pgid, the command, and a state of `starting` or `ready` — **before** the first readiness poll, not after. Writing it only on success would leave the entire startup window (up to 60s) with a detached process group and nothing recording it, which is the orphan the record exists to prevent. Both the pidfile and `.sentinal/runtime.log` are hidden from git automatically.
+
+Staleness is evaluated **on read**, so there is no background sweeper and no state outside the worktree. The record dies with the worktree.
+
+**Sentinal never signals a process it cannot prove is yours.** Before any signal it re-checks both that the PID is alive and that the process still references this worktree — by command line *or* by working directory. **If that cannot be established, it refuses and tells you what it found**, because a recycled PID belongs to someone else. That refusal is the whole point: `kill -- -$PGID` against a verified group is the correct alternative to `pkill -f`, and it only stays correct while the verification is unskippable.
+
+**"Could not check" is never treated as "nothing is running."** If `ps` is missing or fails, Sentinal cannot enumerate the process group — and a probe that could not answer is not evidence that a group is gone. So an unenumerable group makes `runtime_stop` **refuse**, keeping the ownership record rather than deleting the only thing that can find that group again, and makes `worktree_cleanup --force` treat the worktree as **live** and skip it. The cost of the opposite default is a live process whose working directory has just been deleted.
+
+#### If a worktree will not stop — the escape hatch
+
+Because a failed stop aborts the exit path, a worktree whose runtime cannot be stopped **cannot be abandoned, cannot be merged, and is skipped by `worktree_cleanup --force`**. That is deliberate: "we could not stop it" is never a licence to delete the directory out from under it. It is also recoverable, and every refusal message names the way out:
+
+1. Read the refusal — it lists the PIDs in the way and the command to inspect them:
+   ```sh
+   ps -A -o pid=,pgid=,command= | awk '$2 == <PGID>'
+   ```
+   (`ps -g` is *not* portable process-group selection: Darwin ignores the flag, and Linux reads it as a session id rather than a process-group id.)
+2. Stop by hand whatever you recognise as belonging to that worktree.
+3. Delete the ownership record: `rm <worktree>/.sentinal/runtime.pid`.
+4. Re-run `worktree_abandon` / `worktree_sync`. With no pidfile the stop is an immediate no-op, so the worktree is no longer wedged.
+
+⚠️ Step 3 is the only step that bypasses a safety check, which is why it is last and why nothing performs it for you. **There is deliberately no `--force` on abandon** — a flag that skipped the ownership check would be indistinguishable from the `pkill -f` this contract exists to replace.
+
+**⛔ An occupied port is a hard failure. Sentinal never picks a different one.** A free port proves nothing about what is behind it — a second stack on port 3001 still writes to the same database as the one on 3000, so re-porting converts a loud, obvious failure into a silent one that corrupts shared state. `runtime_up` therefore fails and names the conflict:
+
+| Situation                                     | What `runtime_up` does                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------- |
+| A **ready** stack of ours already holds it    | **Reuses** it, and never tears it down — killing what we did not start is the same error class as `pkill -f` |
+| A **half-started** stack of ours holds it     | Tears that group down, then starts fresh                                     |
+| A dead leader, but its **group** still holds it | Reaps the group — but only after verifying a live member references this worktree |
+| Anything else, or nothing we can identify     | **Fails, naming the port.** No alternative port is attempted, anywhere       |
+
+**Stopping happens on every exit path.** `worktree_sync` and `worktree_abandon` stop the worktree's process group **before** they touch the directory (and, for a merge, before `git checkout` — a live process holding files can fail the checkout itself). `worktree_cleanup --force` skips any worktree that still owns live processes and tells you which. Worktrees that never started a runtime pay nothing: with no pidfile the stop returns immediately, without loading the contract or running `down`.
+
+**⚠️ POSIX only.** Process groups exist on macOS and Linux. **On Windows Sentinal records no process group**, so teardown reduces to the declared `down` — the guarantee becomes _"we ran the declared `down`"_ rather than _"we own the PIDs"_, and the tool output says so. A Windows contract with no `down` and a non-detaching `up` has no teardown mechanism at all, and `runtime_stop` reports that as an explicit failure naming the PID rather than a false success. **On Windows, declare a `down`.** The same reduction applies on any platform when `"detached": true`, which is why the schema requires `down` in that case.
+
 ## MCP Servers
 
 Sentinal configures 5 MCP servers for enhanced capabilities:
@@ -557,21 +657,22 @@ Sentinal configures 5 MCP servers for enhanced capabilities:
 | **web-search** | Web search via DuckDuckGo/Bing/Exa         | `open-websearch`        |
 | **grep-mcp**   | GitHub code search across 1M+ public repos | `mcp.grep.app`          |
 | **web-fetch**  | Full web page fetching via Playwright      | `fetcher-mcp`           |
-| **sentinal**   | Memory, spec, worktree, TDD, analysis      | `@endpoint/sentinal`    |
+| **sentinal**   | Memory, spec, worktree, TDD, analysis, runtime | `@endpoint/sentinal` |
 
 These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
 
 ### Sentinal MCP Tool Catalog
 
-The `sentinal` MCP server exposes **28 tools across 6 domains**:
+The `sentinal` MCP server exposes **35 tools across 7 domains**:
 
 | Domain       | Count | Tools                                                                                      |
 | ------------ | ----- | ------------------------------------------------------------------------------------------ |
-| **Memory**   | 6     | `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_maintain`, `memory_stats` |
+| **Memory**   | 9     | `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_update`, `memory_delete`, `memory_share`, `memory_maintain`, `memory_stats` |
 | **Spec**     | 9     | `spec_init`, `spec_status`, `spec_register`, `spec_plan_parse`, `spec_config`, `spec_events`, `spec_metrics`, `spec_notify`, `spec_wait_file` |
 | **Worktree** | 6     | `worktree_detect`, `worktree_create`, `worktree_diff`, `worktree_sync`, `worktree_abandon`, `worktree_cleanup` |
 | **TDD**      | 3     | `tdd_status`, `tdd_set_state`, `tdd_clear`                                                |
 | **Analysis** | 3     | `check_diagnostics`, `impact_analysis`, `quality_report`                                  |
+| **Runtime**  | 4     | `runtime_config`, `runtime_init`, `runtime_up`, `runtime_stop`                             |
 | **Project**  | 1     | `project_context`                                                                          |
 
 ## Development
@@ -709,17 +810,60 @@ Checkers are shared between both targets:
 
 ### Claude Code
 
-Configured via `targets/claude-code/settings.json`:
+> **A plugin's `settings.json` is not a configuration channel.** Claude Code reads
+> **only** the `agent` and `subagentStatusLine` keys from a plugin-root
+> `settings.json` ([plugins reference → _File locations reference_](https://docs.claude.com/en/docs/claude-code/plugins-reference)).
+> Sentinal therefore configures Claude Code through the channels that _do_ apply —
+> `hooks/hooks.json`, `.mcp.json`, `.lsp.json`, `agents/`, `commands/`, `rules/` —
+> and writes the statusline directly into your own `~/.claude/settings.json`
+> (`configureStatusline()`). Anything else you want applied has to live in **your**
+> settings file, not Sentinal's.
 
-| Setting                    | Value   | Purpose                               |
-| -------------------------- | ------- | ------------------------------------- |
-| `CLAUDE_CODE_ENABLE_TASKS` | `true`  | Enable task management tools          |
-| `ENABLE_TOOL_SEARCH`       | `true`  | Enable MCP tool discovery             |
-| `ENABLE_LSP_TOOL`          | `true`  | Enable LSP integration                |
-| `alwaysThinkingEnabled`    | `true`  | Extended thinking for better analysis |
-| `respectGitignore`         | `false` | Plugin needs access to `dist/` files  |
+`targets/claude-code/settings.json` carries a handful of preference keys
+(`env`, `plansDirectory`, `statusLine.refreshInterval`, `alwaysThinkingEnabled`,
+`respectGitignore`, `spinnerTipsOverride`). They document intent; they do **not**
+take effect from the plugin. To actually apply them, copy them into
+`~/.claude/settings.json`.
 
-Pre-approved permissions include common dev tools (npm, bun, ng, nest, tsc, prettier, eslint, jest, vitest, git), file operations, MCP servers, `/spec` workflow skills, and sub-agents.
+#### Recommended `~/.claude/settings.json`
+
+Sentinal does **not** write any of this for you — permissions are yours to own.
+`/spec` runs comfortably with the following (trim it to taste; every `Bash(...)`
+entry widens your own blast radius):
+
+```jsonc
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TASKS": "true", // task management tools
+    "ENABLE_TOOL_SEARCH": "true", // MCP tool discovery
+    "ENABLE_LSP_TOOL": "true", // LSP integration
+    "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": "10000",
+  },
+  "alwaysThinkingEnabled": true,
+  "respectGitignore": false, // Sentinal reads dist/ files
+  "permissions": {
+    // Prompt before a pattern-kill — see rules/verification.md.
+    // `ask` beats `allow`, including a bare "Bash".
+    "ask": ["Bash(pkill:*)", "Bash(killall:*)"],
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(bun:*)",
+      "Bash(npx:*)",
+      "Bash(git:*)",
+      "Bash(tsc:*)",
+      "Bash(eslint:*)",
+      "Bash(prettier:*)",
+      "Bash(sentinal:*)",
+      "Edit",
+      "Read",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__plugin_sentinal_sentinal__*",
+    ],
+  },
+}
+```
 
 ### OpenCode
 

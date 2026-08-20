@@ -132,6 +132,82 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  /**
+   * ⛔ A plugin-root `settings.json` is NOT a configuration channel.
+   *
+   * Claude Code reads exactly two keys out of it — `agent` and
+   * `subagentStatusLine`:
+   *
+   * > | **Settings** | `settings.json` | Default configuration applied when the
+   * > plugin is enabled. Only the `agent` and `subagentStatusLine` keys are
+   * > supported |
+   * >
+   * > — docs.claude.com/en/docs/claude-code/plugins-reference,
+   * >   *File locations reference* (re-verified 2026-08-20)
+   *
+   * Everything else in that file is **inert**: it satisfies a presence test
+   * while changing nothing at runtime. Corroborating code evidence:
+   * `configureStatusline()` (`commands/install-claude.ts`) exists precisely
+   * because the plugin file's `statusLine` key does not apply — Sentinal has
+   * to write the statusline into the user's own `~/.claude/settings.json`.
+   * That is exactly the behaviour the two-key allowlist predicts.
+   *
+   * Nothing in `src/` reads this file. The installer writes it verbatim to
+   * `<pluginDir>/settings.json` and never merges it into `~/.claude/settings.json`.
+   *
+   * This test is a **ratchet**, not an endorsement. The retained keys below
+   * are knowingly inert and kept only because removing them would silently
+   * revert in-flight work in `docs/plans/2026-04-20-claude-opencode-changelog-audit-phase-1.md`.
+   * `permissions` was REMOVED (2026-08-20): a ~45-entry `allow` list containing
+   * a bare `"Bash"` and `Bash(rm:*)` reads as a shipped security posture and
+   * is not one. Its content now lives in the README as a snippet for the
+   * user's OWN `~/.claude/settings.json`, which is where it takes effect.
+   */
+  describe("targets/claude-code/settings.json — no NEW inert keys", () => {
+    const settings = JSON.parse(
+      readFileSync(join(CLAUDE_DIR, "settings.json"), "utf-8"),
+    ) as Record<string, unknown>;
+
+    /** The only keys Claude Code actually honours in a plugin settings.json. */
+    const EFFECTIVE_KEYS = ["agent", "subagentStatusLine"];
+
+    /** Inert, knowingly retained. Do not extend this list — see the doc block. */
+    const KNOWN_INERT_KEYS = [
+      "env",
+      "plansDirectory",
+      "statusLine",
+      "alwaysThinkingEnabled",
+      "respectGitignore",
+      "spinnerTipsOverride",
+    ];
+
+    it("does not ship a `permissions` block (inert here; belongs in the user's own settings.json)", () => {
+      expect(
+        settings.permissions,
+        "targets/claude-code/settings.json declares `permissions`, but Claude " +
+          "Code ignores every key of a plugin settings.json except `agent` and " +
+          "`subagentStatusLine`. A permission allowlist here grants nothing and " +
+          "misrepresents Sentinal's security posture. Document it as a snippet " +
+          "for the user's ~/.claude/settings.json instead.",
+      ).toBeUndefined();
+    });
+
+    it("introduces no key outside the two-key allowlist beyond the known-inert set", () => {
+      const unexpected = Object.keys(settings).filter(
+        (k) => !EFFECTIVE_KEYS.includes(k) && !KNOWN_INERT_KEYS.includes(k),
+      );
+      expect(
+        unexpected,
+        `New key(s) in targets/claude-code/settings.json that Claude Code will ` +
+          `IGNORE: ${unexpected.join(", ")}. Only \`agent\` and ` +
+          `\`subagentStatusLine\` take effect from a plugin-root settings.json ` +
+          `(plugins reference, File locations reference). If you need this ` +
+          `setting to apply, write it into the user's ~/.claude/settings.json ` +
+          `the way configureStatusline() does, or document it as a snippet.`,
+      ).toEqual([]);
+    });
+  });
+
   describe("targets/claude-code/hooks/hooks.json — once:true on session-init hooks", () => {
     const hooksPath = join(CLAUDE_DIR, "hooks", "hooks.json");
     const hooks = JSON.parse(readFileSync(hooksPath, "utf-8"));

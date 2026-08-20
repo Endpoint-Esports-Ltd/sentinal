@@ -432,6 +432,40 @@ Use `paths` frontmatter to scope rules to specific files — unscoped rules load
 
 **README rules:** Auto-generate the table from actual files — don't hardcode. Include each rule's description. Keep under 80 lines.
 
+## Phase 6.5: Sync Runtime Contract
+
+**Offer to draft `.sentinal/runtime.json`** — the machine-readable start/readiness/stop contract that lets `/spec` verification bring the project's stack up, wait for it, run the tests against it, and tear it down. It is **project-authored**: Sentinal drafts, the human reviews and commits.
+
+Phase 6 has just recorded the tech stack and dev commands, which are exactly the inputs a draft needs, so this is the cheapest moment to ask.
+
+### Step 6.5.1: Check
+
+If `.sentinal/runtime.json` already exists, **skip this phase entirely** — Sentinal never regenerates over a file the project owns. Report it as "present" in the Phase 12 summary and move on.
+
+### Step 6.5.2: Draft
+
+Call the `runtime_init` MCP tool with `project` set to the repo root. It inspects `docker-compose.yml`, `package.json` scripts and `Procfile` and returns a draft. **It does not write anything.**
+
+Show the draft to the user and offer to save it to `.sentinal/runtime.json`.
+
+If nothing was inferable, the draft is a commented template. Say so plainly and let the user decline — an empty contract is worth less than the two minutes of attention it costs.
+
+### Step 6.5.3: Report detected resources — in the conversation, once
+
+`runtime_init` reports the shared-resource classes it detected (postgres, redis, and so on). **Say them here, out loud, and do not write them into the file.** A human reading `/sync` output is paying attention; a human reading a generated file tends to accept it.
+
+Use this framing:
+
+> Detected postgres and redis. I have left `isolation` unset, so Sentinal will note them but will **not** interrupt your runs. If your `up` command namespaces them per-slot, set them to `"isolated"`. If they are genuinely shared with your main checkout, set them to `"shared"` and Sentinal will ask before any run that could touch them.
+
+**⛔ Never add an `isolation` map to the draft yourself, and never offer to.** Every value would be a guess:
+
+- `"isolated"` is a **false all-clear** — a `db` service in compose says nothing about whether the project name is slot-parameterised.
+- `"none"` is absence-of-evidence — it would suppress a real confirmation gate.
+- `"shared"` would manufacture a **false block on every run**, which is alarm fatigue; blocking is reserved for a deliberate human declaration.
+
+Omission is fail-safe: unstated means **unknown**, and unknown never blocks. This is the one moment the user is asked to think about isolation; after that the decision is theirs to record.
+
 ## Phase 7: Sync MCP Rules
 
 **Document user-configured MCP servers.** Skip Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.
@@ -547,6 +581,7 @@ Skills are appropriate for: multi-step workflows, tool integrations, reusable sc
 5. **Reference validity** — cross-references between files point to files that actually exist
 6. **README currency** — if `.sentinal/rules/README.md` exists, verify it lists all current rule files and directories. Update if stale.
 7. **Path-scoping enforcement** — re-verify all team-level rules have `paths` frontmatter
+8. **Runtime contract validity** — if `.sentinal/runtime.json` exists, confirm it still parses (`runtime_config`) and that it declares no `isolation` entry Sentinal invented rather than the user
 
 Auto-fix any issues found. Report fixes in summary.
 
@@ -560,6 +595,7 @@ Report:
 - Rules: created, updated, unchanged (by directory level)
 - Path-scoping: team rules validated, violations fixed
 - Skills: created, updated, removed, unchanged
+- Runtime contract: present | drafted | declined | nothing to infer (and any detected shared resources)
 - Cross-check: issues found and fixed (if any)
 - Vexor: available / not available (Grep/Glob used as fallback)
 

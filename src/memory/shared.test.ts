@@ -18,6 +18,7 @@ import {
   addSharedObservation,
   sharedMemoryPath,
   toObservation,
+  ensureSentinalGitignore,
   type SharedObservation,
 } from "./shared.js";
 
@@ -196,6 +197,22 @@ describe(".sentinal/.gitignore", () => {
     "!.gitignore\n" +
     "!project-memory.json\n";
 
+  // v2: the skills/rules allowlist (2026-07-19). Superseded by v3, which adds
+  // `!runtime.json`. Existing installs sitting on v2 must UPGRADE, not be
+  // classified user-customised — otherwise the runtime contract never reaches
+  // teammates or CI and the whole tier silently never activates.
+  const V2_CONTENT =
+    "# Ignore everything in .sentinal/ except shared project memory, rules, and skills\n" +
+    "*\n" +
+    "!.gitignore\n" +
+    "!project-memory.json\n" +
+    "!rules\n" +
+    "!rules/\n" +
+    "!rules/**\n" +
+    "!skills\n" +
+    "!skills/\n" +
+    "!skills/**\n";
+
   it("should create .gitignore when writing shared memory", () => {
     writeSharedMemory(projectDir, [makeSharedObs()]);
 
@@ -264,6 +281,56 @@ describe(".sentinal/.gitignore", () => {
     expect(content).toContain("!rules/**");
   });
 
+  // ── Phase 3 / R9: the project-authored runtime contract must be committable ──
+
+  it("upgrades a v2 .gitignore so .sentinal/runtime.json becomes trackable", () => {
+    mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+    writeFileSync(gitignoreOf(projectDir), V2_CONTENT);
+
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+
+    const content = readFileSync(gitignoreOf(projectDir), "utf-8");
+    expect(content).not.toBe(V2_CONTENT); // was upgraded, not treated as custom
+    expect(content).toContain("!runtime.json");
+    // The v2 allowlist must survive the upgrade.
+    expect(content).toContain("!project-memory.json");
+    expect(content).toContain("!skills/**");
+    expect(content).toContain("!rules/**");
+  });
+
+  // BEHAVIOURAL proof, not a string assertion: `!runtime.json` after a `*`
+  // deny-all only works because .sentinal/ is not itself excluded by a parent
+  // .gitignore. Only `git check-ignore` can prove the negation actually took.
+  it("tracks .sentinal/runtime.json (not ignored) in a real git repo", () => {
+    const { execFileSync } = require("node:child_process");
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
+    execFileSync("git", ["init", "-q"], { cwd: projectDir, env });
+
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+    writeFileSync(join(projectDir, ".sentinal", "runtime.json"), "{}\n");
+
+    const isIgnored = (rel: string): boolean => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", rel], {
+          cwd: projectDir,
+          env,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    expect(isIgnored(".sentinal/runtime.json")).toBe(false);
+    // Guard against a too-broad negation: neighbours stay ignored.
+    expect(isIgnored(".sentinal/runtime.log")).toBe(true);
+    expect(isIgnored(".sentinal/runtime.json.bak")).toBe(true);
+  });
+
   it("preserves a user-customized .gitignore (no known-prior match)", () => {
     mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
     writeFileSync(gitignoreOf(projectDir), "custom content\n");
@@ -273,6 +340,155 @@ describe(".sentinal/.gitignore", () => {
     expect(readFileSync(gitignoreOf(projectDir), "utf-8")).toBe(
       "custom content\n",
     );
+  });
+
+  /**
+   * R9a — the upgrade path must not depend on shared memory being used.
+   *
+   * `ensureGitignore` used to have exactly ONE call site: `writeSharedMemory`.
+   * So the KNOWN_PRIOR_GITIGNORES upgrade (which is what makes
+   * `.sentinal/runtime.json` committable) only ever reached projects that
+   * later promoted an observation to shared memory. A project that never did
+   * kept `runtime.json` ignored and the whole runtime-contract tier silently
+   * never activated for it.
+   *
+   * `ensureSentinalGitignore()` is the install/update entry point. It must
+   * preserve `ensureGitignore`'s guard EXACTLY — rewrite only on an exact
+   * match against the current content or a known prior version, never touch
+   * anything else.
+   */
+  describe("ensureSentinalGitignore (install/update entry point)", () => {
+    const initGit = (dir: string) => {
+      const { execFileSync } = require("node:child_process");
+      execFileSync("git", ["init", "-q"], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+        },
+      });
+    };
+
+    it("upgrades a v2 .gitignore WITHOUT any shared-memory write", () => {
+      initGit(projectDir);
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+      writeFileSync(gitignoreOf(projectDir), V2_CONTENT);
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(true);
+
+      const content = readFileSync(gitignoreOf(projectDir), "utf-8");
+      expect(content).toContain("!runtime.json");
+      expect(content).toContain("!project-memory.json");
+      expect(content).toContain("!skills/**");
+    });
+
+    it("upgrades a v1 .gitignore WITHOUT any shared-memory write", () => {
+      initGit(projectDir);
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+      writeFileSync(gitignoreOf(projectDir), V1_CONTENT);
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(true);
+      expect(readFileSync(gitignoreOf(projectDir), "utf-8")).toContain(
+        "!runtime.json",
+      );
+    });
+
+    it("creates the file when .sentinal/ exists but carries no .gitignore", () => {
+      initGit(projectDir);
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(true);
+      expect(existsSync(gitignoreOf(projectDir))).toBe(true);
+    });
+
+    // ⛔ The whole point of the guard. A user who edited the file owns it.
+    it("leaves a user-customized .gitignore byte-for-byte untouched", () => {
+      initGit(projectDir);
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+      const custom =
+        "*\n!.gitignore\n!project-memory.json\n!continue-here.md\n";
+      writeFileSync(gitignoreOf(projectDir), custom);
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(false);
+      expect(readFileSync(gitignoreOf(projectDir), "utf-8")).toBe(custom);
+    });
+
+    it("is a no-op when the file is already current (no needless rewrite)", () => {
+      initGit(projectDir);
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+      writeSharedMemory(projectDir, [makeSharedObs()]);
+      const current = readFileSync(gitignoreOf(projectDir), "utf-8");
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(false);
+      expect(readFileSync(gitignoreOf(projectDir), "utf-8")).toBe(current);
+    });
+
+    // `sentinal install` is frequently run from $HOME, where ~/.sentinal/ is
+    // the RUNTIME dir (sidecar.sock, bin/). Writing a .gitignore there is
+    // noise, and a .gitignore outside a git working tree does nothing anyway.
+    it("does nothing when .sentinal/ exists but the path is not a git work tree", () => {
+      mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(false);
+      expect(existsSync(gitignoreOf(projectDir))).toBe(false);
+    });
+
+    // Never CREATE .sentinal/ — that is the installer's job, not this helper's.
+    it("does nothing when .sentinal/ does not exist", () => {
+      initGit(projectDir);
+
+      expect(ensureSentinalGitignore(projectDir)).toBe(false);
+      expect(existsSync(join(projectDir, ".sentinal"))).toBe(false);
+    });
+
+    it("never throws on an unwritable / bogus path", () => {
+      expect(() =>
+        ensureSentinalGitignore("/nonexistent/definitely/not/here"),
+      ).not.toThrow();
+    });
+  });
+});
+
+/**
+ * R9 regression, against THIS repository's own checked-in `.sentinal/.gitignore`.
+ *
+ * The generator test above proves the emitted content is correct. It does NOT
+ * prove this repo benefits: this repo's file carries a deliberate local
+ * `!continue-here.md` customisation (recorded in
+ * `docs/plans/2026-07-19-sentinal-gitignore-track-skills-rules.md:28`), so it
+ * matches neither GITIGNORE_CONTENT nor any KNOWN_PRIOR_GITIGNORES entry and
+ * `ensureGitignore` will never auto-upgrade it. It is hand-maintained, and this
+ * test is what stops the hand-maintenance silently rotting.
+ */
+describe("this repo's own .sentinal/.gitignore (R9)", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  const isIgnoredHere = (rel: string): boolean => {
+    const { execFileSync } = require("node:child_process");
+    // Same insulation as the temp-repo helper above: a developer whose global
+    // `core.excludesFile` ignores `.sentinal/` or `*.json` would otherwise get
+    // a different answer than CI. (A global rule can only ADD ignores, so this
+    // could never have caused a false pass — only local flakiness.)
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
+    try {
+      execFileSync("git", ["check-ignore", "-q", rel], { cwd: repoRoot, env });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("does not ignore .sentinal/runtime.json", () => {
+    expect(isIgnoredHere(".sentinal/runtime.json")).toBe(false);
+  });
+
+  it("still ignores unrelated .sentinal/ scratch files", () => {
+    expect(isIgnoredHere(".sentinal/scratch.log")).toBe(true);
   });
 });
 

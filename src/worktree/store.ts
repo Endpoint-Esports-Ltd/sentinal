@@ -27,6 +27,7 @@ interface RawWorktree {
   created_at: number;
   merged_at: number | null;
   merge_commit: string | null;
+  slot: number | null;
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────
@@ -42,8 +43,8 @@ export class WorktreeStore {
   insert(wt: Omit<Worktree, "mergedAt" | "mergeCommit">): Worktree {
     this.db
       .prepare(
-        `INSERT INTO worktrees (id, spec_id, project_path, worktree_path, branch_name, base_branch, base_commit, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO worktrees (id, spec_id, project_path, worktree_path, branch_name, base_branch, base_commit, status, created_at, slot)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         wt.id,
@@ -55,6 +56,7 @@ export class WorktreeStore {
         wt.baseCommit,
         wt.status,
         wt.createdAt,
+        wt.slot ?? null,
       );
     return this.get(wt.id)!;
   }
@@ -153,6 +155,59 @@ export class WorktreeStore {
     return row.count;
   }
 
+  // ─── Slots ────────────────────────────────────────────────────────────
+
+  /**
+   * The slots currently held by **live** worktrees of `projectPath`, ascending.
+   *
+   * ⛔ "Live" is `('active','ready-to-merge')`, matching the `idx_wt_slot_live`
+   * partial unique index exactly. Filtering on `'active'` alone here would let
+   * the allocator hand out the slot of a `ready-to-merge` worktree that is
+   * still on disk — and the DB would then reject the insert anyway.
+   *
+   * Rows with `slot IS NULL` (pre-V12, or a reconcile that found no free slot)
+   * are omitted: they hold nothing.
+   */
+  listLiveSlots(projectPath: string): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT slot FROM worktrees
+          WHERE project_path = ?
+            AND slot IS NOT NULL
+            AND status IN ('active', 'ready-to-merge')
+          ORDER BY slot ASC`,
+      )
+      .all(projectPath) as Array<{ slot: number }>;
+    return rows.map((r) => r.slot);
+  }
+
+  /**
+   * Assign a slot to an existing row.
+   *
+   * ⚠️ This exists **only** for lazy allocation of pre-V12 rows that carry
+   * `slot = NULL` (master plan assumption: "allocated lazily on next resolve").
+   * It is NOT a release mechanism — nothing in production ever writes
+   * `slot = NULL`, because that would destroy the record of which slot a
+   * merged/abandoned worktree held, which is what lets `resolveWithReconcile`
+   * recover the slot its on-disk config was written against.
+   */
+  assignSlot(id: string, slot: number): void {
+    this.db.prepare("UPDATE worktrees SET slot = ? WHERE id = ?").run(slot, id);
+  }
+
+  /**
+   * Run `fn` inside a `BEGIN IMMEDIATE` transaction.
+   *
+   * ⚠️ Bun's `db.transaction()` defaults to DEFERRED, which takes no write lock
+   * until the first write — leaving a read-then-write sequence (allocate, then
+   * insert) racy across the CLI, MCP server and sidecar, which all open the
+   * same DB file. IMMEDIATE takes the write lock up front.
+   */
+  runImmediate<T>(fn: () => T): T {
+    const tx = this.db.transaction(fn);
+    return tx.immediate() as T;
+  }
+
   /**
    * Resolve a plan slug to a worktree.
    * 1. Try exact match on spec_id (primary)
@@ -209,6 +264,9 @@ export class WorktreeStore {
       createdAt: row.created_at,
       mergedAt: row.merged_at ?? undefined,
       mergeCommit: row.merge_commit ?? undefined,
+      // Explicit null (not undefined): "no slot assigned" is a real state that
+      // callers must render as such, not silently drop.
+      slot: row.slot ?? null,
     };
   }
 }

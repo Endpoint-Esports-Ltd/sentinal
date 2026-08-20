@@ -18,6 +18,8 @@ import { registerWorktreeTools } from "../worktree/mcp-tools.js";
 import { registerTddTools } from "../tdd/mcp-tools.js";
 import { registerAnalysisTools } from "../analysis/mcp-tools.js";
 import { registerProjectTools } from "../project/mcp-tools.js";
+import { registerRuntimeTools } from "../runtime/mcp-tools.js";
+import { runtimeWorktreeConfig } from "../runtime/worktree-deps.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
 
@@ -47,10 +49,22 @@ export function createSentinalServer(opts: ServerOptions = {}): {
 
   registerMemoryTools(server, { client, store });
   registerSpecTools(server, { client, store });
-  registerWorktreeTools(server, { client, store });
+  // ⛔ The worktree tools cannot build this themselves: `src/worktree/` may
+  // import nothing from `src/runtime/` (no-module-cycle guard), and
+  // `worktree/mcp-tools.ts` constructs a manager from inside that directory.
+  // Threading the config down from here is what keeps the graph acyclic.
+  registerWorktreeTools(server, {
+    client,
+    store,
+    worktreeConfig: runtimeWorktreeConfig(),
+  });
   registerTddTools(server, { client, store });
   registerAnalysisTools(server, { client, store });
   registerProjectTools(server, { client });
+  // Direct-only by design — a stateless fs read of a path derived from the
+  // tool's own `project` argument, so the sidecar's warm state buys nothing.
+  // See the docblock in src/runtime/mcp-tools.ts before adding a route.
+  registerRuntimeTools(server, {});
 
   return { server, store };
 }

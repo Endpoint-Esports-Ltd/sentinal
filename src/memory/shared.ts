@@ -258,10 +258,23 @@ export function registerSharedTools(
 
 // ─── Gitignore ────────────────────────────────────────────────────────────────
 
-const GITIGNORE_CONTENT = `# Ignore everything in .sentinal/ except shared project memory, rules, and skills
+/**
+ * ⛔ Order matters. `*` denies everything first, so every allowlist entry MUST
+ * come after it. And a negation inside an EXCLUDED DIRECTORY is inert — git
+ * never descends into a pruned directory, so if a parent `.gitignore` carries
+ * `.sentinal/` these `!` lines do nothing at all. `runtimeContractIgnored()`
+ * detects that case and names the remedy.
+ *
+ * `runtime.json` is the project-authored runtime contract (Phase 3). It is
+ * committed BY THE PROJECT and must reach teammates and CI, so it is allowlisted
+ * rather than ignored like the rest of `.sentinal/`'s runtime state.
+ */
+const GITIGNORE_CONTENT = `# Ignore everything in .sentinal/ except shared project memory, the runtime
+# contract, rules, and skills
 *
 !.gitignore
 !project-memory.json
+!runtime.json
 !rules
 !rules/
 !rules/**
@@ -283,18 +296,78 @@ const KNOWN_PRIOR_GITIGNORES: readonly string[] = [
 !.gitignore
 !project-memory.json
 `,
+  // v2 — the skills/rules allowlist (2026-07-19). Superseded by v3, which adds
+  // `!runtime.json`. Without this entry every v2 install would be classified
+  // "user-customized" and never upgrade, so the runtime contract would stay
+  // ignored and the whole tier would silently never activate for them.
+  `# Ignore everything in .sentinal/ except shared project memory, rules, and skills
+*
+!.gitignore
+!project-memory.json
+!rules
+!rules/
+!rules/**
+!skills
+!skills/
+!skills/**
+`,
 ];
 
-function ensureGitignore(sentinalDir: string): void {
+function ensureGitignore(sentinalDir: string): boolean {
   const gitignorePath = join(sentinalDir, ".gitignore");
 
   if (existsSync(gitignorePath)) {
     // Upgrade only if the existing file is a known prior Sentinal-generated
     // version (exact match). Otherwise it may be user-customized — leave it.
     const existing = readFileSync(gitignorePath, "utf-8");
-    if (existing === GITIGNORE_CONTENT) return; // already current
-    if (!KNOWN_PRIOR_GITIGNORES.includes(existing)) return; // user-customized
+    if (existing === GITIGNORE_CONTENT) return false; // already current
+    if (!KNOWN_PRIOR_GITIGNORES.includes(existing)) return false; // user-customized
   }
 
   writeFileSync(gitignorePath, GITIGNORE_CONTENT, "utf-8");
+  return true;
+}
+
+/**
+ * R9a — install/update entry point for the `.sentinal/.gitignore` upgrade.
+ *
+ * ⛔ `ensureGitignore` had exactly ONE call site: `writeSharedMemory`. The
+ * KNOWN_PRIOR_GITIGNORES upgrade — the thing that makes the project-authored
+ * `.sentinal/runtime.json` committable — therefore only ever reached projects
+ * that later promoted an observation to shared memory. Any project that never
+ * used shared memory kept `runtime.json` **ignored**, so the whole
+ * runtime-contract tier silently never activated for it.
+ *
+ * This wrapper widens the reach to every `sentinal install` and `sentinal
+ * update` while **delegating to the exact same `ensureGitignore`** — the
+ * user-customised guard is untouched: a file matching neither
+ * `GITIGNORE_CONTENT` nor a `KNOWN_PRIOR_GITIGNORES` entry is still left
+ * byte-for-byte alone.
+ *
+ * Two preconditions apply HERE that do not apply to the shared-memory path,
+ * because this runs against whatever directory the user happened to be in when
+ * they typed `sentinal install`:
+ *
+ *   1. `.sentinal/` must already exist — this helper never creates it. That is
+ *      the installer's job (`setupProjectSymlinks`).
+ *   2. `projectPath` must be a git working tree. `sentinal install` is often
+ *      run from `$HOME`, where `~/.sentinal/` is the RUNTIME directory
+ *      (sidecar.sock, bin/, …). A `.gitignore` there would be pure noise, and
+ *      a `.gitignore` outside a repository does nothing regardless.
+ *
+ * Never throws — a failure here must not break an install.
+ *
+ * @returns true if the file was written, false if skipped or already current.
+ */
+export function ensureSentinalGitignore(projectPath: string): boolean {
+  try {
+    const dir = join(projectPath, SENTINAL_DIR);
+    if (!existsSync(dir)) return false;
+    // `.git` is a directory in a normal clone and a FILE in a git worktree —
+    // existsSync covers both.
+    if (!existsSync(join(projectPath, ".git"))) return false;
+    return ensureGitignore(dir);
+  } catch {
+    return false;
+  }
 }

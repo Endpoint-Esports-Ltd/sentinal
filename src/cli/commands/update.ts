@@ -27,6 +27,7 @@ import {
 } from "./uninstall.js";
 import { installClaudeCode, installOpenCode } from "./install.js";
 import { runAutoSetup } from "./auto-setup.js";
+import { ensureSentinalGitignore } from "../../memory/shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -358,8 +359,17 @@ export async function downloadAndInstall(
  *
  * Called after a successful binary download. Failures are non-fatal —
  * the binary is already updated; user can manually `sentinal install`.
+ *
+ * ⛔ R9a: the `.sentinal/.gitignore` upgrade runs FIRST, before the
+ * no-assistant early return. It is a project-file migration, not a plugin
+ * concern — skipping it when no assistant happens to be detected would leave
+ * `.sentinal/runtime.json` ignored on exactly the installs that most need the
+ * upgrade. No-op unless `.sentinal/` exists in a git work tree; never touches
+ * a user-customised file.
  */
 export async function reinstallPlugins(): Promise<void> {
+  ensureSentinalGitignore(process.cwd());
+
   // Detect BEFORE uninstalling (Pre-Mortem #2)
   const targets = detectInstalledTargets();
 
