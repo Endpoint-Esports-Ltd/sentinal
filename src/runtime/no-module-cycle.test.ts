@@ -24,6 +24,24 @@ const RUNTIME_DIR = join(SRC, "runtime");
 /** The barrel re-exports the whole runtime domain (src/index.ts:274-306). */
 const BARREL = join(SRC, "index");
 
+/**
+ * ⚠️ This file deliberately keeps its OWN copy of the resolver rather than
+ * importing `src/analysis/imports.ts`, which was promoted from it.
+ *
+ * The two need **opposite** treatment of re-exports. `imports.ts` excludes
+ * `export … from` because a barrel forwards a symbol, it does not call it — a
+ * re-exporter is not an "importer" for impact purposes. A cycle check needs the
+ * exact opposite: `export * from "../runtime/loader.js"` closes a
+ * `worktree → runtime` cycle just as surely as an import would, and is
+ * precisely the indirect-through-the-barrel case the doc comment above calls
+ * out. Importing the analysis resolver here would silently disable that half of
+ * the guard.
+ *
+ * A guard that shares code with the thing it guards is also weaker on its own
+ * terms: a bug in the shared resolver would take the alarm down with it.
+ * Two short, divergent copies are correct here; this is not DRY debt.
+ */
+
 /** Every `from "..."` / `require("...")` specifier in a file. */
 function importsOf(path: string): string[] {
   const text = readFileSync(path, "utf-8");

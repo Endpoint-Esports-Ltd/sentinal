@@ -5,12 +5,12 @@
  *   - Parsing tsc output
  *   - Extracting spec file paths from plan files
  *   - File line counting
- *   - Import counting via grep
+ *   - Importer counting (delegated to the parsed-import resolver in ./imports.ts)
  *   - Project hash for cache keys
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { countTransitiveImporters, type ImportGraph } from "./imports.js";
 
 // --- Types ---
 
@@ -124,31 +124,23 @@ export function isExpectedFile(
 }
 
 /**
- * Count how many TypeScript files import from the given file.
- * Uses grep for a quick approximation.
+ * How many modules reach the given file, directly or transitively.
+ *
+ * Previously a basename grep (`grep -rl "from.*<basename>"`), which was
+ * file-granular, single-hop and substring-matched — it counted barrel
+ * re-exports and comments as importers while missing every transitive caller.
+ * It now defers to the parsed-import resolver in `./imports.ts`.
+ *
+ * Pass `graph` to reuse a single graph across many files; omit it and one is
+ * built for this call.
  */
-export async function countImporters(
+export function countImporters(
   relPath: string,
   project: string,
-): Promise<number> {
-  const baseName = relPath.replace(/\.[^.]+$/, "").replace(/^.*\//, "");
+  graph?: ImportGraph,
+): number {
   try {
-    const proc = Bun.spawn(
-      [
-        "grep",
-        "-rl",
-        `from.*${baseName}`,
-        "--include=*.ts",
-        "--include=*.tsx",
-        "src",
-      ],
-      { cwd: project, stdout: "pipe", stderr: "pipe" },
-    );
-    await proc.exited;
-    const output = await proc.stdout.text();
-    const lines = output.split("\n").filter((l) => l.trim().length > 0);
-    // Exclude the file itself
-    return lines.filter((l) => !l.includes(relPath)).length;
+    return countTransitiveImporters(relPath, project, graph);
   } catch {
     return 0;
   }
