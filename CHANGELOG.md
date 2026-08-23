@@ -1,3 +1,10 @@
+# [1.34.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.33.0...v1.34.0) (2026-08-23)
+
+
+### Features
+
+* **worktree:** runtime isolation for worktrees (closes [#2](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/2)) ([13d23e6](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/13d23e68fabe43f678a81c0acb5399ccd0464014))
+
 # [1.33.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.32.0...v1.33.0) (2026-07-24)
 
 
