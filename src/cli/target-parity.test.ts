@@ -149,6 +149,10 @@ const IDENTICAL_RULES: string[] = [
   // identically ("use a browser-automation tool with instance isolation").
   // Verified byte-identical at the time of adding.
   "testing.md",
+  // Added when the graph-reach capability contract was appended to both copies
+  // identically. It was already byte-identical before that edit but UNGUARDED,
+  // so it could have drifted silently; guarding it now closes that gap.
+  "mcp-servers.md",
 ];
 
 function ccPath(pair: string): string {

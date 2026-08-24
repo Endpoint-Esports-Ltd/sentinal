@@ -470,7 +470,18 @@ Omission is fail-safe: unstated means **unknown**, and unknown never blocks. Thi
 
 ### Step 7.1: Discover
 
-Parse `.mcp.json`, exclude Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp).
+Read every location below that exists — **both targets, both scopes** — and merge the results. Reading only `.mcp.json` finds nothing on an OpenCode-only project.
+
+| Scope   | Claude Code (`mcpServers` key)              | OpenCode (`mcp` key)                                                    |
+| ------- | ------------------------------------------- | ----------------------------------------------------------------------- |
+| Project | `.mcp.json`                                 | `opencode.json{,c}`, `.opencode/opencode.json`                          |
+| User    | `~/.claude.json`, `~/.claude/settings.json` | `$XDG_CONFIG_HOME/opencode/opencode.json{,c}` (defaults to `~/.config`) |
+
+**⚠️ Extract the `mcpServers` key from `~/.claude.json` — never read that file whole.** It stores per-project session state and routinely reaches tens of megabytes. Use `jq '.mcpServers' ~/.claude.json` or equivalent.
+
+Entry shapes differ: Claude Code `{command, args}`, OpenCode `{type, command[]|url}`. Record which scope each server came from — Step 7.4 labels the user-scope ones.
+
+Exclude Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp).
 
 ### Step 7.2: Smoke-Test
 
@@ -510,7 +521,34 @@ Create/update `.sentinal/rules/{slug}-mcp-servers.md`:
 **Example:** `ToolSearch(query="+server-name keyword")` then call directly.
 ```
 
-**Skip if:** no `.mcp.json`, no user-added servers, user declines.
+**Label user-scope servers.** For a server found only in a user config, the `**Source:**` line must say so — this file is committed and shared, so an unlabelled user-global server is a false promise to teammates. Write exactly: `**Source:** ~/.claude.json (user-global — may not be present for teammates)`.
+
+**Graph-tool wiring.** If a detected server exposes a code-graph capability — modules transitively reaching a file **and** the total module count of its graph — record it in the same file, delimited by these exact markers:
+
+```markdown
+<!-- SENTINAL GRAPH TOOLS: BEGIN (managed by /sync — edits inside are overwritten) -->
+
+### Code-graph reach for `impact_analysis`
+
+| Capability                                 | Tool          |
+| ------------------------------------------ | ------------- |
+| Modules transitively reaching a file       | `trace_path`  |
+| Total modules in the graph (universe size) | `graph_stats` |
+
+Before calling `impact_analysis`, collect reach for **every** changed `.ts`/`.tsx`/`.js` file, then pass it with the universe size from the same tool:
+
+`impact_analysis(project="<repo>", reach={"moduleCount": <total>, "files": {"src/a.ts": <n>, ...}, "source": "<server> <tool>"})`
+
+A partial `files` map is rejected outright and nothing is scored — see "Code-Graph Reach" in `mcp-servers.md` for the full contract.
+
+<!-- SENTINAL GRAPH TOOLS: END -->
+```
+
+- **Name only tools Step 7.2 actually found** — 1-3 rows. `trace_path`/`graph_stats` above are placeholders, not names to copy.
+- **⛔ Emit the block only if the universe size (`moduleCount`) is obtainable from the detected tool.** A guessed `moduleCount` manufactures a false HIGH on every change — the same alarm fatigue a guessed `isolation` would cause in Phase 6.5. Omission is fail-safe: write nothing and report "detected but universe size unknown" in Phase 12.
+- **Idempotent:** if both markers are already present, replace everything between them; otherwise append the whole block. Exactly one block per file.
+
+**Skip if:** no MCP config at any of the four locations, no user-added servers, user declines.
 
 ## Phase 8: Sync Existing Skills
 
@@ -580,6 +618,7 @@ Skills are appropriate for: multi-step workflows, tool integrations, reusable sc
 6. **README currency** — if `.sentinal/rules/README.md` exists, verify it lists all current rule files and directories. Update if stale.
 7. **Path-scoping enforcement** — re-verify all team-level rules have `paths` frontmatter
 8. **Runtime contract validity** — if `.sentinal/runtime.json` exists, confirm it still parses (`runtime_config`) and that it declares no `isolation` entry Sentinal invented rather than the user
+9. **Graph-tool block validity** — if a `SENTINAL GRAPH TOOLS` block exists, confirm every tool it names is still reachable and that **exactly one** such block is present; two means a re-run appended instead of replacing between the markers, so merge them back into one
 
 Auto-fix any issues found. Report fixes in summary.
 
@@ -594,6 +633,7 @@ Report:
 - Path-scoping: team rules validated, violations fixed
 - Skills: created, updated, removed, unchanged
 - Runtime contract: present | drafted | declined | nothing to infer (and any detected shared resources)
+- Graph tools: wired <names> | detected but universe size unknown (block omitted) | none detected
 - Cross-check: issues found and fixed (if any)
 - Vexor: available / not available (Grep/Glob used as fallback)
 

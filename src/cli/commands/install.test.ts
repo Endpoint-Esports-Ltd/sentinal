@@ -425,23 +425,6 @@ describe("checkChromeDevToolsMcp", () => {
     }
   });
 
-  /**
-   * A user who configured Chrome DevTools MCP PROJECT-LOCALLY was still told it
-   * was "not configured", because only the two global OpenCode paths and
-   * `~/.claude.json` were consulted.
-   */
-  it("consults project-local and Claude Code settings paths by default", () => {
-    const paths = defaultMcpConfigPaths();
-    expect(paths).toContain(join(process.cwd(), ".opencode", "opencode.json"));
-    expect(paths).toContain(join(process.cwd(), ".mcp.json"));
-    expect(paths).toContain(join(homedir(), ".claude", "settings.json"));
-    // The pre-existing global paths must survive.
-    expect(paths).toContain(
-      join(homedir(), ".config", "opencode", "opencode.json"),
-    );
-    expect(paths).toContain(join(homedir(), ".claude.json"));
-  });
-
   it("does not call process.exit under any circumstance (soft warning only)", () => {
     capture();
     const exitSpy = spyOn(process, "exit").mockImplementation((() => {
@@ -459,5 +442,91 @@ describe("checkChromeDevToolsMcp", () => {
       }),
     ).not.toThrow();
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── defaultMcpConfigPaths ───────────────────────────────────────────────────
+//
+// The list IS the behaviour of the probe's config scan, so it is pinned
+// directly rather than inferred from `checkChromeDevToolsMcp` output.
+//
+// Two historical bugs are guarded here:
+//   1. The OpenCode global paths were hardcoded to `~/.config`, ignoring
+//      `XDG_CONFIG_HOME` — which every other install/uninstall code path
+//      honours via `resolveXdgConfig()`.
+//   2. `<cwd>/opencode.json` was missing. `writeOpenCodeConfig` in `--local`
+//      mode writes to the PROJECT ROOT, not `.opencode/` — so the one file a
+//      local install actually produces was never scanned.
+
+describe("defaultMcpConfigPaths", () => {
+  const ORIGINAL_XDG = process.env.XDG_CONFIG_HOME;
+
+  const restoreXdg = () => {
+    if (ORIGINAL_XDG === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = ORIGINAL_XDG;
+  };
+
+  afterEach(restoreXdg);
+
+  it("returns the full canonical list when XDG_CONFIG_HOME is unset", () => {
+    delete process.env.XDG_CONFIG_HOME;
+    expect(defaultMcpConfigPaths()).toEqual([
+      join(homedir(), ".config", "opencode", "opencode.json"),
+      join(homedir(), ".config", "opencode", "opencode.jsonc"),
+      join(homedir(), ".claude.json"),
+      join(homedir(), ".claude", "settings.json"),
+      join(process.cwd(), "opencode.json"),
+      join(process.cwd(), "opencode.jsonc"),
+      join(process.cwd(), ".opencode", "opencode.json"),
+      join(process.cwd(), ".mcp.json"),
+    ]);
+  });
+
+  /**
+   * A user who configured Chrome DevTools MCP PROJECT-LOCALLY was still told it
+   * was "not configured", because only the two global OpenCode paths and
+   * `~/.claude.json` were consulted.
+   */
+  it("consults project-local and Claude Code settings paths", () => {
+    delete process.env.XDG_CONFIG_HOME;
+    const paths = defaultMcpConfigPaths();
+    expect(paths).toContain(join(process.cwd(), ".opencode", "opencode.json"));
+    expect(paths).toContain(join(process.cwd(), ".mcp.json"));
+    expect(paths).toContain(join(homedir(), ".claude", "settings.json"));
+    // The pre-existing global paths must survive.
+    expect(paths).toContain(
+      join(homedir(), ".config", "opencode", "opencode.json"),
+    );
+    expect(paths).toContain(join(homedir(), ".claude.json"));
+  });
+
+  /** `--local` OpenCode installs write `opencode.json` to the project ROOT. */
+  it("includes project-root opencode.json and opencode.jsonc", () => {
+    const paths = defaultMcpConfigPaths();
+    expect(paths).toContain(join(process.cwd(), "opencode.json"));
+    expect(paths).toContain(join(process.cwd(), "opencode.jsonc"));
+  });
+
+  it("moves the OpenCode global entries when XDG_CONFIG_HOME is set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-xdg-"));
+    try {
+      process.env.XDG_CONFIG_HOME = dir;
+      const paths = defaultMcpConfigPaths();
+      expect(paths).toContain(join(dir, "opencode", "opencode.json"));
+      expect(paths).toContain(join(dir, "opencode", "opencode.jsonc"));
+      // ...and no longer point at the hardcoded ~/.config fallback.
+      expect(paths).not.toContain(
+        join(homedir(), ".config", "opencode", "opencode.json"),
+      );
+      expect(paths).not.toContain(
+        join(homedir(), ".config", "opencode", "opencode.jsonc"),
+      );
+      // Non-XDG entries are unaffected.
+      expect(paths).toContain(join(homedir(), ".claude.json"));
+      expect(paths).toContain(join(process.cwd(), ".mcp.json"));
+    } finally {
+      restoreXdg();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,0 +1,63 @@
+{
+  "review_summary": "The plan faithfully delivers all four user clarifications and does not contradict the prior plans' constraints, but it contains a self-contradicting wave assignment, over-claims that the nested `reach` schema closes the mixed-universe hazard (a partial `files` map still mixes universes), and wrongly treats Task 4/5 prose as untestable when the repo already has a test that asserts on `sync.md` content.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Wave assignments contradict the plan's own stated rule — Tasks 4 and 5 are both Wave 2",
+      "description": "Execution Waves (line 118) states: \"Task 5 depends on Task 4 ... and touches the same two files, so it cannot share a wave with it.\" But Progress Tracking (lines 162-163), Task 4 (line 289) and Task 5 (line 344) all assign **Wave 2**. Task 5's own notes repeat the rule at line 354 (\"Separate task, separate wave from Task 4 solely because it edits the same two files\"). Both tasks modify `targets/claude-code/commands/sync.md`, `targets/opencode/commands/sync.md`, and regenerate the same `src/cli/__fixtures__/target-parity/sync.diff`. If a wave executor reads the `Wave: 2` field literally and parallelises, two agents will write the same three files concurrently and clobber each other's `sync.diff` regeneration.",
+      "suggested_fix": "Change Task 5's `**Wave:** 2` to `**Wave:** 3`, update the Progress Tracking line to `(Wave 3)`, and rewrite the Execution Waves section to name three waves: \"**Wave 2** — Task 4 only. **Wave 3** — Task 5 (depends on Task 4 and edits the same three files).\""
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "The nested `reach` schema does NOT make a mismatched universe unrepresentable — a partial `files` map still mixes universes",
+      "description": "Gotcha 1 (line 65) claims \"The nested-object schema exists specifically to make this unrepresentable,\" and the Risks table (line 99) says the mitigation is that `moduleCount` is non-optional alongside `files`. This is false. `buildImpactOutput` divides *every* changed file's `importerCount` by a *single* `moduleCount` (`impact.ts:310`, `:315`, `:318-319`), and Task 1's own precedence rule (line 197) falls back per-file: `reach.files[relPath]` -> `providerReach` -> `countImporters`. So if an agent supplies `{ moduleCount: 5000, files: { \"a.ts\": 900 } }` for a 12-file changeset, the 11 unsupplied files get Sentinal's built-in importer counts (universe ~334) divided by the agent's 5000 -> they all silently score LOW, while `a.ts` scores against the correct universe. The reverse (agent universe smaller than Sentinal's) produces false HIGHs. There is also no check that any `files` value is <= `moduleCount`, so a symbol-graph count (reach measured in symbols, not modules) passes the schema cleanly.",
+      "suggested_fix": "Add two guards to Task 1 and to its Definition of Done: (1) a zod `.refine()` on the `reach` object asserting `Object.values(files).every(v => v <= moduleCount)`, with the message naming the offending path — a value exceeding the universe size proves the two came from different metrics; (2) in `resolveReach`, when `reach` is supplied, do NOT mix tiers per-file — either use the agent universe for all files (treating unsupplied TS files as reach `0` is wrong, so instead) fall back to the built-in resolver **and** the built-in `graph.modules.size` for any file absent from `files`, i.e. make the universe a per-file property paired with its reach value rather than a single report-level scalar. Add DoD items: \"A test asserts a `files` value greater than `moduleCount` is rejected at the zod boundary\" and \"A test asserts a partial `files` map does not score unsupplied files against the agent's `moduleCount`.\""
+    },
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "Tasks 4 and 5 have no content test, but the repo already has the exact pattern for one",
+      "description": "Tasks 4 and 5 deliver only prose, and their DoD relies entirely on byte-identity (`diff <(sed -n '/## Phase 7/...')`), hunk counting (`rg -c '^@@'`), and frontmatter checks. None of these assert the prose is *correct* — a Phase 7 that names zero config locations passes every listed check as long as both copies are identical. The plan's Assumptions section (line 80) justifies prose-over-code, which is sound, but it does not follow that prose is untestable. `src/cli/rules-memory-refs.test.ts:56` already reads `join(REPO_ROOT, \"targets\", target, \"commands\", \"sync.md\")` and asserts `toContain(...)` on its content; `src/cli/spec-memory-integration.test.ts:101-116` and `src/cli/permission-defaults.test.ts:198-213` do the same for other shipped markdown. There is an established, cheap pattern here that the plan does not use.",
+      "suggested_fix": "Add a `src/cli/sync-graph-tools.test.ts` (modelled on `rules-memory-refs.test.ts`) to Task 4's Files/DoD, iterating both targets and asserting the Phase 7 slice contains: `.mcp.json`, `~/.claude.json`, `opencode.json`, `mcpServers`, `mcp`, `SENTINAL GRAPH TOOLS: BEGIN`, `SENTINAL GRAPH TOOLS: END`, and the omit-if-universe-unknown instruction. Extend it in Task 5 to assert the Phase 11 cross-check string and all three Phase 12 summary states. Add to both DoDs: \"`bun test src/cli/sync-graph-tools.test.ts` passes.\""
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 1 combines an ~80-line pure move with a new feature in one task",
+      "description": "Task 1 both extracts `ReachProvider`, `providerReach`, `providerModuleCount`, and the threshold block (~80 lines, `impact.ts:35-80` and `:191-225`) into `reach.ts` AND adds the new `reach` zod param plus three-tier precedence plus output attribution. The plan itself flags the ordering (\"Split first, then add\", line 184) but does not separate them. This matters concretely here: the refactor is behaviour-preserving and the existing `impact.test.ts` suite should pass **unchanged** across it — that is a free, high-value checkpoint. Fused into one task, a test failure is ambiguous between \"the move broke something\" and \"the new precedence logic is wrong\", and the diff a reviewer sees is ~80 moved lines interleaved with new logic. This also interacts with Sentinal's own TDD guard, which will demand a failing test in `reach.test.ts` before `reach.ts` can be written — awkward when the first change is a pure move with no new behaviour.",
+      "suggested_fix": "Split into Task 1a \"Extract `reach.ts` from `impact.ts` (pure move, no behaviour change)\" with DoD \"`bun test src/analysis/` passes with `impact.test.ts` **unmodified**\" and \"`wc -l src/analysis/impact.ts` < 400\"; and Task 1b \"Add agent-passable `reach` param\" depending on 1a, carrying the schema, precedence, validation and attribution DoD items. Both stay in Wave 1 (1b sequential after 1a). Update Total Tasks to 6."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Task 3 writes the capability contract in Wave 1, in parallel with Task 1 which defines the schema it describes",
+      "description": "Task 3 adds prose to `targets/*/rules/mcp-servers.md` telling agents to feed reach to `impact_analysis`, but it runs in Wave 1 *concurrently* with Task 1, which is what actually creates the parameter. The exact names the prose must use (`reach`, `moduleCount`, `files`, `source`) are pinned in the plan at lines 188-195, which mitigates this — but nothing enforces the match, and Task 3's DoD (lines 272-276) checks only byte-identity, vendor-neutrality, and the invariant sentence. If Task 1 renames `files` to `byFile` during implementation, the shipped rule instructs every user's agent to send a parameter that does not exist, and no test in the plan catches it. Task 4 has the same exposure since its wiring block templates the same param names.",
+      "suggested_fix": "Add a DoD item to Task 3 and an assertion to the new content test: \"a test asserts every parameter name used in the `mcp-servers.md` graph-reach section (`reach`, `moduleCount`, `files`, `source`) appears in `src/analysis/reach.ts`'s exported schema\" — e.g. read both files and assert `toContain` on each key name. Alternatively move Task 3 to Wave 2 after Task 1 lands."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "\"sync.diff contains exactly one @@ hunk\" is asserted but its rationale is only half-right",
+      "description": "Truth 8 (line 131) and both Task 4 and Task 5 DoDs require `rg -c '^@@' sync.diff` -> `1`. The committed fixture confirms this is the current state (`sync.diff` line 1 is `@@ -562,7 +562,7 @@`, the only hunk), so the check is well-founded as a regression guard. However, the Risks table (line 100) frames it as detecting asymmetric application: \"any second hunk means one-sided.\" That inference is not reliable in the other direction — a symmetric-but-wrong edit (e.g. both copies given the same typo'd path, or both given a Phase 7 that omits a config location) yields exactly one hunk and passes. The plan leans on this single check as the primary correctness signal for two prose-only tasks.",
+      "suggested_fix": "Keep the hunk-count assertion but downgrade its stated purpose in the Risks table to \"detects asymmetric application only; does not verify content correctness — content is covered by `src/cli/sync-graph-tools.test.ts`.\" Pair it with the content test from the Task 4/5 issue above."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Gotcha 2's silent-ignore hazard has a note but no Definition of Done item",
+      "description": "Gotcha 2 (line 66) correctly identifies that non-TS files short-circuit with `importerCount: 0` (`impact.ts:126-140`), so agent-supplied entries for `.md`/`.json` paths are silently discarded, and concludes \"the tool should report how many supplied keys it actually used, or a rel-vs-abs path mistake is invisible.\" Task 1's notes echo this at line 199 (\"Report attribution\"). But Task 1's DoD (lines 203-209) only requires \"Output names the `source` when supplied\" — there is no DoD item requiring the *matched-key count* to be reported, which is the half that actually surfaces the path-format mistake. An implementer satisfying the literal DoD can ship attribution without the diagnostic.",
+      "suggested_fix": "Add a DoD item to Task 1 (or 1b): \"Output reports `N of M supplied reach keys matched changed files`, and a test asserts that supplying two keys where one is absolute and one is a non-TS file yields a matched count of 0.\""
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Task 5's Phase 12 three-state summary is the weakest-value item in the plan",
+      "description": "Task 5 delivers two things: a Phase 11 cross-check (which is the declared backstop for Pre-Mortem 2 and for the deliberately-accepted \"marker discipline is advisory\" assumption at line 81 — clearly load-bearing), and a one-line Phase 12 summary string. The summary line is justified at line 357 by symmetry with the existing runtime-contract line at `sync.md:598`, which is a reasonable consistency argument, but it is the only part of the plan not traceable to the user request or a clarification. Given it is what forces a second edit to `sync.md` and a second `sync.diff` regeneration, its cost is not zero.",
+      "suggested_fix": "Consider folding the single Phase 12 summary line into Task 4 (it is one line in the same file, written at the same time) and keeping Task 5 scoped to the Phase 11 cross-check only — or keep the split but note explicitly that the Phase 12 line is a consistency nicety, so it is the first thing dropped if Pre-Mortem 3's ~90-line Phase 7 budget is breached."
+    }
+  ]
+}

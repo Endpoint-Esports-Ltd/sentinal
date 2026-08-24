@@ -22,62 +22,15 @@ import {
   type RiskLevel,
 } from "./helpers.js";
 import { buildImportGraph } from "./imports.js";
-
-/**
- * Optional source of a better reach number than the built-in resolver can
- * produce — e.g. a real call graph or an index built by an external tool.
- *
- * Sentinal never depends on one. When no provider is supplied, when `reachOf`
- * returns `null`, or when it throws, the built-in parsed-import resolver
- * answers instead and the output is byte-identical to having no seam at all.
- * Nothing in this repo wires a specific tool into it.
- */
-export interface ReachProvider {
-  /** Modules reaching `relPath`; `null` defers to the built-in resolver. */
-  reachOf(
-    relPath: string,
-    project: string,
-  ): number | null | Promise<number | null>;
-  /** Size of the universe the provider measures against, if it differs. */
-  moduleCount?(project: string): number | Promise<number>;
-}
-
-/**
- * Ask the provider, tolerating absence, deferral and failure.
- * Returns `null` whenever the built-in resolver should answer.
- */
-async function providerReach(
-  provider: ReachProvider | null,
-  relPath: string,
-  project: string,
-): Promise<number | null> {
-  if (!provider) return null;
-  try {
-    const value = await provider.reachOf(relPath, project);
-    return typeof value === "number" && Number.isFinite(value) && value >= 0
-      ? value
-      : null;
-  } catch {
-    // A broken external graph must never break the tool.
-    return null;
-  }
-}
-
-async function providerModuleCount(
-  provider: ReachProvider | null,
-  project: string,
-  fallback: number,
-): Promise<number> {
-  if (!provider?.moduleCount) return fallback;
-  try {
-    const value = await provider.moduleCount(project);
-    return typeof value === "number" && Number.isFinite(value) && value > 0
-      ? value
-      : fallback;
-  } catch {
-    return fallback;
-  }
-}
+import {
+  AgentReachSchema,
+  isHighReach,
+  isMediumReach,
+  isReachRelevantPath,
+  maxReach,
+  resolveReach,
+  type ReachProvider,
+} from "./reach.js";
 
 export function registerImpactAnalysisTool(
   server: McpServer,
@@ -89,8 +42,9 @@ export function registerImpactAnalysisTool(
     "Analyze the impact of changed files against the active spec. Reports expected vs unexpected changes, file length limit violations, and an overall risk score (LOW/MEDIUM/HIGH). More useful than `git diff --stat`: cross-references plan task files, checks Sentinal's 400-line limit, and scores risk.",
     {
       project: z.string().describe("Absolute path to the project root"),
+      reach: AgentReachSchema.optional(),
     },
-    async ({ project }) => {
+    async ({ project, reach }) => {
       try {
         // Get changed files (unstaged + staged)
         const [diffOut, diffCachedOut] = await Promise.all([
@@ -120,14 +74,22 @@ export function registerImpactAnalysisTool(
         // re-read the tree once per changed path.
         const graph = buildImportGraph(project);
 
+        // Reach for the whole changeset, resolved once: agent-supplied →
+        // provider → built-in. Rejected outright (rather than partially
+        // applied) if the agent's map does not cover every changed TS file.
+        const resolution = await resolveReach({
+          project,
+          changedRelPaths: [...allChangedRelPaths],
+          fallbackModuleCount: graph.modules.size,
+          agentReach: reach ?? null,
+          provider: reachProvider,
+        });
+        if (!resolution.ok) return mcpText(resolution.error);
+
         // Analyze each changed file
         const changedFiles: ChangedFile[] = [];
         for (const relPath of allChangedRelPaths) {
-          const isTsFile =
-            relPath.endsWith(".ts") ||
-            relPath.endsWith(".js") ||
-            relPath.endsWith(".tsx");
-          if (!isTsFile) {
+          if (!isReachRelevantPath(relPath)) {
             changedFiles.push({
               path: join(project, relPath),
               relPath,
@@ -141,7 +103,7 @@ export function registerImpactAnalysisTool(
           const fullPath = join(project, relPath);
           const lineCount = countLines(fullPath);
           const importerCount =
-            (await providerReach(reachProvider, relPath, project)) ??
+            resolution.overrides.get(relPath) ??
             countImporters(relPath, project, graph);
           changedFiles.push({
             path: fullPath,
@@ -154,11 +116,7 @@ export function registerImpactAnalysisTool(
         }
 
         // Compute risk level
-        const moduleCount = await providerModuleCount(
-          reachProvider,
-          project,
-          graph.modules.size,
-        );
+        const moduleCount = resolution.moduleCount;
         const risk = scoreRisk(changedFiles, specFiles, moduleCount);
 
         // Build output
@@ -168,6 +126,7 @@ export function registerImpactAnalysisTool(
           specFiles,
           activeSpec?.title ?? null,
           moduleCount,
+          resolution.attribution,
         );
         return mcpText(lines);
       } catch (err) {
@@ -187,42 +146,6 @@ async function runGitDiff(project: string, cmd: string[]): Promise<string> {
 }
 
 // --- Risk scoring ---
-
-/**
- * Reach thresholds.
- *
- * Each tier needs BOTH an absolute floor and a share of the module tree.
- *
- * The absolute floor alone is not enough: transitive closure saturates in any
- * connected codebase. Measured on this repo (334 modules) the reach
- * distribution is sharply bimodal — p50 = 10 but p75 = 82 — so a flat
- * threshold of 8 marks roughly half of all files HIGH, which reproduces the
- * original defect with a different cause.
- *
- * The share alone is not enough either: in a 3-file project one importer is
- * 33% of the tree and would score HIGH.
- *
- * Together they give 60% LOW / 18% MEDIUM / 22% HIGH on this repo, with
- * `src/runtime/ownership.ts` (the case that motivated this plan) landing HIGH
- * on reach — 89 modules — rather than on being two lines over a line limit.
- */
-export const HIGH_REACH_MIN = 8;
-export const HIGH_REACH_SHARE = 0.25;
-/** Absolute floor deliberately identical to the previous `importerCount > 3`. */
-export const MEDIUM_REACH_MIN = 4;
-export const MEDIUM_REACH_SHARE = 0.1;
-
-export function maxReach(changedFiles: ChangedFile[]): number {
-  return changedFiles.reduce((m, f) => Math.max(m, f.importerCount), 0);
-}
-
-export function isHighReach(reach: number, moduleCount: number): boolean {
-  return reach >= HIGH_REACH_MIN && reach >= moduleCount * HIGH_REACH_SHARE;
-}
-
-export function isMediumReach(reach: number, moduleCount: number): boolean {
-  return reach >= MEDIUM_REACH_MIN && reach >= moduleCount * MEDIUM_REACH_SHARE;
-}
 
 /**
  * Score the change.
@@ -256,6 +179,13 @@ export function buildImpactOutput(
   specFiles: Set<string>,
   specTitle: string | null,
   moduleCount = 0,
+  /**
+   * Where the reach numbers came from. Empty for the built-in resolver, so
+   * the default report is byte-unchanged; populated only when an agent
+   * supplied `reach`, since a score computed from someone else's graph must
+   * say so.
+   */
+  reachAttribution: string[] = [],
 ): string {
   const riskSuffix =
     risk === "MEDIUM"
@@ -347,6 +277,7 @@ export function buildImpactOutput(
   }
   if (overLimitFiles.length > 0)
     lines.push(`- Over 400-line limit: ${overLimitFiles.length}`);
+  lines.push(...reachAttribution);
 
   return lines.join("\n");
 }

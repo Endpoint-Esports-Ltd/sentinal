@@ -20,6 +20,7 @@ import {
   commandExists as defaultCommandExists,
   ok,
   info,
+  resolveXdgConfig,
 } from "../../utils/shell.js";
 
 // ─── playwright-cli ─────────────────────────────────────────────────────────
@@ -94,21 +95,33 @@ const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
 /**
  * Config files that may already declare the server. Read-only, never written.
  *
- * Covers BOTH scopes, because a user who declared the server project-locally
- * was otherwise told it was "not configured":
- *   - global:        `~/.config/opencode/opencode.json{,c}`, `~/.claude.json`,
- *                    `~/.claude/settings.json`
- *   - project-local: `<cwd>/.opencode/opencode.json`, `<cwd>/.mcp.json`
+ * This is the canonical enumeration of every location an MCP server can be
+ * configured for either target, at either scope. `/sync`'s Phase 7 prose
+ * mirrors it, so the two must not drift.
+ *
+ *   - OpenCode, user scope:  `$XDG_CONFIG_HOME/opencode/opencode.json{,c}`
+ *                            (defaulting to `~/.config` — resolved via
+ *                            `resolveXdgConfig()`, exactly as the OpenCode
+ *                            installer and uninstaller do)
+ *   - Claude Code, user:     `~/.claude.json`, `~/.claude/settings.json`
+ *   - OpenCode, project:     `<cwd>/opencode.json{,c}` — where a `--local`
+ *                            install actually writes, since `writeOpenCodeConfig`
+ *                            uses `process.cwd()` as its config dir — plus the
+ *                            `<cwd>/.opencode/opencode.json` variant
+ *   - Claude Code, project:  `<cwd>/.mcp.json`
  *
  * Exported for testing — the list is the whole behaviour, so asserting it
  * directly is more honest than inferring it from a probe's output.
  */
 export function defaultMcpConfigPaths(): string[] {
+  const xdgConfig = resolveXdgConfig();
   return [
-    join(homedir(), ".config", "opencode", "opencode.json"),
-    join(homedir(), ".config", "opencode", "opencode.jsonc"),
+    join(xdgConfig, "opencode", "opencode.json"),
+    join(xdgConfig, "opencode", "opencode.jsonc"),
     join(homedir(), ".claude.json"),
     join(homedir(), ".claude", "settings.json"),
+    join(process.cwd(), "opencode.json"),
+    join(process.cwd(), "opencode.jsonc"),
     join(process.cwd(), ".opencode", "opencode.json"),
     join(process.cwd(), ".mcp.json"),
   ];

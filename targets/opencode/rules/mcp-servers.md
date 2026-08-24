@@ -131,3 +131,55 @@ mcp__plugin_sentinal_web-fetch__fetch_url(url="https://docs.nestjs.com/guards")
 | GitHub README            | web-search                  | `fetchGithubReadme`                                |
 | Production code examples | grep-mcp                    | `searchGitHub`                                     |
 | Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                         |
+| Reach for risk scoring   | a code-graph server, if any | _Code-Graph Reach_ below (optional)                |
+
+---
+
+## Code-Graph Reach (Optional)
+
+**If a code-graph MCP server is configured for this project, pass its reach numbers to `impact_analysis`.** If none is configured, this section does not apply — `impact_analysis` measures reach from its own parsed-import graph and needs nothing from you.
+
+Sentinal **detects** a code-graph server when one is already present in your MCP config; it never installs or configures one. Adding one is your decision, and no part of Sentinal depends on it.
+
+**Check what is actually available before choosing — do not assume.** The requirement is on the _capability_, never on a vendor: any server exposing both rows below qualifies.
+
+| Capability needed                                         | Example tool names (yours will differ) |
+| --------------------------------------------------------- | -------------------------------------- |
+| Modules transitively reaching a given file                | `trace_path`, `find_importers`         |
+| Total modules in the graph — the universe the above spans | `graph_stats`, `index_status`          |
+
+```
+ToolSearch(query="graph reach importers trace")
+```
+
+### Passing reach to `impact_analysis`
+
+`impact_analysis` takes an optional `reach` object:
+
+| Field         | Type                     | Required | Meaning                                                                 |
+| ------------- | ------------------------ | -------- | ----------------------------------------------------------------------- |
+| `moduleCount` | positive integer         | yes      | Total modules in the universe these numbers were measured against       |
+| `files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it                   |
+| `source`      | string                   | no       | Tool that produced the numbers, e.g. `"codebase-memory-mcp trace_path"` |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "moduleCount": 334,
+  "files": {"src/a.ts": 89, "src/b.ts": 2, "src/c.tsx": 0},
+  "source": "<server> <tool>"
+})
+```
+
+### ⛔ Same universe, full coverage
+
+**Whichever tool supplies the numbers, `moduleCount` must be that tool's universe size, and `files` must cover every changed `.ts`/`.tsx`/`.js` file — `impact_analysis` rejects a partial map rather than mixing universes.**
+
+`moduleCount` is a single report-level scalar: every file's reach is divided by it to produce a share, and the risk thresholds are share-based (HIGH at ≥25% of the module tree). So a partial `files` map would score the uncovered files' built-in counts against _your_ universe, silently mis-scoring the whole report. For the same reason a symbol-graph reach paired with a module count marks everything HIGH — alarm fatigue, not signal.
+
+What that means in practice:
+
+- Omit one changed `.ts`/`.tsx`/`.js` file from `files` and the entire `reach` object is rejected and nothing is scored. The response names the missing paths, so complete the map and retry.
+- Non-TS files (`.md`, `.json`, …) never consult reach and are excluded from the coverage requirement.
+- Any value in `files` greater than `moduleCount` is rejected — it proves the two numbers came from different metrics.
+- Keys must be repo-relative exactly as `git diff --name-only` prints them (`src/a.ts`, not `/abs/path/src/a.ts`).
+- **If the universe size is not obtainable, omit `reach` entirely.** A guessed `moduleCount` is worse than none; the built-in graph is the fail-safe.

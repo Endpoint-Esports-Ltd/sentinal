@@ -14,6 +14,8 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join, dirname } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerImpactAnalysisTool } from "./impact.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
@@ -302,6 +304,109 @@ describe("impact_analysis risk scoring", () => {
     expect(text).toContain("reached by 9 modules");
   });
 
+  // --- Task 1b: agent-passable all-or-nothing `reach` param ---
+
+  it("should score an agent-supplied reach and attribute it in the output", async () => {
+    // Built-in resolver sees reach 0 for every file here.
+    write(tmpDir, "src/target.ts", "export const target = 1;\n");
+    for (let i = 1; i <= 50; i++) {
+      write(tmpDir, `src/u${i}.ts`, `export const u${i} = ${i};\n`);
+    }
+    restore = stubGit(["src/target.ts"]);
+
+    const text = (
+      await handler({
+        project: tmpDir,
+        reach: {
+          moduleCount: 100,
+          files: { "src/target.ts": 60 },
+          source: "codebase-memory-mcp trace_path",
+        },
+      })
+    ).content[0].text;
+
+    expect(text).toContain("Risk: **HIGH**");
+    expect(text).toContain("reached by 60 modules");
+    expect(text).toContain("60% of 100 modules");
+    expect(text).toContain("codebase-memory-mcp trace_path");
+    expect(text).toContain("1 of 1");
+  });
+
+  it("should rank agent reach above a supplied ReachProvider", async () => {
+    write(tmpDir, "src/target.ts", "export const target = 1;\n");
+    restore = stubGit(["src/target.ts"]);
+
+    const h = captureImpact((s) =>
+      registerImpactAnalysisTool(s, null, {
+        reachOf: () => 2,
+        moduleCount: () => 4,
+      }),
+    ).get("impact_analysis")!;
+
+    const text = (
+      await h({
+        project: tmpDir,
+        reach: { moduleCount: 100, files: { "src/target.ts": 60 } },
+      })
+    ).content[0].text;
+
+    expect(text).toContain("Risk: **HIGH**");
+    expect(text).toContain("reached by 60 modules");
+    expect(text).not.toContain("reached by 2 modules");
+  });
+
+  it("should reject a reach map missing a changed TS file, naming it", async () => {
+    write(tmpDir, "src/a.ts", "export const a = 1;\n");
+    write(tmpDir, "src/b.ts", "export const b = 1;\n");
+    restore = stubGit(["src/a.ts", "src/b.ts"]);
+
+    const text = (
+      await handler({
+        project: tmpDir,
+        reach: { moduleCount: 100, files: { "src/a.ts": 60 } },
+      })
+    ).content[0].text;
+
+    expect(text).toContain("src/b.ts");
+    expect(text).toContain("rejected");
+    // A rejection, not a generic error and not a silent partial application.
+    expect(text).not.toContain("Risk: **");
+    expect(text).not.toContain("Error running impact_analysis");
+  });
+
+  it("should reject an absolute-path key instead of silently falling back", async () => {
+    write(tmpDir, "src/a.ts", "export const a = 1;\n");
+    restore = stubGit(["src/a.ts"]);
+
+    const absKey = join(tmpDir, "src/a.ts");
+    const text = (
+      await handler({
+        project: tmpDir,
+        reach: { moduleCount: 100, files: { [absKey]: 60 } },
+      })
+    ).content[0].text;
+
+    expect(text).toContain(absKey);
+    expect(text).toContain("repo-relative");
+    expect(text).not.toContain("Risk: **");
+  });
+
+  it("should accept a reach map whose only uncovered file is non-TS", async () => {
+    write(tmpDir, "src/a.ts", "export const a = 1;\n");
+    write(tmpDir, "README.md", "# hi\n");
+    restore = stubGit(["src/a.ts", "README.md"]);
+
+    const text = (
+      await handler({
+        project: tmpDir,
+        reach: { moduleCount: 100, files: { "src/a.ts": 60 } },
+      })
+    ).content[0].text;
+
+    expect(text).toContain("Risk: **HIGH**");
+    expect(text).toContain("reached by 60 modules");
+  });
+
   it("should find a transitive caller with zero textual occurrences of the file", async () => {
     write(tmpDir, "src/target4.ts", "export const t4 = 1;\n");
     write(
@@ -321,5 +426,91 @@ describe("impact_analysis risk scoring", () => {
     const text = (await handler({ project: tmpDir })).content[0].text;
 
     expect(text).toContain("2 importers");
+  });
+});
+
+// --- The schema an MCP client actually receives ---
+
+/**
+ * Every other test in this file — and in `reach.test.ts` — bypasses the
+ * zod→JSON-Schema converter: `captureImpact` grabs `args[3]` and calls the
+ * handler directly, and the schema tests call `safeParse` on the zod object.
+ * So none of them can observe whether `reach` is **advertised** at all.
+ *
+ * That is the property most likely to regress on a zod or
+ * `@modelcontextprotocol/sdk` bump, and the one already known to behave
+ * non-obviously through the converter (`.refine()` is silently dropped — see
+ * the plan's Implementation Notes). A converter change that emitted `{}` or
+ * flattened the nested properties would leave the whole suite green while
+ * shipping a parameter no agent can discover.
+ *
+ * This drives a real `Client` over an in-memory transport so the assertion is
+ * against the literal `inputSchema` bytes an MCP client is handed.
+ */
+describe("impact_analysis advertised inputSchema", () => {
+  interface JsonSchemaNode {
+    type?: string;
+    description?: string;
+    properties?: Record<string, JsonSchemaNode>;
+    required?: string[];
+  }
+
+  async function advertisedInputSchema(): Promise<JsonSchemaNode> {
+    const server = new McpServer({ name: "test", version: "0.0.1" });
+    registerImpactAnalysisTool(server, null);
+    const client = new Client({ name: "test-client", version: "0.0.1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find((t) => t.name === "impact_analysis");
+      expect(tool, "impact_analysis is not listed by the server").toBeDefined();
+      return tool!.inputSchema as unknown as JsonSchemaNode;
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  }
+
+  it("exposes `reach` as a property, optional, alongside required `project`", async () => {
+    const schema = await advertisedInputSchema();
+
+    expect(
+      Object.keys(schema.properties ?? {}),
+      "`reach` is absent from the advertised inputSchema — no agent can send it.",
+    ).toContain("reach");
+    expect(schema.required ?? []).toContain("project");
+    expect(
+      schema.required ?? [],
+      "`reach` is advertised as REQUIRED — every reach-less call would fail.",
+    ).not.toContain("reach");
+  });
+
+  it("advertises reach.moduleCount, reach.files and reach.source", async () => {
+    const schema = await advertisedInputSchema();
+    const reach = schema.properties?.reach;
+
+    expect(Object.keys(reach?.properties ?? {}).sort()).toEqual([
+      "files",
+      "moduleCount",
+      "source",
+    ]);
+    // `source` is the only optional field of the three.
+    expect((reach?.required ?? []).sort()).toEqual(["files", "moduleCount"]);
+  });
+
+  it("advertises the `<= moduleCount` bound in prose the agent receives", async () => {
+    // `.refine()` is inexpressible in JSON Schema and is dropped by the
+    // converter, so the bound reaches the agent ONLY via `.describe()`. Without
+    // this string an agent on a client that never loads `mcp-servers.md` gets
+    // zero pre-flight signal and learns the rule from a failed call.
+    const schema = await advertisedInputSchema();
+    const files = schema.properties?.reach?.properties?.files;
+
+    expect(files?.description ?? "").toContain("moduleCount");
   });
 });
