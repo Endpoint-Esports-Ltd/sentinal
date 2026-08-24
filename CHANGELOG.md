@@ -1,3 +1,15 @@
+# [1.35.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.34.0...v1.35.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **analysis:** score impact_analysis on reach, not file length ([ec642c6](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ec642c637d9940ba45f1dc8fca7a3d4694da19d7))
+
+
+### Features
+
+* **sync:** detect MCP servers at both scopes for both targets, wire graph-tool reach into impact_analysis ([bbd74b8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bbd74b8beab10f868ec0f3e0f4bb08c39e7e9041))
+
 # [1.34.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.33.0...v1.34.0) (2026-08-23)
 
 
