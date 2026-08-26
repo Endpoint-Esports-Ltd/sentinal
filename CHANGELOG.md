@@ -1,3 +1,10 @@
+# [1.36.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.35.0...v1.36.0) (2026-08-26)
+
+
+### Features
+
+* **analysis:** add plan_impact, multi-source reach injection, and code-exploration capability catalogue ([ab7068e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ab7068ef7ea223f7ba3f89ffc2d78afd031182bb))
+
 # [1.35.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.34.0...v1.35.0) (2026-08-24)
 
 
