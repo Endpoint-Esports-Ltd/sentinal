@@ -217,7 +217,7 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 **After defining all tasks, group them into execution waves for parallel implementation.**
 
 1. **Analyze dependencies:** Wave 1 = tasks with no dependencies. Wave 2 = tasks depending only on Wave 1 tasks. Wave N = tasks depending only on Wave 1..N-1 tasks.
-2. **Check file overlap:** Tasks in the same wave MUST NOT modify the same files. If two tasks in the same wave share files, move one to the next wave. This is required for worktree-isolated parallel execution.
+2. **Check file overlap:** Tasks in the same wave MUST NOT modify the same files. If two tasks in the same wave share files, move one to the next wave. This is required for worktree-isolated parallel execution — and on OpenCode, where parallel tasks share one working directory, an overlap corrupts work rather than merely racing. Do this by hand, then confirm it with `plan_impact` below; the manual rule remains the fallback whenever that tool is unavailable.
 3. **Assign `**Wave:**` field** to each task.
 4. **Write `## Execution Waves` section** (see Step 1.6 template).
 5. **Update Progress Tracking** to show wave assignments: `- [ ] Task 1: [summary] (Wave 1)`
@@ -227,6 +227,20 @@ Frame each decision as **"X at the cost of Y"** — never recommend without stat
 - If all tasks are in Wave 1 (no dependencies, no shared files), that's fine — maximum parallelism.
 - If wave analysis is unclear, default to sequential: each task in its own wave.
 - Single-task waves are normal and expected.
+
+**Confirm the grouping with `plan_impact` (advisory, not a gate).**
+
+Once every task carries a `**Wave:**` field, run the plan through the `plan_impact` MCP tool. It re-reads each task's `**Files:**` and `**Wave:**` fields and reports same-wave overlaps that a manual pass missed — item 2 has always stated that rule, and nothing has ever checked it.
+
+1. **Consult the project's code-exploration catalogue first.** Open `.sentinal/rules/{slug}-mcp-servers.md` and look for the block marked `SENTINAL GRAPH TOOLS`. `/sync` writes it, and it records which code-exploration capabilities this project actually has, plus the exact invocation that was verified to work.
+2. **If a per-file-reach and/or call-site capability is catalogued as ✅ verified,** collect that data for **every `.ts`/`.tsx`/`.js` file the plan claims that already exists on disk, whatever verb it was listed under**, and pass it in the `reach` parameter, using the shape documented under "Code-Graph Reach" in `mcp-servers.md`. `plan_impact` keys coverage on on-disk existence, never on the verb: a path listed under `Create:` that already exists still needs a reach number, and the compact inline `**Files:**` form used by most bugfix plans states no verb at all. A partial map is rejected outright, so scoping collection to `Modify:` gets the whole payload refused. Never feed a row marked ⚠️ unverified into `reach`.
+3. **If nothing is catalogued — or there is no such block at all — call `plan_impact` anyway, with no `reach`.** The wave-overlap half is deterministic on the plan text; it needs no injected data and no code-graph server. Only the prospective-reach half consumes `reach`.
+
+```
+plan_impact(project="/abs/path/to/repo", plan_path="docs/plans/<this-plan>.md")
+```
+
+**Act on the result; do not block on it.** A reported overlap means the plan text contradicts item 2 — resolve it by moving a task to a later wave, or by stating in `## Execution Waves` why the two are safe together. Read the flag for what it is: a statement about the plan text, not proof of harm. Measured across this repo's verified plans it fires on 3 of 89 (3.4%), and one of those three was a conflict the wave narrative had already resolved deliberately, in prose the per-task `**Wave:**` field cannot express. The reach half is a prediction bounded by how accurate the `Files:` lists turn out to be, and replaces no verification step.
 
 #### Step 1.5.1: Goal Verification Criteria (must_haves)
 

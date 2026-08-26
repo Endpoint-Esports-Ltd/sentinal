@@ -36,6 +36,7 @@ import {
   type DiagnosticsBaseline,
 } from "./helpers.js";
 import { registerImpactAnalysisTool } from "./impact.js";
+import { registerPlanImpactTool } from "./plan-impact.js";
 
 // --- Public API ---
 
@@ -53,7 +54,10 @@ export function registerAnalysisTools(
   const specStore = effectiveStore ? new SpecStore(effectiveStore) : null;
 
   registerCheckDiagnosticsTool(server, client, effectiveStore, specStore);
-  registerImpactAnalysisTool(server, specStore);
+  // `client` is required, not decorative: with a sidecar `store` is null, so
+  // `specStore` is null and impact_analysis has no other way to see the spec.
+  registerImpactAnalysisTool(server, specStore, null, client);
+  registerPlanImpactTool(server, specStore, client);
   registerQualityReportTool(server, client);
 }
 

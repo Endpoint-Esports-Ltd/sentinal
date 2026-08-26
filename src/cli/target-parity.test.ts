@@ -153,7 +153,30 @@ const IDENTICAL_RULES: string[] = [
   // identically. It was already byte-identical before that edit but UNGUARDED,
   // so it could have drifted silently; guarding it now closes that gap.
   "mcp-servers.md",
+  // Added when the caller-finding ordering (LSP -> catalogued code-graph
+  // capability -> grep) was written into both copies identically. Both were
+  // already byte-identical and UNGUARDED. Neither names a runtime tool, only
+  // the LSP *operation* names, which are the same on both platforms — so
+  // there is nothing here that could legitimately need to differ.
+  "development-practices.md",
+  "code-review-reception.md",
 ];
+
+/**
+ * ⛔ `lsp-tools.md` is deliberately ABSENT from {@link IDENTICAL_RULES}, and
+ * must stay absent.
+ *
+ * Both runtimes ship an LSP tool with an identical operation set and an
+ * identical `{filePath, line, character, query}` parameter shape — verified
+ * against the shipped binaries, not assumed (Claude Code 2.1.205 registers it
+ * as `LSP`; OpenCode 1.18.23 registers it as `lsp`). The ONLY difference is
+ * the tool NAME's casing, and every invocation example in the file spells the
+ * tool out. Forcing byte-identity would therefore ship a tool name that one of
+ * the two platforms does not answer to.
+ *
+ * The prose either side of those examples is meant to stay in lockstep. If you
+ * edit one copy, edit the other; the casing is the only licensed divergence.
+ */
 
 function ccPath(pair: string): string {
   return join(REPO_ROOT, "targets", "claude-code", "commands", `${pair}.md`);

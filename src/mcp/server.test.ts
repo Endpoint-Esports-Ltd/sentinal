@@ -92,6 +92,22 @@ describe("createSentinalServer", () => {
     expect(names).toContain("runtime_up");
     expect(names).toContain("runtime_stop");
   });
+
+  // `plan_impact` lives in its own module and is registered by
+  // `registerAnalysisTools`, so its own unit tests pass whether or not the
+  // factory ever reaches it — the same blind spot the runtime assertion above
+  // exists to cover.
+  it("registers the analysis domain tools", () => {
+    const { server } = createSentinalServer({ store });
+    const names = Object.keys(
+      (server as unknown as { _registeredTools: Record<string, unknown> })
+        ._registeredTools,
+    );
+    expect(names).toContain("check_diagnostics");
+    expect(names).toContain("impact_analysis");
+    expect(names).toContain("quality_report");
+    expect(names).toContain("plan_impact");
+  });
 });
 
 // --- Memory Tool Logic Tests ---

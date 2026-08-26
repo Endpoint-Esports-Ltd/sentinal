@@ -154,13 +154,42 @@ ToolSearch(query="graph reach importers trace")
 
 ### Passing reach to `impact_analysis`
 
-`impact_analysis` takes an optional `reach` object:
+`impact_analysis` takes an optional `reach` object in **one of two shapes**. Supply one or the other, never both and never neither.
 
-| Field         | Type                     | Required | Meaning                                                                 |
-| ------------- | ------------------------ | -------- | ----------------------------------------------------------------------- |
-| `moduleCount` | positive integer         | yes      | Total modules in the universe these numbers were measured against       |
-| `files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it                   |
-| `source`      | string                   | no       | Tool that produced the numbers, e.g. `"codebase-memory-mcp trace_path"` |
+#### Multi-source form
+
+Use this when more than one tool can answer, or when you want to attribute the numbers. Each source carries **its own** universe.
+
+| Field                   | Type                     | Required | Meaning                                                                    |
+| ----------------------- | ------------------------ | -------- | -------------------------------------------------------------------------- |
+| `sources`               | non-empty array          | yes      | One entry per tool. **Exactly one of them is scored** — see below          |
+| `sources[].moduleCount` | positive integer         | yes      | Total modules in **this source's own** universe                            |
+| `sources[].files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it, **for this source** |
+| `sources[].source`      | string                   | no       | Tool that produced these numbers, e.g. `"<server> <tool>"`                 |
+| `sources[].primary`     | boolean                  | no       | Marks the one source that scores. At most one; defaults to the first entry |
+| `callSites`             | array                    | no       | Evidence only, never scored — see _Call sites_ below                       |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "sources": [
+    {"source": "<server> <tool>", "primary": true, "moduleCount": 334,
+     "files": {"src/a.ts": 89, "src/b.ts": 2, "src/c.tsx": 0}},
+    {"source": "<other server> <tool>", "moduleCount": 8440,
+     "files": {"src/a.ts": 200, "src/b.ts": 11, "src/c.tsx": 0}}
+  ]
+})
+```
+
+#### Single-source form
+
+**Still accepted, unchanged.** It is exactly equivalent to a one-element `sources` list, so nothing that already sends this shape needs to change.
+
+| Field         | Type                     | Required | Meaning                                                           |
+| ------------- | ------------------------ | -------- | ----------------------------------------------------------------- |
+| `moduleCount` | positive integer         | yes      | Total modules in the universe these numbers were measured against |
+| `files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it             |
+| `source`      | string                   | no       | Tool that produced the numbers, e.g. `"<server> <tool>"`          |
+| `callSites`   | array                    | no       | Evidence only, never scored — see _Call sites_ below              |
 
 ```
 impact_analysis(project="/path/to/repo", reach={
@@ -170,16 +199,51 @@ impact_analysis(project="/path/to/repo", reach={
 })
 ```
 
-### ⛔ Same universe, full coverage
+### ⛔ Exactly one source is scored
 
-**Whichever tool supplies the numbers, `moduleCount` must be that tool's universe size, and `files` must cover every changed `.ts`/`.tsx`/`.js` file — `impact_analysis` rejects a partial map rather than mixing universes.**
+**Sentinal scores from one source only: the one marked `primary: true`, or the first entry if none is marked. Every other source is accepted, reported, and rendered explicitly as unscored.**
 
-`moduleCount` is a single report-level scalar: every file's reach is divided by it to produce a share, and the risk thresholds are share-based (HIGH at ≥25% of the module tree). So a partial `files` map would score the uncovered files' built-in counts against _your_ universe, silently mis-scoring the whole report. For the same reason a symbol-graph reach paired with a module count marks everything HIGH — alarm fatigue, not signal.
+Per-source universes make a reach number and its universe travel together — that fixes _pairing_. It does **not** make the resulting shares comparable. The same file can be 89 of 334 modules (26.6% → HIGH) to a module-level tool and 200 of 8440 symbols (2.4% → LOW) to a symbol-level one; both are correct and neither converts into the other. Taking the max across sources means installing a server can only raise the verdict, taking the min only lowers it, and taking whichever came first makes it depend on declaration order. In every variant **the risk score for identical code becomes a function of which servers you happen to have installed.** Sentinal's 25% cutoff was derived from a module-level distribution; nothing establishes that it means anything in a symbol universe.
+
+So supply as many sources as are useful — all of them are reported — but **mark the one whose universe the thresholds should be read in.** If you are unsure, mark the module-level one.
+
+### ⛔ Same universe, full coverage — per source
+
+**Whichever tool supplies the numbers, its `moduleCount` must be that tool's own universe size, and its `files` must cover every changed `.ts`/`.tsx`/`.js` file. A source's universe stays with that source and is never applied to another source's numbers.**
+
+`moduleCount` is **not** a report-level scalar — it is per source, and only the scored source's scalar is ever divided into anything. Every file's reach is divided by that scalar to produce a share, and the risk thresholds are share-based (HIGH at ≥25% of the module tree). So a partial `files` map in the scored source would score the uncovered files' built-in counts against _your_ universe, silently mis-scoring the whole report. For the same reason a symbol-graph reach paired with a module count marks everything HIGH — alarm fatigue, not signal. Per-source universes prevent that mis-pairing; they are not a licence to blend sources. **Reach decides HIGH only among changesets that are otherwise plan-compliant:** the risk score is `unexpected-files OR high-reach`, and unexpected files fire on 45-90% of real changesets, so accurate reach sharpens the remainder rather than driving the headline verdict.
 
 What that means in practice:
 
-- Omit one changed `.ts`/`.tsx`/`.js` file from `files` and the entire `reach` object is rejected and nothing is scored. The response names the missing paths, so complete the map and retry.
+- Omit one changed `.ts`/`.tsx`/`.js` file from the **scored** source's `files` and the entire `reach` object is rejected and nothing is scored. The response names the missing paths and the source they were missing from, so complete the map and retry.
+- A **non-primary** source that fails coverage is dropped by name and listed as unscored. The verdict is unaffected — one incomplete reporting source cannot cost you the analysis.
 - Non-TS files (`.md`, `.json`, …) never consult reach and are excluded from the coverage requirement.
-- Any value in `files` greater than `moduleCount` is rejected — it proves the two numbers came from different metrics.
+- Any value in a source's `files` greater than **that source's** `moduleCount` is rejected — it proves the two numbers came from different metrics.
+- At most one source may carry `primary: true`. Two would make the scored source depend on declaration order.
 - Keys must be repo-relative exactly as `git diff --name-only` prints them (`src/a.ts`, not `/abs/path/src/a.ts`).
-- **If the universe size is not obtainable, omit `reach` entirely.** A guessed `moduleCount` is worse than none; the built-in graph is the fail-safe.
+- **If the universe size is not obtainable, omit that source — and if no source has one, omit `reach` entirely.** A guessed `moduleCount` is worse than none; the built-in graph is the fail-safe.
+
+### Call sites (optional evidence)
+
+`callSites` may accompany either shape. They are **evidence only and are never scored** — no call site can move the risk verdict. They exist to make a HIGH actionable by naming where the coupling actually is, rather than only how much of it there is.
+
+| Field    | Type             | Required | Meaning                                                       |
+| -------- | ---------------- | -------- | ------------------------------------------------------------- |
+| `file`   | string           | yes      | Repo-relative path of the file containing the call            |
+| `line`   | positive integer | yes      | 1-based line of the call site                                 |
+| `caller` | string           | yes      | Symbol the call is made from                                  |
+| `callee` | string           | yes      | Symbol being called                                           |
+| `target` | string           | yes      | Repo-relative path of the changed file this is evidence _for_ |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "moduleCount": 334,
+  "files": {"src/a.ts": 89},
+  "callSites": [
+    {"file": "src/b.ts", "line": 42, "caller": "handleRequest",
+     "callee": "resolveOwner", "target": "src/a.ts"}
+  ]
+})
+```
+
+`callSites` does not stand alone — it requires one of the two reach shapes alongside it.

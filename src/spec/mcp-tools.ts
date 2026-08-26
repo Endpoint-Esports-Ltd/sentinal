@@ -1,15 +1,23 @@
 /**
  * Spec MCP Tools
  *
- * Registers spec/plan workflow tools on an MCP server.
- * Provides:
- *   - spec_status: Current spec progress and task breakdown
- *   - spec_register: Register/update a plan in SQLite
- *   - spec_wait_file: Wait for file to appear on disk
- *   - spec_config: Read spec workflow toggle env vars
+ * Registers spec/plan workflow tools on an MCP server. `registerSpecTools` is
+ * the single entry point — `src/mcp/server.ts` calls it and nothing else.
+ *
+ * Tools defined here operate on a plan artifact identified by path:
+ *   - spec_register:   Register/update a plan in SQLite
  *   - spec_plan_parse: Parse plan file metadata
- *   - spec_notify: Create notification in SQLite
- *   - spec_events: Get spec event history
+ *   - spec_wait_file:  Wait for file to appear on disk
+ *
+ * The other six live in siblings, because all nine in one file put this module
+ * at 681 lines — past the 600-line hard block, which made it uneditable:
+ *   - ./status-mcp-tools.ts: spec_config, spec_status, spec_init
+ *   - ./events-mcp-tools.ts: spec_notify, spec_events, spec_metrics
+ *
+ * Those are called from `registerSpecTools` below, following the precedent set
+ * by `src/runtime/mcp-tools.ts` → `src/runtime/lifecycle-mcp-tools.ts`: the
+ * parent keeps the one exported entry point with an unchanged signature, so
+ * `src/mcp/server.ts` needs no change.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,11 +26,11 @@ import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
-import { findActivePlan } from "./detect.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { SpecStore } from "./store.js";
+import { registerSpecStatusTools } from "./status-mcp-tools.js";
+import { registerSpecEventsTools } from "./events-mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
-import type { SpecTask } from "./types.js";
 
 // --- Public API ---
 
@@ -50,15 +58,13 @@ export function registerSpecTools(
     specStore = new SpecStore(effectiveStore);
   }
 
-  registerSpecStatusTool(server, client, specStore);
   registerSpecRegisterTool(server, client, specStore, effectiveStore);
   registerSpecWaitFileTool(server);
-  registerSpecConfigTool(server);
   registerSpecPlanParseTool(server);
-  registerSpecNotifyTool(server, client, effectiveStore);
-  registerSpecEventsTool(server, client, effectiveStore);
-  registerSpecInitTool(server, client, specStore);
-  registerSpecMetricsTool(server, client, specStore);
+  // Siblings: all nine tools inline here breach the 600-line hard block.
+  // Delegating keeps `src/mcp/server.ts` unchanged.
+  registerSpecStatusTools(server, client, specStore);
+  registerSpecEventsTools(server, client, effectiveStore, specStore);
 }
 
 // --- spec_register ---
@@ -113,7 +119,8 @@ function registerSpecRegisterTool(
         // Thread SENTINAL_SESSION_ID when available so the registering session
         // is stamped as the plan's owner. This is how /spec register establishes
         // ownership for the session-aware stop-guard.
-        const registeringSession = process.env["SENTINAL_SESSION_ID"] ?? undefined;
+        const registeringSession =
+          process.env["SENTINAL_SESSION_ID"] ?? undefined;
 
         if (client) {
           await client.syncSpec(plan_path, projectPath, registeringSession);
@@ -126,7 +133,11 @@ function registerSpecRegisterTool(
           return mcpText(text);
         }
 
-        const spec = specStore!.syncFromPlanFile(plan_path, projectPath, registeringSession);
+        const spec = specStore!.syncFromPlanFile(
+          plan_path,
+          projectPath,
+          registeringSession,
+        );
         const done = spec.tasks.filter((t) => t.status === "complete").length;
         const text = `Registered: ${spec.id} (${spec.status}, ${done}/${spec.tasks.length} tasks)`;
         return mcpText(text);
@@ -221,44 +232,6 @@ function registerSpecWaitFileTool(server: McpServer): void {
   );
 }
 
-// --- spec_config ---
-
-const CONFIG_KEYS = [
-  { env: "SENTINAL_PLAN_QUESTIONS_ENABLED", label: "questions_enabled" },
-  { env: "SENTINAL_PLAN_REVIEWER_ENABLED", label: "plan_reviewer_enabled" },
-  { env: "SENTINAL_PLAN_APPROVAL_ENABLED", label: "approval_enabled" },
-  { env: "SENTINAL_SPEC_REVIEWER_ENABLED", label: "spec_reviewer_enabled" },
-  { env: "SENTINAL_WORKTREE_ENABLED", label: "worktree_enabled" },
-  { env: "SENTINAL_SESSION_ID", label: "session_id" },
-] as const;
-
-function registerSpecConfigTool(server: McpServer): void {
-  server.tool(
-    "spec_config",
-    "Get all spec workflow toggle configuration from SENTINAL_* environment variables.",
-    {},
-    async () => {
-      const lines = ["## Spec Workflow Configuration", ""];
-
-      for (const { env, label } of CONFIG_KEYS) {
-        const value = process.env[env];
-        let display: string;
-        if (value === undefined || value === "") {
-          display =
-            label === "session_id" ? "unset" : "unset (default: enabled)";
-        } else if (value === "false") {
-          display = `${value} (disabled)`;
-        } else {
-          display = value;
-        }
-        lines.push(`- **${label}:** ${display}`);
-      }
-
-      return mcpText(lines.join("\n"));
-    },
-  );
-}
-
 // --- spec_plan_parse ---
 
 function registerSpecPlanParseTool(server: McpServer): void {
@@ -314,368 +287,6 @@ function registerSpecPlanParseTool(server: McpServer): void {
       } catch (err) {
         return mcpError("Error parsing plan", err);
       }
-    },
-  );
-}
-
-// --- spec_notify ---
-
-function registerSpecNotifyTool(
-  server: McpServer,
-  client: SidecarClient | null,
-  memoryStore: MemoryStore | null,
-): void {
-  server.tool(
-    "spec_notify",
-    "Create a notification in the SQLite store. Useful for recording workflow events visible in the dashboard.",
-    {
-      type: z
-        .enum(["info", "warning", "error", "success"])
-        .describe("Notification type"),
-      title: z.string().describe("Short notification title"),
-      message: z.string().optional().describe("Longer notification message"),
-      spec_id: z.string().optional().describe("Associated spec ID"),
-    },
-    async ({ type, title, message, spec_id }) => {
-      try {
-        if (client) {
-          await client.insertNotification({
-            type,
-            title,
-            message: message ?? undefined,
-            specId: spec_id ?? undefined,
-          });
-        } else {
-          memoryStore!.insertNotification({
-            type,
-            title,
-            message: message ?? null,
-            specId: spec_id ?? null,
-          });
-        }
-        return mcpText(`Notification created: ${title}`);
-      } catch (err) {
-        return mcpError("Error creating notification", err);
-      }
-    },
-  );
-}
-
-// --- spec_events ---
-
-function registerSpecEventsTool(
-  server: McpServer,
-  client: SidecarClient | null,
-  memoryStore: MemoryStore | null,
-): void {
-  server.tool(
-    "spec_events",
-    "Get recent spec lifecycle events (phase changes, task updates, TDD cycles, etc.) for a spec.",
-    {
-      spec_id: z.string().describe("Spec ID to get events for"),
-      limit: z
-        .number()
-        .optional()
-        .describe("Maximum number of events to return (default 20)"),
-    },
-    async ({ spec_id, limit }) => {
-      try {
-        const events = client
-          ? await client.getSpecEvents(spec_id, limit ?? 20)
-          : memoryStore!.getSpecEvents(spec_id, limit ?? 20);
-
-        if (events.length === 0) {
-          return mcpText(`No events found for spec: ${spec_id}`);
-        }
-
-        const lines = [`## Events for ${spec_id}`, ""];
-        for (const event of events) {
-          const time = new Date(event.timestamp).toISOString();
-          const details = JSON.stringify(event.details);
-          lines.push(`- **${event.eventType}** (${time}): ${details}`);
-        }
-
-        return mcpText(lines.join("\n"));
-      } catch (err) {
-        return mcpError("Error getting events", err);
-      }
-    },
-  );
-}
-
-// --- spec_status ---
-
-function registerSpecStatusTool(
-  server: McpServer,
-  client: SidecarClient | null,
-  specStore: SpecStore | null,
-): void {
-  server.tool(
-    "spec_status",
-    "Get the current spec/plan status for a project. Shows title, progress percentage, and remaining tasks.",
-    {
-      project: z.string().describe("Project path to check for active specs"),
-    },
-    async ({ project }) => {
-      const spec = client
-        ? await client.getCurrentSpec(project)
-        : specStore!.getCurrentSpec(project);
-
-      if (!spec) {
-        return mcpText("No active spec found for this project.");
-      }
-
-      const totalTasks = spec.tasks.length;
-      const doneTasks = spec.tasks.filter(
-        (t) => t.status === "complete",
-      ).length;
-      const inProgress = spec.tasks.filter(
-        (t) => t.status === "in-progress",
-      ).length;
-      const pending = spec.tasks.filter((t) => t.status === "pending").length;
-      const percent =
-        totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-      const lines = [
-        `## Current Spec: ${spec.title}`,
-        "",
-        `- **ID:** ${spec.id}`,
-        `- **Status:** ${spec.status}`,
-        `- **Type:** ${spec.type}`,
-        `- **Progress:** ${doneTasks}/${totalTasks} tasks (${percent}%)`,
-        `- **Plan File:** ${spec.planFile}`,
-      ];
-
-      if (totalTasks > 0) {
-        lines.push("", "### Tasks");
-        for (const task of spec.tasks) {
-          const marker =
-            task.status === "complete"
-              ? "[x]"
-              : task.status === "in-progress"
-                ? "[~]"
-                : "[ ]";
-          lines.push(`- ${marker} Task ${task.position}: ${task.title}`);
-        }
-      }
-
-      if (inProgress > 0 || pending > 0) {
-        lines.push(
-          "",
-          `**Remaining:** ${inProgress} in progress, ${pending} pending`,
-        );
-      }
-
-      return mcpText(lines.join("\n"));
-    },
-  );
-}
-
-// --- spec_init (compound workflow context) ---
-
-function registerSpecInitTool(
-  server: McpServer,
-  client: SidecarClient | null,
-  specStore: SpecStore | null,
-): void {
-  server.tool(
-    "spec_init",
-    "Get all workflow context in a single call: active plan state, config toggles, current task, and remaining work. Use at the start of any spec workflow to avoid multiple file reads.",
-    {
-      project: z.string().describe("Project path to check for active specs"),
-    },
-    async ({ project }) => {
-      const lines: string[] = ["## Spec Workflow Context", ""];
-
-      // --- Configuration ---
-      lines.push("### Configuration", "");
-      for (const { env, label } of CONFIG_KEYS) {
-        const value = process.env[env];
-        let display: string;
-        if (value === undefined || value === "") {
-          display =
-            label === "session_id" ? "unset" : "unset (default: enabled)";
-        } else if (value === "false") {
-          display = `${value} (disabled)`;
-        } else {
-          display = value;
-        }
-        lines.push(`- **${label}:** ${display}`);
-      }
-      lines.push("");
-
-      // --- Active Plan ---
-      const active = findActivePlan(project);
-      if (!active) {
-        lines.push("### Active Plan", "", "No active plan found.", "");
-        return mcpText(lines.join("\n"));
-      }
-
-      const { filePath, spec } = active;
-      const tasks: SpecTask[] = spec.tasks;
-      const totalTasks = tasks.length;
-      const doneTasks = tasks.filter((t) => t.status === "complete").length;
-      const percent =
-        totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-      lines.push(
-        "### Active Plan",
-        "",
-        `- **Title:** ${spec.title}`,
-        `- **Status:** ${spec.status}`,
-        `- **Type:** ${spec.type}`,
-        `- **Approved:** ${spec.approved ? "Yes" : "No"}`,
-        `- **Progress:** ${doneTasks}/${totalTasks} tasks (${percent}%)`,
-        `- **Plan File:** ${filePath}`,
-        "",
-      );
-
-      // --- Current Task ---
-      const currentTask =
-        tasks.find((t) => t.status === "in-progress") ??
-        tasks.find((t) => t.status === "pending") ??
-        null;
-
-      if (currentTask) {
-        lines.push(
-          "### Current Task",
-          "",
-          `- **Task ${currentTask.position}:** ${currentTask.title} (${currentTask.status})`,
-          "",
-        );
-      }
-
-      // --- Remaining Tasks ---
-      const remainingTasks = tasks.filter((t) => t.status !== "complete");
-      if (remainingTasks.length > 0) {
-        lines.push("### Remaining Tasks", "");
-        for (const task of remainingTasks) {
-          const marker = task.status === "in-progress" ? "[~]" : "[ ]";
-          lines.push(`- ${marker} Task ${task.position}: ${task.title}`);
-        }
-        lines.push("");
-      }
-
-      return mcpText(lines.join("\n"));
-    },
-  );
-}
-
-// --- spec_metrics (plan + task timing) ---
-
-function registerSpecMetricsTool(
-  server: McpServer,
-  _client: SidecarClient | null,
-  specStore: SpecStore | null,
-): void {
-  server.tool(
-    "spec_metrics",
-    "Get performance metrics for a spec: plan duration, per-task timing, and velocity data. Use for tracking implementation speed.",
-    {
-      project: z.string().describe("Project path to check for active specs"),
-      spec_id: z
-        .string()
-        .optional()
-        .describe("Specific spec ID (defaults to active spec)"),
-    },
-    async ({ project, spec_id }) => {
-      const active = findActivePlan(project);
-      if (!active && !spec_id) {
-        return mcpText(
-          "No active spec found. Provide a spec_id to query a specific plan.",
-        );
-      }
-
-      const targetId = spec_id ?? active?.spec.id;
-      if (!targetId || !specStore) {
-        return mcpText("No spec found.");
-      }
-
-      const rawSpec = specStore.getSpecTiming(targetId);
-      if (!rawSpec) {
-        return mcpText(`Spec not found: ${targetId}`);
-      }
-
-      const lines: string[] = [`## Spec Metrics: ${rawSpec.title}`, ""];
-
-      // Plan timing
-      if (rawSpec.startedAt) {
-        const startDate = new Date(rawSpec.startedAt).toISOString();
-        lines.push("### Plan Timing", "");
-        lines.push(`- **Started:** ${startDate}`);
-        if (rawSpec.completedAt) {
-          const endDate = new Date(rawSpec.completedAt).toISOString();
-          const durationMs = rawSpec.completedAt - rawSpec.startedAt;
-          const durationMin = Math.round(durationMs / 60000);
-          const hours = Math.floor(durationMin / 60);
-          const mins = durationMin % 60;
-          const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-          lines.push(`- **Completed:** ${endDate}`);
-          lines.push(`- **Duration:** ${durationStr}`);
-        } else {
-          const elapsedMs = Date.now() - rawSpec.startedAt;
-          const elapsedMin = Math.round(elapsedMs / 60000);
-          lines.push(
-            `- **Status:** ${rawSpec.status} (${elapsedMin}m elapsed)`,
-          );
-        }
-        lines.push("");
-      }
-
-      // Task timing
-      const rawTasks = specStore.getTaskTiming(targetId);
-      const tasksWithTiming = rawTasks.filter(
-        (t) => t.startedAt || t.completedAt,
-      );
-
-      if (tasksWithTiming.length > 0) {
-        lines.push("### Task Timing", "");
-        lines.push("| Task | Status | Duration |");
-        lines.push("|------|--------|----------|");
-
-        let totalDuration = 0;
-        let longestDuration = 0;
-        let longestTask = "";
-
-        for (const task of rawTasks) {
-          if (task.startedAt && task.completedAt) {
-            const dur = task.completedAt - task.startedAt;
-            const durMin = Math.round(dur / 60000);
-            totalDuration += dur;
-            if (dur > longestDuration) {
-              longestDuration = dur;
-              longestTask = `Task ${task.position}`;
-            }
-            lines.push(
-              `| ${task.position}: ${task.title} | ${task.status} | ${durMin}m |`,
-            );
-          } else if (task.startedAt) {
-            const elapsed = Math.round((Date.now() - task.startedAt) / 60000);
-            lines.push(
-              `| ${task.position}: ${task.title} | ${task.status} | ${elapsed}m (in progress) |`,
-            );
-          }
-        }
-
-        lines.push("");
-
-        if (tasksWithTiming.length > 1) {
-          const avgMin = Math.round(
-            totalDuration / tasksWithTiming.length / 60000,
-          );
-          const longestMin = Math.round(longestDuration / 60000);
-          lines.push("### Summary", "");
-          lines.push(
-            `- **Total tasks:** ${rawTasks.length} | **With timing:** ${tasksWithTiming.length}`,
-          );
-          lines.push(
-            `- **Average:** ${avgMin}m | **Longest:** ${longestTask} (${longestMin}m)`,
-          );
-          lines.push("");
-        }
-      }
-
-      return mcpText(lines.join("\n"));
     },
   );
 }

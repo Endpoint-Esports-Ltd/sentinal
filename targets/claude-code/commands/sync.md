@@ -525,28 +525,38 @@ Create/update `.sentinal/rules/{slug}-mcp-servers.md`:
 
 **Label user-scope servers.** For a server found only in a user config, the `**Source:**` line must say so — this file is committed and shared, so an unlabelled user-global server is a false promise to teammates. Write exactly: `**Source:** ~/.claude.json (user-global — may not be present for teammates)`.
 
-**Graph-tool wiring.** If a detected server exposes a code-graph capability — modules transitively reaching a file **and** the total module count of its graph — record it in the same file, delimited by these exact markers:
+**Graph-tool wiring.** If a detected server exposes any code-exploration capability, catalogue it in the same file, delimited by these exact markers:
 
 ```markdown
 <!-- SENTINAL GRAPH TOOLS: BEGIN (managed by /sync — edits inside are overwritten) -->
 
-### Code-graph reach for `impact_analysis`
+### Code-graph capabilities for `impact_analysis` / `plan_impact`
 
-| Capability                                 | Tool          |
-| ------------------------------------------ | ------------- |
-| Modules transitively reaching a file       | `trace_path`  |
-| Total modules in the graph (universe size) | `graph_stats` |
+| Capability                                 | Verified invocation             | Status                              |
+| ------------------------------------------ | ------------------------------- | ----------------------------------- |
+| Total modules in the graph (universe size) | `graph_stats`                   | ✅ verified                         |
+| Modules transitively reaching a given file | `query(…, <confidence filter>)` | ✅ verified — per-file, not totals  |
+| Call sites with file + line                | `query(...)`                    | ✅ verified                         |
+| Symbol search by name                      | `find_symbol`                   | ✅ verified                         |
+| Cross-repo / cross-service linking         | `mode="cross_service"`          | ⚠️ unverified — never score from it |
 
 Before calling `impact_analysis`, collect reach for **every** changed `.ts`/`.tsx`/`.js` file, then pass it with the universe size from the same tool:
 
-`impact_analysis(project="<repo>", reach={"moduleCount": <total>, "files": {"src/a.ts": <n>, ...}, "source": "<server> <tool>"})`
+`impact_analysis(project="<repo>", reach={"sources": [{"source": "<server> <tool>", "primary": true, "moduleCount": <total>, "files": {"src/a.ts": <n>, ...}}], "callSites": [{"file": "src/b.ts", "line": 42, "caller": "<fn>", "callee": "<fn>", "target": "src/a.ts"}]})`
 
-A partial `files` map is rejected outright and nothing is scored — see "Code-Graph Reach" in `mcp-servers.md` for the full contract.
+The single-source form is still accepted unchanged and is exactly equivalent to a one-entry `sources` list — nothing already sending it needs to change: `reach={"moduleCount": <total>, "files": {"src/a.ts": <n>, ...}, "source": "<server> <tool>"}`
+
+Before implementing a plan: `plan_impact(project="<repo>", plan_path="<plan>.md", reach=<same shape>)`. Its wave-overlap half is deterministic on the plan text and needs **no** injected reach — call it even with no graph server configured.
+
+A partial `files` map is rejected outright and nothing is scored; exactly one source is scored (`primary`, else the first) and `callSites` are evidence only — see "Code-Graph Reach" in `mcp-servers.md` for the full contract.
 
 <!-- SENTINAL GRAPH TOOLS: END -->
 ```
 
-- **Name only tools Step 7.2 actually found** — 1-3 rows. `trace_path`/`graph_stats` above are placeholders, not names to copy.
+- **Name only what Step 7.2 actually returned** — the invocations above are placeholders, not names to copy. Drop any row the server cannot answer.
+- **⛔ Catalogue the invocation that was VERIFIED, not the obvious one.** A server's best-named, purpose-built tool can return aggregate-only counts, or collide on a short symbol name and answer for an unrelated function — one trace of a common name returned 13 callers, nearly all unrelated. A lower-level query interface with a confidence filter was the only path yielding correct per-file data. Record the exact invocation that worked, filters included.
+- **This block SHOULD be vendor-specific.** It is generated per project from Step 7.2's smoke-testing and is never shipped, so concrete tool names, arguments and filters belong here. Sentinal's own shipped rules stay vendor-neutral because they must run everywhere; this file does not. Do not "fix" it to match them.
+- **⛔ Cross-repo/cross-service is recorded, never scored.** Measured: a cross-service mode returned output byte-identical to single-repo mode with no empty-result marker, and route extraction was dominated by misparsed path literals from test fixtures. Keep it out of every `reach` payload until verified here.
 - **⛔ Emit the block only if the universe size (`moduleCount`) is obtainable from the detected tool.** A guessed `moduleCount` manufactures a false HIGH on every change — the same alarm fatigue a guessed `isolation` would cause in Phase 6.5. Omission is fail-safe: write nothing and report "detected but universe size unknown" in Phase 12.
 - **Idempotent:** if both markers are already present, replace everything between them; otherwise append the whole block. Exactly one block per file.
 

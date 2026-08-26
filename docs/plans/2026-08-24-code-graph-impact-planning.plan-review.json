@@ -1,0 +1,105 @@
+{
+  "review_summary": "The plan is unusually well-evidenced and honours every explicit user decision, but it changes the agent-facing `reach` contract in Task 6 without updating the two shipped surfaces that document and emit that contract, leaves the multi-source combination rule undefined, and violates its own wave invariant in Wave 4. The user's point 3 (spec-implement uses recorded graph tools) is delivered only as a prose note inside Task 10, with no dependency, DoD item, or truth behind it.",
+  "alignment_score": "medium",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 6 breaks the shipped `reach` contract documented in targets/*/rules/mcp-servers.md, which no task touches",
+      "description": "Task 6 says \"Restructure to `sources: Array<{ source?, moduleCount, files }>`\". But `targets/claude-code/rules/mcp-servers.md` and `targets/opencode/rules/mcp-servers.md` (lines 161-185, both copies) are the shipped rule that TELLS the agent the payload shape: a `moduleCount` table row, a literal example JSON `{\"moduleCount\": 334, ...}`, and the prose \"`moduleCount` is a single report-level scalar\" plus \"If the universe size is not obtainable, omit `reach` entirely\". After Task 6 that rule is actively wrong and agents will keep sending the old shape. Neither file appears in any task's Files list, in the Artifacts table, or in Task 11's assertions. This is also the surface produced by the merged `2026-08-23-impact-analysis-risk-inversion.md`, so the plan silently regresses a VERIFIED plan's output.",
+      "suggested_fix": "Add `targets/claude-code/rules/mcp-servers.md` and `targets/opencode/rules/mcp-servers.md` to Task 6's Files list (or to Task 5, whichever ships first), rewriting the reach table, the example payload, and the 'single report-level scalar' paragraph for per-source universes. Add a DoD item: 'both mcp-servers.md copies document the multi-source shape and remain byte-identical in that region' plus an `IDENTICAL_RULES` check. Also state explicitly in Task 6 whether the single-object `reach` shape is still accepted (back-compat) or removed — the plan currently never says, and every consumer decision depends on it."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "/sync's emitted recipe still writes the old single-`moduleCount` payload; Task 5 does not update it and is in the same wave as Task 6",
+      "description": "`targets/*/commands/sync.md:540/542` emits a literal recipe: `impact_analysis(project=\"<repo>\", reach={\"moduleCount\": <total>, \"files\": {...}, \"source\": \"...\"})`, and line 548/550 carries the omit-if-universe-unknown rule keyed to that scalar. Task 5's Key Notes only widen the *capability table* (reach, call sites, symbol search, cross-repo) and its DoD says nothing about the emitted invocation. Task 5 and Task 6 are both Wave 2, so they are meant to run in parallel — meaning /sync will be regenerated to catalogue call sites while still telling projects to emit a payload shape Task 6 is simultaneously restructuring. Every catalogue block written between these two landing is wrong.",
+      "suggested_fix": "Add to Task 5's Key Notes and DoD: 'update the emitted `impact_analysis` recipe to the multi-source shape from Task 6, and add a `plan_impact` recipe alongside it'. Move Task 5 to Wave 3 with `Dependencies: Task 6`, or make Task 6's schema change strictly additive/back-compatible and say so, so the two can genuinely run in parallel."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Per-source universes are underspecified: no rule for combining two sources that cover the same file, so the verdict becomes a function of tool inventory",
+      "description": "You asked me to try to break this. Here is the case. Source A is module-level, `moduleCount: 334`, file X reach 89 -> share 26.6% -> HIGH. Source B is symbol-level, `moduleCount: 8440`, same file X reach 200 -> share 2.4% -> LOW. Both cover X and both are internally consistent, so Task 6's stated safeguard ('normalise within each source, never a raw max') does not fire — it prevents mixing raw counts but says nothing about which of two legitimate shares wins. If you take max-of-shares, adding a second source can only ever raise the verdict; if min, only lower it; if 'primary', the answer depends on declaration order. In all three the risk verdict for identical code changes depending on which servers happen to be installed. The docblock at `reach.ts:113-117` is therefore not fully rationalised away: per-source carriage fixes *pairing* (a reach and its own universe travel together), but it does not make shares from different granularity models commensurable — which is exactly the claim `mcp-servers.md:177` makes when it says a symbol-graph reach against a module count 'marks everything HIGH'. The share thresholds (HIGH at 25%) were derived in `ec642c6` from this repo's *module-level* distribution (p50=10/334, p75=82/334); nothing establishes that 25% means anything in a symbol universe. Pre-Mortem 1 anticipates this and offers 'score from a single designated primary source' as a fallback — that fallback should be the design, not the escape hatch, because Tasks 7 and 8 both consume the answer.",
+      "suggested_fix": "Decide the combination rule in Task 6 up front and state it in the schema `.describe()`: score from exactly ONE designated source per report (explicit `primary: true`, or first source in declaration order), with all other sources accepted for reporting/attribution/call-sites only and explicitly unscored. Add a DoD test for the conflicting-share case above asserting the verdict equals the primary source's verdict alone and does not move when the second source is added or removed. If you keep multi-source scoring, Task 12's per-unit-model measurement must gate it (see the ordering issue below), not follow it."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 11 depends on Tasks 9 and 10 but shares Wave 4 with them",
+      "description": "A wave is a parallel-execution group (`spec-plan.md` Step 1.5.0). Task 11 declares `Dependencies: Task 5, Task 9, Task 10` and `Wave: 4`, while Tasks 9 and 10 are also Wave 4. Task 11 asserts on prose that Tasks 9 and 10 have not written yet; run in parallel it fails deterministically, run serially the wave label is a lie. The plan's own Wave 4 description ('Tasks 9, 10, 11 edit shipped markdown and must follow the tools they describe') concedes the ordering without encoding it.",
+      "suggested_fix": "Promote Task 11 to Wave 5 (and Task 12, which depends only on Tasks 1 and 6, may stay in Wave 4). Update the Execution Waves section and the Progress Tracking wave labels to match."
+    },
+    {
+      "severity": "must_fix",
+      "category": "scope_alignment",
+      "title": "Tasks 9 and 10 both regenerate parity baselines via a repo-wide UPDATE_PARITY_BASELINES run, in a shared working directory",
+      "description": "You asked specifically about this. The named `.diff` files differ (`spec-plan.diff` vs `spec-implement.diff`), so a naive file-disjointness check passes. But `src/cli/target-parity.test.ts:47` gates on `UPDATE_PARITY_BASELINES === \"1\"` for the whole suite run — regeneration rewrites every fixture in `src/cli/__fixtures__/target-parity/`, not just the one you edited. Both tasks' Verify/DoD steps require that run. Per the plan's own Gotcha 4, parallel OpenCode tasks share one working directory, so two concurrent regenerations will each bake in the other's half-finished markdown edits, and the 'hunk count unchanged' check will pass against a baseline that already absorbed the other task's change. This is precisely the class of same-wave corruption `plan_impact` is being built to detect — the plan reproduces it.",
+      "suggested_fix": "Either serialise: move Task 10 to Wave 5 (it declares no dependencies, so it is free to move), or add an explicit note to both tasks that baseline regeneration is a single post-wave step performed once after both edits land, with the hunk-count verification done then. Whichever you pick, add `src/cli/__fixtures__/target-parity/` (the directory, not the individual .diff) to both tasks' Files lists so the overlap is visible."
+    },
+    {
+      "severity": "must_fix",
+      "category": "requirement_coverage",
+      "title": "\"spec-implement uses recorded graph tools\" (user point 3) is a prose note inside Task 10, with no dependency, no DoD item, and no truth",
+      "description": "The user asked to 'update spec-plan and spec-implement to use any recorded code graph tools when figuring out overlaps, call sites, impact'. Verified: `targets/opencode/skills/spec-implement/SKILL.md:170-171` currently offers only `lsp({operation:\"incomingCalls\"})` with 'if LSP unavailable, use grep as fallback' — the sole caller-finding guidance in the implement phase. Task 10's Key Notes do contain the right answer ('LSP where present -> a catalogued code-graph capability (Task 5) -> grep as last resort'), so it is not dropped — but Task 10's Objective is framed purely as 'stop instructing OpenCode agents to call a tool that does not exist', its DoD says only 'no target instructs the agent to call a tool that target lacks', it declares `Dependencies: None` despite consuming Task 5's catalogue, and Task 11's assertions list does not mention it. As written, an implementer who satisfies every DoD box can delete the LSP line, add nothing, and be done — the user's requirement evaporates.",
+      "suggested_fix": "Rename Task 10 to reflect both halves (e.g. 'Correct LSP prose and wire the catalogued code-graph capability into spec-implement'), add `Dependencies: Task 5`, and add DoD items: 'both spec-implement copies state the caller-finding ordering LSP -> catalogued code-graph capability -> grep, naming no vendor' and 'both copies point at the /sync-generated capability catalogue by its marker name'. Add a matching assertion to Task 11 and a Truth to Goal Verification."
+    },
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "Truth 8 is already false at HEAD — shipped src/ names a vendor at reach.ts:137",
+      "description": "Truth 8 states: 'No shipped file under `src/` or `targets/*/rules/` names a specific vendor tool as required — grep for `codebase-memory`, `trace_path`, `query_graph` returns only generated-rule examples.' `src/analysis/reach.ts:137` is a `.describe()` on the shipped schema reading \"Tool that produced these numbers, e.g. 'codebase-memory-mcp trace_path'\", which is surfaced to every agent in the emitted `inputSchema`. The truth as written fails on the current tree, so it is not a falsifiable check of this plan's work — it will either be quietly reworded during implementation or produce an unexplained failure.",
+      "suggested_fix": "Either scope the truth to 'names no vendor as REQUIRED (illustrative `e.g.` in a describe() is permitted)' and say so, or add scrubbing `reach.ts:137` to Task 6's Files/DoD (Task 6 already rewrites that schema). Do not leave the truth in its current form."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Adding the plan_impact MCP tool triggers a documented count/catalogue checklist that no task performs",
+      "description": "`.sentinal/rules/sentinal-mcp-servers.md` carries a mandatory 'Smoke Test Checklist After Adding a Tool' requiring: the domain table AND the header figure updated (currently '35 tools across 7 domains'; Analysis domain listed as 3 tools), README.md's 'Sentinal MCP Tool Catalog' updated (it carries the same figure and table and drifts independently), and registration asserted in `src/mcp/server.test.ts`. Task 7 creates `plan_impact` but its Files list contains only `plan-impact.ts`, its test, and a one-line registration edit. None of README.md, `.sentinal/rules/sentinal-mcp-servers.md`, or `src/mcp/server.test.ts` appears anywhere in the plan.",
+      "suggested_fix": "Add to Task 7's Files: `README.md`, `.sentinal/rules/sentinal-mcp-servers.md`, `src/mcp/server.test.ts`. Add DoD items: 'Analysis domain table 3 -> 4 and header figure 35 -> 36 updated in BOTH files' and '`src/mcp/server.test.ts` asserts `plan_impact` registration'. Note this makes Task 7 touch shipped docs, so re-check it against Wave 3's disjointness."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Every Truth is unit-level; nothing verifies the end-to-end story the user actually asked for",
+      "description": "You asked what is missing. Truths 1-9 each pin one module or one file's bytes. None connects them: nothing verifies that a project with a graph tool -> /sync writes a catalogue block -> spec-plan reads it and injects sources -> plan_impact returns a verdict that differs from the built-in one. In particular nothing checks that the payload /sync tells projects to emit is one `impact_analysis`/`plan_impact` would actually ACCEPT. That single check is cheap and machine-checkable, and it is exactly what would have caught the mcp-servers.md and sync.md contract drift above.",
+      "suggested_fix": "Add a Truth and a Task 11 assertion: extract the example payload from the `SENTINAL GRAPH TOOLS` block in both `sync.md` copies and from `mcp-servers.md`, parse it, and validate it against the real `AgentReachSchema` (imported, not string-matched). Add a second integration-level truth in Task 7: a test that runs `plan_impact` on a fixture plan twice — once built-in, once with an injected source — and asserts the injected run produces a different, attributed verdict."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Task 9 wires spec-plan to CALL plan_impact but never tells it to consult the catalogue and inject the data",
+      "description": "The user's point 4 was 'leverage some of this data if available during planning'. Task 9's DoD is 'Both copies call `plan_impact` after wave assignment' — with no injection, plan_impact runs on the built-in module graph only, and Task 5's catalogue is never read during planning. The catalogue and the tool are built but never joined on the planning side, which is the same shape of gap as Task 10's.",
+      "suggested_fix": "Add to Task 9's Key Notes and DoD: 'the prose instructs the agent to check the project rule's code-exploration capability catalogue and, if a verified reach and/or call-site capability is catalogued, pass it to `plan_impact` via the injection surface; if none is catalogued, call `plan_impact` without it'. Add `Dependencies: Task 5, Task 7`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 12's per-unit-model measurement is ordered after the multi-model scoring it is supposed to justify",
+      "description": "Task 12 (Wave 4) measures 'reach distribution across unit models (module-level built-in; and, where a catalogued source is available, symbol-level and file-level)' — i.e. exactly the evidence needed to know whether a 25% share threshold is meaningful outside the module universe it was derived from. Task 6 (Wave 2) ships share-based scoring across arbitrary universes two waves earlier. The gate is real but it is pointed at the wrong thing: it can only retroactively confirm a shipped formula. Combined with the undefined combination rule above, Task 6 can ship a scoring behaviour that Task 12 then discovers is uncalibrated.",
+      "suggested_fix": "Either (a) restrict Task 6 to single-primary-source scoring (see the combination-rule issue) so no uncalibrated cross-model scoring ships before measurement, or (b) move the unit-model half of Task 12's measurement into Task 6 as a prerequisite and leave only the HIGH-rate-before/after-Task-1 half in Wave 4."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 12's artifact form is ambiguous and, as a test, would be non-deterministic",
+      "description": "You asked whether a task allowed to produce zero changes is legitimate. It is — a measurement whose verdict is 'the current cutoffs are justified' is a real, durable result, and gating it is the right call given `ec642c6`. The weakness is not indecision, it is the artifact: Files says `src/analysis/threshold-measurement.test.ts` **(or a script under `scripts/`)**. As a `.test.ts` it joins the default `bun test` suite and measures the live repo, so its numbers drift with every commit and its assertions either become meaningless or start failing for unrelated reasons; the plan's own 'full suite must stay at 2588 pass' bar makes that costly.",
+      "suggested_fix": "Commit to `scripts/measure-reach-thresholds.ts` (not a test) producing a report, and make the DoD artifact a written verdict block appended to this plan file with the date, percentiles, classification rates, and the HIGH-rate delta across Task 1. Remove the 'or' so the implementer cannot pick the drifting option."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 1's two-bug coupling is correctly argued; extend the backtick fix to an audit of the full template verb set",
+      "description": "The coupling reasoning verifies. `impact.ts:68-70` yields an empty `specFiles` under a client, `scoreRisk` gates `hasUnexpected` on `specFiles.size > 0`, so Bug 2 is currently unobservable; the moment Bug 1 is fixed, `specFiles` is populated but omits every `Test:` entry, and TDD guarantees the task's own test file is touched — so a false 'unexpected change' warning is certain, not merely likely. One task is right. The residual gap is narrower: the backtick problem at `helpers.ts:88` affects EVERY verb, not just `Test:`, and the task only says 'check the other verbs for the same backtick issue' in a note.",
+      "suggested_fix": "Add a DoD item: 'a table-driven test covers every verb the plan template can emit (Create/Modify/Test/Delete/Rename/Add/Update) with backticked and un-backticked paths', and have it derive the verb list from the shipped `spec-plan.md` template rather than a hand-written literal, so a future template verb cannot silently go unmatched again."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "plan_impact's value is concentrated in wave-overlap detection, which needs neither reach nor a graph tool — say so in the plan",
+      "description": "You asked whether plan_impact is worth building given Assumption 3 (a plan's Files list is a prediction). The two halves have very different exposure. The reach half is fully prediction-dependent and its verdict degrades exactly as the Files list degrades. The overlap half is not: it asks whether the plan is internally consistent with its own stated rule (`spec-plan.md:220`), which is a property of the plan text itself and is true or false regardless of what implementation ends up touching. Since that rule is prose-only today, on OpenCode where waves share a working directory, that half is real, verifiable value — and this very plan's Wave 4 (see the Task 9/10 baseline conflict) is a live example of what it would catch. The plan already says overlap is 'the highest-value output' but frames both halves as equally justified.",
+      "suggested_fix": "In Task 7's Key Decisions, state the split explicitly: overlap detection is deterministic and sound on plan text alone; prospective reach is prediction-bounded and must be rendered as a hint with its assumption named inline in the output. Consider requiring that overlap detection work with zero injected sources, so it degrades to full value in projects with no graph tool at all."
+    }
+  ]
+}

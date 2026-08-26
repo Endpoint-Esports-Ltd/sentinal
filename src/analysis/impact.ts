@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { mcpText } from "../mcp/helpers.js";
 import type { SpecStore } from "../spec/store.js";
+import type { SidecarClient } from "../sidecar/client.js";
 import {
   extractSpecFiles,
   countLines,
@@ -22,6 +23,7 @@ import {
   type RiskLevel,
 } from "./helpers.js";
 import { buildImportGraph } from "./imports.js";
+import { renderCallSites } from "./call-sites.js";
 import {
   AgentReachSchema,
   isHighReach,
@@ -29,13 +31,26 @@ import {
   isReachRelevantPath,
   maxReach,
   resolveReach,
+  type CallSite,
   type ReachProvider,
 } from "./reach.js";
 
+/**
+ * @param specStore Direct SQLite access. `null` in production — see `client`.
+ * @param reachProvider Optional external reach oracle.
+ * @param client The sidecar. **Load-bearing.** `src/mcp/server.ts` sets
+ *   `store = client ? null : ...` and production always has a client, so
+ *   `specStore` is always `null` there. Without this parameter the active spec
+ *   never resolved, `specFiles` was permanently empty, and every spec-aware
+ *   branch below (`_Active spec:_`, the unexpected-file warning, the
+ *   Expected/Unexpected summary lines, and the `hasUnexpected` HIGH trigger in
+ *   `scoreRisk`) was dead code in the only configuration users ever run.
+ */
 export function registerImpactAnalysisTool(
   server: McpServer,
   specStore: SpecStore | null,
   reachProvider: ReachProvider | null = null,
+  client: SidecarClient | null = null,
 ): void {
   server.tool(
     "impact_analysis",
@@ -64,8 +79,15 @@ export function registerImpactAnalysisTool(
           );
         }
 
-        // Get active spec task files
-        const activeSpec = specStore?.getCurrentSpec(project) ?? null;
+        // Get active spec task files. Direct store when there is no sidecar;
+        // otherwise the sidecar, which owns the warm SQLite handle.
+        //
+        // NOTE: restoring this also restores `hasUnexpected` as a HIGH trigger,
+        // so the observed HIGH rate will rise. That is the behaviour the tool
+        // was always documented to have — not a regression.
+        const activeSpec =
+          specStore?.getCurrentSpec(project) ??
+          (await resolveSpecViaClient(client, project));
         const specFiles = activeSpec
           ? extractSpecFiles(activeSpec.planFile)
           : new Set<string>();
@@ -127,6 +149,7 @@ export function registerImpactAnalysisTool(
           activeSpec?.title ?? null,
           moduleCount,
           resolution.attribution,
+          resolution.callSites,
         );
         return mcpText(lines);
       } catch (err) {
@@ -137,6 +160,23 @@ export function registerImpactAnalysisTool(
       }
     },
   );
+}
+
+/**
+ * Resolve the active spec through the sidecar, degrading to "no spec" if it is
+ * unreachable. A down sidecar must cost the report its spec half, never fail
+ * the whole tool — the reach and length halves remain useful without it.
+ */
+async function resolveSpecViaClient(
+  client: SidecarClient | null,
+  project: string,
+): Promise<{ title: string; planFile: string } | null> {
+  if (!client) return null;
+  try {
+    return (await client.getCurrentSpec(project)) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function runGitDiff(project: string, cmd: string[]): Promise<string> {
@@ -186,6 +226,11 @@ export function buildImpactOutput(
    * say so.
    */
   reachAttribution: string[] = [],
+  /**
+   * Evidence for the reach above — never an input to it. Empty for every
+   * built-in run, so the default report is byte-unchanged.
+   */
+  callSites: CallSite[] = [],
 ): string {
   const riskSuffix =
     risk === "MEDIUM"
@@ -253,6 +298,11 @@ export function buildImpactOutput(
       );
     }
   }
+
+  // Immediately after the reach block: reach is the count, call sites are the
+  // evidence for it, so the two read together. Everything below stays where it
+  // was, which matters because `impact.test.ts` asserts on these bytes.
+  lines.push(...renderCallSites(callSites));
 
   const overLimitFiles = changedFiles.filter((f) => f.overLimit);
   if (overLimitFiles.length > 0) {

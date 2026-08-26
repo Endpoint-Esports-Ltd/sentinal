@@ -68,11 +68,38 @@ export function parseTscOutput(output: string): DiagnosticError[] {
 }
 
 /**
+ * Normalize a single path token pulled out of a plan's `**Files:**` block.
+ *
+ * Strips surrounding backticks first, then a leading `./`. Order matters: the
+ * shipped template writes every path backticked (`spec-plan.md:190-192`), so
+ * stripping `./` first leaves `` `./src/a.ts` `` with the backtick in front of
+ * the dot and the prefix never matches.
+ *
+ * Exported so a future per-task plan parser normalizes identically rather than
+ * growing a second, silently divergent copy.
+ */
+export function normalizeSpecFilePath(token: string): string {
+  return token
+    .trim()
+    .replace(/`/g, "")
+    .replace(/^\.\//, "")
+    .replace(/[,;]+$/, "")
+    .trim();
+}
+
+/**
  * Extract all file paths mentioned in a plan file.
- * Looks for "- Modify:", "- Create:", "- Delete:", etc. lines in the
+ * Looks for "- Modify:", "- Create:", "- Test:", etc. lines in the
  * Implementation Tasks section.
  * Reads the plan file directly since SpecTask.description doesn't capture
  * the **Files:** block in the current parser.
+ *
+ * ⛔ `Test` is not optional in this alternation. The shipped task template
+ * emits `- Test: \`path\`` (`spec-plan.md:192`) and TDD guarantees every task
+ * touches its own test file, so omitting the verb makes a false "modified but
+ * not listed in any task's Files section" warning certain — not merely likely.
+ * The omission went unnoticed only because `impact_analysis` never received a
+ * spec at all in production; see `registerImpactAnalysisTool`.
  */
 export function extractSpecFiles(planFilePath: string): Set<string> {
   const files = new Set<string>();
@@ -81,12 +108,20 @@ export function extractSpecFiles(planFilePath: string): Set<string> {
   try {
     const content = readFileSync(planFilePath, "utf-8");
     const fileRe =
-      /^-\s+(?:Modify|Create|Delete|Rename|Add|Update):\s*(.+)$/gim;
+      /^-\s+(?:Modify|Create|Delete|Rename|Add|Update|Test):\s*(.+)$/gim;
     let match: RegExpExecArray | null;
     while ((match = fileRe.exec(content)) !== null) {
-      // Normalize: strip leading ./ and trailing whitespace, strip inline comments
-      const raw = match[1].trim().split(" ")[0].replace(/^\.\//, "");
-      if (raw.length > 0) files.add(raw);
+      const value = match[1].trim();
+      // Backticks delimit paths unambiguously, so when they are present take
+      // every one of them: real plans write `- Modify: \`a.ts\`, \`b.ts\``,
+      // and taking only the first token dropped every path after the comma.
+      // Un-backticked lines keep the original first-token behaviour, which
+      // also discards trailing prose and inline comments.
+      const ticked = value.match(/`[^`]+`/g);
+      for (const token of ticked ?? [value.split(" ")[0]]) {
+        const raw = normalizeSpecFilePath(token);
+        if (raw.length > 0) files.add(raw);
+      }
     }
   } catch {
     // File unreadable — return empty set
