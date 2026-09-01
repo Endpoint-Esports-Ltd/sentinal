@@ -1,3 +1,10 @@
+## [1.36.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.0...v1.36.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **mcp:** report a missing required enum as missing rather than an invalid value ([bcd0156](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bcd0156112fca1b1edf1c901ce4a9289da29ab64))
+
 # [1.36.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.35.0...v1.36.0) (2026-08-26)
 
 
