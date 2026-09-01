@@ -40,11 +40,11 @@ changed `@@` header is expected; a changed hunk **count** is not.
 **1. Apply the edit to both targets identically.** Note the offsets — they come from
 frontmatter and must not change:
 
-| Pair | CC→OC offset |
-| --- | --- |
-| `spec-plan` | −3 |
-| `spec-implement` | −4 |
-| `sync` | −2 |
+| Pair             | CC→OC offset |
+| ---------------- | ------------ |
+| `spec-plan`      | −3           |
+| `spec-implement` | −4           |
+| `sync`           | −2           |
 
 Verify a region is identical before regenerating:
 
@@ -54,7 +54,7 @@ diff <(sed -n '/## Phase 7/,/## Phase 8/p' targets/claude-code/commands/sync.md)
 ```
 
 **2. Run prettier on the edited files FIRST.** Shipped `targets/**/*.md` are
-prettier-clean, and prettier reformats *inside* ` ```markdown ` fences
+prettier-clean, and prettier reformats _inside_ ` ```markdown ` fences
 (`embeddedLanguageFormatting: auto`). Skipping this means a later format pass
 perturbs the fixtures.
 

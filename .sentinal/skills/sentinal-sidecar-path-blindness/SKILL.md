@@ -42,7 +42,7 @@ Downstream, any `specFiles.size > 0` guard is permanently false. The feature doe
 error — it silently evaluates to "nothing to do".
 
 **Why no test caught it:** tests construct the tool with a real `store`, which is the
-path that *works*. Production is the `client`-only path, which nothing exercised.
+path that _works_. Production is the `client`-only path, which nothing exercised.
 Passing tests were evidence about the wrong code path.
 
 ## Solution

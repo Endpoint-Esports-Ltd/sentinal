@@ -23,7 +23,7 @@ that claims to bind prose to a schema.
 
 **1. The shipped docs are part of the contract.** Sentinal ships agent-facing prose
 that states the payload shape — `targets/*/rules/mcp-servers.md` documents it, and
-`/sync` Phase 7 *emits a literal recipe* into each project's generated rule. Change
+`/sync` Phase 7 _emits a literal recipe_ into each project's generated rule. Change
 the schema alone and agents keep sending the old shape against a rule that is now
 wrong. Both surfaces are already in users' hands.
 
@@ -48,10 +48,11 @@ string still appeared on **25 other lines** of the same file, so the test stayed
 **Constraints go in `.describe()`, not only `.refine()`:**
 
 ```ts
-files: z.record(z.string(), z.number().int().nonnegative())
-  .describe("Repo-relative path -> count. Must cover EVERY changed .ts/.tsx/.js file, " +
-            "and every value must be <= moduleCount (a larger value proves the two " +
-            "came from different metrics).")
+files: z.record(z.string(), z.number().int().nonnegative()).describe(
+  "Repo-relative path -> count. Must cover EVERY changed .ts/.tsx/.js file, " +
+    "and every value must be <= moduleCount (a larger value proves the two " +
+    "came from different metrics).",
+);
 ```
 
 **Consider `.strict()`.** Without it, a mis-nested key is silently stripped and the
@@ -63,7 +64,10 @@ keep working.
 
 ```ts
 import { AgentReachSchema } from "../analysis/reach.js";
-import { ReachSourceSchema, CallSiteSchema } from "../analysis/reach-sources.js";
+import {
+  ReachSourceSchema,
+  CallSiteSchema,
+} from "../analysis/reach-sources.js";
 
 const FIELDS = new Set([
   ...Object.keys(AgentReachSchema.shape),
