@@ -21,6 +21,7 @@ import type { MemoryStore } from "../memory/store.js";
 import { findActivePlan } from "./detect.js";
 import type { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { requiredEnum } from "../utils/schema.js";
 
 // --- Public API ---
 
@@ -46,9 +47,10 @@ function registerSpecNotifyTool(
     "spec_notify",
     "Create a notification in the SQLite store. Useful for recording workflow events visible in the dashboard.",
     {
-      type: z
-        .enum(["info", "warning", "error", "success"])
-        .describe("Notification type"),
+      type: requiredEnum(
+        ["info", "warning", "error", "success"],
+        "Notification type",
+      ),
       title: z.string().describe("Short notification title"),
       message: z.string().optional().describe("Longer notification message"),
       spec_id: z.string().optional().describe("Associated spec ID"),

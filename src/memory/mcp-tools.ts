@@ -27,6 +27,7 @@ import type {
 } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { mcpText } from "../mcp/helpers.js";
+import { requiredEnum } from "../utils/schema.js";
 import { decayQualityScores } from "./maintenance.js";
 import { registerSharedTools, saveToSharedIfRequested } from "./shared.js";
 
@@ -268,9 +269,10 @@ function registerSaveTool(
         .string()
         .min(1)
         .describe("Detailed content of the observation"),
-      type: z
-        .enum(OBSERVATION_TYPES)
-        .describe("Type: decision, discovery, error, fix, or pattern"),
+      type: requiredEnum(
+        OBSERVATION_TYPES,
+        "Type: decision, discovery, error, fix, or pattern",
+      ),
       project: z.string().describe("Project path this observation relates to"),
       tags: z
         .array(z.string())
@@ -414,11 +416,10 @@ function registerMaintainTool(server: McpServer, store: MemoryStore): void {
     "memory_maintain",
     "Maintain memory quality: decay scores, prune low-quality observations, or view quality distribution.",
     {
-      action: z
-        .enum(MAINTAIN_ACTIONS)
-        .describe(
-          "Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)",
-        ),
+      action: requiredEnum(
+        MAINTAIN_ACTIONS,
+        "Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)",
+      ),
       prune_threshold: z
         .number()
         .min(0)

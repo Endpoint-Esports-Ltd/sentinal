@@ -14,6 +14,7 @@ import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { TDD_CYCLE_STATES } from "../memory/types.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { requiredEnum } from "../utils/schema.js";
 
 // --- Public API ---
 
@@ -108,11 +109,10 @@ function registerTddSetStateTool(
       file_path: z
         .string()
         .describe("Absolute path to the implementation file"),
-      state: z
-        .enum(TDD_CYCLE_STATES)
-        .describe(
-          "TDD cycle state: IDLE, TEST_WRITTEN, RED_CONFIRMED, GREEN_CONFIRMED",
-        ),
+      state: requiredEnum(
+        TDD_CYCLE_STATES,
+        "TDD cycle state: IDLE, TEST_WRITTEN, RED_CONFIRMED, GREEN_CONFIRMED",
+      ),
       spec_id: z.string().optional().describe("Associated spec ID"),
       test_file_path: z
         .string()
