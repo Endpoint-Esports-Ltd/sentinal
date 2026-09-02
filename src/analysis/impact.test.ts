@@ -37,6 +37,17 @@ function captureImpact(
     }
     return orig(...(args as Parameters<typeof orig>));
   }) as typeof server.tool;
+  // M9a: impact_analysis registers via `registerTool` (full strict schema).
+  // `registerTool` is generic, so `Parameters<>` collapses to `never`.
+  const origRegister = server.registerTool.bind(server) as (
+    ...args: unknown[]
+  ) => unknown;
+  server.registerTool = ((...args: unknown[]) => {
+    if (typeof args[0] === "string" && typeof args[2] === "function") {
+      tools.set(args[0] as string, args[2] as ToolHandler);
+    }
+    return origRegister(...args);
+  }) as typeof server.registerTool;
   register(server);
   return tools;
 }
@@ -959,5 +970,101 @@ describe("impact_analysis advertised inputSchema", () => {
     ].join("\n");
 
     expect(prose).toContain(text);
+  });
+});
+
+// --- M9a: strict top-level schema ---
+
+/**
+ * The SDK wraps RAW shapes in a NON-strict object (`zod-compat.ts`
+ * `objectFromShape` → `z4mini.object(shape)`), so an agent that forgets the
+ * `reach:` wrapper and sends `moduleCount`/`files` at the TOP level had those
+ * keys silently stripped: the call succeeded and was scored with the built-in
+ * graph — the exact silent-wrong-answer the reach plumbing exists to prevent.
+ *
+ * These drive a real `Client` because strictness lives in the transport-side
+ * validation, which every direct-handler test in this file bypasses.
+ */
+describe("impact_analysis strict input schema (M9a)", () => {
+  async function connected() {
+    const server = new McpServer({ name: "test", version: "0.0.1" });
+    registerImpactAnalysisTool(server, null);
+    const client = new Client({ name: "test-client", version: "0.0.1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    return {
+      client,
+      close: async () => {
+        await client.close();
+        await server.close();
+      },
+    };
+  }
+
+  it("rejects a mis-nested top-level moduleCount, naming the unknown key", async () => {
+    const { client, close } = await connected();
+    try {
+      const res = await client.callTool({
+        name: "impact_analysis",
+        arguments: {
+          project: "/tmp/nonexistent-project",
+          // Forgot the `reach:` wrapper — must be rejected, not silently
+          // stripped and scored with the built-in graph.
+          moduleCount: 42,
+          files: { "src/a.ts": 1 },
+        },
+      });
+      expect(
+        res.isError ?? false,
+        "mis-nested top-level moduleCount was silently accepted",
+      ).toBe(true);
+      const text = JSON.stringify(res.content);
+      expect(text).toContain("moduleCount");
+    } finally {
+      await close();
+    }
+  });
+
+  it("advertises additionalProperties: false so agents see the strictness", async () => {
+    const { client, close } = await connected();
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find((t) => t.name === "impact_analysis");
+      expect(tool).toBeDefined();
+      const schema = tool!.inputSchema as unknown as {
+        additionalProperties?: boolean;
+      };
+      expect(schema.additionalProperties).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it("still accepts a correctly nested reach payload through the strict schema", async () => {
+    const { client, close } = await connected();
+    try {
+      const res = await client.callTool({
+        name: "impact_analysis",
+        arguments: {
+          project: "/tmp/nonexistent-project-strict-ok",
+          reach: {
+            source: "codebase-memory detect_changes",
+            moduleCount: 42,
+            files: { "src/a.ts": 1 },
+          },
+        },
+      });
+      // The project has no git repo — the tool reports an error TEXT but the
+      // schema must not reject the call itself with unrecognized_keys.
+      const text = JSON.stringify(res.content);
+      expect(text).not.toContain("unrecognized_keys");
+      expect(text).not.toContain("Unrecognized key");
+    } finally {
+      await close();
+    }
   });
 });

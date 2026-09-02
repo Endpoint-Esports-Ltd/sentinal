@@ -354,8 +354,17 @@ describe("preflight — ready, alive, ours", () => {
 });
 
 describe("preflight — starting, alive, ours (interrupted startup)", () => {
+  // ⛔ The interrupted-startup rows must be AGED past the startup budget: a
+  // FRESH `starting` record is presumed to be a CONCURRENT runtime_up still
+  // inside its readiness poll (M4c), and tearing that down would be the race.
+  const AGED_MS = 120_000;
+  const agedProbes = () => ({
+    ...oursAndAlive(wt),
+    startTimeOf: () => Date.now() - AGED_MS,
+  });
+
   it("tears the interrupted group down, then spawns", async () => {
-    seedPidfile(wt, { state: "starting" });
+    seedPidfile(wt, { state: "starting", startedAt: Date.now() - AGED_MS });
     const stop = stopSpy(
       okStop({ actions: ["sent SIGTERM to process group"] }),
     );
@@ -363,7 +372,7 @@ describe("preflight — starting, alive, ours (interrupted startup)", () => {
     const r = await preflight(wt, cfg(), {
       stop: stop.fn,
       isPortBound: portAlways(false),
-      probes: oursAndAlive(wt),
+      probes: agedProbes(),
     });
 
     expect(r.kind).toBe("spawn");
@@ -375,7 +384,7 @@ describe("preflight — starting, alive, ours (interrupted startup)", () => {
   });
 
   it("REFUSES to spawn when that teardown failed", async () => {
-    seedPidfile(wt, { state: "starting" });
+    seedPidfile(wt, { state: "starting", startedAt: Date.now() - AGED_MS });
     const stop = stopSpy({
       ok: false,
       stopped: false,
@@ -387,7 +396,7 @@ describe("preflight — starting, alive, ours (interrupted startup)", () => {
     const r = await preflight(wt, cfg(), {
       stop: stop.fn,
       isPortBound: portAlways(false),
-      probes: oursAndAlive(wt),
+      probes: agedProbes(),
     });
 
     expect(r.kind).toBe("fail");
@@ -397,18 +406,35 @@ describe("preflight — starting, alive, ours (interrupted startup)", () => {
   });
 
   it("REFUSES when the port is still bound after a successful teardown", async () => {
-    seedPidfile(wt, { state: "starting" });
+    seedPidfile(wt, { state: "starting", startedAt: Date.now() - AGED_MS });
 
     const r = await preflight(wt, cfg(), {
       stop: stopSpy().fn,
       isPortBound: portAlways(true),
-      probes: oursAndAlive(wt),
+      probes: agedProbes(),
     });
 
     expect(r.kind).toBe("fail");
     if (r.kind !== "fail") throw new Error("unreachable");
     expect(r.reason).toContain("Port 45111 is still bound");
     expect(r.reason).toContain(OCCUPIED_PORT_RULE);
+  });
+
+  it("⛔ FAILS without touching a FRESH `starting` record — that is a concurrent runtime_up (M4c)", async () => {
+    seedPidfile(wt, { state: "starting" }); // startedAt: now
+    const stop = stopSpy();
+
+    const r = await preflight(wt, cfg(), {
+      stop: stop.fn,
+      isPortBound: portAlways(false),
+      probes: oursAndAlive(wt),
+    });
+
+    expect(r.kind).toBe("fail");
+    if (r.kind !== "fail") throw new Error("unreachable");
+    expect(r.reason.toLowerCase()).toContain("runtime_up");
+    // Nothing was signalled and the winner's record is untouched.
+    expect(stop.calls).toEqual([]);
   });
 });
 
@@ -762,11 +788,19 @@ describe("preflight — invariants across the whole matrix", () => {
     [
       "owned/starting",
       () => {
-        seedPidfile(wt, { state: "starting" });
+        // Aged past the startup budget so the row exercises the interrupted-
+        // startup teardown path, not the fresh-record concurrency gate.
+        seedPidfile(wt, {
+          state: "starting",
+          startedAt: Date.now() - 120_000,
+        });
         return preflight(wt, cfg(), {
           stop: stopSpy().fn,
           isPortBound: portAlways(true),
-          probes: oursAndAlive(wt),
+          probes: {
+            ...oursAndAlive(wt),
+            startTimeOf: () => Date.now() - 120_000,
+          },
         });
       },
     ],

@@ -180,6 +180,29 @@ describe("worktree cleanup", () => {
       expect(existsSync(wt.worktreePath)).toBe(true);
     });
 
+    // ── M3a: guard 3 must protect from a SUBDIRECTORY too ───────────────────
+    //
+    // A caller whose cwd is `<worktree>/src` is standing inside the worktree
+    // just as surely as one at its root. Exact path equality leaves them
+    // unprotected: `--force` deletes the directory the caller is standing in.
+    it("M3a: force does NOT remove a worktree when current_worktree is a SUBDIRECTORY of it", () => {
+      const wt = manager.create("2026-09-02-subdir", repoDir);
+      const sub = join(wt.worktreePath, "src");
+      mkdirSync(sub, { recursive: true });
+
+      const cleaned = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        currentWorktree: sub,
+        isPlanActive: () => false,
+        ownsLiveRuntime: () => ({ live: false }),
+      });
+
+      expect(cleaned).toBe(0);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    });
+
     it("force does NOT touch a non-sentinal worktree", () => {
       const other = join(tmpDir, "feature-wt");
       Bun.spawnSync(["git", "worktree", "add", "-b", "feature/x", other], {
@@ -337,6 +360,56 @@ describe("worktree cleanup", () => {
 
       expect(cleaned).toBe(1);
       expect(wtStore.get(gone.id)!.status).toBe("abandoned");
+    });
+  });
+
+  // ── M3b: the default pass must be scopable to one project ─────────────────
+  //
+  // `store.listAll("active")` spans EVERY project Sentinal has ever tracked,
+  // and the default pass runs `git branch -D` in each row's own repo. A
+  // cleanup requested for project A must not delete branches in project B.
+  describe("default-pass project scoping", () => {
+    let repoB: string;
+
+    beforeEach(() => {
+      repoB = join(tmpDir, "repoB");
+      mkdirSync(repoB, { recursive: true });
+      initRepo(repoB);
+    });
+
+    it("M3b: cleanup scoped to project A does NOT touch project B's rows or branches", () => {
+      const wtA = manager.create("2026-09-02-scope-a", repoDir);
+      const wtB = manager.create("2026-09-02-scope-b", repoB);
+      // Both directories gone → both are default-pass candidates.
+      rmSync(wtA.worktreePath, { recursive: true, force: true });
+      rmSync(wtB.worktreePath, { recursive: true, force: true });
+
+      const cleaned = manager.cleanup({ projectPath: repoDir });
+
+      expect(cleaned).toBe(1);
+      expect(wtStore.get(wtA.id)!.status).toBe("abandoned");
+      // Project B untouched: row still active, branch still present.
+      expect(wtStore.get(wtB.id)!.status).toBe("active");
+      const branches = Bun.spawnSync(
+        ["git", "branch", "--list", wtB.branchName],
+        { cwd: repoB },
+      );
+      expect(String(branches.stdout)).toContain(
+        wtB.branchName.replace(/^refs\/heads\//, ""),
+      );
+    });
+
+    it("an UNSCOPED cleanup keeps the historical global behaviour", () => {
+      const wtA = manager.create("2026-09-02-global-a", repoDir);
+      const wtB = manager.create("2026-09-02-global-b", repoB);
+      rmSync(wtA.worktreePath, { recursive: true, force: true });
+      rmSync(wtB.worktreePath, { recursive: true, force: true });
+
+      const cleaned = manager.cleanup();
+
+      expect(cleaned).toBe(2);
+      expect(wtStore.get(wtA.id)!.status).toBe("abandoned");
+      expect(wtStore.get(wtB.id)!.status).toBe("abandoned");
     });
   });
 

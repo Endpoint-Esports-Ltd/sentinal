@@ -161,3 +161,62 @@ Approved: Yes
     expect(fullReason).toBe(`${baseReason} (last message: "${snippet}")`);
   });
 });
+
+describe("spec-stop-guard — stop_hook_active loop breaker (M10a)", () => {
+  // Subprocess tests: denyExit calls process.exit(2), so the hard path can
+  // only be observed by spawning the real standalone entry point.
+  const HOOK = join(import.meta.dir, "spec-stop-guard.ts");
+  let tmpDir: string;
+  let homeDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    homeDir = makeTmpDir();
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(
+      join(plansDir, "2026-09-02-active.md"),
+      `# Active Plan\nStatus: IN_PROGRESS\nType: Feature\nApproved: Yes\n`,
+    );
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  function runGuard(extraInput: Record<string, unknown>) {
+    const input = JSON.stringify({
+      session_id: "loop-test-session",
+      transcript_path: "",
+      cwd: tmpDir,
+      permission_mode: "default",
+      hook_event_name: "Stop",
+      ...extraInput,
+    });
+    return Bun.spawnSync(["bun", HOOK], {
+      stdin: Buffer.from(input),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        SENTINAL_HOME: homeDir,
+        SENTINAL_STOP_GUARD_HARD: "1",
+      },
+    });
+  }
+
+  it("hard mode WITHOUT stop_hook_active still denies (exit 2) — control", () => {
+    const result = runGuard({});
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout.toString()).toContain("deny");
+  }, 30_000);
+
+  it("hard mode WITH stop_hook_active allows the stop (no deny, exit 0)", () => {
+    const result = runGuard({ stop_hook_active: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).not.toContain("deny");
+  }, 30_000);
+});

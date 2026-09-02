@@ -36,6 +36,45 @@ describe("withAbort", () => {
     const result = await withAbort(undefined, Promise.resolve(42));
     expect(result).toBe(42);
   });
+
+  /**
+   * M9c: the pre-aborted early return must not orphan the (eagerly created)
+   * underlying promise. Tool handlers build `promise` before calling
+   * `withAbort`; when the signal is already aborted, the early rejection
+   * returns without attaching any handler to `promise` — if that promise later
+   * rejects, it becomes an unhandled rejection, which is process-fatal.
+   */
+  it("does not produce an unhandled rejection when pre-aborted around a later-rejecting promise", async () => {
+    const captured: unknown[] = [];
+    const onUnhandled = (err: unknown) => {
+      captured.push(err);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const ctl = new AbortController();
+      ctl.abort();
+
+      let rejectLater!: (err: Error) => void;
+      const doomed = new Promise<never>((_, rej) => {
+        rejectLater = rej;
+      });
+
+      await expect(withAbort(ctl.signal, doomed)).rejects.toThrow(/abort/i);
+
+      // The underlying promise now fails after withAbort already returned.
+      rejectLater(new Error("late failure after abort"));
+
+      // Give the runtime a macrotask turn to surface any unhandled rejection.
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(
+        captured,
+        "pre-aborted withAbort orphaned the underlying promise — its late rejection went unhandled",
+      ).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });
 
 describe("emitProgress", () => {
@@ -81,12 +120,12 @@ describe("emitProgress", () => {
       },
     };
     // Must swallow — progress is best-effort
-    await expect(
-      emitProgress(extra, { progress: 1 }),
-    ).resolves.toBeUndefined();
+    await expect(emitProgress(extra, { progress: 1 })).resolves.toBeUndefined();
   });
 
   it("is a no-op when extra is undefined", async () => {
-    await expect(emitProgress(undefined, { progress: 1 })).resolves.toBeUndefined();
+    await expect(
+      emitProgress(undefined, { progress: 1 }),
+    ).resolves.toBeUndefined();
   });
 });

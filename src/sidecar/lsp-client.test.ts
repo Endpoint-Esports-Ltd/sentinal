@@ -73,20 +73,28 @@ describe("LspClient", () => {
     ONE_INIT_MS,
   );
 
-  it("should return diagnostics as an array", async () => {
-    client = new LspClient();
+  it("getDiagnostics is honest: diagnostics array or a distinguishable failure, never a silent [] from a mute server (M1c)", async () => {
+    // Before Task 6 this test asserted `Array.isArray(...)` and passed
+    // VACUOUSLY: on this repo tsserver's project load exceeds the window, no
+    // publishDiagnostics ever arrived, and the deadline path resolved with an
+    // empty map — the false clean bill that defeated the tsc fallback.
+    // The honest contract: either the server spoke (well-formed array) or
+    // the call throws the marker error that routes runTscLsp's caller to the
+    // subprocess-tsc fallback.
+    client = new LspClient({ diagnosticsTimeoutMs: 6000 });
     const projectPath = process.cwd();
 
-    // getDiagnostics initializes internally if needed
-    const diagnostics = await client.getDiagnostics(projectPath);
-
-    // Should return an array (possibly empty if no errors)
-    expect(Array.isArray(diagnostics)).toBe(true);
-    // Each diagnostic should have the expected shape
-    for (const d of diagnostics.slice(0, 3)) {
-      expect(typeof d.file).toBe("string");
-      expect(typeof d.line).toBe("number");
-      expect(typeof d.message).toBe("string");
+    try {
+      // getDiagnostics initializes internally if needed
+      const diagnostics = await client.getDiagnostics(projectPath);
+      expect(Array.isArray(diagnostics)).toBe(true);
+      for (const d of diagnostics.slice(0, 3)) {
+        expect(typeof d.file).toBe("string");
+        expect(typeof d.line).toBe("number");
+        expect(typeof d.message).toBe("string");
+      }
+    } catch (e) {
+      expect(String(e)).toContain("LSP diagnostics failed");
     }
   }, 30000); // LSP server may take time to initialize and analyze
 

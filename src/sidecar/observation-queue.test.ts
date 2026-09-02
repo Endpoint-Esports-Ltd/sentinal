@@ -1,30 +1,35 @@
 /**
- * Observation Queue Tests
+ * Observation Queue Tests (M11 — dir-as-queue)
  *
- * Tests the offline observation queue that buffers observations
- * when the sidecar is unavailable and drains them on reconnection.
+ * The queue is a DIRECTORY of one-file-per-observation entries
+ * (`wx`-created, name = zero-padded timestamp + per-process sequence +
+ * random suffix), so:
+ *  - enqueue is a single atomic file create — a concurrent drain can never
+ *    overwrite it (Truth 17)
+ *  - drain unlinks each entry individually on success and leaves it on failure
+ *  - the legacy single-file spool (`observation-queue.json`) is migrated once
+ *    (entries ingested as individual files, spool deleted)
+ *
+ * All tests redirect the tree via SENTINAL_HOME (read fresh on every call).
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  spyOn,
-  mock,
-} from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  mkdtempSync,
   mkdirSync,
   rmSync,
   writeFileSync,
   readFileSync,
+  readdirSync,
   existsSync,
 } from "node:fs";
-import * as queueModule from "./observation-queue.js";
-import { ObservationQueue } from "./observation-queue.js";
+import {
+  ObservationQueue,
+  getQueueDir,
+  getQueuePath,
+} from "./observation-queue.js";
 
 type ObservationPayload = Parameters<typeof ObservationQueue.enqueue>[0];
 
@@ -44,121 +49,144 @@ function makePayload(
   };
 }
 
-describe("ObservationQueue", () => {
-  let tmpDir: string;
+/** Read every entry file in FIFO (name-sorted) order. */
+function readEntries(): ObservationPayload[] {
+  const dir = getQueueDir();
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf-8")));
+}
+
+describe("ObservationQueue (dir-as-queue)", () => {
+  let savedHome: string | undefined;
+  let scratchHome: string;
 
   beforeEach(() => {
-    tmpDir = join(tmpdir(), `obs-q-${Date.now().toString(36)}`);
-    mkdirSync(tmpDir, { recursive: true });
-    spyOn(queueModule, "getQueuePath").mockReturnValue(
-      join(tmpDir, "observation-queue.json"),
-    );
+    savedHome = process.env.SENTINAL_HOME;
+    scratchHome = mkdtempSync(join(tmpdir(), "obs-q-"));
+    process.env.SENTINAL_HOME = scratchHome;
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-    mock.restore();
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(scratchHome, { recursive: true, force: true });
   });
 
   // ─── Enqueue ──────────────────────────────────────────────────────────
 
-  it("should enqueue an observation to disk", () => {
+  it("enqueues one file per observation into the queue dir", () => {
     ObservationQueue.enqueue(makePayload());
 
-    const queuePath = queueModule.getQueuePath();
-    expect(existsSync(queuePath)).toBe(true);
-
-    const data = JSON.parse(readFileSync(queuePath, "utf-8"));
-    expect(data).toHaveLength(1);
-    expect(data[0].title).toBe("Test observation");
+    const entries = readEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.title).toBe("Test observation");
   });
 
-  it("should append to existing queue", () => {
+  it("preserves FIFO order across rapid enqueues (same-ms safe)", () => {
     ObservationQueue.enqueue(makePayload({ title: "First" }));
     ObservationQueue.enqueue(makePayload({ title: "Second" }));
+    ObservationQueue.enqueue(makePayload({ title: "Third" }));
 
-    const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
-    expect(data).toHaveLength(2);
-    expect(data[0].title).toBe("First");
-    expect(data[1].title).toBe("Second");
+    expect(readEntries().map((e) => e.title)).toEqual([
+      "First",
+      "Second",
+      "Third",
+    ]);
   });
 
-  it("should cap queue at 50 entries, dropping oldest", () => {
+  it("caps the queue at 50 entries, dropping oldest", () => {
     for (let i = 0; i < 55; i++) {
       ObservationQueue.enqueue(makePayload({ title: `Obs ${i}` }));
     }
 
-    const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
-    expect(data).toHaveLength(50);
-    // Oldest (0-4) should be dropped, 5-54 remain
-    expect(data[0].title).toBe("Obs 5");
-    expect(data[49].title).toBe("Obs 54");
+    const entries = readEntries();
+    expect(entries).toHaveLength(50);
+    expect(entries[0]!.title).toBe("Obs 5");
+    expect(entries[49]!.title).toBe("Obs 54");
   });
 
-  it("should call log callback when cap is exceeded", () => {
+  it("calls the log callback when the cap is exceeded", () => {
     const logs: string[] = [];
-    const logFn = (msg: string) => logs.push(msg);
-
-    // Fill to 50
     for (let i = 0; i < 50; i++) {
       ObservationQueue.enqueue(makePayload({ title: `Obs ${i}` }));
     }
-    // One more triggers cap
-    ObservationQueue.enqueue(makePayload({ title: "Overflow" }), logFn);
+    ObservationQueue.enqueue(makePayload({ title: "Overflow" }), (m) =>
+      logs.push(m),
+    );
     expect(logs.some((l) => l.includes("dropped"))).toBe(true);
   });
 
-  it("should handle corrupted queue file gracefully", () => {
-    writeFileSync(queueModule.getQueuePath(), "not valid json{{{");
+  it("never throws when the queue dir is not creatable", () => {
+    process.env.SENTINAL_HOME = "/dev/null/not-a-dir";
+    expect(() => ObservationQueue.enqueue(makePayload())).not.toThrow();
+  });
 
-    // Should not throw — starts fresh
+  // ─── Legacy single-file spool migration ───────────────────────────────
+
+  it("migrates the legacy spool file into individual entries, then deletes it", () => {
+    writeFileSync(
+      getQueuePath(),
+      JSON.stringify([
+        makePayload({ title: "Legacy 1" }),
+        makePayload({ title: "Legacy 2" }),
+      ]),
+      "utf-8",
+    );
+
+    ObservationQueue.enqueue(makePayload({ title: "New" }));
+
+    expect(existsSync(getQueuePath())).toBe(false);
+    expect(readEntries().map((e) => e.title)).toEqual([
+      "Legacy 1",
+      "Legacy 2",
+      "New",
+    ]);
+  });
+
+  it("counts legacy entries via pending() after migration", () => {
+    writeFileSync(
+      getQueuePath(),
+      JSON.stringify([makePayload({ title: "Legacy" })]),
+      "utf-8",
+    );
+    expect(ObservationQueue.pending()).toBe(1);
+    expect(existsSync(getQueuePath())).toBe(false);
+  });
+
+  it("drains legacy entries after migration", async () => {
+    writeFileSync(
+      getQueuePath(),
+      JSON.stringify([makePayload({ title: "Legacy" })]),
+      "utf-8",
+    );
+    const sent: string[] = [];
+    const result = await ObservationQueue.drain(async (obs) => {
+      sent.push(obs.title);
+    });
+    expect(result.sent).toBe(1);
+    expect(sent).toEqual(["Legacy"]);
+    expect(existsSync(getQueuePath())).toBe(false);
+  });
+
+  it("discards a corrupt legacy spool without throwing", () => {
+    writeFileSync(getQueuePath(), "not valid json{{{", "utf-8");
     ObservationQueue.enqueue(makePayload({ title: "After corruption" }));
-
-    const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
-    expect(data).toHaveLength(1);
-    expect(data[0].title).toBe("After corruption");
-  });
-
-  it("should handle missing queue file gracefully", () => {
-    ObservationQueue.enqueue(makePayload({ title: "First ever" }));
-
-    const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
-    expect(data).toHaveLength(1);
-  });
-
-  // ─── Multi-project ────────────────────────────────────────────────────
-
-  it("should store entries from different projects in same queue", () => {
-    ObservationQueue.enqueue(
-      makePayload({ projectPath: "/project-a", title: "From A" }),
-    );
-    ObservationQueue.enqueue(
-      makePayload({ projectPath: "/project-b", title: "From B" }),
-    );
-    ObservationQueue.enqueue(
-      makePayload({ projectPath: "/project-a", title: "From A again" }),
-    );
-
-    const data = JSON.parse(readFileSync(queueModule.getQueuePath(), "utf-8"));
-    expect(data).toHaveLength(3);
-    expect(
-      data.filter((e: any) => e.projectPath === "/project-a"),
-    ).toHaveLength(2);
-    expect(
-      data.filter((e: any) => e.projectPath === "/project-b"),
-    ).toHaveLength(1);
+    expect(existsSync(getQueuePath())).toBe(false);
+    expect(readEntries().map((e) => e.title)).toEqual(["After corruption"]);
   });
 
   // ─── Pending ──────────────────────────────────────────────────────────
 
-  it("should return total pending count", () => {
+  it("pending() counts all entries", () => {
     ObservationQueue.enqueue(makePayload());
     ObservationQueue.enqueue(makePayload());
-
     expect(ObservationQueue.pending()).toBe(2);
   });
 
-  it("should return filtered pending count by project", () => {
+  it("pending(projectPath) filters by project", () => {
     ObservationQueue.enqueue(makePayload({ projectPath: "/a" }));
     ObservationQueue.enqueue(makePayload({ projectPath: "/b" }));
     ObservationQueue.enqueue(makePayload({ projectPath: "/a" }));
@@ -168,13 +196,13 @@ describe("ObservationQueue", () => {
     expect(ObservationQueue.pending("/c")).toBe(0);
   });
 
-  it("should return 0 when queue file does not exist", () => {
+  it("pending() is 0 when nothing was ever enqueued", () => {
     expect(ObservationQueue.pending()).toBe(0);
   });
 
   // ─── Drain ────────────────────────────────────────────────────────────
 
-  it("should drain all entries via sendFn and clear queue", async () => {
+  it("drains all entries in FIFO order and unlinks them", async () => {
     ObservationQueue.enqueue(makePayload({ title: "One" }));
     ObservationQueue.enqueue(makePayload({ title: "Two" }));
 
@@ -183,86 +211,90 @@ describe("ObservationQueue", () => {
       sent.push(obs.title);
     });
 
-    expect(result.sent).toBe(2);
-    expect(result.failed).toBe(0);
-    expect(result.remaining).toBe(0);
+    expect(result).toEqual({ sent: 2, failed: 0, remaining: 0 });
     expect(sent).toEqual(["One", "Two"]);
-
-    // Queue file should be empty or deleted
     expect(ObservationQueue.pending()).toBe(0);
   });
 
-  it("should handle partial failures — keep failed entries", async () => {
+  it("keeps failed entries on disk for the next drain", async () => {
     ObservationQueue.enqueue(makePayload({ title: "Success" }));
     ObservationQueue.enqueue(makePayload({ title: "Fail" }));
     ObservationQueue.enqueue(makePayload({ title: "Success2" }));
 
     const result = await ObservationQueue.drain(async (obs) => {
-      if (obs.title === "Fail") throw new Error("sidecar down");
+      if (obs.title === "Fail") throw new Error("send failed");
     });
 
-    expect(result.sent).toBe(2);
-    expect(result.failed).toBe(1);
-    expect(result.remaining).toBe(1);
-
-    // Failed entry should remain in queue
-    const remaining = JSON.parse(
-      readFileSync(queueModule.getQueuePath(), "utf-8"),
-    );
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0].title).toBe("Fail");
+    expect(result).toEqual({ sent: 2, failed: 1, remaining: 1 });
+    expect(readEntries().map((e) => e.title)).toEqual(["Fail"]);
   });
 
-  it("should drain entries from multiple projects", async () => {
-    ObservationQueue.enqueue(makePayload({ projectPath: "/a", title: "A1" }));
-    ObservationQueue.enqueue(makePayload({ projectPath: "/b", title: "B1" }));
+  it("returns zeros on an empty queue", async () => {
+    const result = await ObservationQueue.drain(async () => {});
+    expect(result).toEqual({ sent: 0, failed: 0, remaining: 0 });
+  });
+
+  it("drops a corrupt entry file instead of wedging the drain", async () => {
+    ObservationQueue.enqueue(makePayload({ title: "Good" }));
+    mkdirSync(getQueueDir(), { recursive: true });
+    writeFileSync(join(getQueueDir(), "zzz-corrupt.json"), "corrupt!!!");
+
+    const result = await ObservationQueue.drain(async () => {});
+    expect(result.sent).toBe(1);
+    expect(ObservationQueue.pending()).toBe(0);
+  });
+
+  it("never rejects when the queue dir is not creatable", async () => {
+    process.env.SENTINAL_HOME = "/dev/null/not-a-dir";
+    await expect(ObservationQueue.drain(async () => {})).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+      remaining: 0,
+    });
+  });
+
+  // ─── Truth 17: enqueue interleaved into a drain survives ─────────────
+  //
+  // Deterministic same-process interleaving (chosen over a spawned
+  // cross-process race, which is timing-dependent and flaky): the shared
+  // state IS the filesystem, and the atomic property under test — enqueue
+  // creates a distinct file; drain only unlinks files it actually
+  // processed — is fully exercised by interleaving through the drain's
+  // async sendFn. The old single-file queue fails this test: the drain's
+  // final whole-file write-back overwrote the mid-drain enqueue.
+
+  it("an enqueue interleaved into a drain is not lost (Truth 17)", async () => {
+    ObservationQueue.enqueue(makePayload({ title: "A" }));
+    ObservationQueue.enqueue(makePayload({ title: "B" }));
 
     const sent: string[] = [];
-    const result = await ObservationQueue.drain(async (obs) => {
-      sent.push(`${obs.projectPath}:${obs.title}`);
+    await ObservationQueue.drain(async (obs) => {
+      sent.push(obs.title);
+      if (obs.title === "A") {
+        // Interleaved writer (another process, conceptually)
+        ObservationQueue.enqueue(makePayload({ title: "Mid-drain" }));
+      }
     });
 
-    expect(result.sent).toBe(2);
-    expect(sent).toEqual(["/a:A1", "/b:B1"]);
+    expect(sent).toEqual(["A", "B"]);
+    // The interleaved observation must survive the drain…
+    expect(ObservationQueue.pending()).toBe(1);
+    expect(readEntries().map((e) => e.title)).toEqual(["Mid-drain"]);
+
+    // …and be delivered by the next drain.
+    const second = await ObservationQueue.drain(async (obs) => {
+      sent.push(obs.title);
+    });
+    expect(second.sent).toBe(1);
+    expect(sent).toEqual(["A", "B", "Mid-drain"]);
   });
 
-  it("should return zeros when queue is empty", async () => {
-    const result = await ObservationQueue.drain(async () => {});
-
-    expect(result.sent).toBe(0);
-    expect(result.failed).toBe(0);
-    expect(result.remaining).toBe(0);
-  });
-
-  it("should handle corrupted queue during drain", async () => {
-    writeFileSync(queueModule.getQueuePath(), "corrupt!!!");
-
-    const result = await ObservationQueue.drain(async () => {});
-
-    expect(result.sent).toBe(0);
-    expect(result.failed).toBe(0);
-    expect(result.remaining).toBe(0);
-  });
-
-  // ─── Filesystem-root guard ────────────────────────────────────────────
-
-  it("should not throw when queue path is under filesystem root (HOME=/)", () => {
-    // Simulate HOME=/ by redirecting getQueuePath to return a root-relative path.
-    // writeQueue previously called mkdirSync("/.sentinal") which throws EACCES.
-    spyOn(queueModule, "getQueuePath").mockReturnValue(
-      "/.sentinal/observation-queue.json",
-    );
-
-    // Must not throw even though /.sentinal is not writable
-    expect(() => ObservationQueue.enqueue(makePayload())).not.toThrow();
-  });
-
-  it("should not throw in drain when queue path is under filesystem root", async () => {
-    spyOn(queueModule, "getQueuePath").mockReturnValue(
-      "/.sentinal/observation-queue.json",
-    );
-
-    // drain calls writeQueue on the failed list — must not throw
-    await expect(ObservationQueue.drain(async () => {})).resolves.toBeDefined();
+  it("two enqueues in the same millisecond both survive (unique names)", () => {
+    // Same-ms uniqueness comes from the per-process sequence + random
+    // suffix; hammer enough enqueues to guarantee same-ms collisions.
+    for (let i = 0; i < 20; i++) {
+      ObservationQueue.enqueue(makePayload({ title: `Burst ${i}` }));
+    }
+    expect(ObservationQueue.pending()).toBe(20);
   });
 });

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { parsePlanContent, slugFromFilename } from "./parser.js";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { parsePlanContent, parsePlanFile, slugFromFilename } from "./parser.js";
+import type { Spec } from "./types.js";
 
 describe("slugFromFilename", () => {
   it("should strip .md extension", () => {
@@ -50,7 +53,9 @@ Some summary text.
       newFormatContent,
       "/plans/2026-03-09-market-research-parity.md",
     );
-    expect(spec.title).toBe("Market Research Feature Parity Implementation Plan");
+    expect(spec.title).toBe(
+      "Market Research Feature Parity Implementation Plan",
+    );
   });
 
   it("should extract slug from filename", () => {
@@ -401,6 +406,190 @@ Component diagram here.
   });
 });
 
+describe("parsePlanContent — code-fence awareness (M5a)", () => {
+  it("audit probe: fenced checkbox under Progress Tracking is NOT a task", () => {
+    const content = `# Fenced Plan
+
+Status: IN PROGRESS
+
+## Progress Tracking
+
+- [ ] Task 1: Real task
+
+Example of the tracking format:
+
+\`\`\`markdown
+- [x] Task 99: Phantom completed task
+\`\`\`
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(1);
+    expect(spec.tasks[0].position).toBe(1);
+  });
+
+  it("audit probe: fenced ### Task heading is NOT a task", () => {
+    const content = `# Fenced Plan
+
+Status: PENDING
+
+## Implementation Tasks
+
+### Task 1: Real task
+
+Template for future tasks:
+
+\`\`\`
+### Task 7: Phantom task from example
+\`\`\`
+
+### Task 2: Another real task
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks.map((t) => t.position)).toEqual([1, 2]);
+  });
+
+  it("fenced Status: line does not provide metadata", () => {
+    const content = `# Fenced Plan
+
+\`\`\`
+Status: VERIFIED
+\`\`\`
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.status).toBe("PENDING");
+  });
+
+  it("fenced Status: line does not override real metadata", () => {
+    const content = `# Fenced Plan
+
+Status: IN PROGRESS
+
+\`\`\`
+Status: VERIFIED
+\`\`\`
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.status).toBe("IN_PROGRESS");
+  });
+
+  it("fenced ## heading does not terminate the Progress Tracking section", () => {
+    const content = `# Fenced Plan
+
+Status: IN PROGRESS
+
+## Progress Tracking
+
+- [x] Task 1: Before the fence
+
+\`\`\`markdown
+## Not A Real Section
+\`\`\`
+
+- [ ] Task 2: After the fence
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(2);
+  });
+
+  it("supports ~~~ fences and indented fences", () => {
+    const content = `# Fenced Plan
+
+Status: PENDING
+
+## Progress Tracking
+
+- [ ] Task 1: Real task
+- Example nested in a list:
+  \`\`\`
+  - [x] Task 88: Indented phantom
+  \`\`\`
+
+~~~
+- [x] Task 77: Tilde phantom
+~~~
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(1);
+    expect(spec.tasks[0].position).toBe(1);
+  });
+
+  it("fenced # heading is not the title", () => {
+    const content = `\`\`\`sh
+# not the title
+\`\`\`
+# Real Title
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.title).toBe("Real Title");
+  });
+
+  it("fenced checkboxes inside Definition of Done are not counted", () => {
+    const content = `# Fenced Plan
+
+Status: PENDING
+
+## Implementation Tasks
+
+### Task 1: A task
+
+**Definition of Done:**
+- [ ] Real item
+
+\`\`\`
+- [x] fenced item one
+- [x] fenced item two
+\`\`\`
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(1);
+    // Only the real, unchecked item counts → pending, not in-progress.
+    expect(spec.tasks[0].status).toBe("pending");
+  });
+});
+
+describe("parsePlanContent — duplicate task positions (M5b)", () => {
+  it("Progress Tracking: duplicate position dedupes, LAST occurrence wins", () => {
+    const content = `# Dup Plan
+
+Status: IN PROGRESS
+
+## Progress Tracking
+
+- [x] Task 1: Original entry
+- [ ] Task 2: Other task
+- [ ] Task 1: Revised entry
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(2);
+    const task1 = spec.tasks.find((t) => t.position === 1);
+    expect(task1?.title).toBe("Revised entry");
+    expect(task1?.status).toBe("pending");
+  });
+
+  it("Implementation Tasks: duplicate heading position dedupes, LAST wins", () => {
+    const content = `# Dup Plan
+
+Status: PENDING
+
+## Implementation Tasks
+
+### Task 1: First version
+- **Status:** complete
+
+### Task 2: Other task
+- **Status:** pending
+
+### Task 1: Redone version
+- **Status:** in-progress
+`;
+    const spec = parsePlanContent(content, "/plans/test.md");
+    expect(spec.tasks).toHaveLength(2);
+    const task1 = spec.tasks.find((t) => t.position === 1);
+    expect(task1?.title).toBe("Redone version");
+    expect(task1?.status).toBe("in-progress");
+  });
+});
+
 describe("parsePlanContent — parent and wave fields", () => {
   const childContent = `# User Model Implementation
 
@@ -450,5 +639,36 @@ Type: Feature
     const spec = parsePlanContent(regularContent, "/plans/regular.md");
     expect(spec.parent).toBeUndefined();
     expect(spec.wave).toBeUndefined();
+  });
+});
+
+describe("parsePlanFile — real corpus (docs/plans)", () => {
+  const plansDir = join(process.cwd(), "docs", "plans");
+  const planFiles = readdirSync(plansDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  it("finds a non-trivial corpus to validate against", () => {
+    expect(planFiles.length).toBeGreaterThan(50);
+  });
+
+  it("parses every plan without throwing, with unique task positions", () => {
+    let totalTasks = 0;
+    for (const name of planFiles) {
+      let spec: Spec | undefined;
+      expect(() => {
+        spec = parsePlanFile(join(plansDir, name));
+      }).not.toThrow();
+      if (!spec) continue;
+
+      // Fence-aware parsing + dedupe guarantee: no duplicate positions.
+      const positions = spec.tasks.map((t) => t.position);
+      expect(new Set(positions).size).toBe(positions.length);
+      totalTasks += spec.tasks.length;
+    }
+    console.log(
+      `\n[spec-parser corpus] ${planFiles.length} plans | ${totalTasks} tasks`,
+    );
+    expect(totalTasks).toBeGreaterThan(400);
   });
 });

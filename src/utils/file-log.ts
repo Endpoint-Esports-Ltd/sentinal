@@ -7,8 +7,9 @@
  *   any prior .1) and start a fresh file.
  * - readLastLines: return the last N non-empty lines from a file.
  *
- * node:* imports ONLY — hooks and SidecarClient import this transitively;
- * do NOT add bun:sqlite or any heavy dep.
+ * Hooks and SidecarClient import this transitively — do NOT add bun:sqlite
+ * or any heavy dep. (`db-path.ts` is the sanctioned exception: node:* +
+ * types only, same as `src/sidecar/paths.ts`.)
  */
 
 import {
@@ -20,7 +21,7 @@ import {
   statSync,
 } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getSentinalHome } from "../memory/db-path.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -37,9 +38,11 @@ const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
  * Returns the directory where log files are written.
  * Exported as a real function so tests can `spyOn(fileLogModule, "getLogDir")`
  * to redirect writes to a temp dir — mirror of src/sidecar/paths.ts pattern.
+ * Honours the SENTINAL_HOME seam (D2) so test runs never append to the REAL
+ * `~/.sentinal/sidecar.log`.
  */
 export function getLogDir(): string {
-  return join(homedir(), ".sentinal");
+  return getSentinalHome();
 }
 
 // ─── Core helpers ─────────────────────────────────────────────────────────────

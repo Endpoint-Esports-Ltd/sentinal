@@ -39,6 +39,7 @@
 
 import { createServer, createConnection } from "node:net";
 import { inspectPidfile, removePidfile } from "./pidfile.js";
+import { resolveExistingClaim } from "./pidfile-claim.js";
 import { stopOwnedGroup, type StopResult } from "./teardown.js";
 import {
   listGroupMembers,
@@ -205,6 +206,17 @@ export async function preflight(
   const bound = async (): Promise<boolean> =>
     endpoint === null ? false : await portBound(endpoint.port, endpoint.host);
 
+  // ── M4c: a `claiming` record is another runtime_up's exclusive claim ──────
+  // It must be resolved BEFORE the matrix: its pid is the claiming
+  // orchestrator, not a spawned leader, so the generic verdict machinery would
+  // misread it (H5 reports `stale` and the stale row would DELETE a live
+  // claim, reopening the race the claim exists to close).
+  const claim = resolveExistingClaim(projectPath, deps.probes ?? {});
+  if (claim.kind === "held") {
+    return { kind: "fail", actions, reason: claim.reason };
+  }
+  if (claim.kind === "released") actions.push(claim.action);
+
   const verdict = inspectPidfile(projectPath, deps.probes ?? {});
 
   switch (verdict.kind) {
@@ -221,7 +233,27 @@ export async function preflight(
           ],
         };
       }
-      // `state=starting` and alive: a previous runtime_up was interrupted
+      // `state=starting` and alive: either an interrupted runtime_up — or a
+      // CONCURRENT one still inside its readiness poll (M4c). The record's
+      // age decides: a `starting` record younger than the startup budget is
+      // presumed in-progress, and tearing it down would BE the race (the
+      // claim loser "recovering" the winner's seconds-old stack). `startedAt`
+      // is trustworthy here — `owned` verdicts have passed the H5 start-time
+      // check against it.
+      const budgetMs = config.readiness?.startupTimeoutMs ?? 60000;
+      const ageMs = Date.now() - verdict.entry.startedAt;
+      if (ageMs <= budgetMs) {
+        return {
+          kind: "fail",
+          actions,
+          reason:
+            `Another runtime_up appears to be starting this worktree RIGHT NOW: pid ` +
+            `${verdict.entry.pid} was recorded ${Math.round(ageMs / 1000)}s ago (state=starting) ` +
+            `and its startup budget (${budgetMs}ms) has not elapsed. NOT tearing it down. ` +
+            `Retry shortly — the record will flip to "ready" (and be reused) or go stale.`,
+        };
+      }
+      // Older than the budget: a previous runtime_up was interrupted
       // mid-startup. That group is ours, so tearing it down is safe — and
       // leaving it would race the stack we are about to spawn.
       const r = await stop(projectPath);

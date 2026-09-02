@@ -16,8 +16,7 @@
 
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { DB_CONSTANTS } from "./types.js";
+import { getSentinalHome } from "./db-path.js";
 
 // ─── Database Path ────────────────────────────────────────────────────────────
 
@@ -50,10 +49,12 @@ const DEFAULT_CONFIG: MemoryConfig = {
 let cachedConfig: MemoryConfig | null = null;
 
 /**
- * Get the config file path: ~/.sentinal/config.json
+ * Get the config file path (`$SENTINAL_HOME/config.json`, D2 seam —
+ * defaults to `~/.sentinal/config.json`). A READ path, routed for test
+ * determinism: a user's real config must never leak into test runs.
  */
 export function getConfigPath(): string {
-  return join(homedir(), DB_CONSTANTS.DB_DIR, "config.json");
+  return join(getSentinalHome(), "config.json");
 }
 
 /**

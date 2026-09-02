@@ -7,6 +7,7 @@
 
 import type { SidecarContext } from "./server.js";
 import { ok, fail, readBody } from "./response.js";
+import { getSentinalVersion } from "./version.js";
 import {
   buildVectorStats,
   notifyVectorUnavailableOnce,
@@ -36,6 +37,7 @@ export async function handleSidecarRequest(
         status: "running",
         pid: process.pid,
         httpPort: ctx.httpPort ?? null,
+        version: getSentinalVersion(),
       });
     }
 

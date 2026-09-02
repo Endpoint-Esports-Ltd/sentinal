@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { tmpdir, platform, arch } from "node:os";
 import {
   DEPS_DIR,
+  getDepsDir,
   resolveTransformers,
   resolveSqliteVecPath,
   nativeDepsStatus,
 } from "./native-deps.js";
+import { getSentinalHome } from "./db-path.js";
 
 describe("native-deps", () => {
   let tmpDeps: string;
@@ -20,9 +22,19 @@ describe("native-deps", () => {
     rmSync(tmpDeps, { recursive: true, force: true });
   });
 
-  describe("DEPS_DIR", () => {
-    it("should point into ~/.sentinal/deps", () => {
-      expect(DEPS_DIR.endsWith(join(".sentinal", "deps"))).toBe(true);
+  describe("DEPS_DIR / getDepsDir", () => {
+    it("getDepsDir() resolves under the SENTINAL_HOME tree", () => {
+      // D2: routed through getSentinalHome() (the test preload redirects it).
+      expect(getDepsDir()).toBe(join(getSentinalHome(), "deps"));
+    });
+
+    it("DEPS_DIR (deprecated load-time constant, kept for setup.ts/setup-bundle.ts)", () => {
+      // ⚠️ NOT asserted against SENTINAL_HOME: the test preload's ESM import
+      // of vector-store.js is hoisted above its `process.env.SENTINAL_HOME =`
+      // assignment and transitively evaluates this module first, so the
+      // constant is frozen to whatever the env held at load. That is WHY it
+      // is deprecated — new code must use getDepsDir() (read fresh).
+      expect(DEPS_DIR.endsWith("deps")).toBe(true);
     });
   });
 

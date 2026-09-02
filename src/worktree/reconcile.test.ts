@@ -121,6 +121,31 @@ describe("resolveWithReconcile", () => {
     expect(resolved).toBeNull();
   });
 
+  // ── D1: exact-match disk scan (prefix collision) ──────────────────────────
+  //
+  // Branches are NEVER suffixed — only the row id and the worktree path carry
+  // the `-<hash>` (established by v1.36.2's H4). A `startsWith` arm therefore
+  // matches nothing a `===` misses, but it DOES match a *different* slug that
+  // happens to extend the wanted one — and reconcile would then adopt (and
+  // re-register) the wrong worktree for the asked-for slug.
+  it("D1: a disk scan for slug `add` does NOT adopt branch `sentinal/spec-add-auth`", () => {
+    const wt = manager.create("add-auth", repoDir);
+    // Drop the row so ANY resolve for a matching branch takes the disk-scan
+    // re-register path.
+    wtStore.delete(wt.id);
+
+    // `add` is a strict prefix of `add-auth` → wanted branch
+    // `sentinal/spec-add` prefix-matches `sentinal/spec-add-auth`.
+    const resolved = manager.resolveWithReconcile("add", repoDir);
+    expect(resolved).toBeNull();
+
+    // The true owner still reconciles.
+    const real = manager.resolveWithReconcile("add-auth", repoDir);
+    expect(real).not.toBeNull();
+    expect(real!.branchName).toBe(wt.branchName);
+    expect(real!.worktreePath).toBe(wt.worktreePath);
+  });
+
   // ── The extracted free functions, called directly ─────────────────────────
 
   it("resolveWithReconcile is what the manager delegates to", () => {
@@ -215,7 +240,9 @@ describe("resolveWithReconcile", () => {
         warnings,
       );
       expect(
-        warnings.some((w) => w.includes("Shared with the main checkout: queue.")),
+        warnings.some((w) =>
+          w.includes("Shared with the main checkout: queue."),
+        ),
       ).toBe(true);
     });
 

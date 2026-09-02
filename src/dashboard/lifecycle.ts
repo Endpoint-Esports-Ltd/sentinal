@@ -6,15 +6,15 @@
  */
 
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { DB_CONSTANTS } from "../memory/types.js";
+import { getSentinalHome } from "../memory/db-path.js";
 import { logDashboard } from "../utils/file-log.js";
 
 const PID_FILE = "server.pid";
 
+/** `$SENTINAL_HOME/server.pid` (D2 seam — defaults to `~/.sentinal/server.pid`). */
 export function getPidFilePath(): string {
-  return join(homedir(), DB_CONSTANTS.DB_DIR, PID_FILE);
+  return join(getSentinalHome(), PID_FILE);
 }
 
 export function writePidFile(pid: number): void {
@@ -101,7 +101,9 @@ export async function autoStartDashboard(
           }
         }
       } catch {
-        logDashboard("dashboard: already running — skipping spawn (health check failed)");
+        logDashboard(
+          "dashboard: already running — skipping spawn (health check failed)",
+        );
         return; // Can't reach — assume it's fine
       }
     } else {
@@ -134,7 +136,7 @@ export async function autoStartDashboard(
  * Source/dev mode: ["bun", "/path/to/src/cli/index.ts"]
  */
 export function findSentinalCmd(): string[] | null {
-  const binPath = join(homedir(), DB_CONSTANTS.DB_DIR, "bin", "sentinal");
+  const binPath = join(getSentinalHome(), "bin", "sentinal");
   if (existsSync(binPath)) return [binPath];
 
   // Fallback to src CLI (development mode — needs bun to run .ts)
@@ -229,7 +231,10 @@ export async function decideServeStartup(
   if (!runningVersion) return { action: "start" };
 
   if (runningVersion === opts.currentVersion) {
-    return { action: "exit", reason: `dashboard already running pid=${runningPid ?? "unknown"} version=${runningVersion}` };
+    return {
+      action: "exit",
+      reason: `dashboard already running pid=${runningPid ?? "unknown"} version=${runningVersion}`,
+    };
   }
 
   // Version mismatch — need to take over
@@ -262,8 +267,7 @@ export interface WaitForDashboardOptions {
 }
 
 export type WaitForDashboardResult =
-  | { ok: true; pid?: number }
-  | { ok: false; reason: string };
+  { ok: true; pid?: number } | { ok: false; reason: string };
 
 /**
  * Poll the dashboard health endpoint until it reports `expectedVersion`.

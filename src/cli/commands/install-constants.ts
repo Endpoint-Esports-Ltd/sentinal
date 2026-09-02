@@ -45,6 +45,15 @@ export const MCP_SERVERS_OPENCODE = {
   },
 };
 
+/**
+ * The `lsp` block written by a fresh `writeOpenCodeConfig` create. Exported so
+ * the uninstall cleanup can tell a shipped-default block (safe to treat as
+ * empty) from a user-customised one (content — the config must survive).
+ */
+export const OPENCODE_LSP_DEFAULT = {
+  typescript: { command: ["typescript-language-server", "--stdio"] },
+};
+
 export const AGENTS_MD_GLOBAL = `# Sentinal Global Standards
 
 This file is automatically loaded by OpenCode for all projects.

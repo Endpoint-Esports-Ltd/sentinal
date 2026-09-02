@@ -52,12 +52,24 @@ export function registerImpactAnalysisTool(
   reachProvider: ReachProvider | null = null,
   client: SidecarClient | null = null,
 ): void {
-  server.tool(
+  // ⛔ M9a: `registerTool` + a full `.strict()` ZodObject, NOT the deprecated
+  // `server.tool(name, desc, shape, cb)` overload. A raw shape is wrapped in a
+  // NON-strict object by the SDK's zod-compat (`objectFromShape`), so a
+  // mis-nested top-level `moduleCount` (forgotten `reach:` wrapper) was
+  // silently stripped and the call scored with the built-in graph. Worse, the
+  // deprecated overload treats a full ZodObject as *annotations* — no
+  // validation at all — so `registerTool` is the only correct registration.
+  server.registerTool(
     "impact_analysis",
-    "Analyze the impact of changed files against the active spec. Reports expected vs unexpected changes, file length limit violations, and an overall risk score (LOW/MEDIUM/HIGH). More useful than `git diff --stat`: cross-references plan task files, checks Sentinal's 400-line limit, and scores risk.",
     {
-      project: z.string().describe("Absolute path to the project root"),
-      reach: AgentReachSchema.optional(),
+      description:
+        "Analyze the impact of changed files against the active spec. Reports expected vs unexpected changes, file length limit violations, and an overall risk score (LOW/MEDIUM/HIGH). More useful than `git diff --stat`: cross-references plan task files, checks Sentinal's 400-line limit, and scores risk.",
+      inputSchema: z
+        .object({
+          project: z.string().describe("Absolute path to the project root"),
+          reach: AgentReachSchema.optional(),
+        })
+        .strict(),
     },
     async ({ project, reach }) => {
       try {

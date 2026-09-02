@@ -69,10 +69,12 @@ describe("config file parsing", () => {
     expect(typeof config.memory.enabled).toBe("boolean");
   });
 
-  it("getConfigPath should return a path ending in config.json", () => {
+  it("getConfigPath resolves under the SENTINAL_HOME tree (D2)", () => {
     const path = getConfigPath();
     expect(path).toEndWith("config.json");
-    expect(path).toContain(".sentinal");
+    // The test preload redirects SENTINAL_HOME — asserting `.sentinal` here
+    // would be asserting on the REAL user store.
+    expect(path).toBe(join(process.env.SENTINAL_HOME!, "config.json"));
   });
 });
 

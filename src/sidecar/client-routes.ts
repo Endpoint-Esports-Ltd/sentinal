@@ -29,6 +29,8 @@ export abstract class SidecarRoutes {
     status: string;
     pid: number;
     httpPort?: number | null;
+    /** Sidecar's sentinal version (M2c). Absent on pre-M2c sidecars. */
+    version?: string;
   }> {
     return this.get("/health");
   }

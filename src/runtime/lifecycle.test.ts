@@ -195,10 +195,12 @@ describe("runtimeUp", () => {
   // ── Preflight row: pidfile starting + owned → tear down, respawn ─────────
 
   it("recovers an interrupted startup: tears the group down, then spawns fresh", async () => {
+    // The record is AGED past the startup budget — a fresh `starting` record
+    // is presumed to be a concurrent runtime_up mid-poll (see next test).
     writePidfile(wt, {
       pid: 999,
       pgid: 999,
-      startedAt: Date.now(),
+      startedAt: Date.now() - 120_000,
       command: "run-the-thing",
       state: "starting",
     });
@@ -218,7 +220,7 @@ describe("runtimeUp", () => {
       probes: {
         isAlive: () => true,
         commandOf: () => `sh -c cd ${wt}`,
-        startTimeOf: () => Date.now(),
+        startTimeOf: () => Date.now() - 120_000,
       },
     });
 
@@ -226,6 +228,91 @@ describe("runtimeUp", () => {
     expect(spawn.calls).toHaveLength(1);
     expect(r.ok).toBe(true);
     expect(r.started).toBe(true);
+  });
+
+  it("⛔ does NOT tear down a FRESH `starting` record — that is a concurrent runtime_up, not an interrupted one", async () => {
+    // M4c: without this gate the LOSER of a claim race re-runs preflight,
+    // reads the winner's seconds-old `starting` record, and "recovers" it —
+    // tearing down the very stack the winner just started.
+    writePidfile(wt, {
+      pid: 999,
+      pgid: 999,
+      startedAt: Date.now(),
+      command: "run-the-thing",
+      state: "starting",
+    });
+    const spawn = fakeSpawn();
+    let stopCalls = 0;
+
+    const r = await runtimeUp(wt, {
+      loadConfig: () => loaded(cfg()),
+      spawn: spawn.fn,
+      stop: async () => {
+        stopCalls++;
+        return okStop();
+      },
+      awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
+      isPortBound: async () => false,
+      probes: {
+        isAlive: () => true,
+        commandOf: () => `sh -c cd ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
+    });
+
+    expect(r.ok).toBe(false);
+    expect(stopCalls).toBe(0);
+    expect(spawn.calls).toHaveLength(0);
+    expect(r.reason?.toLowerCase()).toContain("runtime_up");
+    // The winner's record is untouched.
+    expect(readPidfile(wt)!.pid).toBe(999);
+  });
+
+  // ── The claim race (M4c) ─────────────────────────────────────────────────
+
+  it("⛔ two concurrent runtime_ups: exactly one spawns, the loser reports cleanly", async () => {
+    const calls: unknown[] = [];
+    const mkDeps = (pid: number): Parameters<typeof runtimeUp>[1] => ({
+      loadConfig: () => loaded(cfg()),
+      spawn: (opts) => {
+        calls.push(opts);
+        return {
+          pid,
+          pgid: pid,
+          logPath: join(opts.worktreePath, ".sentinal/runtime.log"),
+          command: opts.command,
+          exitCode: () => null,
+          exited: Promise.resolve(0),
+        };
+      },
+      isPortBound: async () => false,
+      awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
+      probes: {
+        isAlive: () => true,
+        commandOf: () => `sh -c cd ${wt}`,
+        cwdOf: () => wt,
+        startTimeOf: () => Date.now(),
+      },
+    });
+
+    const [a, b] = await Promise.all([
+      runtimeUp(wt, mkDeps(4242)),
+      runtimeUp(wt, mkDeps(5555)),
+    ]);
+
+    // ⛔ Exactly ONE spawn. Before the exclusive claim, both passed preflight,
+    // both spawned, and the loser's detached group had no ownership record.
+    expect(calls).toHaveLength(1);
+    const winner = a.started ? a : b;
+    const loser = a.started ? b : a;
+    expect(winner.ok).toBe(true);
+    expect(winner.started).toBe(true);
+    expect(loser.started).toBe(false);
+    // The loser either adopted the winner's stack or failed with a reason —
+    // never a silent orphan.
+    if (!loser.ok) expect(loser.reason).toBeTruthy();
+    // No orphan record: the pidfile describes the winner's group.
+    expect(readPidfile(wt)!.pid).toBe(winner.pid!);
   });
 
   // ── Preflight row: alive but cmdline mismatch → FAIL ─────────────────────

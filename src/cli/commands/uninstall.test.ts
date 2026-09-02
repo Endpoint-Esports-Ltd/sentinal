@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { makeTmpDir } from "../../test-helpers.js";
 import { detectInstalledTargets, cleanupOpenCodeConfig } from "./uninstall.js";
+import { MCP_SERVERS_OPENCODE } from "./install-constants.js";
 
 describe("detectInstalledTargets", () => {
   let tmpDir: string;
@@ -129,6 +130,7 @@ describe("cleanupOpenCodeConfig", () => {
   it("preserves user-added permission keys", () => {
     const config: Record<string, unknown> = {
       permission: {
+        // Customised (missing "spec-*") — value-matching keeps it (M7b)
         skill: { "*": "allow" },
         edit: {
           "*": "ask",
@@ -140,11 +142,11 @@ describe("cleanupOpenCodeConfig", () => {
     const result = cleanupOpenCodeConfig(config);
     expect(result.permission).toBeDefined();
     const perm = result.permission as Record<string, unknown>;
-    expect(perm.skill).toBeUndefined();
+    expect(perm.skill).toEqual({ "*": "allow" });
     expect(perm.edit).toEqual({ "*": "ask", "src/custom/**": "allow" });
   });
 
-  it("removes sentinal agent task keys including explore and general", () => {
+  it("removes reviewer task keys but NEVER touches explore/general (M7b)", () => {
     const config: Record<string, unknown> = {
       agent: {
         build: {
@@ -162,7 +164,16 @@ describe("cleanupOpenCodeConfig", () => {
       },
     };
     const result = cleanupOpenCodeConfig(config);
-    expect(result.agent).toBeUndefined();
+    // Generic names (explore/general) are never attributed to Sentinal, so
+    // the task block — and with it the agent — survives the uninstall.
+    const permission = (result.agent as Record<string, Record<string, unknown>>)
+      .build.permission as Record<string, unknown>;
+    expect(permission.task).toEqual({
+      "*": "ask",
+      explore: "allow",
+      general: "allow",
+    });
+    expect(permission.edit).toBeUndefined(); // shipped default → removed
   });
 
   it("preserves user-added agent task keys", () => {
@@ -211,9 +222,16 @@ describe("cleanupOpenCodeConfig", () => {
     expect(result.agent).toBeUndefined();
   });
 
-  it("removes sentinal MCP keys", () => {
+  it("removes sentinal MCP keys at their shipped default values", () => {
+    const clone = (v: unknown) => JSON.parse(JSON.stringify(v));
     const config: Record<string, unknown> = {
-      mcp: { context7: {}, "web-search": {}, sentinal: {}, "custom-mcp": {} },
+      mcp: {
+        context7: clone(MCP_SERVERS_OPENCODE.context7),
+        "web-search": clone(MCP_SERVERS_OPENCODE["web-search"]),
+        // sentinal is force-managed: removed regardless of value
+        sentinal: { type: "local", command: ["/some/old/bin", "mcp-server"] },
+        "custom-mcp": {},
+      },
     };
     const result = cleanupOpenCodeConfig(config);
     expect(result.mcp).toEqual({ "custom-mcp": {} });
@@ -307,8 +325,16 @@ describe("cleanupOpenCodeConfig — roundtrip with deepMergeAdditive", () => {
     )?.task as Record<string, string>;
     expect(buildTask?.["custom-agent"]).toBe("allow");
     expect(buildTask?.["plan-reviewer"]).toBeUndefined();
-    expect(
-      (afterUninstall.agent as Record<string, unknown>)?.plan,
-    ).toBeUndefined();
+    // explore/general are never touched (M7b) — the plan agent's task block
+    // (and with it the agent entry) survives the uninstall.
+    const planTask = (
+      (afterUninstall.agent as Record<string, Record<string, unknown>>)?.plan
+        ?.permission as Record<string, unknown>
+    )?.task as Record<string, string>;
+    expect(planTask).toEqual({
+      "*": "ask",
+      explore: "allow",
+      general: "allow",
+    });
   });
 });

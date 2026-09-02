@@ -343,12 +343,26 @@ export class WorktreeManager {
           rmSync(wt.worktreePath, { recursive: true, force: true });
           gitExec(["worktree", "prune"], wt.projectPath);
         } catch {
-          // Best effort
+          // Swallowed deliberately — the existsSync verification below is
+          // what the invariant is actually about (M3c).
         }
+      }
+      // ⛔ M3c: `abandoned` is terminal, so it frees the row's slot. Writing it
+      // over a SURVIVING directory hands the next worktree this one's ports and
+      // seeded `.env` — mirror `removeMergedWorktree`'s discipline.
+      if (existsSync(wt.worktreePath)) {
+        throw new WorktreeError(
+          `Could not remove ${wt.worktreePath} — both \`git worktree remove --force\` and ` +
+            `the manual fallback failed, and the directory is still on disk. Deliberately ` +
+            `left active rather than marked abandoned: abandoning would release its slot ` +
+            `while the directory survives. Remedy: resolve whatever blocks removal ` +
+            `(permissions, a process holding the directory), then re-run worktree_abandon.`,
+          "REMOVE_FAILED",
+        );
       }
     }
 
-    // Delete the branch
+    // Delete the branch — only after the directory is confirmed gone.
     gitExec(["branch", "-D", wt.branchName], wt.projectPath);
 
     // Update store

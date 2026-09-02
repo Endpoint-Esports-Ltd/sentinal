@@ -75,12 +75,14 @@ export function resolveWithReconcile(
     return null;
   }
 
-  // Disk scan: find a git worktree whose branch matches the slug
+  // Disk scan: find a git worktree whose branch matches the slug. Exact match
+  // only (D1): branches are NEVER suffixed — only the row id and the worktree
+  // path carry the `-<hash>` — so a `startsWith` arm matches nothing `===`
+  // misses, while it DOES adopt a different slug's worktree whenever the
+  // wanted slug is a strict prefix of it (`add` vs `add-auth`).
   const wanted = `${config.branchPrefix}${slugify(slug)}`;
   const onDisk = listGitWorktrees(repoRoot).find(
-    (w) =>
-      (w.branch === wanted || w.branch.startsWith(wanted)) &&
-      existsSync(w.path),
+    (w) => w.branch === wanted && existsSync(w.path),
   );
   if (!onDisk) return null;
 

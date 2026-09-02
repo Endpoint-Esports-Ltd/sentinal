@@ -12,11 +12,10 @@
  */
 
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import type { MemoryStore } from "./store.js";
 import { decayQualityScores } from "./maintenance.js";
-import { DB_CONSTANTS } from "./types.js";
+import { getSentinalHome } from "./db-path.js";
 
 /** Default throttle: run decay at most once per 24h. */
 export const DEFAULT_DECAY_THRESHOLD_MS = 24 * 60 * 60 * 1000;
@@ -36,13 +35,15 @@ export interface AutoDecayResult {
 }
 
 /**
- * Default location of the throttle state file (~/.sentinal/last-decay.json).
+ * Default location of the throttle state file
+ * (`$SENTINAL_HOME/last-decay.json`, D2 seam — defaults to
+ * `~/.sentinal/last-decay.json`).
  * Overridable via `SENTINAL_LAST_DECAY_PATH` (used for isolated tests).
  */
 export function getLastDecayPath(): string {
   return (
     process.env.SENTINAL_LAST_DECAY_PATH ??
-    join(homedir(), DB_CONSTANTS.DB_DIR, "last-decay.json")
+    join(getSentinalHome(), "last-decay.json")
   );
 }
 

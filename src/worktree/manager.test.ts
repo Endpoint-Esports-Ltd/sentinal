@@ -6,8 +6,9 @@ import {
   readFileSync,
   realpathSync,
   existsSync,
+  chmodSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { WorktreeStore } from "./store.js";
@@ -545,6 +546,38 @@ describe("WorktreeManager", () => {
       await expect(manager.abandon("nonexistent")).rejects.toThrow(
         WorktreeError,
       );
+    });
+
+    // ── M3c: a surviving directory must NOT be marked abandoned ─────────────
+    //
+    // `abandoned` is terminal, so it frees the row's slot — writing it while
+    // the directory (its seeded `.env`, its ports) is still on disk hands the
+    // next worktree a colliding slot. Mirror of the merge path's discipline
+    // (`removeMergedWorktree` throws REMOVE_FAILED and the caller never writes
+    // `merged` over a surviving directory).
+    it("M3c: abandon does NOT free the slot when the directory survives removal", async () => {
+      const wt = manager.create("2026-09-02-rm-fail", repoDir);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+
+      // Make the PARENT unwritable: both `git worktree remove --force` and the
+      // `rmSync` fallback then fail to unlink the worktree directory itself.
+      const parent = dirname(wt.worktreePath);
+      chmodSync(parent, 0o555);
+      try {
+        let code: string | null = null;
+        try {
+          await manager.abandon(wt.id);
+        } catch (err) {
+          code = err instanceof WorktreeError ? err.code : "unexpected";
+        }
+        expect(code).toBe("REMOVE_FAILED");
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+
+      // The directory survived, so the row must still hold its slot.
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
     });
   });
 

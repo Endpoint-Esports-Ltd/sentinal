@@ -219,12 +219,58 @@ describe("Dashboard Server", () => {
     expect(body.modelRouting.planning).toBe("gpt-5");
   });
 
-  // ─── CORS ───────────────────────────────────────────────────────────
+  it("should reject unknown top-level keys in POST /api/settings", async () => {
+    const res = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ evil: "payload" }),
+    });
+    expect(res.status).toBe(400);
+  });
 
-  it("should handle OPTIONS preflight", async () => {
+  it("should reject unknown modelRouting keys in POST /api/settings", async () => {
+    const res = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelRouting: { planning: "opus", rm_rf: "x" } }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("should reject non-string modelRouting values in POST /api/settings", async () => {
+    const res = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modelRouting: { planning: { nested: true } } }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("should reject a non-object POST /api/settings body", async () => {
+    const res = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([1, 2, 3]),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // ─── No CORS ────────────────────────────────────────────────────────
+
+  it("should not grant cross-origin access on any response", async () => {
+    for (const path of ["/api/health", "/api/memories", "/"]) {
+      const res = await fetch(`${baseUrl}${path}`);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      expect(res.headers.get("Access-Control-Allow-Methods")).toBeNull();
+      expect(res.headers.get("Access-Control-Allow-Headers")).toBeNull();
+    }
+  });
+
+  it("should not grant CORS on OPTIONS requests", async () => {
     const res = await fetch(`${baseUrl}/api/health`, { method: "OPTIONS" });
-    expect(res.status).toBe(204);
-    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(res.headers.get("Access-Control-Allow-Methods")).toBeNull();
+    expect(res.headers.get("Access-Control-Allow-Headers")).toBeNull();
   });
 
   // ─── Fragments ──────────────────────────────────────────────────────

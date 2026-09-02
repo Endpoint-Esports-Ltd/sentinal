@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
 import { logSidecar } from "../utils/file-log.js";
+import { getSentinalVersion } from "./version.js";
 import { SidecarRoutes } from "./client-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
 
@@ -122,6 +123,7 @@ export class SidecarClient extends SidecarRoutes {
       });
       try {
         const health = await probe.health();
+        SidecarClient.noteVersionSkew(health.version);
 
         // Self-heal: sync the HTTP port file from the health response
         // so Node.js clients (which can't use Unix sockets) find the right port
@@ -146,7 +148,8 @@ export class SidecarClient extends SidecarRoutes {
         const port = parseInt(content, 10);
         if (Number.isNaN(port)) return null;
         const probe = new SidecarClient(`http://127.0.0.1:${port}`, {});
-        await probe.health();
+        const health = await probe.health();
+        SidecarClient.noteVersionSkew(health.version);
         return new SidecarClient(`http://127.0.0.1:${port}`, {}, true);
       } catch {
         /* port file exists but server not responding */
@@ -154,6 +157,22 @@ export class SidecarClient extends SidecarRoutes {
     }
 
     return null;
+  }
+
+  /**
+   * ADVISORY version-skew check (M2c). Logs LOUDLY when the sidecar runs a
+   * different sentinal version than this client, but NEVER refuses the
+   * connection (Assumption 4 — a hard refusal would strand users
+   * mid-upgrade). Older sidecars report no version: nothing to compare.
+   */
+  private static noteVersionSkew(serverVersion: string | undefined): void {
+    if (!serverVersion) return;
+    const own = getSentinalVersion();
+    if (serverVersion === own) return;
+    logSidecar(
+      `client: version mismatch — sidecar is v${serverVersion} but this client is v${own}; ` +
+        `connecting anyway (advisory). Run \`sentinal sidecar restart\` to align.`,
+    );
   }
 
   // ─── Self-healing reconnect ──────────────────────────────────────────────

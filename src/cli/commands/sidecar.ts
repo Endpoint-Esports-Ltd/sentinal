@@ -15,10 +15,9 @@ import type { Command } from "commander";
 import { writeFileSync } from "node:fs";
 import { buildLogsReport, type LogFileFilter } from "./sidecar-logs.js";
 import {
-  isSidecarRunning,
+  assessSidecarStart,
   getSidecarStatus,
   stopSidecarProcess,
-  readSidecarPid,
 } from "../../sidecar/lifecycle.js";
 import {
   startSidecar,
@@ -48,10 +47,20 @@ export function registerSidecarCommand(program: Command): void {
         httpOnly?: boolean;
         port?: string;
       }) => {
-        if (isSidecarRunning()) {
+        // M2a: REACHABILITY decides, not kill(pid,0) — a recycled PID must
+        // not block the start forever. Live-but-unreachable past the boot
+        // grace → assessSidecarStart cleans the stale files and we proceed.
+        const decision = await assessSidecarStart();
+        if (decision.action === "already-running") {
           const status = getSidecarStatus();
           console.log(
             `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`,
+          );
+          process.exit(0);
+        }
+        if (decision.action === "booting") {
+          console.log(
+            "Another sidecar appears to be booting (fresh pidfile, not yet reachable) — not starting a second one.",
           );
           process.exit(0);
         }
@@ -215,7 +224,9 @@ export function registerSidecarCommand(program: Command): void {
     .action((opts: { lines: string; file: string }) => {
       const n = parseInt(opts.lines, 10);
       const file = (
-        ["sidecar", "plugin", "dashboard", "all"].includes(opts.file) ? opts.file : "all"
+        ["sidecar", "plugin", "dashboard", "all"].includes(opts.file)
+          ? opts.file
+          : "all"
       ) as LogFileFilter;
       process.stdout.write(buildLogsReport({ lines: isNaN(n) ? 50 : n, file }));
     });

@@ -43,6 +43,10 @@ export function withAbort<T>(
 ): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) {
+    // The caller created `promise` eagerly and will only ever see our
+    // rejection — attach a no-op handler so a later rejection of the
+    // underlying promise is not an unhandled rejection (process-fatal).
+    promise.catch(() => {});
     return Promise.reject(abortError());
   }
   return new Promise<T>((resolve, reject) => {

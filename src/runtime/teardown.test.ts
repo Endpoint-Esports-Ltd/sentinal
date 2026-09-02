@@ -207,17 +207,21 @@ describe("stopOwnedGroup — dead leader, surviving group", () => {
   it("kills the group when at least ONE live member is provably ours", async () => {
     pidfileFor(999_001, 999_001);
     const signals: [number, string][] = [];
+    let signalled = false;
 
     const r = await stopOwnedGroup(wt, {
       loadConfig: loading(config()),
       probes: {
-        isAlive: (pid) => pid !== 999_001,
+        isAlive: (pid) => pid !== 999_001 && !signalled,
         listGroup: () => [999_002, 999_003],
         commandOf: (pid) =>
           pid === 999_003 ? `node server.js ${wt}` : "cupsd",
         cwdOf: () => null,
       },
-      signalFn: (t, s) => signals.push([t, s as string]),
+      signalFn: (t, s) => {
+        signals.push([t, s as string]);
+        signalled = true; // the group dies to the first signal
+      },
     });
 
     expect(r.ok).toBe(true);
@@ -405,6 +409,150 @@ describe("stopOwnedGroup — the declared `down`", () => {
   });
 });
 
+// ─── Re-verification after `down` (M4a) ─────────────────────────────────────
+
+describe("stopOwnedGroup — re-verifies ownership AFTER `down` (TOCTOU)", () => {
+  it("⛔ REFUSES to signal when the verdict flips during `down`", async () => {
+    // The verdict used to be captured BEFORE `down` ran; `down` is bounded
+    // only by graceMs, long enough for the leader to die and its PID to be
+    // recycled — after which the stale verdict authorised `kill -- -pgid`
+    // against a stranger's group.
+    pidfileFor(999_100, 999_100);
+    const signals: unknown[] = [];
+    let phase: "before" | "after" = "before";
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config({ down: "docker compose down" })),
+      probes: {
+        isAlive: () => true,
+        commandOf: () =>
+          phase === "before" ? `node server.js ${wt}` : "/usr/sbin/cupsd -l",
+        cwdOf: () => (phase === "before" ? wt : "/"),
+        startTimeOf: () => Date.now(),
+      },
+      runShell: async () => {
+        // The world changes while `down` runs: the leader dies and the PID
+        // lands on an unrelated process.
+        phase = "after";
+        return { exitCode: 0, timedOut: false };
+      },
+      signalFn: (t, s) => signals.push([t, s]),
+    });
+
+    expect(signals).toEqual([]);
+    expect(r.ok).toBe(false);
+    expect(r.stopped).toBe(false);
+    expect(r.reason?.toLowerCase()).toContain("down");
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  });
+
+  it("still succeeds when `down` itself stopped the stack (leader gone, group empty)", async () => {
+    // The routine success shape must NOT be refused: `down` doing its job
+    // looks like the leader dying mid-`down`.
+    pidfileFor(999_100, 999_100);
+    let downRan = false;
+    const signals: unknown[] = [];
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config({ down: "docker compose down" })),
+      probes: {
+        isAlive: () => !downRan,
+        commandOf: () => `node server.js ${wt}`,
+        startTimeOf: () => Date.now(),
+        listGroup: () => (downRan ? [] : [999_100]),
+      },
+      runShell: async () => {
+        downRan = true;
+        return { exitCode: 0, timedOut: false };
+      },
+      signalFn: (t, s) => signals.push([t, s]),
+    });
+
+    expect(r.ok).toBe(true);
+    expect(signals).toEqual([]);
+    expect(existsSync(runtimePidfilePath(wt))).toBe(false);
+  });
+});
+
+// ─── Honest SIGKILL failures (M4b) ──────────────────────────────────────────
+
+describe("stopOwnedGroup — a failed SIGKILL is a FAILURE, not a warning", () => {
+  it("⛔ keeps the pidfile and returns ok:false when SIGKILL fails with EPERM", async () => {
+    // Reachable in production: a root-owned process cwd'd in the worktree.
+    // The old code converted the exception to a warning, deleted the pidfile
+    // and reported ok:true, stopped:true — orphaning a LIVE group.
+    pidfileFor(999_200, 999_200);
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config()),
+      probes: {
+        isAlive: () => true, // never dies
+        commandOf: () => `node server.js ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
+      signalFn: (t, s) => {
+        if (s === "SIGKILL") {
+          const err = new Error("kill EPERM") as NodeJS.ErrnoException;
+          err.code = "EPERM";
+          throw err;
+        }
+      },
+      sleep: async () => {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.stopped).toBe(false);
+    expect(r.reason?.toLowerCase()).toContain("sigkill");
+    // ⛔ Never delete a record while the group may live.
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  });
+
+  it("⛔ keeps the pidfile and returns ok:false when the group SURVIVES SIGKILL", async () => {
+    pidfileFor(999_200, 999_200);
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config()),
+      probes: {
+        isAlive: () => true, // survives even SIGKILL (e.g. uninterruptible)
+        commandOf: () => `node server.js ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
+      signalFn: () => {},
+      sleep: async () => {},
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.stopped).toBe(false);
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  });
+
+  it("treats ESRCH on SIGKILL as the group being gone — a success", async () => {
+    pidfileFor(999_200, 999_200);
+    let killed = false;
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config()),
+      probes: {
+        isAlive: () => !killed,
+        commandOf: () => `node server.js ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
+      signalFn: (t, s) => {
+        if (s === "SIGKILL") {
+          killed = true;
+          const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
+          err.code = "ESRCH";
+          throw err;
+        }
+      },
+      sleep: async () => {},
+    });
+
+    expect(r.ok).toBe(true);
+    expect(existsSync(runtimePidfilePath(wt))).toBe(false);
+  });
+});
+
 // ─── Windows degradation ────────────────────────────────────────────────────
 
 describe("stopOwnedGroup — no process group (Windows)", () => {
@@ -464,15 +612,19 @@ describe("stopOwnedGroup — escalation", () => {
   it("escalates to SIGKILL when the group outlives the grace period", async () => {
     pidfileFor(process.pid, process.pid);
     const signals: [number, string][] = [];
+    let killed = false;
 
     const r = await stopOwnedGroup(wt, {
       loadConfig: loading(config()),
       probes: {
         commandOf: () => `sh -c cd ${wt} && npm start`,
-        isAlive: () => true, // never dies
+        isAlive: () => !killed, // survives SIGTERM, dies to SIGKILL
         startTimeOf: () => Date.now(),
       },
-      signalFn: (t, s) => signals.push([t, s as string]),
+      signalFn: (t, s) => {
+        signals.push([t, s as string]);
+        if (s === "SIGKILL") killed = true;
+      },
       sleep: async () => {},
     });
 

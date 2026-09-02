@@ -20,10 +20,13 @@
  *    is the *real* mechanism: the spawned leader has already exited, so the
  *    pgid owns nothing and `kill -- -$PGID` would silently succeed while the
  *    stack kept running. The schema already enforces `detached ⇒ down`.
- * 2. `shutdown.signal` (default SIGTERM) to the **group**.
- * 3. Wait `graceMs`, polling liveness.
- * 4. SIGKILL to the group.
- * 5. Remove the pidfile.
+ * 2. **Re-verify ownership** (M4a, `teardown-verify.ts`) — the pre-`down`
+ *    verdict is stale across the `down` window; a flipped verdict refuses.
+ * 3. `shutdown.signal` (default SIGTERM) to the **group**.
+ * 4. Wait `graceMs`, polling liveness.
+ * 5. SIGKILL to the group, then **confirm the group actually died** (M4b) —
+ *    a failed or ineffective SIGKILL keeps the pidfile and reports failure.
+ * 6. Remove the pidfile.
  *
  * ⛔ **Idempotent, and a fast no-op when no pidfile exists.** `abandon` calls
  * this on every worktree, including ones that never started a runtime; paying
@@ -42,10 +45,17 @@ import {
   maySignalGroup,
   isProcessAlive,
   type GroupProbes,
-  type OwnershipProbes,
 } from "./ownership.js";
+import {
+  reverifyAfterDown,
+  confirmGroupDead,
+  safeAlive,
+} from "./teardown-verify.js";
 import type { StartTimeProbes } from "./proc-start.js";
 import type { RuntimeConfig } from "./schema.js";
+
+// The post-run liveness surface lives with the other verification helpers.
+export { assertStillAlive, type AliveVerdict } from "./teardown-verify.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -215,6 +225,27 @@ export async function stopOwnedGroup(
     }
   }
 
+  // ── Step 1b: re-verify AFTER `down` (M4a) ────────────────────────────────
+  // The verdict above is stale by construction once `down` has run: `down` is
+  // bounded only by graceMs, long enough for the leader to die and its PID to
+  // be recycled. A flipped verdict must prevent the signal.
+  let leaderVerified = verdict.kind === "owned";
+  if (ranDown) {
+    const re = reverifyAfterDown(worktreePath, entry, probes);
+    if (re.kind === "refuse") {
+      return {
+        ok: false,
+        stopped: false,
+        pid: entry.pid,
+        pgid: entry.pgid,
+        actions,
+        warnings,
+        reason: re.reason,
+      };
+    }
+    leaderVerified = re.leaderVerified;
+  }
+
   // ── Step 2: is there a group to signal at all? ───────────────────────────
   if (entry.pgid === null) {
     // No process-group guarantee (Windows). `down` is the only mechanism.
@@ -258,8 +289,9 @@ export async function stopOwnedGroup(
     leaderPid: entry.pid,
     // `inspectPidfile` returns "owned" only for a process it has proven alive
     // AND ours; anything it could not establish comes back "foreign", which was
-    // already refused above. So "owned" is exactly "leader verified".
-    leaderVerified: verdict.kind === "owned",
+    // already refused above. So "owned" is exactly "leader verified" — from the
+    // POST-`down` re-verification when a `down` ran (M4a).
+    leaderVerified,
     worktreePath,
     probes,
   });
@@ -309,17 +341,49 @@ export async function stopOwnedGroup(
     stillAlive = safeAlive(alive, entry.pid, gate.witness);
   }
 
+  // ── Step 5: SIGKILL, then CONFIRM the outcome (M4b) ──────────────────────
+  // ⛔ A failed SIGKILL is a FAILURE, not a warning. Converting the exception
+  // to a warning and deleting the pidfile anyway (the old shape) orphans a
+  // LIVE group — reachable via EPERM (e.g. a root-owned process cwd'd here).
   if (stillAlive) {
+    let killFailure: string | null = null;
     try {
       signal(groupTarget, "SIGKILL");
       actions.push(
         `process group ${pgid} outlived the ${graceMs}ms grace period — escalated to SIGKILL`,
       );
     } catch (err) {
-      warnings.push(
-        `SIGKILL to process group ${pgid} failed: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
-      );
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "ESRCH") {
+        // ESRCH means the group vanished between the poll and the kill — a
+        // success. Anything else means the signal was NOT delivered.
+        killFailure =
+          `SIGKILL to process group ${pgid} FAILED: ` +
+          `${err instanceof Error ? err.message : String(err)}.`;
+      }
+    }
+    const dead = await confirmGroupDead({
+      alive,
+      leaderPid: entry.pid,
+      witness: gate.witness,
+      sleep,
+    });
+    if (killFailure !== null || !dead) {
+      return {
+        ok: false,
+        stopped: false,
+        pid: entry.pid,
+        pgid,
+        actions,
+        warnings,
+        reason:
+          (killFailure ??
+            `process group ${pgid} is STILL ALIVE after SIGKILL.`) +
+          ` The runtime may still be running, so the ownership record is KEPT — deleting it ` +
+          `would leave an orphan nothing can find again. Confirm by hand with ` +
+          `\`ps -A -o pid=,pgid=,command= | awk '$2 == ${pgid}'\`, stop what you recognise, ` +
+          `then delete .sentinal/runtime.pid.`,
+      };
     }
   }
 
@@ -327,71 +391,4 @@ export async function stopOwnedGroup(
   if (!removal.removed && removal.reason) warnings.push(removal.reason);
 
   return { ok: true, stopped: true, pid: entry.pid, pgid, actions, warnings };
-}
-
-/** Liveness of the leader, or of the witnessing member when the leader is dead. */
-function safeAlive(
-  alive: (pid: number) => boolean,
-  leaderPid: number,
-  witness: number | null,
-): boolean {
-  const check = (pid: number) => {
-    try {
-      return alive(pid);
-    } catch {
-      // Unknowable liveness must not be read as "dead" — that would skip the
-      // SIGKILL escalation and leave the group running.
-      return true;
-    }
-  };
-  if (check(leaderPid)) return true;
-  return witness !== null && check(witness);
-}
-
-// ─── Liveness re-check (D12) ────────────────────────────────────────────────
-
-export interface AliveVerdict {
-  alive: boolean;
-  reason?: string;
-}
-
-/**
- * Is the runtime this worktree started **still** running?
- *
- * ⛔ "Tests green but the server died mid-run" is a **false pass**. Without an
- * exported surface for this the requirement stays unowned prose, so a caller
- * that finishes a test run must consult this before reporting success.
- *
- * **No pidfile is `alive: true`.** A project that never adopted the contract
- * must behave exactly as it did before the contract existed — reporting its
- * runs as failed because there is nothing to check would break the master
- * plan's headline backward-compatibility guarantee. The `reason` says which
- * case produced the verdict, so a caller that cares can tell them apart.
- */
-export function assertStillAlive(
-  worktreePath: string,
-  probes: OwnershipProbes & StartTimeProbes = {},
-): AliveVerdict {
-  const verdict = inspectPidfile(worktreePath, probes);
-  switch (verdict.kind) {
-    case "absent":
-      return {
-        alive: true,
-        reason:
-          "no .sentinal/runtime.pid — Sentinal started nothing here, so there is nothing that could " +
-          "have died mid-run.",
-      };
-    case "owned":
-      return { alive: true };
-    case "stale":
-      return {
-        alive: false,
-        reason:
-          `the runtime started for this worktree is GONE: ${verdict.reason} A run that finished ` +
-          `green against a stack that died partway through is a FALSE PASS — treat it as a failure ` +
-          `and re-run after \`runtime_up\`.`,
-      };
-    default:
-      return { alive: false, reason: verdict.reason };
-  }
 }

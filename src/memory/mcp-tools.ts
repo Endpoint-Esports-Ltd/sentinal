@@ -8,6 +8,16 @@
  *   3. memory_get     -> full details for filtered IDs
  *   4. memory_save    -> manually persist an observation
  *   5. memory_stats   -> database statistics
+ *
+ * `registerMemoryTools` is the single entry point — `src/mcp/server.ts` calls
+ * it and nothing else. This file keeps the read layers (search / timeline /
+ * get); the rest live in siblings, split purely for file length (Task 9 of
+ * docs/plans/2026-09-02-audit-medium-remediation.md), following the
+ * `src/spec/mcp-tools.ts` precedent:
+ *   - ./write-mcp-tools.ts:    memory_save, memory_update, memory_delete
+ *   - ./maintain-mcp-tools.ts: memory_maintain
+ *   - ./stats-mcp-tools.ts:    memory_stats (+ formatMemoryStats, re-exported
+ *                              here so existing imports keep working)
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -20,16 +30,18 @@ import {
 import type { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
-import type {
-  MemoryStats,
-  ObservationType,
-  VectorSearchStats,
-} from "./types.js";
+import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { mcpText } from "../mcp/helpers.js";
-import { requiredEnum } from "../utils/schema.js";
-import { decayQualityScores } from "./maintenance.js";
-import { registerSharedTools, saveToSharedIfRequested } from "./shared.js";
+import { registerSharedTools } from "./shared.js";
+import {
+  registerSaveTool,
+  registerUpdateDeleteTools,
+} from "./write-mcp-tools.js";
+import { registerMaintainTool } from "./maintain-mcp-tools.js";
+import { registerStatsTool } from "./stats-mcp-tools.js";
+
+export { formatMemoryStats } from "./stats-mcp-tools.js";
 
 export interface MemoryToolsDeps {
   client?: SidecarClient | null;
@@ -66,7 +78,10 @@ export function registerMemoryTools(
   registerSaveTool(server, service, store, client);
   registerUpdateDeleteTools(server, service, client);
   registerStatsTool(server, service, client);
-  if (store) registerMaintainTool(server, store);
+  // Unconditional (M6b): in sidecar mode (store null) the maintain handler
+  // opens a scoped direct MemoryStore per call — see ./maintain-mcp-tools.ts
+  // for why there is deliberately no sidecar route.
+  registerMaintainTool(server, store);
   registerSharedTools(server, { client, service });
   return service;
 }
@@ -250,333 +265,4 @@ function registerGetTool(
       return mcpText(blocks.join("\n\n---\n\n"));
     },
   );
-}
-
-// --- Save ---
-
-function registerSaveTool(
-  server: McpServer,
-  service: MemoryService | null,
-  store: MemoryStore | null,
-  client: SidecarClient | null,
-): void {
-  server.tool(
-    "memory_save",
-    "Save an observation to persistent memory. Use for decisions, discoveries, error patterns, fixes, and recurring patterns.",
-    {
-      title: z.string().min(1).max(500).describe("Short descriptive title"),
-      content: z
-        .string()
-        .min(1)
-        .describe("Detailed content of the observation"),
-      type: requiredEnum(
-        OBSERVATION_TYPES,
-        "Type: decision, discovery, error, fix, or pattern",
-      ),
-      project: z.string().describe("Project path this observation relates to"),
-      tags: z
-        .array(z.string())
-        .optional()
-        .describe("Tags/concepts for categorization"),
-      filePaths: z.array(z.string()).optional().describe("Related file paths"),
-      shared: z
-        .boolean()
-        .optional()
-        .describe(
-          "Also save to shared project memory (.sentinal/project-memory.json)",
-        ),
-    },
-    async ({ title, content, type, project, tags, filePaths, shared }) => {
-      // Resolve real session ID when exactly one active session exists
-      let sessionId = `mcp-${Date.now()}`;
-      try {
-        const activeSessions = client
-          ? await client.getActiveSessions()
-          : store!.getActiveSessions();
-        if (activeSessions.length === 1) {
-          sessionId = activeSessions[0].id;
-        }
-      } catch {
-        /* fall back to synthetic ID */
-      }
-
-      const obsPayload = {
-        sessionId,
-        projectPath: project,
-        type: type as ObservationType,
-        title,
-        content,
-        filePaths: filePaths ?? [],
-        tags: tags ?? [],
-        metadata: { source: "mcp-tool" },
-      };
-
-      let obsId: number;
-      if (client) {
-        const result = await client.addObservation(obsPayload);
-        obsId = result.id;
-      } else {
-        const result = service!.addObservation({
-          ...obsPayload,
-          timestamp: Date.now(),
-        });
-        obsId = result.id;
-      }
-
-      // Also save to shared project memory if requested
-      const wasShared = await saveToSharedIfRequested({
-        project,
-        type,
-        title,
-        content,
-        tags,
-        filePaths,
-        shared,
-      });
-
-      const suffix = wasShared
-        ? " + shared to project memory"
-        : shared
-          ? " (shared skipped: only decision/discovery/pattern types can be shared)"
-          : "";
-      return mcpText(
-        `Saved observation #${obsId}: "${title}" (${type})${suffix}`,
-      );
-    },
-  );
-}
-
-// --- Update / Delete ---
-
-function registerUpdateDeleteTools(
-  server: McpServer,
-  service: MemoryService | null,
-  client: SidecarClient | null,
-): void {
-  server.tool(
-    "memory_update",
-    "Correct/supersede an existing memory in place (by ID from memory_search/memory_save) instead of saving a new CORRECTION observation. Updates the given fields AND refreshes the memory's staleness (recency + quality) so the corrected fact ranks fresh again. Keeps FTS and vector indexes in sync.",
-    {
-      id: z.number().describe("Observation ID to update"),
-      title: z.string().min(1).max(500).optional().describe("New title"),
-      content: z.string().min(1).optional().describe("New content"),
-      type: z
-        .enum(OBSERVATION_TYPES)
-        .optional()
-        .describe("New type: decision, discovery, error, fix, or pattern"),
-      tags: z.array(z.string()).optional().describe("New tags (replaces)"),
-      filePaths: z
-        .array(z.string())
-        .optional()
-        .describe("New file paths (replaces)"),
-    },
-    async ({ id, title, content, type, tags, filePaths }) => {
-      const patch = { id, title, content, type, tags, filePaths };
-      const updated = client
-        ? await client.updateObservation(patch)
-        : service!.updateObservation(id, {
-            title,
-            content,
-            type,
-            tags,
-            filePaths,
-          });
-      if (!updated) {
-        return mcpText(`Observation #${id} not found — nothing updated.`);
-      }
-      return mcpText(`Updated observation #${id} (staleness refreshed).`);
-    },
-  );
-
-  server.tool(
-    "memory_delete",
-    "Delete a memory by ID. DESTRUCTIVE and unrecoverable — removes the observation from FTS and vector search. Use to remove now-redundant CORRECTION observations after consolidating with memory_update.",
-    {
-      id: z.number().describe("Observation ID to delete"),
-    },
-    async ({ id }) => {
-      const result = client
-        ? await client.deleteObservation(id)
-        : { deleted: service!.deleteObservation(id) };
-      return mcpText(
-        result.deleted
-          ? `Deleted observation #${id}.`
-          : `Observation #${id} not found — nothing deleted.`,
-      );
-    },
-  );
-}
-
-// --- Maintain ---
-
-const MAINTAIN_ACTIONS = ["decay", "prune", "stats"] as const;
-
-function registerMaintainTool(server: McpServer, store: MemoryStore): void {
-  server.tool(
-    "memory_maintain",
-    "Maintain memory quality: decay scores, prune low-quality observations, or view quality distribution.",
-    {
-      action: requiredEnum(
-        MAINTAIN_ACTIONS,
-        "Action: decay (reduce scores by age), prune (delete low-quality), stats (quality distribution)",
-      ),
-      prune_threshold: z
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe("Prune observations below this quality score (default 0.15)"),
-      dry_run: z
-        .boolean()
-        .optional()
-        .describe("Preview without changes (default false)"),
-    },
-    async ({ action, prune_threshold, dry_run }) => {
-      const dryRun = dry_run ?? false;
-      const db = store.getRawDb();
-
-      if (action === "decay") {
-        const result = decayQualityScores(store, { dryRun });
-        const prefix = dryRun ? "[DRY RUN] " : "";
-        return mcpText(
-          `${prefix}Quality decay complete: ${result.decayed} observations would decay, ${result.updated} updated.`,
-        );
-      }
-
-      if (action === "prune") {
-        const threshold = prune_threshold ?? 0.15;
-
-        if (dryRun) {
-          const row = db
-            .prepare(
-              "SELECT COUNT(*) as count FROM observations WHERE quality_score < ?",
-            )
-            .get(threshold) as { count: number };
-          return mcpText(
-            `[DRY RUN] Would prune ${row.count} observations with quality_score < ${threshold}.`,
-          );
-        }
-
-        const countBefore = (
-          db.prepare("SELECT COUNT(*) as count FROM observations").get() as {
-            count: number;
-          }
-        ).count;
-        db.run("DELETE FROM observations WHERE quality_score < ?", [threshold]);
-        const countAfter = (
-          db.prepare("SELECT COUNT(*) as count FROM observations").get() as {
-            count: number;
-          }
-        ).count;
-        const pruned = countBefore - countAfter;
-
-        return mcpText(
-          `Pruned ${pruned} observations with quality_score < ${threshold}. ${countAfter} remaining.`,
-        );
-      }
-
-      // stats action
-      const buckets = [
-        { label: "0.0–0.2", min: 0, max: 0.2 },
-        { label: "0.2–0.4", min: 0.2, max: 0.4 },
-        { label: "0.4–0.6", min: 0.4, max: 0.6 },
-        { label: "0.6–0.8", min: 0.6, max: 0.8 },
-        { label: "0.8–1.0", min: 0.8, max: 1.01 },
-      ];
-
-      const lines = ["## Quality Score Distribution", ""];
-      let total = 0;
-      for (const bucket of buckets) {
-        const row = db
-          .prepare(
-            "SELECT COUNT(*) as count FROM observations WHERE quality_score >= ? AND quality_score < ?",
-          )
-          .get(bucket.min, bucket.max) as { count: number };
-        lines.push(`- **${bucket.label}:** ${row.count}`);
-        total += row.count;
-      }
-      lines.push("", `**Total:** ${total} observations`);
-
-      return mcpText(lines.join("\n"));
-    },
-  );
-}
-
-// --- Stats ---
-
-function registerStatsTool(
-  server: McpServer,
-  service: MemoryService | null,
-  client: SidecarClient | null,
-): void {
-  server.tool(
-    "memory_stats",
-    "Get memory database statistics: total observations, sessions, breakdown by type and project.",
-    {},
-    async () => {
-      const stats = client ? await client.memoryStats() : service!.getStats();
-      return mcpText(formatMemoryStats(stats));
-    },
-  );
-}
-
-/**
- * Render MemoryStats as markdown. Exported for testing. The vector section
- * is omitted when the payload has no `vector` field (e.g. an old sidecar).
- */
-export function formatMemoryStats(stats: MemoryStats): string {
-  const lines = [
-    "## Memory Statistics",
-    "",
-    `- **Total Observations:** ${stats.totalObservations}`,
-    `- **Total Sessions:** ${stats.totalSessions}`,
-    `- **Database Size:** ${(stats.databaseSizeBytes / 1024).toFixed(1)} KB`,
-  ];
-
-  if (stats.oldestTimestamp && stats.newestTimestamp) {
-    const oldest = new Date(stats.oldestTimestamp).toISOString().split("T")[0];
-    const newest = new Date(stats.newestTimestamp).toISOString().split("T")[0];
-    lines.push(`- **Date Range:** ${oldest} to ${newest}`);
-  }
-
-  const typeEntries = Object.entries(stats.byType).filter(
-    ([, v]) => (v as number) > 0,
-  );
-  if (typeEntries.length > 0) {
-    lines.push("", "### By Type");
-    for (const [t, count] of typeEntries) {
-      lines.push(`- ${t}: ${count}`);
-    }
-  }
-
-  const projectEntries = Object.entries(stats.byProject);
-  if (projectEntries.length > 0) {
-    lines.push("", "### By Project");
-    for (const [p, count] of projectEntries) {
-      lines.push(`- ${p}: ${count}`);
-    }
-  }
-
-  if (stats.vector) {
-    lines.push("", "### Vector Search", ...formatVectorSection(stats.vector));
-  }
-
-  return lines.join("\n");
-}
-
-function formatVectorSection(vector: VectorSearchStats): string[] {
-  switch (vector.status) {
-    case "ready":
-      return [`- **Status:** available (${vector.count} vectors)`];
-    case "initializing":
-      return ["- **Status:** initializing"];
-    case "disabled":
-      return ["- **Status:** disabled"];
-    case "unavailable": {
-      const lines = ["- **Status:** unavailable"];
-      if (vector.initError) lines.push(`- **Error:** ${vector.initError}`);
-      if (vector.hint) lines.push(`- **Hint:** ${vector.hint}`);
-      return lines;
-    }
-  }
 }

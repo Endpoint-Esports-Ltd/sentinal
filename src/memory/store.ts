@@ -29,6 +29,7 @@ import type {
 import { runMigrations } from "./migrations.js";
 import { getDbPath } from "./db-path.js";
 import { MemoryStoreObservations } from "./store-observations.js";
+import { deleteVectorRowsForObservation } from "./vector-cleanup.js";
 
 // ─── Database Path ────────────────────────────────────────────────────────────
 
@@ -132,16 +133,35 @@ export class MemoryStore extends MemoryStoreObservations {
 
   prune(olderThanMs: number): number {
     const cutoff = Date.now() - olderThanMs;
-    // Count first because bun:sqlite result.changes includes trigger-generated changes (FTS)
-    const { count } = this.db
-      .prepare("SELECT COUNT(*) as count FROM observations WHERE timestamp < ?")
-      .get(cutoff) as { count: number };
-    if (count > 0) {
+    // Collect the doomed IDs first so vector rows can be removed per ID
+    // BEFORE the observation delete (M6a) — a raw DELETE would orphan them.
+    const doomed = this.db
+      .prepare("SELECT id FROM observations WHERE timestamp < ?")
+      .all(cutoff) as { id: number }[];
+    return this.deleteObservationsByIds(doomed.map((r) => r.id));
+  }
+
+  /**
+   * Delete a batch of observations by ID, removing each observation's vector
+   * rows FIRST (best-effort — see ./vector-cleanup.ts) so no prune path
+   * leaves orphans in `observation_vectors`. FTS stays in sync via the
+   * delete trigger. Returns the number of observations deleted.
+   */
+  deleteObservationsByIds(ids: number[]): number {
+    if (ids.length === 0) return 0;
+    // Chunk to stay under SQLite's bound-parameter limit.
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      for (const id of chunk) {
+        deleteVectorRowsForObservation(this.db, id);
+      }
+      const placeholders = chunk.map(() => "?").join(",");
       this.db
-        .prepare("DELETE FROM observations WHERE timestamp < ?")
-        .run(cutoff);
+        .prepare(`DELETE FROM observations WHERE id IN (${placeholders})`)
+        .run(...chunk);
     }
-    return count;
+    return ids.length;
   }
 
   close(): void {

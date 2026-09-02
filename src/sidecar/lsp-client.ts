@@ -7,11 +7,30 @@
  *
  * Lifecycle: lazy init → warm-up → serve requests → idle timeout → shutdown.
  * Crash recovery: re-spawns on next request if process died.
+ *
+ * Task 6 (M1) invariants: re-roots (shutdown + initialize) when asked about
+ * a DIFFERENT project; one diagnostics cycle at a time per instance (timed
+ * mutex — a wedged run degrades callers to the subprocess-tsc fallback,
+ * never queues them forever); a cycle in which ZERO publishDiagnostics
+ * notifications arrived THROWS instead of reporting a false clean bill;
+ * framing is byte-accurate (see lsp-transport.ts).
  */
 
 import { Subprocess } from "bun";
 import { resolve, join } from "node:path";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import {
+  makeRequest,
+  makeNotification,
+  getTsServerCommand,
+  findTsFiles,
+  FrameDecoder,
+  TimedMutex,
+} from "./lsp-transport.js";
+
+// Re-export the surface that moved to lsp-transport.ts so existing import
+// sites (quality-routes.ts, tests) are unaffected by the split.
+export { isLspAvailable } from "./lsp-transport.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,107 +42,39 @@ export interface LspDiagnostic {
   severity: "error" | "warning";
 }
 
-// ─── LSP Protocol Helpers ─────────────────────────────────────────────────────
-
-let nextRequestId = 1;
-
-function encodeMessage(obj: unknown): string {
-  const json = JSON.stringify(obj);
-  return `Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`;
-}
-
-function makeRequest(
-  method: string,
-  params?: unknown,
-): { id: number; msg: string } {
-  const id = nextRequestId++;
-  const msg = encodeMessage({ jsonrpc: "2.0", id, method, params });
-  return { id, msg };
-}
-
-function makeNotification(method: string, params?: unknown): string {
-  return encodeMessage({ jsonrpc: "2.0", method, params });
-}
-
-// ─── Availability Check ───────────────────────────────────────────────────────
-
-/**
- * Resolve the typescript-language-server binary path.
- * Tries direct path first, then npx, then bunx.
- */
-function resolveTsServerCommand(): string[] | null {
-  // Try direct
-  try {
-    const r = Bun.spawnSync(["typescript-language-server", "--version"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (r.exitCode === 0) return ["typescript-language-server", "--stdio"];
-  } catch {
-    /* not in PATH */
-  }
-
-  // Try via npx (Node.js projects)
-  try {
-    const r = Bun.spawnSync(
-      ["npx", "--yes", "typescript-language-server", "--version"],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    if (r.exitCode === 0)
-      return ["npx", "--yes", "typescript-language-server", "--stdio"];
-  } catch {
-    /* no npx */
-  }
-
-  // Try via bunx
-  try {
-    const r = Bun.spawnSync(
-      ["bunx", "typescript-language-server", "--version"],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    if (r.exitCode === 0)
-      return ["bunx", "typescript-language-server", "--stdio"];
-  } catch {
-    /* no bunx */
-  }
-
-  return null;
-}
-
-let cachedCommand: string[] | null | undefined;
-
-/**
- * Check if typescript-language-server is available.
- */
-export function isLspAvailable(): boolean {
-  if (cachedCommand === undefined) cachedCommand = resolveTsServerCommand();
-  return cachedCommand !== null;
-}
-
-function getTsServerCommand(): string[] {
-  if (cachedCommand === undefined) cachedCommand = resolveTsServerCommand();
-  if (!cachedCommand)
-    throw new Error("typescript-language-server not available");
-  return cachedCommand;
+export interface LspClientOptions {
+  /** Override the language-server command (tests inject a fake server). */
+  command?: string[];
+  /** Deadline for publishDiagnostics to arrive in one cycle. */
+  diagnosticsTimeoutMs?: number;
+  /** Max wait for the per-instance diagnostics mutex. */
+  mutexTimeoutMs?: number;
 }
 
 // ─── LSP Client ───────────────────────────────────────────────────────────────
 
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const DIAGNOSTICS_TIMEOUT_MS = 15_000; // 15 seconds for diagnostics to arrive
+// One full cycle worst case ≈ init handshake (10s) + diagnostics window (15s).
+// The mutex must outlast a LEGITIMATE holder and only fail on a wedged one.
+const MUTEX_TIMEOUT_MS = 30_000;
 
 export class LspClient {
   private proc: Subprocess | null = null;
   private ready = false;
   private projectPath: string | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private buffer = "";
+  private frames = new FrameDecoder();
+  private mutex = new TimedMutex();
+  /** publishDiagnostics notifications seen in the CURRENT cycle (M1c). */
+  private publishCount = 0;
   private pendingResponses = new Map<
     number,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
   private diagnosticsMap = new Map<string, LspDiagnostic[]>();
-  private diagnosticsWaiters: Array<() => void> = [];
+
+  constructor(private readonly options: LspClientOptions = {}) {}
 
   isReady(): boolean {
     return this.ready && this.proc !== null;
@@ -134,7 +85,7 @@ export class LspClient {
 
     if (this.proc) this.shutdown();
 
-    const cmd = getTsServerCommand();
+    const cmd = this.options.command ?? getTsServerCommand();
     this.proc = Bun.spawn(cmd, {
       stdin: "pipe",
       stdout: "pipe",
@@ -166,16 +117,39 @@ export class LspClient {
     this.touchIdle();
   }
 
+  /**
+   * Run one diagnostics cycle. Serialized per instance (M1b); re-roots when
+   * the requested project differs from the one the server was initialized
+   * for (M1a); throws if no publishDiagnostics arrived at all (M1c) so the
+   * caller (runTscLsp) falls back to subprocess tsc.
+   */
   async getDiagnostics(projectPath: string): Promise<LspDiagnostic[]> {
-    if (!this.isReady()) {
+    const release = await this.mutex.acquire(
+      this.options.mutexTimeoutMs ?? MUTEX_TIMEOUT_MS,
+    );
+    try {
+      return await this.runDiagnosticsCycle(projectPath);
+    } finally {
+      release();
+    }
+  }
+
+  private async runDiagnosticsCycle(
+    projectPath: string,
+  ): Promise<LspDiagnostic[]> {
+    const resolved = resolve(projectPath);
+    // M1a: a ready server rooted at ANOTHER project must be re-initialized —
+    // its analysis (and everything it pushes) is rooted at the old project.
+    if (!this.isReady() || this.projectPath !== resolved) {
       await this.initialize(projectPath);
     }
     this.touchIdle();
     this.diagnosticsMap.clear();
+    this.publishCount = 0;
 
     // Open a sentinel file to trigger diagnostics for the project
     // The LS will push publishDiagnostics for files it analyzes
-    const tsconfigPath = join(resolve(projectPath), "tsconfig.json");
+    const tsconfigPath = join(resolved, "tsconfig.json");
     if (existsSync(tsconfigPath)) {
       const content = readFileSync(tsconfigPath, "utf-8");
       this.send(
@@ -191,10 +165,9 @@ export class LspClient {
     }
 
     // Open a few .ts files to trigger diagnostics
-    const srcDir = join(resolve(projectPath), "src");
+    const srcDir = join(resolved, "src");
     if (existsSync(srcDir)) {
-      const tsFiles = this.findTsFiles(srcDir, 10);
-      for (const file of tsFiles) {
+      for (const file of findTsFiles(srcDir, 10)) {
         try {
           const content = readFileSync(file, "utf-8");
           this.send(
@@ -214,7 +187,9 @@ export class LspClient {
     }
 
     // Wait for diagnostics to arrive (push-based)
-    await this.waitForDiagnostics(DIAGNOSTICS_TIMEOUT_MS);
+    await this.waitForDiagnostics(
+      this.options.diagnosticsTimeoutMs ?? DIAGNOSTICS_TIMEOUT_MS,
+    );
 
     // Aggregate all diagnostics
     const all: LspDiagnostic[] = [];
@@ -246,7 +221,7 @@ export class LspClient {
     }
     this.pendingResponses.clear();
     this.diagnosticsMap.clear();
-    this.buffer = "";
+    this.frames.reset();
   }
 
   forceKill(): void {
@@ -260,7 +235,7 @@ export class LspClient {
       this.proc = null;
     }
     this.pendingResponses.clear();
-    this.buffer = "";
+    this.frames.reset();
   }
 
   // ─── Internal ───────────────────────────────────────────────────────────
@@ -279,15 +254,17 @@ export class LspClient {
     if (!this.proc?.stdout) return;
     const stdout = this.proc.stdout as unknown as ReadableStream<Uint8Array>;
     const reader = stdout.getReader();
-    const decoder = new TextDecoder();
 
     const read = async () => {
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          this.buffer += decoder.decode(value, { stream: true });
-          this.processBuffer();
+          // M1d: raw bytes into the frame decoder — never decode a chunk
+          // before its frame is complete.
+          for (const message of this.frames.push(value)) {
+            this.handleMessage(message as Record<string, unknown>);
+          }
         }
       } catch {
         // Stream ended (process died)
@@ -295,37 +272,6 @@ export class LspClient {
       }
     };
     read();
-  }
-
-  private processBuffer(): void {
-    while (true) {
-      const headerEnd = this.buffer.indexOf("\r\n\r\n");
-      if (headerEnd === -1) break;
-
-      const header = this.buffer.slice(0, headerEnd);
-      const match = header.match(/Content-Length: (\d+)/);
-      if (!match) {
-        this.buffer = this.buffer.slice(headerEnd + 4);
-        continue;
-      }
-
-      const contentLength = parseInt(match[1], 10);
-      const contentStart = headerEnd + 4;
-      if (this.buffer.length < contentStart + contentLength) break;
-
-      const content = this.buffer.slice(
-        contentStart,
-        contentStart + contentLength,
-      );
-      this.buffer = this.buffer.slice(contentStart + contentLength);
-
-      try {
-        const message = JSON.parse(content);
-        this.handleMessage(message);
-      } catch {
-        /* invalid JSON, skip */
-      }
-    }
   }
 
   private handleMessage(message: Record<string, unknown>): void {
@@ -353,6 +299,7 @@ export class LspClient {
 
     // Notification: textDocument/publishDiagnostics
     if (message.method === "textDocument/publishDiagnostics") {
+      this.publishCount++; // M1c: the server DID speak, even if it said "clean"
       const params = message.params as {
         uri?: string;
         diagnostics?: Array<Record<string, unknown>>;
@@ -361,8 +308,7 @@ export class LspClient {
         const filePath = params.uri.replace("file://", "");
         const diagnostics: LspDiagnostic[] = params.diagnostics.map((d) => {
           const range = d.range as
-            | { start?: { line?: number; character?: number } }
-            | undefined;
+            { start?: { line?: number; character?: number } } | undefined;
           const severityNum = d.severity as number | undefined;
           return {
             file: filePath,
@@ -373,8 +319,6 @@ export class LspClient {
           };
         });
         this.diagnosticsMap.set(filePath, diagnostics);
-        // Notify waiters
-        for (const waiter of this.diagnosticsWaiters) waiter();
       }
     }
   }
@@ -399,17 +343,19 @@ export class LspClient {
     });
   }
 
+  /**
+   * Wait for pushed diagnostics to stabilize. M1c: if the deadline passes
+   * with ZERO publishDiagnostics notifications, REJECT — the old behaviour
+   * (resolve with an empty map) let a mute/slow server masquerade as a
+   * clean type check and defeated the subprocess-tsc fallback.
+   */
   private waitForDiagnostics(timeoutMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      // Wait a bit for diagnostics to stream in, then resolve
-      // The LS pushes diagnostics asynchronously; we collect for a short window
-      const deadline = Date.now() + Math.min(timeoutMs, 10000);
-      let settled = false;
+    return new Promise((resolve, reject) => {
+      const deadline = Date.now() + timeoutMs;
       let lastCount = 0;
       let stableCount = 0;
 
       const check = () => {
-        if (settled) return;
         const currentCount = this.diagnosticsMap.size;
         if (currentCount === lastCount) stableCount++;
         else {
@@ -419,32 +365,24 @@ export class LspClient {
 
         // Resolve when diagnostics stabilize (2 consecutive checks with same count after first result)
         if (currentCount > 0 && stableCount >= 2) {
-          settled = true;
           resolve();
           return;
         }
 
         if (Date.now() > deadline) {
-          settled = true;
-          resolve();
+          if (this.publishCount === 0) {
+            reject(
+              new Error(
+                "LSP diagnostics failed: no publishDiagnostics notification arrived before the deadline",
+              ),
+            );
+          } else {
+            resolve(); // the server spoke — an empty result is a genuine clean bill
+          }
           return;
         }
 
         setTimeout(check, 200);
-      };
-
-      // Register as a waiter so we get notified on each diagnostic push
-      const waiterFn = () => {
-        /* Just used for notification, check runs on interval */
-      };
-      this.diagnosticsWaiters.push(waiterFn);
-
-      // Cleanup waiter on completion
-      const origResolve = resolve;
-      resolve = () => {
-        const idx = this.diagnosticsWaiters.indexOf(waiterFn);
-        if (idx !== -1) this.diagnosticsWaiters.splice(idx, 1);
-        origResolve();
       };
 
       setTimeout(check, 300);
@@ -455,48 +393,5 @@ export class LspClient {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.shutdown(), IDLE_TIMEOUT_MS);
     if (this.idleTimer.unref) this.idleTimer.unref();
-  }
-
-  private findTsFiles(dir: string, limit: number): string[] {
-    const files: string[] = [];
-    try {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (files.length >= limit) break;
-        if (
-          entry.isFile() &&
-          entry.name.endsWith(".ts") &&
-          !entry.name.endsWith(".test.ts") &&
-          !entry.name.endsWith(".spec.ts")
-        ) {
-          files.push(join(dir, entry.name));
-        } else if (
-          entry.isDirectory() &&
-          !entry.name.startsWith(".") &&
-          entry.name !== "node_modules"
-        ) {
-          // Scan one level deeper
-          try {
-            for (const sub of readdirSync(join(dir, entry.name), {
-              withFileTypes: true,
-            })) {
-              if (files.length >= limit) break;
-              if (
-                sub.isFile() &&
-                sub.name.endsWith(".ts") &&
-                !sub.name.endsWith(".test.ts") &&
-                !sub.name.endsWith(".spec.ts")
-              ) {
-                files.push(join(dir, entry.name, sub.name));
-              }
-            }
-          } catch {
-            /* subdirectory not readable */
-          }
-        }
-      }
-    } catch {
-      /* directory not readable */
-    }
-    return files;
   }
 }

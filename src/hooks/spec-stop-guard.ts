@@ -92,7 +92,8 @@ export async function processSpecStopGuard(input: HookInput): Promise<void> {
     return;
   }
 
-  let reason = decision.reason ?? "Active spec plan requires action before stopping.";
+  let reason =
+    decision.reason ?? "Active spec plan requires action before stopping.";
 
   if (input.last_assistant_message) {
     const snippet = input.last_assistant_message.slice(0, 100);
@@ -102,8 +103,17 @@ export async function processSpecStopGuard(input: HookInput): Promise<void> {
   // Soft by default (exit 0 + additionalContext keeps the turn alive under the
   // 8-continuation cap). Hard deny only when explicitly opted in.
   if (process.env["SENTINAL_STOP_GUARD_HARD"] === "1") {
+    // Loop breaker (M10a): `stop_hook_active` is set by Claude Code when this
+    // stop was already forced to continue by a stop hook. A hard deny here
+    // would re-block every subsequent stop of a turn that cannot progress —
+    // allow the stop instead.
+    if (input.stop_hook_active === true) return;
     denyExit(reason);
   }
+  // The soft path deliberately does NOT check `stop_hook_active`: it exits 0
+  // with additionalContext, which Claude Code already caps at 8 consecutive
+  // continuations — the platform is the loop breaker there, and suppressing
+  // the nudge on continuation turns would disable the feature entirely.
   stopContext(reason);
 }
 

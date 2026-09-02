@@ -76,8 +76,25 @@ export function cleanupWorktrees(
   let cleaned = 0;
 
   // ── Default pass: worktrees whose directory no longer exists ──────────────
-  // Byte-identical to the historical behavior. Runs regardless of `force`.
-  for (const wt of store.listAll("active")) {
+  // Runs regardless of `force`. Scoped to the caller's project when one was
+  // given (M3b): `listAll` spans EVERY project Sentinal has ever tracked, and
+  // this pass runs `git branch -D` in each row's own repo — a cleanup asked
+  // for project A must not delete branches in project B. An UNSCOPED call
+  // keeps the historical global sweep.
+  let scope: string | null = null;
+  if (opts?.projectPath) {
+    try {
+      scope = getRepoRoot(opts.projectPath);
+    } catch {
+      // Not a git repo — fall back to the raw path (rows store the repo root,
+      // so a non-repo path simply matches nothing rather than everything).
+      scope = opts.projectPath;
+    }
+  }
+  const candidates = scope
+    ? store.listForProject(scope, "active")
+    : store.listAll("active");
+  for (const wt of candidates) {
     if (existsSync(wt.worktreePath)) continue;
     // Remove git worktree reference if still tracked
     gitExec(["worktree", "prune"], wt.projectPath);
@@ -161,8 +178,16 @@ function forceCleanupOrphans(
     if (!gwt.branch.startsWith(prefix)) continue;
     // Guard 2: only worktrees inside the target project.
     if (!isInside(gwt.path, repoRoot)) continue;
-    // Guard 3: never the caller's current worktree.
-    if (current && resolveRealPath(gwt.path) === current) continue;
+    // Guard 3: never the caller's current worktree — including when the
+    // caller stands in a SUBDIRECTORY of it (M3a). Exact equality alone left
+    // a caller at `<worktree>/src` unprotected from `--force` deleting the
+    // directory under their feet. `isInside` is strictly-inside and handles
+    // the `<parent>-evil` sibling separator case — reuse it, don't reimplement.
+    if (
+      current &&
+      (resolveRealPath(gwt.path) === current || isInside(current, gwt.path))
+    )
+      continue;
 
     const slug = gwt.branch.slice(prefix.length);
     // Guard 4: never an in-progress plan.

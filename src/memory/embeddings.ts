@@ -9,8 +9,7 @@
  */
 
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { DB_CONSTANTS } from "./types.js";
+import { getSentinalHome } from "./db-path.js";
 import { resolveTransformers, SETUP_HINT } from "./native-deps.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -22,6 +21,15 @@ export const EMBEDDING_CONSTANTS = {
   /** Truncate text to roughly this many chars before embedding */
   MAX_TEXT_LENGTH: 2000,
 } as const;
+
+/**
+ * Transformers.js model cache directory
+ * (`$SENTINAL_HOME/models`, D2 seam — defaults to `~/.sentinal/models`).
+ * Read fresh on every call so tests can redirect via SENTINAL_HOME.
+ */
+export function getModelsCacheDir(): string {
+  return join(getSentinalHome(), "models");
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +72,7 @@ export class EmbeddingService {
       env.allowLocalModels = true;
       env.allowRemoteModels = true;
       env.useBrowserCache = false;
-      env.cacheDir = join(homedir(), DB_CONSTANTS.DB_DIR, "models");
+      env.cacheDir = getModelsCacheDir();
 
       this.pipeline = (await pipeline(
         "feature-extraction",

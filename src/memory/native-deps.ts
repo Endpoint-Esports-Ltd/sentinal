@@ -16,13 +16,27 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { homedir, platform, arch } from "node:os";
-import { DB_CONSTANTS } from "./types.js";
+import { platform, arch } from "node:os";
+import { getSentinalHome } from "./db-path.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Where `sentinal memory setup` installs runtime deps for compiled binaries. */
-export const DEPS_DIR = join(homedir(), DB_CONSTANTS.DB_DIR, "deps");
+/**
+ * Where `sentinal memory setup` installs runtime deps for compiled binaries
+ * (`$SENTINAL_HOME/deps`, D2 seam — defaults to `~/.sentinal/deps`).
+ * Read fresh on every call — prefer this over the DEPS_DIR constant.
+ */
+export function getDepsDir(): string {
+  return join(getSentinalHome(), "deps");
+}
+
+/**
+ * @deprecated Load-time constant kept only for existing consumers
+ * (`setup.ts`, `setup-bundle.ts` — outside Task 10's ownership). It routes
+ * through the SENTINAL_HOME seam but does NOT re-read the env var after
+ * module load; use `getDepsDir()` in new code.
+ */
+export const DEPS_DIR = getDepsDir();
 
 /** Self-contained transformers bundle, relative to the deps dir. */
 export const BUNDLE_REL_PATH = join("bundle", "transformers.bundle.mjs");
@@ -49,7 +63,7 @@ interface SqliteVecModule {
 export interface ResolveOptions {
   /** Injectable importer for tests. Defaults to dynamic import(). */
   importer?: (specifier: string) => Promise<unknown>;
-  /** Override deps directory for tests. Defaults to DEPS_DIR. */
+  /** Override deps directory for tests. Defaults to getDepsDir(). */
   depsDir?: string;
   /** Collector for resolution error details (diagnosis). */
   errors?: string[];
@@ -78,7 +92,7 @@ export async function resolveTransformers(
   opts: ResolveOptions = {},
 ): Promise<TransformersModule | null> {
   const importer = opts.importer ?? defaultImporter;
-  const depsDir = opts.depsDir ?? DEPS_DIR;
+  const depsDir = opts.depsDir ?? getDepsDir();
   const errors = opts.errors;
 
   try {
@@ -152,7 +166,7 @@ export async function resolveSqliteVecPath(
   opts: ResolveOptions = {},
 ): Promise<string | null> {
   const importer = opts.importer ?? defaultImporter;
-  const depsDir = opts.depsDir ?? DEPS_DIR;
+  const depsDir = opts.depsDir ?? getDepsDir();
   const errors = opts.errors;
 
   try {

@@ -170,6 +170,22 @@ describe("RuntimeConfigSchema — validation rules", () => {
     });
     expect(msg).toContain("expectStatus");
   });
+
+  it("⛔ caps `shutdown.graceMs` at 10 minutes (M4a)", () => {
+    // graceMs bounds BOTH the declared `down` and the SIGTERM→SIGKILL wait.
+    // Teardown re-verifies ownership after `down`, but an unbounded grace
+    // makes PID recycling plausible WITHIN a single teardown and wedges the
+    // abandon/merge exit paths for hours.
+    const r = RuntimeConfigSchema.safeParse({
+      shutdown: { signal: "SIGTERM", graceMs: 600_001 },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts exactly the 10-minute graceMs cap", () => {
+    const cfg = parse({ shutdown: { signal: "SIGTERM", graceMs: 600_000 } });
+    expect(cfg.shutdown.graceMs).toBe(600_000);
+  });
 });
 
 // ─── Isolation: absence is `unknown`, and `unknown` is NOT `shared` ─────────

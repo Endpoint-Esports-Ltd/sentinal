@@ -17,6 +17,10 @@ import { EmbeddingService } from "./embeddings.js";
 import { EMBEDDING_CONSTANTS } from "./embeddings.js";
 import { SEARCH_CONSTANTS } from "./types.js";
 import { resolveSqliteVecPath, SETUP_HINT } from "./native-deps.js";
+import {
+  deleteVectorRowsForObservation,
+  VECTORS_PER_OBSERVATION,
+} from "./vector-cleanup.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,7 +184,8 @@ export class VectorStore {
     `);
 
     let indexed = 0;
-    const baseRowid = observationId * 1000; // Reserve space: up to 1000 vectors per observation
+    // Reserve space: up to VECTORS_PER_OBSERVATION vectors per observation
+    const baseRowid = observationId * VECTORS_PER_OBSERVATION;
 
     for (let i = 0; i < embeddings.length; i++) {
       const rowid = baseRowid + i;
@@ -208,11 +213,9 @@ export class VectorStore {
   removeObservation(observationId: number): void {
     if (!this.available) return;
 
-    // Delete all vectors in the reserved rowid range
-    const baseRowid = observationId * 1000;
-    this.db
-      .prepare("DELETE FROM observation_vectors WHERE rowid >= ? AND rowid < ?")
-      .run(baseRowid, baseRowid + 1000);
+    // Delete all vectors in the reserved rowid range (shared primitive —
+    // the same cleanup the prune paths in MemoryStore use).
+    deleteVectorRowsForObservation(this.db, observationId);
   }
 
   // ─── Search ───────────────────────────────────────────────────────────

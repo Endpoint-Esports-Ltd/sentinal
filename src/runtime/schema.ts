@@ -211,6 +211,19 @@ const ShutdownSchema = z
       .number()
       .int()
       .positive()
+      // ⛔ Capped at 10 minutes (M4a). graceMs bounds BOTH the declared `down`
+      // and the SIGTERM→SIGKILL wait. Teardown re-verifies ownership after
+      // `down`, but an unbounded grace makes PID recycling plausible WITHIN a
+      // single teardown, and it wedges the abandon/merge exit paths (which
+      // must feel like an exit, not an hour-long hang). 10 minutes comfortably
+      // covers the slowest legitimate teardowns (multi-container compose
+      // stacks draining connections) while staying a bounded wait.
+      .max(600_000, {
+        message:
+          "`shutdown.graceMs` is capped at 600000 (10 minutes). A longer grace " +
+          "period wedges teardown and widens the window in which the recorded " +
+          "PIDs can be recycled onto unrelated processes.",
+      })
       .default(10000)
       .describe("grace period before SIGKILL to the process group"),
   })

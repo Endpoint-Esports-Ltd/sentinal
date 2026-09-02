@@ -41,7 +41,8 @@
  */
 
 import { loadRuntimeConfig, type LoadedRuntimeConfig } from "./loader.js";
-import { writePidfile, markPidfileReady } from "./pidfile.js";
+import { writePidfile, markPidfileReady, removePidfile } from "./pidfile.js";
+import { claimPidfile, claimEntry } from "./pidfile-claim.js";
 import {
   spawnDetached,
   readLogTail,
@@ -215,6 +216,52 @@ export async function runtimeUp(
     };
   }
 
+  // ── Claim (M4c) ──────────────────────────────────────────────────────────
+  // preflight→spawn→writePidfile is not exclusive: two concurrent runtime_ups
+  // could both pass preflight, both spawn, and the loser's detached group
+  // would have no ownership record. The pidfile IS the claim, taken with
+  // O_EXCL BEFORE spawn (claim → spawn → update; see pidfile-claim.ts). On
+  // EEXIST the loser re-runs preflight: the winner's record now decides
+  // (reuse / wait / fail) — it spawns nothing itself.
+  let claim = claimPidfile(projectPath, claimEntry(config.up));
+  if (claim.kind === "held") {
+    const re = await preflight(projectPath, config, deps);
+    if (re.kind === "reuse") {
+      return {
+        ok: true,
+        configured: true,
+        started: false,
+        reused: true,
+        pid: re.pid,
+        pgid: re.pgid,
+        actions: [...pre.actions, ...re.actions],
+        warnings: loaded.warnings,
+      };
+    }
+    if (re.kind === "fail") {
+      return fail(re.reason, {
+        actions: [...pre.actions, ...re.actions],
+        warnings: loaded.warnings,
+      });
+    }
+    // The racer's claim vanished (it failed and cleaned up). One more try —
+    // bounded, never a loop.
+    claim = claimPidfile(projectPath, claimEntry(config.up));
+    if (claim.kind === "held") {
+      return fail(
+        `Two concurrent runtime_up calls are racing over this worktree and another one re-claimed ` +
+          `it. Nothing was started by this call. Retry once the other call settles.`,
+        { actions: pre.actions, warnings: loaded.warnings },
+      );
+    }
+  }
+  if (claim.kind === "error") {
+    return fail(claim.reason, {
+      actions: pre.actions,
+      warnings: loaded.warnings,
+    });
+  }
+
   // ── Spawn ────────────────────────────────────────────────────────────────
   let spawned: SpawnDetachedResult;
   try {
@@ -224,13 +271,17 @@ export async function runtimeUp(
       slot: loaded.slot,
     });
   } catch (err) {
+    // Release the claim — nothing was started, so holding the worktree would
+    // wedge the next runtime_up behind a claim that guards nothing.
+    removePidfile(projectPath, process.pid);
     return fail(
       `Could not start \`${config.up}\`: ${err instanceof Error ? err.message : String(err)}`,
       { actions: pre.actions, warnings: loaded.warnings },
     );
   }
 
-  // ⛔ IMMEDIATELY, before the first poll. See RUNTIME_PIDFILE_RELATIVE_PATH.
+  // ⛔ IMMEDIATELY, before the first poll — this replaces our own claim with
+  // the real record. See RUNTIME_PIDFILE_RELATIVE_PATH.
   const written = writePidfile(projectPath, {
     pid: spawned.pid,
     pgid: spawned.pgid,
@@ -238,7 +289,11 @@ export async function runtimeUp(
     command: spawned.command,
     state: "starting",
   });
-  const warnings = [...loaded.warnings, ...written.warnings];
+  // De-duplicated: the claim and the update both run the git-exclude pass, so
+  // a tier-3 refusal would otherwise be reported twice.
+  const warnings = [
+    ...new Set([...loaded.warnings, ...claim.warnings, ...written.warnings]),
+  ];
   const actions = [
     ...pre.actions,
     `Started \`${config.up}\` detached (pid ${spawned.pid}, process group ` +

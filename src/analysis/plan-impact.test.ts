@@ -55,6 +55,17 @@ function capture(
     }
     return orig(...(args as Parameters<typeof orig>));
   }) as typeof server.tool;
+  // M9a: plan_impact registers via `registerTool` (full strict schema).
+  // `registerTool` is generic, so `Parameters<>` collapses to `never`.
+  const origRegister = server.registerTool.bind(server) as (
+    ...args: unknown[]
+  ) => unknown;
+  server.registerTool = ((...args: unknown[]) => {
+    if (typeof args[0] === "string" && typeof args[2] === "function") {
+      tools.set(args[0] as string, args[2] as ToolHandler);
+    }
+    return origRegister(...args);
+  }) as typeof server.registerTool;
   register(server);
   return tools;
 }
@@ -652,5 +663,73 @@ describe("plan_impact performance", () => {
     );
 
     expect(detectWaveOverlaps(tasks)).toEqual([]);
+  });
+});
+
+// --- M9a: strict top-level schema ---
+
+/**
+ * Same defect and same fix as `impact.test.ts`'s M9a block: the SDK wraps raw
+ * shapes non-strict, so a mis-nested top-level `moduleCount` (no `reach:`
+ * wrapper) was silently stripped and the plan scored with the built-in graph.
+ * Driven through a real `Client` because strictness lives in transport-side
+ * validation, which the capture-based tests above bypass.
+ */
+describe("plan_impact strict input schema (M9a)", () => {
+  async function connected() {
+    const server = new McpServer({ name: "test", version: "0.0.1" });
+    registerPlanImpactTool(server, null);
+    const client = new Client({ name: "test-client", version: "0.0.1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    return {
+      client,
+      close: async () => {
+        await client.close();
+        await server.close();
+      },
+    };
+  }
+
+  it("rejects a mis-nested top-level moduleCount, naming the unknown key", async () => {
+    const { client, close } = await connected();
+    try {
+      const res = await client.callTool({
+        name: "plan_impact",
+        arguments: {
+          project: "/tmp/nonexistent-project",
+          plan_path: "docs/plans/nope.md",
+          moduleCount: 42,
+          files: { "src/a.ts": 1 },
+        },
+      });
+      expect(
+        res.isError ?? false,
+        "mis-nested top-level moduleCount was silently accepted",
+      ).toBe(true);
+      const text = JSON.stringify(res.content);
+      expect(text).toContain("moduleCount");
+    } finally {
+      await close();
+    }
+  });
+
+  it("advertises additionalProperties: false so agents see the strictness", async () => {
+    const { client, close } = await connected();
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find((t) => t.name === "plan_impact");
+      expect(tool).toBeDefined();
+      const schema = tool!.inputSchema as unknown as {
+        additionalProperties?: boolean;
+      };
+      expect(schema.additionalProperties).toBe(false);
+    } finally {
+      await close();
+    }
   });
 });

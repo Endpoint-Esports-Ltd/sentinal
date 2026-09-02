@@ -183,20 +183,29 @@ export function registerPlanImpactTool(
   specStore: SpecStore | null,
   client: SidecarClient | null = null,
 ): void {
-  server.tool(
+  // ⛔ M9a: `registerTool` + a full `.strict()` ZodObject — see the matching
+  // comment in `impact.ts`. A raw shape is wrapped NON-strict by the SDK, so a
+  // mis-nested top-level `moduleCount` was silently stripped; the deprecated
+  // `tool()` overload would treat a full ZodObject as annotations (no
+  // validation), so `registerTool` is the only correct registration.
+  server.registerTool(
     "plan_impact",
-    DESCRIPTION,
     {
-      project: z.string().describe("Absolute path to the project root"),
-      plan_path: z
-        .string()
-        .optional()
-        .describe(
-          "Path to the plan `.md`, absolute or relative to `project`. Defaults to the project's active spec.",
-        ),
-      reach: AgentReachSchema.describe(
-        `Optional, and only ever used by the ADVISORY reach half. **Wave-overlap detection needs none of it** — that half is deterministic on the plan text and runs with zero sources, so call this tool even with no code-graph server installed. ${AgentReachSchema.description ?? ""}`,
-      ).optional(),
+      description: DESCRIPTION,
+      inputSchema: z
+        .object({
+          project: z.string().describe("Absolute path to the project root"),
+          plan_path: z
+            .string()
+            .optional()
+            .describe(
+              "Path to the plan `.md`, absolute or relative to `project`. Defaults to the project's active spec.",
+            ),
+          reach: AgentReachSchema.describe(
+            `Optional, and only ever used by the ADVISORY reach half. **Wave-overlap detection needs none of it** — that half is deterministic on the plan text and runs with zero sources, so call this tool even with no code-graph server installed. ${AgentReachSchema.description ?? ""}`,
+          ).optional(),
+        })
+        .strict(),
     },
     async ({ project, plan_path, reach }) => {
       try {

@@ -92,6 +92,15 @@ describe("sidecar server", () => {
     expect(r.data.httpPort).toBeGreaterThan(0);
   });
 
+  it("should include version in health response (M2c / Truth 6)", async () => {
+    const pkg = JSON.parse(
+      readFileSync(join(import.meta.dir, "..", "..", "package.json"), "utf-8"),
+    ) as { version: string };
+    const r = await get(base, "/health");
+    expect(r.ok).toBe(true);
+    expect(r.data.version).toBe(pkg.version);
+  });
+
   it("should return 404 for unknown routes", async () => {
     const r = await get(base, "/unknown");
     expect(r.ok).toBe(false);

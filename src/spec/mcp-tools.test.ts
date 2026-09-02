@@ -151,6 +151,72 @@ describe("spec_register MCP tool", () => {
     expect(content).toContain("Status: VERIFIED");
   });
 
+  // --- M9b: status enum + transition table ---
+
+  it("should keep COMPLETE → PENDING legal (verification loop-back)", async () => {
+    // spec-verify's failure path sets `Status: PENDING` on a COMPLETE plan and
+    // loops back to implementation (SKILL.md:445). Blocking this would wedge
+    // every failed verification.
+    const planFile = makePlanFile(tmpDir, "2026-01-01-loop-back", "COMPLETE");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "PENDING",
+    });
+
+    expect(result.content[0].text).not.toContain("Cannot transition");
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: PENDING");
+  });
+
+  it("should block PENDING → COMPLETE (skips the implementation gate)", async () => {
+    // No shipped flow sets COMPLETE without first passing through
+    // IN_PROGRESS; jumping straight from PENDING would mark work done that
+    // never ran.
+    const planFile = makePlanFile(tmpDir, "2026-01-01-skip-impl", "PENDING");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "COMPLETE",
+    });
+
+    expect(result.content[0].text).toContain("Cannot transition");
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: PENDING");
+  });
+
+  it("should block DRAFT → VERIFIED (the old guard only blocked PENDING/IN_PROGRESS)", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-draft-skip", "DRAFT");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "VERIFIED",
+    });
+
+    expect(result.content[0].text).toContain("Cannot transition");
+    const content = readFileSync(planFile, "utf-8");
+    expect(content).toContain("Status: DRAFT");
+  });
+
+  it("should allow an idempotent same-status re-register", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-01-01-idempotent", "COMPLETE");
+    const handler = tools.get("spec_register")!;
+
+    const result = await handler({
+      plan_path: planFile,
+      project: tmpDir,
+      status: "COMPLETE",
+    });
+
+    expect(result.content[0].text).not.toContain("Cannot transition");
+  });
+
   it("should default project to CWD when not provided", async () => {
     const planFile = makePlanFile(tmpDir, "2026-01-01-default-project");
     const handler = tools.get("spec_register")!;
@@ -159,6 +225,63 @@ describe("spec_register MCP tool", () => {
 
     expect(result.content[0].text).toContain("Registered:");
     expect(result.content[0].text).toContain("2026-01-01-default-project");
+  });
+});
+
+// --- M9b: spec_register status enum (transport-level) ---
+
+/**
+ * The `status` parameter is regex-substituted into the plan file
+ * (`Status: <value>`), so a free-form string meant ANY value — `"bogus"`,
+ * even multi-word junk — was written verbatim into the plan and then parsed
+ * back as PENDING by `normalizeStatus`'s fallback. The enum lives in the tool
+ * schema, which only the transport enforces — the direct-handler tests above
+ * bypass it, so this drives a real `Client`.
+ */
+describe("spec_register status enum (M9b)", () => {
+  it("rejects an unknown status value, listing the valid options", async () => {
+    const { McpServer } =
+      await import("@modelcontextprotocol/sdk/server/mcp.js");
+    const { Client } =
+      await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } =
+      await import("@modelcontextprotocol/sdk/inMemory.js");
+
+    const server = new McpServer({ name: "test", version: "0.0.1" });
+    // Production shape: client present, no direct store. Validation fails
+    // before the handler runs, so the stub client is never touched.
+    registerSpecTools(server, {
+      client: {} as SidecarClient,
+      store: null,
+    });
+    const client = new Client({ name: "test-client", version: "0.0.1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    try {
+      const res = await client.callTool({
+        name: "spec_register",
+        arguments: {
+          plan_path: "/tmp/does-not-matter.md",
+          status: "bogus",
+        },
+      });
+      expect(
+        res.isError ?? false,
+        "free-form status 'bogus' was accepted — it would be written into the plan file verbatim",
+      ).toBe(true);
+      const text = JSON.stringify(res.content);
+      // The error must list the legal options so the caller can self-correct.
+      expect(text).toContain("PENDING");
+      expect(text).toContain("IN_PROGRESS");
+      expect(text).toContain("VERIFIED");
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
 

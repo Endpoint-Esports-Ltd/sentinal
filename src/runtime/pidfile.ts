@@ -65,7 +65,7 @@ export const RuntimePidfileSchema = z.object({
   startedAt: z.number().int().nonnegative(),
   /** The interpolated `up` command, for the human reading a failure message. */
   command: z.string(),
-  state: z.enum(["starting", "ready"]),
+  state: z.enum(["claiming", "starting", "ready"]), // "claiming": M4c's pre-spawn claim, see pidfile-claim.ts
 });
 
 export type RuntimePidfile = z.infer<typeof RuntimePidfileSchema>;

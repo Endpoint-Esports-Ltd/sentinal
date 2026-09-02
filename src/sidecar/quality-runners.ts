@@ -16,7 +16,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getSentinalHome } from "../memory/db-path.js";
 import { detectPackageManager } from "../checkers/detect.js";
 import { parseTscOutput } from "../analysis/helpers.js";
 import { projectHash } from "../analysis/helpers.js";
@@ -50,9 +50,17 @@ export interface QualityCheckResult {
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
-const TSBUILDINFO_DIR = join(homedir(), ".sentinal", "tsbuildinfo");
-const MTIME_CACHE_DIR = join(homedir(), ".sentinal", "tsbuildinfo-meta");
 const POST_KILL_READ_DEADLINE_MS = 2_000;
+
+// D2: resolved through getSentinalHome() on every call (never cached at
+// module load) so a SENTINAL_HOME override — set for every test run —
+// redirects the cache instead of writing to the real ~/.sentinal tree.
+function tsBuildInfoDir(): string {
+  return join(getSentinalHome(), "tsbuildinfo");
+}
+function mtimeCacheDir(): string {
+  return join(getSentinalHome(), "tsbuildinfo-meta");
+}
 
 // ─── Subprocess machinery ────────────────────────────────────────────────
 
@@ -146,7 +154,7 @@ function shouldInvalidateTsBuildInfo(
   projectPath: string,
   hash: string,
 ): boolean {
-  const metaPath = join(MTIME_CACHE_DIR, `${hash}.json`);
+  const metaPath = join(mtimeCacheDir(), `${hash}.json`);
   const pkgPath = join(projectPath, "package.json");
   const tsconfigPath = join(projectPath, "tsconfig.json");
 
@@ -168,7 +176,7 @@ function shouldInvalidateTsBuildInfo(
     pkgMtime !== cachedMtimes.pkg || tsconfigMtime !== cachedMtimes.tsconfig;
 
   // Always update cache
-  mkdirSync(MTIME_CACHE_DIR, { recursive: true });
+  mkdirSync(mtimeCacheDir(), { recursive: true });
   writeFileSync(
     metaPath,
     JSON.stringify({ pkg: pkgMtime, tsconfig: tsconfigMtime }),
@@ -185,9 +193,9 @@ export async function runTsc(
 ): Promise<ToolResult> {
   const start = Date.now();
   const hash = projectHash(projectPath);
-  const tsBuildInfoPath = join(TSBUILDINFO_DIR, `${hash}.tsbuildinfo`);
+  const tsBuildInfoPath = join(tsBuildInfoDir(), `${hash}.tsbuildinfo`);
 
-  mkdirSync(TSBUILDINFO_DIR, { recursive: true });
+  mkdirSync(tsBuildInfoDir(), { recursive: true });
 
   // Invalidate tsbuildinfo if package.json or tsconfig.json changed
   if (shouldInvalidateTsBuildInfo(projectPath, hash)) {

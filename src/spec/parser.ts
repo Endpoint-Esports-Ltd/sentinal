@@ -7,6 +7,8 @@
  *   - Old format:  `**Status:** APPROVED` (bold markdown after title)
  * Extracts tasks from the Progress Tracking section (`- [x] Task N: Title`)
  * and falls back to Implementation Tasks (`### Task N: Title`) sections.
+ * All extractors skip lines inside ``` / ~~~ code fences (see
+ * `parser-fences.ts` for the dialect); duplicate positions dedupe, LAST wins.
  */
 
 import { readFileSync } from "node:fs";
@@ -19,6 +21,7 @@ import type {
   TaskStatus,
 } from "./types.js";
 import { SPEC_STATUSES } from "./types.js";
+import { markFencedLines, dedupeTasksByPosition } from "./parser-fences.js";
 
 // --- Public API ---
 
@@ -31,10 +34,11 @@ export function parsePlanFile(filePath: string): Spec {
 /** Parse plan file content (for testing without disk access). */
 export function parsePlanContent(content: string, filePath: string): Spec {
   const lines = content.split("\n");
+  const fenced = markFencedLines(lines);
   const id = slugFromFilename(filePath);
-  const title = extractTitle(lines);
-  const meta = extractMetadata(lines);
-  const tasks = extractTasks(lines);
+  const title = extractTitle(lines, fenced);
+  const meta = extractMetadata(lines, fenced);
+  const tasks = extractTasks(lines, fenced);
 
   const status = normalizeStatus(meta.status);
   const typeLower = meta.type?.toLowerCase();
@@ -85,12 +89,13 @@ interface RawMetadata {
 }
 
 /** Extract metadata from either new-format or old-format plan files. */
-function extractMetadata(lines: string[]): RawMetadata {
+function extractMetadata(lines: string[], fenced: boolean[]): RawMetadata {
   const meta: RawMetadata = {};
 
   // Scan the first 20 lines for metadata (both formats)
   const scanLimit = Math.min(lines.length, 20);
   for (let i = 0; i < scanLimit; i++) {
+    if (fenced[i]) continue; // A fenced `Status:` line is documentation.
     const line = lines[i].trim();
 
     // New format: `Key: Value`
@@ -123,10 +128,11 @@ function extractMetadata(lines: string[]): RawMetadata {
 
 // --- Title Extraction ---
 
-/** Extract the title from the first `# heading` line. */
-function extractTitle(lines: string[]): string {
-  for (const line of lines.slice(0, 5)) {
-    const match = line.match(/^#\s+(.+)$/);
+/** Extract the title from the first non-fenced `# heading` line. */
+function extractTitle(lines: string[], fenced: boolean[]): string {
+  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+    if (fenced[i]) continue;
+    const match = lines[i].match(/^#\s+(.+)$/);
     if (match) return match[1].trim();
   }
   return "Untitled";
@@ -138,21 +144,23 @@ function extractTitle(lines: string[]): string {
  * Extract tasks from the Progress Tracking section first,
  * falling back to Implementation Tasks section headers.
  */
-function extractTasks(lines: string[]): SpecTask[] {
-  const progressTasks = extractProgressTasks(lines);
+function extractTasks(lines: string[], fenced: boolean[]): SpecTask[] {
+  const progressTasks = extractProgressTasks(lines, fenced);
   if (progressTasks.length > 0) return progressTasks;
-  return extractImplementationTasks(lines);
+  return extractImplementationTasks(lines, fenced);
 }
 
 /**
  * Extract tasks from `## Progress Tracking` section.
  * Format: `- [x] Task N: Title` or `- [~] Task N: Title`
  */
-function extractProgressTasks(lines: string[]): SpecTask[] {
+function extractProgressTasks(lines: string[], fenced: boolean[]): SpecTask[] {
   const tasks: SpecTask[] = [];
   let inSection = false;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    if (fenced[i]) continue;
+    const line = lines[i];
     if (line.trim().startsWith("## Progress Tracking")) {
       inSection = true;
       continue;
@@ -171,7 +179,7 @@ function extractProgressTasks(lines: string[]): SpecTask[] {
     }
   }
 
-  return tasks;
+  return dedupeTasksByPosition(tasks);
 }
 
 /**
@@ -182,13 +190,15 @@ function extractProgressTasks(lines: string[]): SpecTask[] {
  * or from an explicit `**Status:**` line within the task block.
  * Also extracts `**Test Strategy:**` and `**Definition of Done:**` text.
  */
-function extractImplementationTasks(lines: string[]): SpecTask[] {
+function extractImplementationTasks(
+  lines: string[],
+  fenced: boolean[],
+): SpecTask[] {
   // Try scoped extraction first
-  const hasSection = lines.some((l) =>
-    l.trim().startsWith("## Implementation Tasks"),
+  const hasSection = lines.some(
+    (l, i) => !fenced[i] && l.trim().startsWith("## Implementation Tasks"),
   );
-  const tasks = scanTaskHeadings(lines, hasSection);
-  return tasks;
+  return scanTaskHeadings(lines, fenced, hasSection);
 }
 
 interface RawTask {
@@ -203,6 +213,7 @@ interface RawTask {
 
 function scanTaskHeadings(
   lines: string[],
+  fenced: boolean[],
   scopedToSection: boolean,
 ): SpecTask[] {
   const tasks: SpecTask[] = [];
@@ -211,7 +222,9 @@ function scanTaskHeadings(
   let inDefinitionOfDone = false;
   let inTestStrategy = false;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    if (fenced[i]) continue;
+    const line = lines[i];
     if (scopedToSection && line.trim().startsWith("## Implementation Tasks")) {
       inSection = true;
       continue;
@@ -326,7 +339,7 @@ function scanTaskHeadings(
     tasks.push(taskFromRaw(currentTask));
   }
 
-  return tasks;
+  return dedupeTasksByPosition(tasks);
 }
 
 // --- Helpers ---

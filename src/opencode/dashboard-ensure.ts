@@ -16,11 +16,18 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { spawn } from "node:child_process";
+import { getSentinalHome } from "../memory/db-path.js";
 import { logToFile, PLUGIN_LOG_FILE } from "../utils/file-log.js";
 
-const SENTINAL_DIR = join(homedir(), ".sentinal");
+/**
+ * The installed sentinal binary path
+ * (`$SENTINAL_HOME/bin/sentinal`, D2 seam — defaults to
+ * `~/.sentinal/bin/sentinal`). Read fresh on every call.
+ */
+export function getSentinalBinPath(): string {
+  return join(getSentinalHome(), "bin", "sentinal");
+}
 
 function log(message: string): void {
   logToFile(PLUGIN_LOG_FILE, message);
@@ -58,7 +65,7 @@ export function parseBinaryVersion(stdout: string): string | null {
 let _cachedBinaryVersion: string | null | undefined = undefined; // undefined = not yet fetched; null = fetch failed
 export async function getBinaryVersion(): Promise<string | null> {
   if (_cachedBinaryVersion !== undefined) return _cachedBinaryVersion;
-  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
+  const binPath = getSentinalBinPath();
   if (!existsSync(binPath)) {
     _cachedBinaryVersion = null;
     return null;
@@ -139,7 +146,7 @@ async function defaultDashboardProbe(): Promise<{
 }
 
 function defaultDashboardSpawn(): void {
-  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
+  const binPath = getSentinalBinPath();
   if (!existsSync(binPath)) return;
   const c = spawn(binPath, ["serve", "--background"], {
     stdio: "ignore",

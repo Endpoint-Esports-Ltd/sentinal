@@ -95,50 +95,10 @@ async function runSessionStart(): Promise<void> {
 }
 
 async function runSessionEnd(): Promise<void> {
-  const { unlinkSync, existsSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { stopServer } = await import("../../dashboard/lifecycle.js");
-  const { stopSidecarProcess } = await import("../../sidecar/lifecycle.js");
-  const input = await readStdin();
-
-  try {
-    const client = await SidecarClient.connect();
-    if (client) {
-      await client.endSession(input.session_id, { notification: true });
-      const active = await client.getActiveSessions();
-      if (active.length === 0) {
-        stopServer();
-        stopSidecarProcess();
-      }
-    } else {
-      // Direct fallback
-      const { MemoryStore } = await import("../../memory/store.js");
-      const store = new MemoryStore();
-      store.endSession(input.session_id);
-      store.insertNotification({
-        type: "info",
-        title: "Session ended",
-        message: `Session ${input.session_id.slice(0, 8)} ended`,
-        source: "session-end",
-        sessionId: input.session_id,
-      });
-      const active = store.getActiveSessions();
-      if (active.length === 0) {
-        stopServer();
-        stopSidecarProcess();
-      }
-      store.close();
-    }
-  } catch {
-    // Non-fatal
-  }
-
-  const bufferPath = join(input.cwd, ".sentinal", "event-buffer.json");
-  try {
-    if (existsSync(bufferPath)) unlinkSync(bufferPath);
-  } catch {
-    /* non-fatal */
-  }
+  // Shared with the standalone hook (M10c). Deliberately does NOT stop the
+  // sidecar — post-v1.36.2 H1 it owns its own session-aware lifecycle.
+  const { processSessionEnd } = await import("../../hooks/session-end.js");
+  await processSessionEnd(await readStdin());
 }
 
 async function runMemoryObserver(): Promise<void> {
@@ -149,51 +109,9 @@ async function runMemoryObserver(): Promise<void> {
 }
 
 async function runMemoryRestore(): Promise<void> {
-  const { isMemoryEnabled } = await import("../../memory/config.js");
-  if (!isMemoryEnabled()) return;
-
-  const { hint: hintFn } = await import("../../utils/hook-output.js");
-  const input = await readStdin();
-
-  // Build semantic query for context-aware restore
-  let semanticQuery: string | undefined;
-  try {
-    const { buildSemanticQuery } = await import("../../memory/restore.js");
-    semanticQuery = buildSemanticQuery(input.cwd);
-  } catch {
-    /* non-fatal */
-  }
-
-  try {
-    const client = await SidecarClient.connect();
-    if (client) {
-      const result = await client.restoreContext(input.cwd, semanticQuery);
-      if (result.hasMemory && result.markdown) {
-        output(hintFn("SessionStart", result.markdown));
-      }
-      return;
-    }
-  } catch {
-    /* fall back */
-  }
-
-  try {
-    const { MemoryStore } = await import("../../memory/store.js");
-    const { MemoryService } = await import("../../memory/service.js");
-    const { restoreContext } = await import("../../memory/restore.js");
-    const store = new MemoryStore();
-    const service = new MemoryService(store);
-    const result = await restoreContext(service, {
-      projectPath: input.cwd,
-      semanticQuery,
-    });
-    service.close();
-    if (result.hasMemory && result.markdown) {
-      output(hintFn("SessionStart", result.markdown));
-    }
-  } catch {
-    /* non-fatal */
-  }
+  const { processMemoryRestore } =
+    await import("../../hooks/memory-restore.js");
+  await processMemoryRestore(await readStdin());
 }
 
 async function runSpecStopGuard(): Promise<void> {
@@ -204,108 +122,14 @@ async function runSpecStopGuard(): Promise<void> {
 }
 
 async function runPreCompact(): Promise<void> {
-  const { writeFileSync, mkdirSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { findGitRoot } = await import("../../utils/git.js");
-  const { findActivePlan } = await import("../../spec/detect.js");
-  const input = await readStdin();
-
-  const gitRoot = await findGitRoot(input.cwd);
-  const searchDir = gitRoot ?? input.cwd;
-  const active = findActivePlan(searchDir);
-  const activePlan = active?.filePath ?? null;
-
-  let memoryContext: string | null = null;
-  let semanticQuery: string | undefined;
-  try {
-    const { buildSemanticQuery } = await import("../../memory/restore.js");
-    semanticQuery = buildSemanticQuery(input.cwd);
-  } catch {
-    /* non-fatal */
-  }
-
-  try {
-    const client = await SidecarClient.connect();
-    if (client) {
-      // Bump heartbeat via sidecar (fire-and-forget — non-critical)
-      client.touchSession(input.session_id).catch(() => {});
-      const restored = await client.restoreContext(input.cwd, semanticQuery);
-      if (restored.hasMemory) memoryContext = restored.markdown;
-      if (active) await client.syncSpec(active.filePath, input.cwd, input.session_id);
-    } else {
-      // Direct fallback
-      const { MemoryStore } = await import("../../memory/store.js");
-      const { MemoryService } = await import("../../memory/service.js");
-      const { restoreContext } = await import("../../memory/restore.js");
-      const { SpecStore } = await import("../../spec/store.js");
-      const store = new MemoryStore();
-      // Bump heartbeat on every pre-compact (hook runs frequently → reliable liveness signal)
-      store.touchSession(input.session_id);
-      const service = new MemoryService(store);
-      const restored = await restoreContext(service, {
-        projectPath: input.cwd,
-        semanticQuery,
-      });
-      if (restored.hasMemory) memoryContext = restored.markdown;
-      if (active) {
-        const specStore = new SpecStore(store);
-        specStore.syncFromPlanFile(active.filePath, input.cwd, input.session_id);
-      }
-      service.close();
-    }
-  } catch {
-    /* non-fatal */
-  }
-
-  const stateDir = join(searchDir, ".sentinal");
-  mkdirSync(stateDir, { recursive: true });
-  writeFileSync(
-    join(stateDir, "compact-state.json"),
-    JSON.stringify(
-      {
-        activePlan,
-        memoryContext,
-        timestamp: new Date().toISOString(),
-        cwd: input.cwd,
-      },
-      null,
-      2,
-    ),
-  );
+  const { processPreCompact } = await import("../../hooks/pre-compact.js");
+  await processPreCompact(await readStdin());
 }
 
 async function runPostCompactRestore(): Promise<void> {
-  const { readFileSync, existsSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { hint: hintFn } = await import("../../utils/hook-output.js");
-  const { findGitRoot } = await import("../../utils/git.js");
-  const input = await readStdin();
-
-  const gitRoot = await findGitRoot(input.cwd);
-  const stateFile = join(
-    gitRoot ?? input.cwd,
-    ".sentinal",
-    "compact-state.json",
-  );
-  if (!existsSync(stateFile)) return;
-
-  try {
-    const state = JSON.parse(readFileSync(stateFile, "utf-8"));
-    const msgs: string[] = ["Session restored after compaction."];
-    if (state.activePlan) {
-      msgs.push(`Active plan: ${state.activePlan}`);
-      msgs.push(
-        "Resume the /spec workflow by reading the plan file and continuing from where you left off.",
-      );
-    }
-    if (state.memoryContext) {
-      msgs.push("");
-      msgs.push(state.memoryContext);
-    }
-    output(hintFn("PostToolUse", msgs.join("\n")));
-  } catch {
-    // Corrupted state
-  }
+  const { processPostCompactRestore } =
+    await import("../../hooks/post-compact-restore.js");
+  await processPostCompactRestore(await readStdin());
 }
 
 async function runToolRedirect(): Promise<void> {

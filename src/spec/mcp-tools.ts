@@ -27,6 +27,7 @@ import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
+import { SPEC_STATUSES, type SpecStatus } from "./types.js";
 import { SpecStore } from "./store.js";
 import { registerSpecStatusTools } from "./status-mcp-tools.js";
 import { registerSpecEventsTools } from "./events-mcp-tools.js";
@@ -69,6 +70,41 @@ export function registerSpecTools(
 
 // --- spec_register ---
 
+/**
+ * M9b — status transition table for `spec_register`'s `status` override.
+ *
+ * Expressed as GATED ENTRY: for each gated target status, the set of source
+ * statuses it may legally be entered from. **Any target not listed here is
+ * ungated** — reachable from every status. That asymmetry is deliberate:
+ *
+ *   - Backwards moves and loop-backs never skip a gate. The shipped workflow
+ *     depends on them: spec-verify's failure path sets `COMPLETE → PENDING`
+ *     (and re-runs implementation), and re-registering the current status is
+ *     a routine idempotent no-op. Gating those would wedge the loop.
+ *   - Forward moves into "work happened" statuses ARE gated, because entering
+ *     them from an earlier stage silently skips the work itself:
+ *       - `COMPLETE` asserts implementation ran → only from the
+ *         implementation-family (`IN_PROGRESS`/`IMPLEMENTING`), from
+ *         `VERIFYING` (verify's minor-fix loop lands back at "implementation
+ *         done"), or idempotently from itself. `PENDING → COMPLETE` is the
+ *         newly-blocked skip.
+ *       - `VERIFIED` asserts verification passed → only from
+ *         `COMPLETE`/`VERIFYING` or itself. This generalises the previous
+ *         guard, which only blocked `PENDING`/`IN_PROGRESS` and silently let
+ *         `DRAFT → VERIFIED` (etc.) through.
+ *
+ * Sanctioned forward flow (what the shipped skills actually write):
+ * `PENDING → IN_PROGRESS → COMPLETE → VERIFIED`, with `→ PENDING` loop-backs
+ * at any point. The remaining statuses (`DRAFT`, `PLANNING`, `APPROVED`,
+ * `IMPLEMENTING`, `VERIFYING`, `CANCELLED`, `FAILED`) exist in `SpecSchema`
+ * but are never written by the shipped workflow; they stay ungated (except as
+ * sources above) so hand-maintained plans using them cannot get stuck.
+ */
+const GATED_ENTRY: Partial<Record<SpecStatus, readonly SpecStatus[]>> = {
+  COMPLETE: ["IN_PROGRESS", "IMPLEMENTING", "VERIFYING", "COMPLETE"],
+  VERIFIED: ["COMPLETE", "VERIFYING", "VERIFIED"],
+};
+
 function registerSpecRegisterTool(
   server: McpServer,
   client: SidecarClient | null,
@@ -81,8 +117,13 @@ function registerSpecRegisterTool(
     {
       plan_path: z.string().describe("Absolute path to the plan .md file"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
+      // M9b: enum, not free-form — the value is regex-substituted into the
+      // plan file, so any junk string used to be written verbatim. Optional
+      // enums don't need `requiredEnum`'s custom error (`undefined`
+      // legitimately passes); zod's default wrong-value message already lists
+      // every option.
       status: z
-        .string()
+        .enum(SPEC_STATUSES)
         .optional()
         .describe(
           "Override the plan status (e.g. IN_PROGRESS, COMPLETE) — updates the file before syncing",
@@ -94,19 +135,18 @@ function registerSpecRegisterTool(
 
         // If status override requested, validate transition and update file
         if (status) {
-          // Validate status transition — prevent skipping verification
+          // Validate against the gated-entry table — see GATED_ENTRY above.
           const currentSpec = parsePlanFile(plan_path);
           const currentStatus = currentSpec.status;
 
-          const INVALID_TRANSITIONS: Record<string, string[]> = {
-            VERIFIED: ["PENDING", "IN_PROGRESS"], // Can't set VERIFIED without going through COMPLETE
-          };
-
-          const blockedFrom = INVALID_TRANSITIONS[status];
-          if (blockedFrom?.includes(currentStatus)) {
+          const legalFrom = GATED_ENTRY[status];
+          if (legalFrom && !legalFrom.includes(currentStatus)) {
             return mcpText(
               `Cannot transition from ${currentStatus} to ${status}. ` +
-                `Plan must go through COMPLETE first (run verification phase). ` +
+                `${status} may only be set from: ${legalFrom.join(", ")}. ` +
+                (status === "VERIFIED"
+                  ? `Plan must go through COMPLETE first (run verification phase). `
+                  : `Plan must go through implementation first. `) +
                 `Status transition: PENDING → IN_PROGRESS → COMPLETE → VERIFIED`,
             );
           }

@@ -821,3 +821,97 @@ describe("withSidecarOrDirect", () => {
     expect(result).toBe("from-async-direct");
   });
 });
+
+// ─── Version skew (M2c) ─────────────────────────────────────────────────────
+//
+// /health carries the sidecar's version. tryConnect compares it against its
+// own and logs LOUDLY on mismatch — but the check is ADVISORY ONLY: the
+// connection must always succeed (a hard refusal would strand users
+// mid-upgrade, Assumption 4).
+
+describe("SidecarClient version skew (M2c)", () => {
+  let tmpDir: string;
+  let fake: ReturnType<typeof Bun.serve> | null = null;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "none.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid"),
+    );
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    if (fake) {
+      fake.stop(true);
+      fake = null;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  /** Fake sidecar answering /health with a chosen version (or none). */
+  function serveHealth(version?: string): void {
+    fake = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        Response.json({
+          ok: true,
+          data: {
+            status: "running",
+            pid: process.pid,
+            httpPort: null,
+            ...(version ? { version } : {}),
+          },
+        }),
+    });
+    writeFileSync(join(tmpDir, "sidecar.port"), String(fake.port), "utf-8");
+  }
+
+  function mismatchLogged(): boolean {
+    const lines = fileLogModule.readLastLines(
+      join(tmpDir, fileLogModule.SIDECAR_LOG_FILE),
+      20,
+    );
+    return lines.some((l) => l.includes("version mismatch"));
+  }
+
+  it("logs loudly on version mismatch but still connects (advisory only)", async () => {
+    serveHealth("0.0.1-mismatch");
+
+    const client = await SidecarClient.connect();
+
+    // Advisory only — the connection must succeed.
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(true);
+  });
+
+  it("does not log a mismatch when versions match", async () => {
+    const { readFileSync: readPkg } = require("node:fs");
+    const pkg = JSON.parse(
+      readPkg(join(import.meta.dir, "..", "..", "package.json"), "utf-8"),
+    ) as { version: string };
+    serveHealth(pkg.version);
+
+    const client = await SidecarClient.connect();
+
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(false);
+  });
+
+  it("does not log a mismatch when the sidecar reports no version (older sidecar)", async () => {
+    serveHealth(undefined);
+
+    const client = await SidecarClient.connect();
+
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(false);
+  });
+});
