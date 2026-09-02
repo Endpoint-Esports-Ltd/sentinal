@@ -1,3 +1,10 @@
+## [1.36.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.1...v1.36.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* remediate the v1.36.1 audit's critical and high-severity findings ([e3f9194](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e3f9194e78ce13c0ddae25ac056c1ccee5d52c78)), closes [hi#severity](https://github.com/hi/issues/severity)
+
 ## [1.36.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.0...v1.36.1) (2026-09-01)
 
 
