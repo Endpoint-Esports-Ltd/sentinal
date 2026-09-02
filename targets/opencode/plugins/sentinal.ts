@@ -115,13 +115,25 @@ interface ToolDefinition {
 }
 
 interface PluginHooks {
+  // Shapes mirror the installed @opencode-ai/plugin types (dist/index.d.ts):
+  // before: args are WRITABLE on `output` (that is the args-rewriting API);
+  // after:  args arrive on `input`, and `output` is {title, output, metadata}.
   "tool.execute.before"?: (
-    input: { tool: string },
+    input: { tool: string; sessionID?: string; callID?: string },
     output: { args: Record<string, unknown> },
   ) => Promise<void>;
   "tool.execute.after"?: (
-    input: { tool: string },
-    output: { args: Record<string, unknown> },
+    input: {
+      tool: string;
+      sessionID?: string;
+      callID?: string;
+      args: Record<string, unknown>;
+    },
+    output: {
+      title: string;
+      output: string;
+      metadata: Record<string, unknown>;
+    },
   ) => Promise<void>;
   "experimental.session.compacting"?: (
     input: { sessionID: string },
@@ -472,7 +484,7 @@ export const SentinalPlugin: Plugin = async ({
             body: { service: "sentinal", level: "info", message: grepHint },
           });
       }
-      if (tool === "fetch") {
+      if (tool === "webfetch") {
         await client.app.log({
           body: { service: "sentinal", level: "info", message: getFetchHint() },
         });
@@ -493,7 +505,7 @@ export const SentinalPlugin: Plugin = async ({
     },
 
     "tool.execute.after": async (input, output) => {
-      const QUALITY_TOOLS = ["write", "edit", "patch"];
+      const QUALITY_TOOLS = ["write", "edit", "multiedit", "patch"];
       const MEMORY_TOOLS = [
         "write",
         "edit",
@@ -505,8 +517,11 @@ export const SentinalPlugin: Plugin = async ({
       ];
 
       // ── Sync phase: quality checks (can throw to block) ──────────────
-      const filePath =
-        output.args?.filePath || output.args?.file_path || output.args?.path;
+      // ⛔ In the AFTER hook, args live on `input` (output is {title, output,
+      // metadata}). Reading `output.args` here was the C1 bug that left the
+      // whole quality gate dead on OpenCode.
+      const args = (input.args ?? {}) as Record<string, unknown>;
+      const filePath = args.filePath || args.file_path || args.path;
       const issues: string[] = [];
       let shouldBlock = false;
 
@@ -634,11 +649,11 @@ export const SentinalPlugin: Plugin = async ({
           if (sidecar) {
             const trackerFilePath =
               typeof filePath === "string" ? filePath : undefined;
-            const bashOutput = ["bash", "shell", "terminal"].includes(
-              input.tool,
-            )
-              ? (output.args?.output as string | undefined)
-              : undefined;
+            const bashOutput =
+              ["bash", "shell", "terminal"].includes(input.tool) &&
+              typeof output.output === "string"
+                ? output.output
+                : undefined;
             await sidecarTddTrack(
               sidecar,
               input.tool,
@@ -653,10 +668,7 @@ export const SentinalPlugin: Plugin = async ({
             // TDD cycle, and build-fix heuristics), fall back to quality-check issues
             let eventOutput: string | undefined;
             if (["bash", "shell", "terminal"].includes(input.tool)) {
-              const raw =
-                output.args?.output ??
-                output.args?.stdout ??
-                output.args?.stderr;
+              const raw = output.output;
               if (typeof raw === "string" && raw.length > 0) {
                 eventOutput = raw.slice(0, 2000);
               }
@@ -665,10 +677,18 @@ export const SentinalPlugin: Plugin = async ({
               eventOutput = asyncIssues.join("\n").slice(0, 500);
             }
 
-            // For bash tools, use exit code if available; otherwise rely on quality-check blocking
+            // For bash tools, use exit code if available; otherwise rely on
+            // quality-check blocking. OpenCode's shell tool puts it at
+            // `metadata.exit` (may be null on abort/timeout — the typeof
+            // guard degrades gracefully to !asyncShouldBlock then).
             let eventSuccess = !asyncShouldBlock;
             if (["bash", "shell", "terminal"].includes(input.tool)) {
-              const exitCode = output.args?.exitCode ?? output.args?.exit_code;
+              const metadata = (output.metadata ?? {}) as Record<
+                string,
+                unknown
+              >;
+              const exitCode =
+                metadata.exit ?? metadata.exitCode ?? metadata.exit_code;
               if (typeof exitCode === "number") eventSuccess = exitCode === 0;
             }
 

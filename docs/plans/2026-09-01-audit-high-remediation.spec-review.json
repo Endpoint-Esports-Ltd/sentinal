@@ -1,0 +1,123 @@
+{
+  "pass_summary": "All 11 tasks are implemented, substantive, and wired; C1's shapes were independently verified against the installed @opencode-ai/plugin dist/index.d.ts (exact match: after-hook input carries {tool, sessionID, callID, args}, output is {title, output, metadata}). No must_fix findings. The main gaps: the plan's 'only two remaining ~/.sentinal leaks' claim is incomplete (file-log, auto-decay, embeddings-cache and others still hardcode homedir()/.sentinal), and H9's cross-project dedup safety rests entirely on a server-side filter the hook tests never exercise (they mock memorySearch).",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 10,
+  "truths_total": 11,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "H9 cross-project dedup rests solely on a server-side filter that no test exercises end-to-end",
+      "description": "src/hooks/instructions-loaded.ts:45-52 delegates project scoping to the server ('project equality enforced server-side') and matches client-side on title ONLY — and titles like 'Instructions loaded: CLAUDE.md' are identical across every project. If /memory/search's project filter ever regresses (or ranks cross-project rows), the hook would TOUCH another project's observation instead of inserting, silently corrupting that project's memory. The regression tests (instructions-loaded.test.ts:42,97) mock memorySearch entirely, so the real filter in routes.ts:97/handleMemorySearch is never exercised on this path — the exact 'tests exercised the wrong shape' failure mode this plan's Context fact 8 warns about.",
+      "suggested_fix": "Add one integration test driving processInstructionsLoaded against a real sidecar test server (buildForTest pattern) with two projects holding identically-titled discovery observations, asserting the touch lands in the right project. Alternatively, memoryGet(match.id) before touching and verify the returned row's project equals cwd."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "Deferred-issues leak inventory is incomplete — more homedir()/.sentinal write paths than the two listed",
+      "description": "The plan's Deferred Issues section claims observation-queue.ts:18 and quality-runners.ts:53-54 are the remaining hardcoded paths ('same class as H6'). Grep shows additional homedir()-based ~/.sentinal WRITE paths not routed through getSentinalHome(): src/utils/file-log.ts:42 (logSidecar — demonstrably fires during test runs on client reconnects, writing the real ~/.sentinal/sidecar.log), src/memory/auto-decay.ts:45 (writes last-decay.json), src/memory/embeddings.ts:67 (models cache), src/memory/native-deps.ts:25, src/dashboard/lifecycle.ts:17,137 (dashboard pidfile), src/opencode/dashboard-ensure.ts:23, src/cli/embedded-assets.ts:74. The DB and sidecar socket — the two observed pollution vectors — ARE sealed, but test-preload.ts's docstring claim that 'no test run can ever write into the real user store' is overstated for logs/decay-state.",
+      "suggested_fix": "Extend the Deferred Issues list to name file-log.ts, auto-decay.ts, embeddings.ts, native-deps.ts, dashboard/lifecycle.ts and dashboard-ensure.ts; route them through getSentinalHome() in the follow-up pass. file-log.ts is the highest-value one — it provably writes during every suite run."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "H8: 180s /quality-check client budget is below the documented worst case (~240s)",
+      "description": "src/sidecar/client.ts REQUEST_TIMEOUTS gives /quality-check 180_000ms, with the comment 'callers pass up to 60s, and prettier spawns twice — the budget must cover the whole run + margin'. But the server applies the per-request timeout to EACH runWithTimeout invocation: tsc ≤60s + eslint ≤60s + prettier check ≤60s + prettier --write ≤60s = 240s worst case, so 180s provides negative margin, not margin. On a pathological project the client aborts (TimeoutError) while the server run is still legitimately in flight; activeChecks is still released server-side so no wedge returns, but the caller sees a spurious timeout.",
+      "suggested_fix": "Raise /quality-check to 250_000ms (or clamp the sum: derive the budget from the max caller timeout × 4 + margin) in src/sidecar/client.ts and fix the comment's arithmetic."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "H1: the `ran` guard latches permanently on an early no-op cleanup call in direct mode",
+      "description": "src/mcp/server.ts registerMcpCleanupHandlers: `ran = true` is set BEFORE the sessions check, so if the returned cleanup function is invoked while sessions are still active (test harnesses do this today; any future caller could), the guard permanently disables the exit-event cleanup — a later exit with 0 sessions will no longer stop the sidecar in direct-store mode. The signal→exit re-entry case the guard exists for is handled correctly; only the direct-invocation-then-exit sequence regresses vs the old semantics. The sidecar's own idle shutdown backstops the leak, so impact is low. Separately verified: the sessions-never-seen idle fallback (sidecar/server.ts:236-241) IS reachable for MCP-only users — MCP tool traffic refreshes lastActivityTime and shutdown fires after fallbackIdleMs of quiet, so no immortal-sidecar path exists.",
+      "suggested_fix": "Only latch `ran` when cleanup actually proceeds past the early returns (move `ran = true` after the active-sessions check), or reset-and-document that the returned function is single-shot."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "H3: branch-restore failure after a mid-merge conflict is invisible to every current caller",
+      "description": "src/worktree/manager.ts squashMerge's finally block restores the original branch best-effort and reports failure only via the optional `warnings` collector — but per the plan's own Wave 1 notes, no MCP/CLI surface passes one yet (wiring deferred). Concretely: `git merge --squash` conflicts → gitExecOrThrow throws → finally runs `git checkout originalBranch`, which git REFUSES on the conflicted tree → the user is silently left on the base branch with a conflicted index and no message about the failed restore (they do see the merge error itself). Ordering was verified correct: assertMainCheckoutCleanForMerge runs before stopOwnedRuntime, so refusal costs nothing; the untracked-allowed porcelain policy is sound (`git commit -m` commits the index only; ?? entries can never leak into the squash commit).",
+      "suggested_fix": "Wire the warnings collector into worktree_sync's MCP output in the follow-up, and consider `git merge --abort`/`git reset --merge` before the restore attempt on the conflict path so the checkout can actually succeed."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "H4: canonicalPath fallback is asymmetric for deleted project paths on macOS symlink aliases",
+      "description": "src/worktree/store.ts canonicalPath() falls back to resolve(p) when realpathSync throws (deleted project). Rows store realpath output (/private/var/...) captured while the dir existed; a caller passing the /var/... alias after deletion gets resolve('/var/...') which never equals the stored '/private/var/...' — the scoped lookup returns null for a worktree record that genuinely belongs to that (now-deleted) project. Fail-closed, so abandon/cleanup flows just see 'not found' rather than acting on the wrong row — acceptable, but worth a comment since the miss is surprising.",
+      "suggested_fix": "Document the deleted-project miss in canonicalPath's docstring; optionally also compare the raw stored path as a secondary equality check when realpath is unavailable on either side."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "C1: two hand-maintained declarations of the hook contract now differ on sessionID/callID optionality",
+      "description": "targets/opencode/types/opencode-plugin.d.ts declares sessionID/callID as required (matching the installed package exactly — verified against ~/.opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts:231-254), while the plugin-internal PluginHooks interface in targets/opencode/plugins/sentinal.ts:118-137 declares them optional (sessionID?: string; callID?: string). Harmless today (optional is a safe narrowing for a consumer), but the contract now lives in two hand-written places that can drift independently — the exact failure mode that produced C1.",
+      "suggested_fix": "Have the plugin import ToolExecuteAfterInput/ToolExecuteAfterOutput from ../types/opencode-plugin.d.ts instead of re-declaring the shapes inline, so there is one hand-written copy."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 6a's 'tests byte-unchanged' checkpoint has one modified memory test file (attribution unclear)",
+      "description": "src/memory/config.test.ts shows +10/- changes in main..HEAD. Task 6a's pure-move gate was 'git diff --exit-code on all pre-existing test files' and its report says 'test files byte-frozen'. The change may legitimately belong to Task 6b (SENTINAL_HOME) rather than 6a, but the branch-level evidence contradicts the byte-frozen claim as stated, and the split's byte-equivalence therefore leans on the suite passing rather than on the declared checkpoint.",
+      "suggested_fix": "Confirm via `git log main..HEAD -- src/memory/config.test.ts` that the modification landed in 9fb3c84 (6b) not 4a6f10f (6a); note it in the plan's outcomes if so."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "After-handler test with SDK-true shape; quality gate fires on 650-line file (C1)",
+      "status": "verified",
+      "evidence": "Independently matched the fix against the INSTALLED @opencode-ai/plugin dist/index.d.ts:231-254 — before: output.args writable (left alone, correct); after: input.args + output {title, output, metadata}. metadata.exit read behind typeof-number guard matches Wave-1's finding. Hand-written .d.ts corrected to the same shapes. sentinal.test.ts +374 lines covers the awakened paths per diff stat. webfetch + multiedit ride-alongs present."
+    },
+    {
+      "truth": "Client mode never calls stopSidecarProcess; direct mode with 0 sessions does (H1)",
+      "status": "verified",
+      "evidence": "src/mcp/server.ts: `if (!store) return` before stopSidecarProcess; direct mode keeps the 0-sessions check; SIGTERM/SIGINT now exit(143/130); double exit registration in main() removed. server.test.ts +125 lines. Idle fallback (server.ts:236-241) confirmed reachable for MCP-only users: no session rows → sessionsEverSeen stays false → shutdown after fallbackIdleMs of no HTTP activity. Minor `ran`-guard latch flagged as suggestion."
+    },
+    {
+      "truth": "spec_metrics through real Client with {client, store: null} returns timing (H2)",
+      "status": "verified",
+      "evidence": "events-mcp-tools.ts is client-first (client.getSpecMetrics → fallback specStore); spec-routes.ts returns exactly the two store reads (getSpecTiming + getTaskTiming), wired into server.ts dispatch; client-routes.ts +9 lines is Task 9's only touch there (Task 8 genuinely did not edit it). spec-routes.test.ts (270 lines) + mcp-tools.test.ts (+45) cover it."
+    },
+    {
+      "truth": "squashMerge refuses on dirty main checkout; original branch restored after success (H3)",
+      "status": "verified",
+      "evidence": "assertMainCheckoutCleanForMerge throws DIRTY_MAIN_CHECKOUT BEFORE stopOwnedRuntime (refusal costs nothing); porcelain `??` filtered (untracked cannot enter the index/squash commit — policy sound); rename/copy/submodule statuses all refuse (tracked changes); try/finally restores originalBranch when checkedOut && != baseBranch, detached HEAD handled via warning. +15 tests across manager/merge-guards. Silent-restore-failure-on-conflict flagged as suggestion."
+    },
+    {
+      "truth": "resolveBySlug('add', projectA) never returns project B's add-auth worktree (H4)",
+      "status": "verified",
+      "evidence": "store.ts uses exact branch_name IN (?, ?) (no LIKE), scoped miss returns null (never falls through globally), unscoped global fallback preserved, canonical realpath comparison on both sides handles /var vs /private/var. store.test.ts +103 lines pins cross-project, prefix-collision and symlink cases per plan notes."
+    },
+    {
+      "truth": "Forged pidfile with live PID + different start time classifies stale, not owned (H5)",
+      "status": "verified",
+      "evidence": "proc-start.ts uses POSIX `ps -o etime=` (plan's etimes was correctly abandoned — Pre-Mortem 3); regex ^(?:(\\d+)-)?(?:(\\d+):)?(\\d{1,2}):(\\d{2})$ handles mm:ss, hh:mm:ss, dd-hh:mm:ss; ±5s tolerance with documented arithmetic; mismatch→stale (leader provably gone, pidfile cleanup-eligible), unknown→foreign (refuse+keep — fail-closed doctrine); legacy pidfiles skip the check. startTimeOf stubs in 10 existing tests are the intended injection seam; the real ps path is covered by proc-start.test.ts (163 lines) so the stubs hide nothing."
+    },
+    {
+      "truth": "SENTINAL_HOME redirects getDbPath() and sidecar paths; test-preload sets it (H6/6b)",
+      "status": "verified",
+      "evidence": "db-path.ts getSentinalHome() read fresh per call; sidecar/paths.ts routes socket/port/pid through it; test-preload.ts sets a per-run mkdtemp dir before any Database construction; db-path.test.ts guards against real ~/.sentinal. Caveat: the 'only two remaining leaks' deferred claim is incomplete — file-log.ts, auto-decay.ts, embeddings.ts, native-deps.ts, dashboard/lifecycle.ts still hardcode homedir()/.sentinal (issue filed); the DB and socket vectors themselves are sealed."
+    },
+    {
+      "truth": "configureStatusline on unparseable settings leaves file byte-unchanged with warning (H7)",
+      "status": "verified",
+      "evidence": "Strict JSON.parse; catch path returns {status:'skipped-unparseable'} without any write, warning names file + parse error; .bak written from originalRaw before the success-path write. JSONC-now-skips is a deliberate, documented semantic change — configureStatusline's only caller is installClaudeCode, and the old behavior (parse-then-rewrite, destroying comments) was itself the destructive bug, so no caller depends on it. stripJsoncComments import removed; tsc clean confirms no dangling use."
+    },
+    {
+      "truth": "Hung subprocess releases activeChecks within budget; client get/post abort bounded (H8)",
+      "status": "verified",
+      "evidence": "quality-runners.ts runWithTimeout races the post-kill stderr read against a 2s deadline (covers the text() hang — the read is the only await between kill and return), then best-effort process.kill(-pid, SIGKILL) on the detached group (platform-guarded, POSIX-safe on Linux CI, never the correctness mechanism). Client: AbortSignal.timeout per-path in get/post, timeouts don't reconnect-retry, fresh budget on retry. 30s middle-tier route list (observation/context/memory//spec/sync/worktree//project-context) covers the embedding and git routes; /memory/search included. 180s-vs-240s budget arithmetic flagged as suggestion."
+    },
+    {
+      "truth": "processInstructionsLoaded called twice produces one stored observation (H9)",
+      "status": "uncertain",
+      "evidence": "Touch-not-skip implemented: memorySearch({query: title, project, type, limit:10}) + client-side exact-title .find over all rows, updateObservation on match, insert-on-search-failure fallback. Dedup within a project is pinned by tests. UNVERIFIED: the server-side project filter is the sole cross-project guard and the hook tests mock memorySearch, so the real /memory/search filter path is never exercised for this hook — with identical titles across projects, a filter regression would cross-touch another project's row (issue filed)."
+    },
+    {
+      "truth": "Suite ≥2795/0, tsc clean, build:all clean, touched files under limits",
+      "status": "verified",
+      "evidence": "Orchestrator confirmed 2878 pass / 0 fail (+83) and tsc clean at wave ends. New-file lengths verified from diff: proc-start 184, spec-routes 70, db-path 86, quality-runners 375, store-observations 297, store-sessions 294, merge-guards well under 400; quality-routes reduced 450→~145; ownership.ts untouched at 399. build:all cleanliness rests on Task 1's report (not independently re-run here — the plugin bundles via embed-assets, and tsc-clean across both hand-written declaration sets is corroborating evidence)."
+    }
+  ]
+}

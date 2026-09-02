@@ -6,12 +6,23 @@
  */
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { MemoryStore } from "../memory/store.js";
 import {
   DEFAULT_WORKTREE_CONFIG,
   type Worktree,
   type WorktreeStatus,
 } from "./types.js";
+
+/** Canonicalize a path for scope comparison; falls back for missing paths. */
+function canonicalPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
 
 // ─── Raw DB Row Type ────────────────────────────────────────────────────────
 
@@ -211,7 +222,9 @@ export class WorktreeStore {
   /**
    * Resolve a plan slug to a worktree.
    * 1. Try exact match on spec_id (primary)
-   * 2. Fall back to branch name pattern matching `spec/<slug>*` if projectPath given
+   * 2. Fall back to an exact branch-name match (`<prefix><slug>` or legacy
+   *    `spec/<slug>`), scoped to `projectPath` when given — a scoped miss
+   *    returns null and never falls through to another project's worktree.
    * Returns null if no match.
    */
   resolveBySlug(slug: string, projectPath?: string): Worktree | null {
@@ -219,34 +232,40 @@ export class WorktreeStore {
     const bySpec = this.getBySpecId(slug);
     if (bySpec) return bySpec;
 
-    // Branch patterns: the configured prefix (default "sentinal/spec-") plus
+    // Branch names: the configured prefix (default "sentinal/spec-") plus
     // the legacy "spec/" prefix. Records often have spec_id=NULL because
     // linkSpec() runs after spec registration — branch matching must use the
-    // prefix worktree_create actually writes.
-    const patterns = [
-      `${DEFAULT_WORKTREE_CONFIG.branchPrefix}${slug}%`,
-      `spec/${slug}%`,
+    // prefix worktree_create actually writes. Anchored EXACT match (H4):
+    // create.ts writes exactly `${prefix}${slug}` (never suffixed — only the
+    // id and worktree PATH carry a hash), so a bare LIKE `${prefix}${slug}%`
+    // wrongly let slug `add` match branch `.../add-auth`.
+    const branches = [
+      `${DEFAULT_WORKTREE_CONFIG.branchPrefix}${slug}`,
+      `spec/${slug}`,
     ];
 
-    // Fallback: match by branch name pattern for active worktrees
+    // Fetch candidates by exact branch, then scope in TS (small table;
+    // correctness over cleverness).
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM worktrees WHERE branch_name IN (?, ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC",
+      )
+      .all(...branches) as RawWorktree[];
+
+    // ⛔ When a project scope was given, a scoped miss is FINAL — falling
+    // through to a global match would silently return another project's
+    // worktree, which worktree_sync/abandon would then merge or delete there.
+    // Scope compares CANONICAL paths: rows store getRepoRoot() output (a
+    // realpath), while callers may pass a symlinked alias (macOS /var vs
+    // /private/var) — the old global fallback papered over that mismatch.
     if (projectPath) {
-      const row = this.db
-        .prepare(
-          "SELECT * FROM worktrees WHERE project_path = ? AND (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
-        )
-        .get(projectPath, ...patterns) as RawWorktree | null;
-      if (row) return this.deserialize(row);
+      const wanted = canonicalPath(projectPath);
+      const row = rows.find((r) => canonicalPath(r.project_path) === wanted);
+      return row ? this.deserialize(row) : null;
     }
 
-    // Global fallback: match by branch name without project scope
-    const row = this.db
-      .prepare(
-        "SELECT * FROM worktrees WHERE (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(...patterns) as RawWorktree | null;
-    if (row) return this.deserialize(row);
-
-    return null;
+    // Global fallback: exact branch match, ONLY when no scope was given.
+    return rows.length > 0 ? this.deserialize(rows[0]) : null;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────

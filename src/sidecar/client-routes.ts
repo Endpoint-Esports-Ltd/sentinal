@@ -11,6 +11,7 @@
  */
 
 import type { QualityCheckResult } from "./quality-routes.js";
+import type { SpecMetricsData } from "./spec-routes.js";
 import type { Spec } from "../spec/types.js";
 import type { TddCycle, SpecEvent } from "../memory/types.js";
 import type { ResolvedWorktree } from "../worktree/types.js";
@@ -259,6 +260,14 @@ export abstract class SidecarRoutes {
     const params = new URLSearchParams({ spec_id: specId });
     if (limit !== undefined) params.set("limit", String(limit));
     return this.get(`/spec/events?${params}`);
+  }
+
+  /**
+   * Spec + task timing for spec_metrics. One route, one shape — exactly
+   * the two store reads the tool performs (getSpecTiming + getTaskTiming).
+   */
+  async getSpecMetrics(specId: string): Promise<SpecMetricsData> {
+    return this.get(`/spec/metrics?spec_id=${encodeURIComponent(specId)}`);
   }
 
   // ─── Worktrees ────────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ import {
   type GroupProbes,
   type GroupProbeResult,
 } from "./ownership.js";
+import { verifyStartTime, type StartTimeProbes } from "./proc-start.js";
 
 // ─── Shape ──────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ function probeAlive(pid: number, probes: OwnershipProbes): boolean {
  */
 export function inspectPidfile(
   worktreePath: string,
-  probes: OwnershipProbes = {},
+  probes: OwnershipProbes & StartTimeProbes = {},
 ): PidfileVerdict {
   const path = runtimePidfilePath(worktreePath);
   if (!existsSync(path)) return { kind: "absent" };
@@ -288,6 +289,16 @@ export function inspectPidfile(
     };
   }
 
+  // H5: cmdline/cwd proof is forgeable by accident (a recycled leader PID on
+  // a worktree-cwd process passes above). Start time decides — proc-start.ts.
+  const started = verifyStartTime(entry.pid, entry.startedAt, probes);
+  if (started.kind === "mismatch") {
+    return { kind: "stale", entry, reason: started.reason };
+  }
+  if (started.kind === "unknown") {
+    return { kind: "foreign", entry, reason: started.reason };
+  }
+
   return { kind: "owned", entry };
 }
 
@@ -319,7 +330,7 @@ export interface LiveRuntimeVerdict {
  */
 export function ownsLiveRuntime(
   worktreePath: string,
-  probes: GroupProbes = {},
+  probes: GroupProbes & StartTimeProbes = {},
 ): LiveRuntimeVerdict {
   const verdict = inspectPidfile(worktreePath, probes);
 

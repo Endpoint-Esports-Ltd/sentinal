@@ -177,7 +177,11 @@ describe("runtimeUp", () => {
         stopCalls++;
         return okStop();
       },
-      probes: { isAlive: () => true, commandOf: () => `sh -c cd ${wt}` },
+      probes: {
+        isAlive: () => true,
+        commandOf: () => `sh -c cd ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
     });
 
     expect(r.ok).toBe(true);
@@ -211,7 +215,11 @@ describe("runtimeUp", () => {
       },
       awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
       isPortBound: async () => false,
-      probes: { isAlive: () => true, commandOf: () => `sh -c cd ${wt}` },
+      probes: {
+        isAlive: () => true,
+        commandOf: () => `sh -c cd ${wt}`,
+        startTimeOf: () => Date.now(),
+      },
     });
 
     expect(stopCalls).toBe(1);

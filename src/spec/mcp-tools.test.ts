@@ -671,6 +671,51 @@ describe("spec_metrics MCP tool", () => {
     expect(text).toContain("Started");
   });
 
+  it("should delegate to client.getSpecMetrics when a client is present (sidecar mode)", async () => {
+    const now = Date.now();
+    const calls: string[] = [];
+    const stubClient = {
+      getSpecMetrics: async (specId: string) => {
+        calls.push(specId);
+        return {
+          spec: {
+            title: "Sidecar Plan",
+            status: "IN_PROGRESS",
+            startedAt: now - 3600000,
+            completedAt: null,
+          },
+          tasks: [
+            {
+              position: 1,
+              title: "First task",
+              status: "COMPLETE",
+              startedAt: now - 900000,
+              completedAt: now - 300000,
+            },
+          ],
+        };
+      },
+    } as unknown as SidecarClient;
+
+    // Production deps shape: client present, no direct store
+    const clientTools = captureTools(registerSpecTools, {
+      client: stubClient,
+      store: null,
+    });
+
+    const handler = clientTools.get("spec_metrics")!;
+    const result = await handler({
+      project: tmpDir,
+      spec_id: "2026-03-18-sidecar",
+    });
+    const text = result.content[0].text;
+
+    expect(calls).toEqual(["2026-03-18-sidecar"]);
+    expect(text).not.toContain("No spec found.");
+    expect(text).toContain("Spec Metrics: Sidecar Plan");
+    expect(text).toContain("Plan Timing");
+  });
+
   it("should return task timing when tasks have timing data", async () => {
     const planFile = makePlanFile(tmpDir, "2026-03-18-test", "IN_PROGRESS");
     const specStore = new SpecStore(store);

@@ -84,8 +84,10 @@ describe("getDbPath", () => {
   it("should return default path when CLAUDE_PLUGIN_DATA is not set", () => {
     delete process.env.CLAUDE_PLUGIN_DATA;
     const dbPath = getDbPath();
-    expect(dbPath).toEndWith("memory.db");
-    expect(dbPath).toContain(".sentinal");
+    // The default path is the SENTINAL_HOME tree — during tests the preload
+    // redirects it to a temp dir (Task 6b), so asserting `.sentinal` here
+    // would be asserting on the REAL user store.
+    expect(dbPath).toBe(join(process.env.SENTINAL_HOME!, "memory.db"));
   });
 
   it("should return plugin data path when CLAUDE_PLUGIN_DATA is set to a writable dir", () => {
@@ -100,7 +102,7 @@ describe("getDbPath", () => {
   it("should fall back to default path when CLAUDE_PLUGIN_DATA is not writable", () => {
     process.env.CLAUDE_PLUGIN_DATA = "/root/no-access";
     const dbPath = getDbPath();
-    expect(dbPath).toEndWith("memory.db");
-    expect(dbPath).toContain(".sentinal");
+    // See above — the fallback is the SENTINAL_HOME-aware default path.
+    expect(dbPath).toBe(join(process.env.SENTINAL_HOME!, "memory.db"));
   });
 });

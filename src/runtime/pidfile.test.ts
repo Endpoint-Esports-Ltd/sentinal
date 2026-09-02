@@ -222,6 +222,76 @@ describe("inspectPidfile", () => {
   });
 });
 
+describe("inspectPidfile — start-time verification (H5)", () => {
+  /**
+   * ⛔ THE recycled-PID case this task exists for. The process is ALIVE and
+   * its cwd IS the worktree — in wave execution the agent session, the user's
+   * editor and their shell all look exactly like this — so command-line/cwd
+   * proof passes. Only the recorded start time can tell the impostor apart.
+   */
+  it("⛔ reports STALE for a live worktree-cwd process whose start time mismatches", () => {
+    const proc = Bun.spawn(["sleep", "30"], {
+      cwd: wt,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    spawned.push(proc);
+    // Forged: the record claims the leader started a minute ago; the live
+    // process wearing that PID started just now. 60s is 12x the tolerance.
+    writePidfile(
+      wt,
+      entry({
+        pid: proc.pid,
+        pgid: proc.pid,
+        startedAt: Date.now() - 60_000,
+        state: "ready",
+      }),
+    );
+
+    const v = inspectPidfile(wt);
+    expect(v.kind).toBe("stale");
+    if (v.kind === "stale") {
+      expect(v.reason.toUpperCase()).toContain("RECYCLED");
+    }
+  }, 15_000);
+
+  it("still reports OWNED when the recorded start time matches (real `ps`)", () => {
+    const proc = Bun.spawn(["sleep", "30"], {
+      cwd: wt,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    spawned.push(proc);
+    writePidfile(wt, entry({ pid: proc.pid, pgid: proc.pid }));
+    expect(inspectPidfile(wt).kind).toBe("owned");
+  }, 15_000);
+
+  it("skips the comparison for a legacy record (startedAt 0) — today's behaviour", () => {
+    // A record written before this check existed must not orphan (or refuse)
+    // a running stack after an upgrade.
+    const proc = Bun.spawn(["sleep", "30"], {
+      cwd: wt,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    spawned.push(proc);
+    writePidfile(wt, entry({ pid: proc.pid, pgid: proc.pid, startedAt: 0 }));
+    expect(inspectPidfile(wt).kind).toBe("owned");
+  }, 15_000);
+
+  it("⛔ reports FOREIGN — refuse, keep the pidfile — when `ps` cannot answer", () => {
+    writePidfile(wt, entry({ pid: process.pid, pgid: process.pid }));
+    const v = inspectPidfile(wt, {
+      commandOf: () => `node server.js ${wt}`,
+      startTimeOf: () => null,
+    });
+    expect(v.kind).toBe("foreign");
+    if (v.kind === "foreign") {
+      expect(v.reason).toContain("start time");
+      expect(v.reason).toContain("runtime.pid");
+    }
+    // The record survives — the whole point of refusing on uncertainty.
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  });
+});
+
 describe("git invisibility", () => {
   it("hides both the pidfile and the logfile from git status", () => {
     initRepo(wt);
@@ -276,6 +346,9 @@ describe("ownsLiveRuntime", () => {
     writePidfile(wt, entry({ pid: process.pid, pgid: process.pid }));
     const v = ownsLiveRuntime(wt, {
       commandOf: () => `node server.js ${wt}`,
+      // `process.pid` started when `bun test` did, not when the record was
+      // written — stub the H5 probe so this stays the owned row.
+      startTimeOf: () => Date.now(),
     });
     expect(v.live).toBe(true);
     expect(v.detail).toContain(String(process.pid));

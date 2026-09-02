@@ -30,7 +30,6 @@ import {
   resolveAssetsDir,
   copyDirRecursive,
   mkdirp,
-  stripJsoncComments,
 } from "../../utils/shell.js";
 import {
   checkChromeDevToolsMcp,
@@ -230,11 +229,14 @@ export async function installClaudeCode(): Promise<void> {
 
   console.log("");
   info("Configuring statusline...");
-  if (configureStatusline()) {
+  const statusline = configureStatusline();
+  if (statusline.status === "configured") {
     ok("[OK] Statusline configured (sentinal statusline)");
-  } else {
+  } else if (statusline.status === "skipped-active") {
     note("Statusline skipped — another statusline plugin is active.");
   }
+  // skipped-unparseable already printed its own [WARN] naming the file and
+  // parse error — a warning, not a failure; the install continues.
 
   // ── Done ──
 
@@ -249,28 +251,53 @@ export async function installClaudeCode(): Promise<void> {
 
 // ─── Statusline configuration ───────────────────────────────────────────────
 
-/** Configure Claude Code's native statusline to use `sentinal statusline`.
- *  Returns true if configured, false if skipped (another plugin active). */
-function configureStatusline(): boolean {
-  const settingsPath = join(homedir(), ".claude", "settings.json");
-  let settings: Record<string, unknown> = {};
+export type StatuslineResult =
+  | { status: "configured" }
+  | { status: "skipped-active" }
+  | { status: "skipped-unparseable"; message: string };
 
-  if (existsSync(settingsPath)) {
+/** Configure Claude Code's native statusline to use `sentinal statusline`.
+ *
+ *  H7: never destructive. If the existing settings.json fails STRICT
+ *  `JSON.parse` (truncated file, JSONC comments, trailing commas), we skip
+ *  with a warning and NEVER write — "start fresh" would replace the user's
+ *  permissions/env/hooks with `{statusLine}` only. JSONC is deliberately
+ *  treated as unparseable here (even though a comment-stripping parse would
+ *  succeed) because writing back would silently strip the user's comments;
+ *  comment-preserving editing is out of scope.
+ *
+ *  On the success path a sibling `.bak` is written before modifying
+ *  (precedent: `src/memory/migrations.ts` backupDatabase). Latest-wins: any
+ *  prior `.bak` is overwritten, so it always holds the immediate pre-write
+ *  content.
+ *
+ *  `settingsPath` is injectable for tests (same seam as `isStatuslineActive`).
+ */
+export function configureStatusline(settingsPath?: string): StatuslineResult {
+  const path = settingsPath ?? join(homedir(), ".claude", "settings.json");
+  let settings: Record<string, unknown> = {};
+  let originalRaw: string | null = null;
+
+  if (existsSync(path)) {
     try {
-      const raw = readFileSync(settingsPath, "utf-8");
-      settings = JSON.parse(stripJsoncComments(raw));
-    } catch {
-      // If we can't parse existing settings, start fresh
-      settings = {};
+      originalRaw = readFileSync(path, "utf-8");
+      settings = JSON.parse(originalRaw);
+    } catch (e) {
+      const message =
+        `[WARN] Statusline skipped — could not parse ${path}: ` +
+        `${e instanceof Error ? e.message : String(e)}. File left untouched; ` +
+        `fix it (or remove comments/trailing commas) and re-run the install.`;
+      err(message);
+      return { status: "skipped-unparseable", message };
     }
-  } else {
-    // Ensure ~/.claude/ directory exists
+  } else if (!settingsPath) {
+    // Ensure ~/.claude/ directory exists (default path only)
     mkdirp(join(homedir(), ".claude"));
   }
 
   // Skip if another statusline plugin is active
-  if (!isStatuslineActive(settingsPath)) {
-    return false;
+  if (!isStatuslineActive(path)) {
+    return { status: "skipped-active" };
   }
 
   const binPath = getSentinalBinPath();
@@ -279,8 +306,13 @@ function configureStatusline(): boolean {
     command: `${binPath} statusline`,
   };
 
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  return true;
+  // Back up the pre-write content before modifying (nothing to back up when
+  // the file didn't exist). Overwrites any prior .bak — latest wins.
+  if (originalRaw !== null) {
+    writeFileSync(`${path}.bak`, originalRaw);
+  }
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  return { status: "configured" };
 }
 
 // ─── Claude Code embedded asset writer ──────────────────────────────────────

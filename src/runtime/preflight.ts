@@ -45,6 +45,7 @@ import {
   type GroupProbes,
   type GroupProbeResult,
 } from "./ownership.js";
+import type { StartTimeProbes } from "./proc-start.js";
 import type { RuntimeConfig } from "./schema.js";
 
 /** What {@link preflight} needs from its caller, all injectable. */
@@ -52,7 +53,7 @@ export interface PreflightDeps {
   stop?: (projectPath: string) => Promise<StopResult>;
   /** True when something is already listening on `host:port`. */
   isPortBound?: (port: number, host?: string) => Promise<boolean>;
-  probes?: GroupProbes;
+  probes?: GroupProbes & StartTimeProbes;
 }
 
 export type Preflight =

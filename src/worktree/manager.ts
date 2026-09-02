@@ -17,7 +17,11 @@ import {
 import { createWorktree } from "./create.js";
 import { cleanupWorktrees, type CleanupOptions } from "./cleanup.js";
 import { resolveWithReconcile } from "./reconcile.js";
-import { assertCleanForMerge, removeMergedWorktree } from "./merge-guards.js";
+import {
+  assertCleanForMerge,
+  assertMainCheckoutCleanForMerge,
+  removeMergedWorktree,
+} from "./merge-guards.js";
 import {
   WorktreeError,
   DEFAULT_WORKTREE_CONFIG,
@@ -203,8 +207,20 @@ export class WorktreeManager {
   /**
    * Squash merge the worktree branch into the base branch.
    * Returns the merge commit hash.
+   *
+   * The main checkout is put back on the branch it was on before the merge —
+   * including on failure paths after the `checkout` already moved it. A
+   * detached HEAD is left on the base branch (there is no branch to go back
+   * to) and noted via `warnings`.
+   *
+   * @param warnings - optional collector for non-fatal notes (detached HEAD,
+   *   a branch restore that itself failed). Same channel as {@link create}.
    */
-  async squashMerge(worktreeId: string, message?: string): Promise<string> {
+  async squashMerge(
+    worktreeId: string,
+    message?: string,
+    warnings?: string[],
+  ): Promise<string> {
     const wt = this.store.get(worktreeId);
     if (!wt)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
@@ -232,6 +248,12 @@ export class WorktreeManager {
     // `merge-guards.ts` for the full argument.
     assertCleanForMerge(wt);
 
+    // ⛔ H3: the merge also runs `git checkout` + `git commit` in the MAIN
+    // checkout, so its staged/modified tracked work would be swept into the
+    // squash commit. Refuse BEFORE anything is done. Untracked files are
+    // allowed — see `assertMainCheckoutCleanForMerge`.
+    assertMainCheckoutCleanForMerge(wt);
+
     const commitMsg =
       message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
 
@@ -241,29 +263,62 @@ export class WorktreeManager {
     // merge half-done — a worse state than not having started.
     await this.stopOwnedRuntime(wt);
 
-    // Checkout base branch in main project
-    gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
+    // H3: remember where the user was, so we can put them back. Empty string
+    // means detached HEAD — nothing to restore to; the checkout below will
+    // leave them on the base branch, and we say so instead of guessing a ref.
+    const originalBranch = gitExec(
+      ["branch", "--show-current"],
+      wt.projectPath,
+    ).stdout;
+    if (!originalBranch) {
+      warnings?.push(
+        `The main checkout was on a detached HEAD before the merge; it has been ` +
+          `left on ${wt.baseBranch}. Re-detach manually if you need that state back.`,
+      );
+    }
 
-    // Squash merge
-    gitExecOrThrow(["merge", "--squash", wt.branchName], wt.projectPath);
+    let checkedOut = false;
+    try {
+      // Checkout base branch in main project
+      gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
+      checkedOut = true;
 
-    // Commit
-    gitExecOrThrow(["commit", "-m", commitMsg], wt.projectPath);
+      // Squash merge
+      gitExecOrThrow(["merge", "--squash", wt.branchName], wt.projectPath);
 
-    // Get merge commit hash
-    const mergeCommit = getCurrentCommit(wt.projectPath);
+      // Commit
+      gitExecOrThrow(["commit", "-m", commitMsg], wt.projectPath);
 
-    // Cleanup: remove the worktree directory and delete the branch — and THROW
-    // if the directory survives. The preflight cannot see a file created since,
-    // and `merged` must never be written over a directory that is still there:
-    // it is terminal, so it frees the slot for a worktree that would then
-    // collide with this one's ports, databases and seeded `.env`.
-    removeMergedWorktree(wt, mergeCommit);
+      // Get merge commit hash
+      const mergeCommit = getCurrentCommit(wt.projectPath);
 
-    // Update store — reached only once the directory is gone.
-    this.store.updateStatus(worktreeId, "merged", mergeCommit);
+      // Cleanup: remove the worktree directory and delete the branch — and THROW
+      // if the directory survives. The preflight cannot see a file created since,
+      // and `merged` must never be written over a directory that is still there:
+      // it is terminal, so it frees the slot for a worktree that would then
+      // collide with this one's ports, databases and seeded `.env`.
+      removeMergedWorktree(wt, mergeCommit);
 
-    return mergeCommit;
+      // Update store — reached only once the directory is gone.
+      this.store.updateStatus(worktreeId, "merged", mergeCommit);
+
+      return mergeCommit;
+    } finally {
+      // H3: restore the user's branch — on success AND on any failure after
+      // the checkout moved HEAD. Best-effort (`gitExec`, not OrThrow): a
+      // restore failure must never mask the real error travelling out of the
+      // try block. No-op when the user was already on the base branch, or
+      // detached, or the checkout never happened.
+      if (checkedOut && originalBranch && originalBranch !== wt.baseBranch) {
+        const restore = gitExec(["checkout", originalBranch], wt.projectPath);
+        if (restore.exitCode !== 0) {
+          warnings?.push(
+            `Could not restore the main checkout to ${originalBranch} ` +
+              `(it is on ${wt.baseBranch}): ${restore.stderr || restore.stdout}`,
+          );
+        }
+      }
+    }
   }
 
   /** Abandon a worktree — remove from disk and mark as abandoned. */

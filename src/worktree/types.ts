@@ -281,6 +281,18 @@ export class WorktreeError extends Error {
        */
       | "DIRTY_WORKTREE"
       /**
+       * `squashMerge` found staged or modified TRACKED files in the MAIN
+       * checkout (`projectPath`) and refused **before touching anything**.
+       *
+       * ⛔ Distinct from DIRTY_WORKTREE: the dirt is on the other side of the
+       * merge. `squashMerge` runs `git checkout base` + `git commit` in the
+       * main checkout, so staged edits there would be silently committed INTO
+       * the spec's squash commit. Untracked files do NOT trigger this —
+       * `git commit -m` cannot commit them. Nothing has been done when this is
+       * thrown; commit or stash in the main checkout and retry verbatim.
+       */
+      | "DIRTY_MAIN_CHECKOUT"
+      /**
        * The squash merge **landed on the base branch**, but the worktree
        * directory could not be removed afterwards.
        *

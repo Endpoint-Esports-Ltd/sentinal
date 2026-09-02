@@ -55,6 +55,7 @@ import {
 import { stopOwnedGroup, type StopResult } from "./teardown.js";
 import { preflight } from "./preflight.js";
 import type { GroupProbes } from "./ownership.js";
+import type { StartTimeProbes } from "./proc-start.js";
 
 // The preflight — every dangerous decision in this phase — lives in its own
 // module. Re-exported so callers have a single entry point for the lifecycle.
@@ -102,12 +103,12 @@ export interface RuntimeUpDeps {
   stop?: (projectPath: string) => Promise<StopResult>;
   /** True when something is already listening on `host:port`. */
   isPortBound?: (port: number, host?: string) => Promise<boolean>;
-  probes?: GroupProbes;
+  probes?: GroupProbes & StartTimeProbes;
   logTail?: (projectPath: string) => string;
 }
 
 export interface RuntimeStopDeps {
-  probes?: GroupProbes;
+  probes?: GroupProbes & StartTimeProbes;
   stop?: (projectPath: string) => Promise<StopResult>;
 }
 
@@ -145,7 +146,8 @@ export async function runtimeUp(
   const load = deps.loadConfig ?? loadRuntimeConfig;
   const spawn = deps.spawn ?? spawnDetached;
   const ready = deps.awaitReady ?? awaitReadiness;
-  const stop = deps.stop ?? ((p: string) => stopOwnedGroup(p, { probes: deps.probes }));
+  const stop =
+    deps.stop ?? ((p: string) => stopOwnedGroup(p, { probes: deps.probes }));
   const tail = deps.logTail ?? readLogTail;
 
   let loaded: LoadedRuntimeConfig;

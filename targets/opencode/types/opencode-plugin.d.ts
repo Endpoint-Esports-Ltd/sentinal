@@ -99,19 +99,39 @@ export interface LogBody {
 }
 
 /**
- * Tool execution input
+ * Tool execution shapes — mirror the installed @opencode-ai/plugin package
+ * (dist/index.d.ts). The two hooks receive DIFFERENT shapes:
+ *
+ * - before: args are on `output` and are WRITABLE (the args-rewriting API)
+ * - after:  args are on `input`; `output` is {title, output, metadata}
  */
-export interface ToolExecuteInput {
+export interface ToolExecuteBeforeInput {
   tool: string;
-  sessionID?: string;
-  messageID?: string;
+  sessionID: string;
+  callID: string;
+}
+
+/** Before-hook output (mutable): plugins may rewrite the tool args. */
+export interface ToolExecuteBeforeOutput {
+  args: Record<string, unknown>;
+}
+
+export interface ToolExecuteAfterInput {
+  tool: string;
+  sessionID: string;
+  callID: string;
+  args: Record<string, unknown>;
 }
 
 /**
- * Tool execution output (mutable)
+ * After-hook output: the tool's result. There is NO `args` here, and no
+ * `stdout`/`stderr`/`exitCode` — bash exit info arrives (loosely typed) in
+ * `metadata.exit` per OpenCode's shell tool.
  */
-export interface ToolExecuteOutput {
-  args: Record<string, unknown>;
+export interface ToolExecuteAfterOutput {
+  title: string;
+  output: string;
+  metadata: Record<string, unknown>;
 }
 
 /**
@@ -154,16 +174,16 @@ export interface EventInput {
  * Plugin hooks
  */
 export interface PluginHooks {
-  /** Called before a tool is executed */
+  /** Called before a tool is executed — `output.args` is writable */
   "tool.execute.before"?: (
-    input: ToolExecuteInput,
-    output: ToolExecuteOutput,
+    input: ToolExecuteBeforeInput,
+    output: ToolExecuteBeforeOutput,
   ) => Promise<void>;
 
-  /** Called after a tool is executed */
+  /** Called after a tool is executed — args on `input`, result on `output` */
   "tool.execute.after"?: (
-    input: ToolExecuteInput,
-    output: ToolExecuteOutput,
+    input: ToolExecuteAfterInput,
+    output: ToolExecuteAfterOutput,
   ) => Promise<void>;
 
   /** Called when a session is being compacted (experimental) */

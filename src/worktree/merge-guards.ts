@@ -117,6 +117,62 @@ export function assertCleanForMerge(wt: Worktree): void {
 }
 
 /**
+ * Staged-or-modified TRACKED paths in the MAIN checkout (`projectPath`) — the
+ * H3 preflight's input.
+ *
+ * ## Untracked-files policy: `??` is ALLOWED, everything else refuses
+ *
+ * `squashMerge` runs `git checkout base`, `git merge --squash`, `git commit -m`
+ * in the main checkout. `git commit -m` commits **the index** — so anything
+ * staged is silently swept INTO the spec's squash commit, and tracked
+ * modifications ride along across the `checkout`. Untracked files can do
+ * neither: `git commit -m` cannot commit a file that was never added, and a
+ * checkout leaves them where they are. Refusing on them would block merges for
+ * every scratch file and editor droppings in the user's checkout while
+ * protecting nothing. So: porcelain `??` entries are filtered out; any other
+ * status code refuses.
+ *
+ * (No `--untracked-files=all` here, unlike {@link gitVisibleChanges} — we
+ * discard the untracked entries anyway, so expanding directories buys nothing.)
+ */
+export function mainCheckoutTrackedChanges(projectPath: string): string[] {
+  const status = gitExec(["status", "--porcelain"], projectPath);
+  if (status.exitCode !== 0) return [];
+  return (
+    status.stdout
+      .split("\n")
+      // Same trim-by-shape as gitVisibleChanges: `gitExec` trims its stdout, so
+      // the first line's status column arrives already shifted.
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("??"))
+      .map((l) => l.replace(/^\S{1,2}\s+/, ""))
+  );
+}
+
+/**
+ * Refuse the merge if the MAIN checkout holds staged or modified tracked work
+ * the squash commit would sweep up. Throws `DIRTY_MAIN_CHECKOUT`; **nothing has
+ * been done** when it does. See {@link mainCheckoutTrackedChanges} for the
+ * untracked-files policy.
+ */
+export function assertMainCheckoutCleanForMerge(wt: Worktree): void {
+  const dirty = mainCheckoutTrackedChanges(wt.projectPath);
+  if (dirty.length === 0) return;
+
+  throw new WorktreeError(
+    `Refusing to merge ${wt.branchName}: the main checkout at ${wt.projectPath} has ` +
+      `${dirty.length} staged or modified tracked file(s) — ${listPaths(dirty)}. ` +
+      `The squash merge runs \`git checkout ${wt.baseBranch}\` and \`git commit\` there, so ` +
+      `these edits would ride along onto ${wt.baseBranch} and anything staged would be ` +
+      `silently committed INTO the spec's squash commit as if it were part of the spec. ` +
+      `Remedy: commit them, or \`git stash\` them in the main checkout and \`git stash pop\` ` +
+      `after the merge. Untracked files are not blockers — git commit cannot commit them. ` +
+      `Nothing has been merged — re-run once resolved.`,
+    "DIRTY_MAIN_CHECKOUT",
+  );
+}
+
+/**
  * Remove a just-merged worktree and delete its branch, **verifying** both.
  *
  * Returns normally only when the directory is gone. Throws `REMOVE_FAILED`

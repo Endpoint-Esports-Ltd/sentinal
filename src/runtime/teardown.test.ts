@@ -292,6 +292,76 @@ describe("stopOwnedGroup — dead leader, surviving group", () => {
   });
 });
 
+// ─── PID reuse: start-time mismatch (H5) ────────────────────────────────────
+
+describe("stopOwnedGroup — recycled leader PID (start-time mismatch)", () => {
+  it("⛔ REFUSES to signal when the live pid's start time contradicts the record", async () => {
+    // ⛔ THE H5 incident shape. A recycled leader PID lands on a process whose
+    // cwd IS the worktree (agent session / editor / shell in wave execution),
+    // so cmdline/cwd proof passes — but the live process started NOW while the
+    // record says a minute ago. Verification must come back `stale`, and the
+    // maySignalGroup gate must then refuse the unverifiable group.
+    const proc = Bun.spawn(["sleep", "30"], {
+      cwd: wt,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    started.push(proc.pid);
+    writePidfile(wt, {
+      pid: proc.pid,
+      pgid: proc.pid,
+      startedAt: Date.now() - 60_000, // 12x the ±5s tolerance
+      command: "npm run dev",
+      state: "ready",
+    });
+    const signals: unknown[] = [];
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config()),
+      probes: {
+        isAlive: () => true,
+        // The impostor leader's cwd is the worktree; the group's other live
+        // member is unrelated. startTimeOf is NOT stubbed — the real
+        // `ps -o etime=` sees the freshly spawned sleeper.
+        cwdOf: (pid) => (pid === proc.pid ? wt : "/"),
+        commandOf: () => "/usr/sbin/unrelated-daemon",
+        listGroup: () => [999_888],
+      },
+      signalFn: (t, s) => signals.push([t, s]),
+    });
+
+    expect(r.ok).toBe(false);
+    expect(signals).toEqual([]);
+    expect(r.reason?.toLowerCase()).toContain("refus");
+    // The record is KEPT — it is the only evidence of what may be running.
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  }, 15_000);
+
+  it("⛔ REFUSES — fail closed — when the start time cannot be verified at all", async () => {
+    const proc = Bun.spawn(["sleep", "30"], {
+      cwd: wt,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    started.push(proc.pid);
+    pidfileFor(proc.pid, proc.pid);
+    const signals: unknown[] = [];
+
+    const r = await stopOwnedGroup(wt, {
+      loadConfig: loading(config()),
+      probes: {
+        cwdOf: (pid) => (pid === proc.pid ? wt : "/"),
+        startTimeOf: () => null, // `ps` unavailable / unparsable
+      },
+      signalFn: (t, s) => signals.push([t, s]),
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.stopped).toBe(false);
+    expect(signals).toEqual([]);
+    expect(r.reason).toContain("start time");
+    expect(existsSync(runtimePidfilePath(wt))).toBe(true);
+  }, 15_000);
+});
+
 // ─── `down` ─────────────────────────────────────────────────────────────────
 
 describe("stopOwnedGroup — the declared `down`", () => {
@@ -301,7 +371,10 @@ describe("stopOwnedGroup — the declared `down`", () => {
 
     await stopOwnedGroup(wt, {
       loadConfig: loading(config({ down: "docker compose down" })),
-      probes: { commandOf: () => `sh -c cd ${wt} && npm start` },
+      probes: {
+        commandOf: () => `sh -c cd ${wt} && npm start`,
+        startTimeOf: () => Date.now(),
+      },
       runShell: async (cmd, cwd, timeoutMs) => {
         order.push(`down:${cmd}:${cwd}:${timeoutMs}`);
         return { exitCode: 0, timedOut: false };
@@ -319,7 +392,10 @@ describe("stopOwnedGroup — the declared `down`", () => {
 
     const r = await stopOwnedGroup(wt, {
       loadConfig: loading(config({ down: "false" })),
-      probes: { commandOf: () => `sh -c cd ${wt} && npm start` },
+      probes: {
+        commandOf: () => `sh -c cd ${wt} && npm start`,
+        startTimeOf: () => Date.now(),
+      },
       runShell: async () => ({ exitCode: 1, timedOut: false }),
       signalFn: (t, s) => signals.push([t, s as string]),
     });
@@ -339,7 +415,10 @@ describe("stopOwnedGroup — no process group (Windows)", () => {
     const r = await stopOwnedGroup(wt, {
       platform: "win32",
       loadConfig: loading(config({ down: "docker compose down" })),
-      probes: { commandOf: () => `node ${wt}\\server.js` },
+      probes: {
+        commandOf: () => `node ${wt}\\server.js`,
+        startTimeOf: () => Date.now(),
+      },
       runShell: async (cmd) => {
         ran.push(cmd);
         return { exitCode: 0, timedOut: false };
@@ -364,7 +443,10 @@ describe("stopOwnedGroup — no process group (Windows)", () => {
     const r = await stopOwnedGroup(wt, {
       platform: "win32",
       loadConfig: loading(config()),
-      probes: { commandOf: () => `node ${wt}\\server.js` },
+      probes: {
+        commandOf: () => `node ${wt}\\server.js`,
+        startTimeOf: () => Date.now(),
+      },
       signalFn: () => {
         throw new Error("there is no group to signal");
       },
@@ -388,6 +470,7 @@ describe("stopOwnedGroup — escalation", () => {
       probes: {
         commandOf: () => `sh -c cd ${wt} && npm start`,
         isAlive: () => true, // never dies
+        startTimeOf: () => Date.now(),
       },
       signalFn: (t, s) => signals.push([t, s as string]),
       sleep: async () => {},
@@ -408,6 +491,7 @@ describe("stopOwnedGroup — escalation", () => {
       probes: {
         commandOf: () => `sh -c cd ${wt} && npm start`,
         isAlive: () => alive,
+        startTimeOf: () => Date.now(),
       },
       signalFn: (t, s) => {
         signals.push([t, s as string]);
@@ -433,6 +517,7 @@ describe("stopOwnedGroup — escalation", () => {
       probes: {
         commandOf: () => `sh -c cd ${wt} && npm start`,
         isAlive: () => alive,
+        startTimeOf: () => Date.now(),
       },
       signalFn: (t, s) => {
         signals.push([t, s as string]);

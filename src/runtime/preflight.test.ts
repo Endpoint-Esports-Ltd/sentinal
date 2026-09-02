@@ -51,6 +51,7 @@ import { writePidfile, runtimePidfilePath } from "./pidfile.js";
 import type { RuntimePidfile } from "./pidfile.js";
 import { RuntimeConfigSchema, type RuntimeConfig } from "./schema.js";
 import type { GroupProbes } from "./ownership.js";
+import type { StartTimeProbes } from "./proc-start.js";
 import type { StopResult } from "./teardown.js";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -120,11 +121,14 @@ function seedRawPidfile(worktree: string, contents: string): void {
 }
 
 /** Probes that prove the recorded leader is alive AND belongs to `worktree`. */
-function oursAndAlive(worktree: string): GroupProbes {
+function oursAndAlive(worktree: string): GroupProbes & StartTimeProbes {
   return {
     isAlive: () => true,
     commandOf: () => "node server.js",
     cwdOf: () => worktree,
+    // The stubbed leader "started" when the record was written — without this
+    // the H5 start-time check would run the real `ps` against a fake pid.
+    startTimeOf: () => Date.now(),
   };
 }
 
@@ -321,6 +325,31 @@ describe("preflight — ready, alive, ours", () => {
       probes: oursAndAlive(wt),
     });
     expect(r.kind).toBe("reuse");
+  });
+
+  it("⛔ does NOT reuse a recycled PID whose start time contradicts the record (H5)", async () => {
+    // Everything about this pid says "ours" — alive, worktree cwd — except
+    // that it started an hour after the record was written. That is a recycled
+    // PID wearing our leader's number, and it must route to the dead-leader
+    // doctrine (stale), never to reuse.
+    seedPidfile(wt, { state: "ready" });
+    const stop = stopSpy();
+
+    const r = await preflight(wt, cfg(), {
+      stop: stop.fn,
+      isPortBound: portAlways(false),
+      probes: {
+        ...oursAndAlive(wt),
+        startTimeOf: () => Date.now() + 3_600_000,
+        listGroup: () => [],
+      },
+    });
+
+    // Group enumerated empty + port free: the stale record is discarded and a
+    // fresh spawn proceeds — without a single signal being sent.
+    expect(r.kind).toBe("spawn");
+    expect(stop.calls).toEqual([]);
+    expect(r.actions.join(" ")).toContain("stale");
   });
 });
 

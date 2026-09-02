@@ -126,7 +126,7 @@ function registerSpecEventsTool(
 
 function registerSpecMetricsTool(
   server: McpServer,
-  _client: SidecarClient | null,
+  client: SidecarClient | null,
   specStore: SpecStore | null,
 ): void {
   server.tool(
@@ -148,11 +148,37 @@ function registerSpecMetricsTool(
       }
 
       const targetId = spec_id ?? active?.spec.id;
-      if (!targetId || !specStore) {
+      if (!targetId || (!client && !specStore)) {
         return mcpText("No spec found.");
       }
 
-      const rawSpec = specStore.getSpecTiming(targetId);
+      // Client-first (production/sidecar mode); direct specStore fallback.
+      let rawSpec: {
+        title: string;
+        status: string;
+        startedAt: number | null;
+        completedAt: number | null;
+      } | null;
+      let rawTasks: Array<{
+        position: number;
+        title: string;
+        status: string;
+        startedAt: number | null;
+        completedAt: number | null;
+      }>;
+      try {
+        if (client) {
+          const data = await client.getSpecMetrics(targetId);
+          rawSpec = data.spec;
+          rawTasks = data.tasks;
+        } else {
+          rawSpec = specStore!.getSpecTiming(targetId);
+          rawTasks = rawSpec ? specStore!.getTaskTiming(targetId) : [];
+        }
+      } catch (err) {
+        return mcpError("Error getting spec metrics", err);
+      }
+
       if (!rawSpec) {
         return mcpText(`Spec not found: ${targetId}`);
       }
@@ -184,7 +210,6 @@ function registerSpecMetricsTool(
       }
 
       // Task timing
-      const rawTasks = specStore.getTaskTiming(targetId);
       const tasksWithTiming = rawTasks.filter(
         (t) => t.startedAt || t.completedAt,
       );

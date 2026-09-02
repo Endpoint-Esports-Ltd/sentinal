@@ -18,6 +18,8 @@ import { makeTmpDir } from "../test-helpers.js";
 import {
   gitVisibleChanges,
   assertCleanForMerge,
+  mainCheckoutTrackedChanges,
+  assertMainCheckoutCleanForMerge,
   removeMergedWorktree,
 } from "./merge-guards.js";
 import { WorktreeError, type Worktree } from "./types.js";
@@ -118,6 +120,75 @@ describe("merge-guards", () => {
         expect(err instanceof Error ? err.message : "").toContain(
           "Nothing has been merged",
         );
+      }
+    });
+  });
+
+  // ─── H3: the OTHER side of the merge — the main checkout ──────────────────
+  //
+  // `squashMerge` runs `git checkout` + `git commit` in wt.projectPath, so a
+  // user with staged edits there would get them silently committed INTO the
+  // squash commit. Untracked files are deliberately allowed: `git commit -m`
+  // cannot commit them, so they are not a pollution risk.
+
+  describe("mainCheckoutTrackedChanges", () => {
+    it("is empty for a pristine main checkout", () => {
+      expect(mainCheckoutTrackedChanges(repoDir)).toEqual([]);
+    });
+
+    it("does NOT count untracked files — git commit -m cannot commit them", () => {
+      writeFileSync(join(repoDir, "scratch.txt"), "notes\n");
+      expect(mainCheckoutTrackedChanges(repoDir)).toEqual([]);
+    });
+
+    it("counts a staged new file", () => {
+      writeFileSync(join(repoDir, "staged.txt"), "user work\n");
+      git(["add", "staged.txt"], repoDir);
+      expect(mainCheckoutTrackedChanges(repoDir)).toEqual(["staged.txt"]);
+    });
+
+    it("counts an unstaged modification to a tracked file", () => {
+      writeFileSync(join(repoDir, "README.md"), "# changed\n");
+      expect(mainCheckoutTrackedChanges(repoDir)).toEqual(["README.md"]);
+    });
+  });
+
+  describe("assertMainCheckoutCleanForMerge", () => {
+    it("passes on a pristine main checkout", () => {
+      expect(() => assertMainCheckoutCleanForMerge(wt)).not.toThrow();
+    });
+
+    it("passes when the main checkout only holds untracked files", () => {
+      writeFileSync(join(repoDir, "scratch.txt"), "notes\n");
+      expect(() => assertMainCheckoutCleanForMerge(wt)).not.toThrow();
+    });
+
+    it("throws DIRTY_MAIN_CHECKOUT naming the path and the remedy", () => {
+      writeFileSync(join(repoDir, "staged.txt"), "user work\n");
+      git(["add", "staged.txt"], repoDir);
+      try {
+        assertMainCheckoutCleanForMerge(wt);
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(WorktreeError);
+        expect((err as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
+        const msg = err instanceof Error ? err.message : "";
+        expect(msg).toContain("staged.txt");
+        // The remedy must be actionable: commit or stash.
+        expect(msg).toContain("stash");
+        // Retry-safety: this fires BEFORE anything is done.
+        expect(msg).toContain("Nothing has been merged");
+      }
+    });
+
+    it("throws on an unstaged tracked modification too", () => {
+      writeFileSync(join(repoDir, "README.md"), "# changed\n");
+      try {
+        assertMainCheckoutCleanForMerge(wt);
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
+        expect(err instanceof Error ? err.message : "").toContain("README.md");
       }
     });
   });

@@ -392,6 +392,143 @@ describe("WorktreeManager", () => {
     });
   });
 
+  // ─── H3: squashMerge must not swallow the MAIN checkout's work ────────────
+  //
+  // ⛔ `squashMerge` runs `git checkout base` + `git commit` in wt.projectPath.
+  // Before the fix, a user with staged edits in the main checkout got them
+  // silently committed INTO the spec's squash commit — and was left on the base
+  // branch instead of the branch they were on.
+
+  describe("squashMerge main-checkout preflight + branch restore (H3)", () => {
+    /** Current branch of the main checkout ("" when detached). */
+    function currentBranch(): string {
+      const r = Bun.spawnSync(["git", "branch", "--show-current"], {
+        cwd: repoDir,
+        stdout: "pipe",
+      });
+      return (r.stdout?.toString() ?? "").trim();
+    }
+
+    it("refuses with DIRTY_MAIN_CHECKOUT on staged changes — and never commits them", async () => {
+      const wt = manager.create("2026-09-01-dirty-main", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+
+      // The user's unrelated staged work in the MAIN checkout.
+      writeFileSync(join(repoDir, "staged.txt"), "user work\n");
+      Bun.spawnSync(["git", "add", "staged.txt"], { cwd: repoDir });
+
+      let caught: unknown;
+      try {
+        await manager.squashMerge(wt.id);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(WorktreeError);
+      expect((caught as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
+      expect((caught as WorktreeError).message).toContain("staged.txt");
+
+      // The polluted-commit behaviour is GONE: no commit anywhere contains
+      // staged.txt, and it is still staged and uncommitted in the checkout.
+      const log = Bun.spawnSync(
+        ["git", "log", "--all", "--oneline", "--", "staged.txt"],
+        { cwd: repoDir, stdout: "pipe" },
+      );
+      expect((log.stdout?.toString() ?? "").trim()).toBe("");
+      const status = Bun.spawnSync(["git", "status", "--porcelain"], {
+        cwd: repoDir,
+        stdout: "pipe",
+      });
+      expect(status.stdout?.toString() ?? "").toContain("A  staged.txt");
+
+      // Nothing was merged, nothing was removed, the slot is still held.
+      expect(existsSync(join(repoDir, "feature.ts"))).toBe(false);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    });
+
+    it("allows untracked-only files in the main checkout — they cannot be committed", async () => {
+      const wt = manager.create("2026-09-01-untracked-main", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+
+      writeFileSync(join(repoDir, "scratch.txt"), "notes\n");
+
+      const mergeCommit = await manager.squashMerge(wt.id);
+      expect(wtStore.get(wt.id)!.status).toBe("merged");
+
+      // The untracked file survives, untouched and still untracked.
+      expect(readFileSync(join(repoDir, "scratch.txt"), "utf-8")).toBe(
+        "notes\n",
+      );
+      const show = Bun.spawnSync(
+        ["git", "show", "--stat", "--format=", mergeCommit],
+        { cwd: repoDir, stdout: "pipe" },
+      );
+      expect(show.stdout?.toString() ?? "").not.toContain("scratch.txt");
+    });
+
+    it("restores the branch the user was on after a successful merge", async () => {
+      const wt = manager.create("2026-09-01-restore", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      Bun.spawnSync(["git", "checkout", "-b", "side"], { cwd: repoDir });
+
+      const mergeCommit = await manager.squashMerge(wt.id);
+
+      expect(currentBranch()).toBe("side");
+      // The merge still landed on the BASE branch, not on side.
+      const mainHead = Bun.spawnSync(["git", "rev-parse", "main"], {
+        cwd: repoDir,
+        stdout: "pipe",
+      });
+      expect((mainHead.stdout?.toString() ?? "").trim()).toBe(mergeCommit);
+    });
+
+    it("no-ops the restore when the user was already on the base branch", async () => {
+      const wt = manager.create("2026-09-01-on-base", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      expect(currentBranch()).toBe("main");
+
+      await manager.squashMerge(wt.id);
+      expect(currentBranch()).toBe("main");
+    });
+
+    it("restores the branch even when a failure happens AFTER the checkout", async () => {
+      // Stage the same late-appearing-file failure the REMOVE_FAILED tests
+      // use: the stop hook runs before the checkout, the removal fails after
+      // the commit — a genuine post-checkout failure path.
+      const m = new WorktreeManager(wtStore, {
+        ...testConfig,
+        stopOwnedRuntime: async (worktreePath: string) => {
+          writeFileSync(join(worktreePath, "appeared-late.txt"), "x");
+          return { ok: true, stopped: false, actions: [], warnings: [] };
+        },
+      });
+      const wt = m.create("2026-09-01-restore-fail", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      Bun.spawnSync(["git", "checkout", "-b", "side-fail"], { cwd: repoDir });
+
+      await expect(m.squashMerge(wt.id)).rejects.toThrow(WorktreeError);
+
+      // The merge landed (the failure was the removal), but the user is back
+      // on the branch they were on.
+      expect(currentBranch()).toBe("side-fail");
+      expect(existsSync(wt.worktreePath)).toBe(true);
+    });
+
+    it("does not attempt a restore from a detached HEAD, and says so", async () => {
+      const wt = manager.create("2026-09-01-detached", repoDir);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      Bun.spawnSync(["git", "checkout", "--detach"], { cwd: repoDir });
+      expect(currentBranch()).toBe(""); // detached
+
+      const warnings: string[] = [];
+      await manager.squashMerge(wt.id, undefined, warnings);
+
+      // Left on the base branch — there was no branch to go back to.
+      expect(currentBranch()).toBe("main");
+      expect(warnings.join("\n")).toContain("detached");
+    });
+  });
+
   describe("abandon", () => {
     it("should remove worktree and mark as abandoned", async () => {
       const wt = manager.create(undefined, repoDir);

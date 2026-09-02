@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
@@ -321,6 +321,107 @@ describe("WorktreeStore", () => {
       const result = store.resolveBySlug("2026-06-09-global");
       expect(result).not.toBeNull();
       expect(result!.id).toBe("wt-default-prefix-global");
+    });
+
+    it("returns each project's own worktree when the same slug exists in two projects", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-proj-a",
+          branchName: "sentinal/spec-2026-09-01-same-slug",
+          projectPath: "/project-a",
+        }),
+      );
+      store.insert(
+        makeWorktree({
+          id: "wt-proj-b",
+          branchName: "sentinal/spec-2026-09-01-same-slug",
+          projectPath: "/project-b",
+        }),
+      );
+
+      const a = store.resolveBySlug("2026-09-01-same-slug", "/project-a");
+      const b = store.resolveBySlug("2026-09-01-same-slug", "/project-b");
+      expect(a!.id).toBe("wt-proj-a");
+      expect(a!.projectPath).toBe("/project-a");
+      expect(b!.id).toBe("wt-proj-b");
+      expect(b!.projectPath).toBe("/project-b");
+    });
+
+    it("returns null on a scoped miss instead of falling back to another project (H4)", () => {
+      // Slug exists ONLY in project B. A resolve scoped to project A must
+      // return null — the old global fallback silently discarded the scope
+      // and handed back B's worktree, which worktree_sync/abandon would then
+      // squash-merge or delete in ANOTHER project.
+      store.insert(
+        makeWorktree({
+          id: "wt-only-in-b",
+          branchName: "sentinal/spec-2026-09-01-only-in-b",
+          projectPath: "/project-b",
+        }),
+      );
+
+      const result = store.resolveBySlug("2026-09-01-only-in-b", "/project-a");
+      expect(result).toBeNull();
+    });
+
+    it("does not match a longer slug that shares a prefix (add vs add-auth)", () => {
+      // Branches are exactly `${prefix}${slug}` (create.ts) — a bare LIKE
+      // '${prefix}add%' would match add-auth too.
+      store.insert(
+        makeWorktree({
+          id: "wt-add",
+          branchName: "sentinal/spec-add",
+          projectPath: "/test/project",
+        }),
+      );
+      store.insert(
+        makeWorktree({
+          id: "wt-add-auth",
+          branchName: "sentinal/spec-add-auth",
+          projectPath: "/test/project",
+        }),
+      );
+
+      const result = store.resolveBySlug("add", "/test/project");
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-add");
+    });
+
+    it("returns null for a prefix-colliding slug when only the longer branch exists", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-add-auth-only",
+          branchName: "sentinal/spec-add-auth",
+          projectPath: "/test/project",
+        }),
+      );
+
+      expect(store.resolveBySlug("add", "/test/project")).toBeNull();
+      expect(store.resolveBySlug("add")).toBeNull();
+    });
+
+    it("scopes by canonical path — a symlinked alias of the same project still matches", () => {
+      // Regression guard for the strict scoping: worktree_create stores
+      // project_path via getRepoRoot() (realpath — /private/var/... on
+      // macOS), while callers may pass the symlinked alias (/var/...).
+      // The old global fallback papered over this; strict scoping must
+      // compare canonical paths instead.
+      const realDir = join(tmpDir, "real-project");
+      const aliasDir = join(tmpDir, "alias-project");
+      mkdirSync(realDir, { recursive: true });
+      symlinkSync(realDir, aliasDir);
+
+      store.insert(
+        makeWorktree({
+          id: "wt-canonical",
+          branchName: "sentinal/spec-2026-09-01-canonical",
+          projectPath: realDir,
+        }),
+      );
+
+      const result = store.resolveBySlug("2026-09-01-canonical", aliasDir);
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("wt-canonical");
     });
 
     it("should prefer spec_id match over branch name match", () => {

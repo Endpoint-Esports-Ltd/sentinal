@@ -24,6 +24,7 @@ import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SpecStore } from "../spec/store.js";
 import * as lifecycleModule from "../sidecar/lifecycle.js";
+import type { SidecarClient } from "../sidecar/client.js";
 import type { CreateObservation } from "../memory/types.js";
 
 // --- Helpers ---
@@ -512,13 +513,75 @@ Type: Feature
 
 // --- MCP Cleanup Handler Tests ---
 
+// View process as a plain EventEmitter — the typed overloads reject the
+// "SIGTERM" | "SIGINT" | "exit" union these helpers iterate over.
+const proc = process as unknown as NodeJS.EventEmitter;
+
+/** Snapshot process signal/exit listeners so tests can remove what they add. */
+function snapshotListeners() {
+  return {
+    SIGTERM: proc.listeners("SIGTERM"),
+    SIGINT: proc.listeners("SIGINT"),
+    exit: proc.listeners("exit"),
+  };
+}
+
+function removeAddedListeners(before: ReturnType<typeof snapshotListeners>) {
+  for (const event of ["SIGTERM", "SIGINT", "exit"] as const) {
+    for (const l of proc.listeners(event)) {
+      if (!before[event].includes(l)) {
+        proc.removeListener(event, l as (...args: unknown[]) => void);
+      }
+    }
+  }
+}
+
+/** Find the listeners added between a snapshot and now for one event. */
+function addedListeners(
+  before: ReturnType<typeof snapshotListeners>,
+  event: "SIGTERM" | "SIGINT" | "exit",
+) {
+  return proc
+    .listeners(event)
+    .filter((l) => !before[event].includes(l)) as Array<() => void>;
+}
+
 describe("registerMcpCleanupHandlers", () => {
+  let listenersBefore: ReturnType<typeof snapshotListeners>;
+
+  beforeEach(() => {
+    listenersBefore = snapshotListeners();
+  });
+
   afterEach(() => {
+    removeAddedListeners(listenersBefore);
     mock.restore();
   });
 
   it("should be a callable function", () => {
     expect(typeof registerMcpCleanupHandlers).toBe("function");
+  });
+
+  // ⛔ The production shape: main() connects a SidecarClient, so the factory
+  // yields store === null. The sidecar is SHARED across sessions and owns its
+  // own lifecycle (session-aware idle shutdown including the sessions-never-
+  // seen fallback — src/sidecar/server.ts:235-241). Client mode must NEVER
+  // stop it out from under other live sessions.
+  it("client mode (store null) NEVER calls stopSidecarProcess", () => {
+    const stopSpy = spyOn(
+      lifecycleModule,
+      "stopSidecarProcess",
+    ).mockReturnValue(true);
+
+    // Production wiring: any client present → store is null.
+    const stubClient = {} as unknown as SidecarClient;
+    const { store } = createSentinalServer({ client: stubClient });
+    expect(store).toBeNull();
+
+    const cleanup = registerMcpCleanupHandlers(store);
+    cleanup();
+
+    expect(stopSpy).not.toHaveBeenCalled();
   });
 
   it("should call stopSidecarProcess when no active sessions remain", () => {
@@ -564,6 +627,68 @@ describe("registerMcpCleanupHandlers", () => {
     cleanup();
 
     expect(stopSpy).not.toHaveBeenCalled();
+
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // `kill <pid>` must terminate the MCP server, not just (maybe) stop the
+  // sidecar and leave the process running with default signal behaviour
+  // swallowed by the handler.
+  it("SIGTERM handler runs cleanup and exits with 143", () => {
+    const stopSpy = spyOn(
+      lifecycleModule,
+      "stopSidecarProcess",
+    ).mockReturnValue(true);
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
+
+    registerMcpCleanupHandlers(null);
+    const added = addedListeners(listenersBefore, "SIGTERM");
+    expect(added.length).toBe(1);
+
+    added[0]();
+
+    expect(exitSpy).toHaveBeenCalledWith(143);
+    // Client mode: still never stops the shared sidecar, even on signal.
+    expect(stopSpy).not.toHaveBeenCalled();
+  });
+
+  it("SIGINT handler runs cleanup and exits with 130", () => {
+    spyOn(lifecycleModule, "stopSidecarProcess").mockReturnValue(true);
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
+
+    registerMcpCleanupHandlers(null);
+    const added = addedListeners(listenersBefore, "SIGINT");
+    expect(added.length).toBe(1);
+
+    added[0]();
+
+    expect(exitSpy).toHaveBeenCalledWith(130);
+  });
+
+  it("registers exactly one exit listener (no duplicate registration)", () => {
+    registerMcpCleanupHandlers(null);
+    expect(addedListeners(listenersBefore, "exit").length).toBe(1);
+  });
+
+  it("direct mode: cleanup only stops the sidecar once even when invoked repeatedly (signal then exit event)", () => {
+    const tmpDir = makeTmpDir();
+    const store = new MemoryStore(join(tmpDir, "test.db"));
+
+    const stopSpy = spyOn(
+      lifecycleModule,
+      "stopSidecarProcess",
+    ).mockReturnValue(true);
+
+    const cleanup = registerMcpCleanupHandlers(store);
+    cleanup();
+    cleanup(); // process.exit() from a signal handler re-fires via the exit event
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
 
     store.close();
     rmSync(tmpDir, { recursive: true, force: true });

@@ -44,6 +44,7 @@ import {
   type GroupProbes,
   type OwnershipProbes,
 } from "./ownership.js";
+import type { StartTimeProbes } from "./proc-start.js";
 import type { RuntimeConfig } from "./schema.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ export interface ShellResult {
 export interface TeardownDeps {
   /** Structurally a `LoadedRuntimeConfig`; only `config` is read. */
   loadConfig?: (worktreePath: string) => { config: RuntimeConfig | null };
-  probes?: GroupProbes;
+  probes?: GroupProbes & StartTimeProbes;
   /** `target` is NEGATIVE for a process group. */
   signalFn?: (target: number, signal: NodeJS.Signals) => void;
   runShell?: (
@@ -369,7 +370,7 @@ export interface AliveVerdict {
  */
 export function assertStillAlive(
   worktreePath: string,
-  probes: OwnershipProbes = {},
+  probes: OwnershipProbes & StartTimeProbes = {},
 ): AliveVerdict {
   const verdict = inspectPidfile(worktreePath, probes);
   switch (verdict.kind) {

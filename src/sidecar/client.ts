@@ -12,6 +12,42 @@ import { logSidecar } from "../utils/file-log.js";
 import { SidecarRoutes } from "./client-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
 
+// ─── Request timeouts ──────────────────────────────────────────────────────
+
+/**
+ * Path-pattern → request timeout budget (H8). Without a bound, a sidecar
+ * that is alive-but-hung stalls every sync hook to its full hooks.json
+ * timeout. Follows the AbortSignal.timeout pattern from lifecycle.ts.
+ *
+ * - /quality-check runs tsc/eslint/prettier subprocesses SEQUENTIALLY, each
+ *   with its own server-side timeout (default 30s; callers pass up to 60s,
+ *   and prettier spawns twice) — the budget must cover the whole run + margin.
+ * - Embedding-backed (/observation, /memory/*, /context — cold
+ *   @xenova/transformers model load) and git/fs-backed (/worktree/*,
+ *   /spec/sync, /project-context) routes get a moderate budget.
+ * - Everything else is DB-only and must answer fast (default 2s, matching
+ *   lifecycle.ts health probes).
+ *
+ * spec_wait_file's long-poll does NOT go through this client — it is pure
+ * fs-watching in src/spec/mcp-tools.ts — so no entry is needed for it.
+ */
+const REQUEST_TIMEOUTS: Array<[RegExp, number]> = [
+  [/^\/quality-check/, 180_000],
+  [
+    /^\/(observation|context|memory\/|spec\/sync|worktree\/|project-context)/,
+    30_000,
+  ],
+];
+const DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
+
+/** Resolve the request timeout budget for a sidecar route path. */
+export function requestTimeoutMsFor(path: string): number {
+  for (const [pattern, ms] of REQUEST_TIMEOUTS) {
+    if (pattern.test(path)) return ms;
+  }
+  return DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
 export class SidecarClient extends SidecarRoutes {
   // ─── Self-healing reconnect knobs (overridable in tests) ────────────────
 
@@ -173,7 +209,11 @@ export class SidecarClient extends SidecarRoutes {
         ...init,
       });
     } catch (err) {
-      if (!this.reconnectEnabled) {
+      // A timeout means the request may have REACHED the server (it is
+      // alive-but-slow/hung) — retrying is not connection-safe and would
+      // double the wait. Only pure connection failures reconnect-retry.
+      const isTimeout = err instanceof Error && err.name === "TimeoutError";
+      if (isTimeout || !this.reconnectEnabled) {
         throw SidecarClient.enrich(err, init.method ?? "GET", path, this);
       }
       logSidecar(
@@ -186,6 +226,8 @@ export class SidecarClient extends SidecarRoutes {
         return await fetch(`${this.baseUrl}${path}`, {
           ...this.fetchOpts,
           ...init,
+          // Fresh budget — reconnect polling may have consumed the original.
+          signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
         });
       } catch (err2) {
         throw SidecarClient.enrich(err2, init.method ?? "GET", path, this);
@@ -236,7 +278,10 @@ export class SidecarClient extends SidecarRoutes {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   protected async get(path: string): Promise<any> {
-    const res = await this.fetchWithReconnect(path, { method: "GET" });
+    const res = await this.fetchWithReconnect(path, {
+      method: "GET",
+      signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
+    });
     const body = (await res.json()) as {
       ok: boolean;
       data?: any;
@@ -251,6 +296,7 @@ export class SidecarClient extends SidecarRoutes {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
+      signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
     });
     const body = (await res.json()) as {
       ok: boolean;

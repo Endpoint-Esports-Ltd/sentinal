@@ -34,6 +34,7 @@ import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";
 import { handleTddTransitionRequest } from "./tdd-routes.js";
+import { handleSpecMetricsRequest } from "./spec-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
 import { LspClient } from "./lsp-client.js";
@@ -383,6 +384,8 @@ export async function startSidecar(
     if (projectResponse) return projectResponse;
     const tddResponse = await handleTddTransitionRequest(req, ctx);
     if (tddResponse) return tddResponse;
+    const specResponse = await handleSpecMetricsRequest(req, ctx);
+    if (specResponse) return specResponse;
     const configResponse = await handleConfigRequest(req, ctx);
     if (configResponse) return configResponse;
     const worktreeResponse = await handleWorktreeRequest(req, ctx);

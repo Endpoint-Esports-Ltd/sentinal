@@ -693,6 +693,90 @@ describe("SidecarClient self-healing reconnect", () => {
   });
 });
 
+// ─── Request timeouts (H8) ─────────────────────────────────────────────────
+//
+// A sidecar that is alive-but-hung (accepts connections, never responds) used
+// to stall every sync hook to its full hooks.json timeout because get/post
+// passed no AbortSignal. Requests must now be bounded by a path-based map.
+
+describe("SidecarClient request timeouts", () => {
+  it("bounds GET against an alive-but-hung sidecar", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}), // accept, never respond
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      const start = Date.now();
+      let threw = false;
+      try {
+        await client.ping(); // GET /ping — default (short) budget
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+      expect(Date.now() - start).toBeLessThan(5000);
+    } finally {
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  it("bounds POST against an alive-but-hung sidecar", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      const start = Date.now();
+      let threw = false;
+      try {
+        await client.insertNotification({
+          type: "info",
+          title: "t",
+          message: "m",
+          source: "test",
+        }); // POST /notification — default (short) budget
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+      expect(Date.now() - start).toBeLessThan(5000);
+    } finally {
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  it("sizes the path map: long budget for /quality-check, moderate for embedding/git routes, short default", async () => {
+    // Dynamic import so a missing export fails THIS test, not the whole file.
+    const mod: any = await import("./client.js");
+    expect(typeof mod.requestTimeoutMsFor).toBe("function");
+    // Must cover the subprocess timeout (default 30s/tool, callers pass up
+    // to 60s, checks run sequentially) plus margin.
+    expect(mod.requestTimeoutMsFor("/quality-check")).toBeGreaterThanOrEqual(
+      120_000,
+    );
+    // Embedding-backed and git-backed routes: cold model load / git can
+    // exceed a 2s default.
+    expect(mod.requestTimeoutMsFor("/memory/search")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    expect(mod.requestTimeoutMsFor("/observation")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    expect(mod.requestTimeoutMsFor("/worktree/cleanup")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    // Fast DB-only routes keep the lifecycle.ts-style short budget.
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(2_000);
+    expect(mod.requestTimeoutMsFor("/tdd-state")).toBe(2_000);
+  });
+});
+
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────
 
 describe("withSidecarOrDirect", () => {
