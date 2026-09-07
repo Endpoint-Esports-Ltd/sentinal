@@ -10,6 +10,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
 import { logSidecar } from "../utils/file-log.js";
 import { getSentinalVersion } from "./version.js";
+import { classifySidecarFailure } from "./client-errors.js";
 import { SidecarRoutes } from "./client-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
 
@@ -23,9 +24,14 @@ export type { QualityCheckResult } from "./quality-routes.js";
  * - /quality-check runs tsc/eslint/prettier subprocesses SEQUENTIALLY, each
  *   with its own server-side timeout (default 30s; callers pass up to 60s,
  *   and prettier spawns twice) — the budget must cover the whole run + margin.
+ * - /worktree/* cost scales with DISK SIZE, not with a fixed unit of work, so
+ *   it shares /quality-check's budget (issue #9). At the previous 30s, a
+ *   `--force` cleanup of 6.3 GB across 7 node_modules trees timed out AFTER
+ *   succeeding; idle-shutdown respawn (~8s observed) is charged to the same
+ *   budget, and the caller was then told the operation had failed.
  * - Embedding-backed (/observation, /memory/*, /context — cold
- *   @xenova/transformers model load) and git/fs-backed (/worktree/*,
- *   /spec/sync, /project-context) routes get a moderate budget.
+ *   @xenova/transformers model load) and git/fs-backed (/spec/sync,
+ *   /project-context) routes get a moderate budget.
  * - Everything else is DB-only and must answer fast (default 2s, matching
  *   lifecycle.ts health probes).
  *
@@ -33,16 +39,29 @@ export type { QualityCheckResult } from "./quality-routes.js";
  * fs-watching in src/spec/mcp-tools.ts — so no entry is needed for it.
  */
 const REQUEST_TIMEOUTS: Array<[RegExp, number]> = [
-  [/^\/quality-check/, 180_000],
-  [
-    /^\/(observation|context|memory\/|spec\/sync|worktree\/|project-context)/,
-    30_000,
-  ],
+  [/^\/(quality-check|worktree\/)/, 180_000],
+  [/^\/(observation|context|memory\/|spec\/sync|project-context)/, 30_000],
 ];
 const DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
 
+/**
+ * Global escape hatch for the budgets above (issue #9).
+ *
+ * The reporter had a legitimately slow operation and no way to give it more
+ * time — there was no SENTINAL_*TIMEOUT* anywhere in the binary. Read on EVERY
+ * call rather than cached at module load: hooks are short-lived, but the
+ * sidecar client is long-lived and a cached value could not be changed without
+ * a restart.
+ *
+ * Invalid input is IGNORED, never fatal — a typo in an env var must not take
+ * down every sidecar request.
+ */
+const TIMEOUT_OVERRIDE_ENV = "SENTINAL_SIDECAR_TIMEOUT_MS";
+
 /** Resolve the request timeout budget for a sidecar route path. */
 export function requestTimeoutMsFor(path: string): number {
+  const override = Number(process.env[TIMEOUT_OVERRIDE_ENV]);
+  if (Number.isFinite(override) && override > 0) return override;
   for (const [pattern, ms] of REQUEST_TIMEOUTS) {
     if (pattern.test(path)) return ms;
   }
@@ -254,20 +273,29 @@ export class SidecarClient extends SidecarRoutes {
     }
   }
 
-  /** Wrap a raw fetch error with method, path, target, and cause. */
+  /**
+   * Wrap a raw fetch error with method, path, target, and cause.
+   *
+   * ⛔ Delegates to `classifySidecarFailure` so a READ TIMEOUT is never
+   * reported as "unreachable" (issue #9). This used to hardcode that word for
+   * every rejection, telling the caller a destructive operation had not run
+   * when it had in fact completed — and the natural response to that is a
+   * retry. The timeout/connect distinction is the SAME one `fetchWithReconnect`
+   * already makes above to decide retry-safety; it simply never reached the
+   * message the caller reads.
+   */
   private static enrich(
     err: unknown,
     method: string,
     path: string,
     client: SidecarClient,
   ): Error {
-    const cause = err instanceof Error ? err.message : String(err);
-    const code =
-      err instanceof Error && "code" in err
-        ? ` (${(err as { code?: string }).code})`
-        : "";
-    return new Error(
-      `${method} ${path} failed: sidecar at ${client.target()} unreachable — ${cause}${code}`,
+    return classifySidecarFailure(
+      err,
+      method,
+      path,
+      client.target(),
+      requestTimeoutMsFor(path),
     );
   }
 

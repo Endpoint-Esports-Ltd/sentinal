@@ -1176,7 +1176,7 @@ describe("WorktreeManager", () => {
         const a = manager.create("2026-08-07-rel-cleanup", repoDir);
         rmSync(a.worktreePath, { recursive: true, force: true });
 
-        expect(manager.cleanup()).toBe(1);
+        expect(manager.cleanup().cleaned).toBe(1);
         expect(wtStore.listLiveSlots(repoDir)).toEqual([]);
         expect(manager.create("2026-08-07-rel-cleanup-2", repoDir).slot).toBe(
           1,

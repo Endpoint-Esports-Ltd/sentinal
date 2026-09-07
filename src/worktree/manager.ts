@@ -15,7 +15,8 @@ import {
   getRepoRoot,
 } from "../git/utils.js";
 import { createWorktree } from "./create.js";
-import { cleanupWorktrees, type CleanupOptions } from "./cleanup.js";
+import { cleanupWorktrees } from "./cleanup.js";
+import type { CleanupOptions, CleanupResult } from "./cleanup.js";
 import { resolveWithReconcile } from "./reconcile.js";
 import {
   assertCleanForMerge,
@@ -390,9 +391,11 @@ export class WorktreeManager {
   /**
    * Cleanup stale worktrees (directory-gone pass, plus the opt-in `force` pass
    * over orphans whose directory still exists). Delegates to
-   * {@link cleanupWorktrees} in `cleanup.ts`.
+   * {@link cleanupWorktrees} in `cleanup.ts`. Returns the count AND what was
+   * removed ({@link CleanupResult}) — a bare count is not reconcilable after
+   * an ambiguous transport failure (issue #9).
    */
-  cleanup(opts?: CleanupOptions): number {
+  cleanup(opts?: CleanupOptions): CleanupResult {
     return cleanupWorktrees(this.store, this.config, opts);
   }
 }

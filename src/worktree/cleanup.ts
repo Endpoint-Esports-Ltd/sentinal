@@ -14,6 +14,37 @@ import { listGitWorktrees, resolveRealPath, isInside } from "./disk-scan.js";
 import { gitExec, getRepoRoot } from "../git/utils.js";
 import type { WorktreeConfig, RuntimeLiveVerdict } from "./types.js";
 
+/**
+ * One worktree that cleanup actually removed.
+ *
+ * ⛔ Exists because a bare count is unusable after an ambiguous failure
+ * (issue #9). A caller told "outcome unknown" needs to know *what* was acted
+ * on to reconcile; `Cleaned up 7 stale worktrees.` and a reported error is not
+ * something anyone can act on without inspecting git by hand.
+ */
+export interface RemovedWorktree {
+  /** Absolute path of the removed worktree directory. */
+  path: string;
+  /** Branch that was deleted along with it. */
+  branch: string;
+  /** Plan slug derived from the branch (prefix stripped). */
+  slug: string;
+  /** Which pass removed it — the always-on default, or the opt-in `force`. */
+  pass: "missing-dir" | "force";
+}
+
+/**
+ * Outcome of a cleanup run.
+ *
+ * ⛔ `cleaned` is RETAINED and always equals `removed.length`. It is the field
+ * the sidecar wire format and the deployed OpenCode plugin bundle read; an
+ * older client must keep working against a newer sidecar.
+ */
+export interface CleanupResult {
+  cleaned: number;
+  removed: RemovedWorktree[];
+}
+
 /** Options for {@link cleanupWorktrees} / `WorktreeManager.cleanup`. */
 export interface CleanupOptions {
   /**
@@ -62,18 +93,26 @@ export interface CleanupOptions {
   warnings?: string[];
 }
 
+/** Strip the sentinal branch prefix to recover the plan slug. */
+function slugOf(branch: string, prefix: string): string {
+  return branch.startsWith(prefix) ? branch.slice(prefix.length) : branch;
+}
+
 /**
  * Cleanup stale worktrees:
  * - Worktrees whose directory no longer exists on disk
  * - Worktrees for specs that are verified/cancelled
- * Returns count of cleaned up worktrees.
+ *
+ * Returns {@link CleanupResult}: the count AND the identity of everything
+ * removed, so a caller whose request timed out can reconcile rather than guess
+ * (issue #9).
  */
 export function cleanupWorktrees(
   store: WorktreeStore,
   config: WorktreeConfig,
   opts?: CleanupOptions,
-): number {
-  let cleaned = 0;
+): CleanupResult {
+  const removed: RemovedWorktree[] = [];
 
   // ── Default pass: worktrees whose directory no longer exists ──────────────
   // Runs regardless of `force`. Scoped to the caller's project when one was
@@ -101,7 +140,12 @@ export function cleanupWorktrees(
     // Delete branch if it exists
     gitExec(["branch", "-D", wt.branchName], wt.projectPath);
     store.updateStatus(wt.id, "abandoned");
-    cleaned++;
+    removed.push({
+      path: wt.worktreePath,
+      branch: wt.branchName,
+      slug: slugOf(wt.branchName, config.branchPrefix),
+      pass: "missing-dir",
+    });
   }
 
   // ── Opt-in `force` pass: orphaned worktrees whose directory STILL EXISTS ──
@@ -109,10 +153,11 @@ export function cleanupWorktrees(
   // worktrees left by crashed/abandoned sessions. Heavily guarded to NEVER
   // delete an in-use, in-progress, or non-sentinal worktree.
   if (opts?.force && opts.projectPath) {
-    cleaned += forceCleanupOrphans(store, config, opts.projectPath, opts);
+    removed.push(...forceCleanupOrphans(store, config, opts.projectPath, opts));
   }
 
-  return cleaned;
+  // `cleaned` is derived, never tracked separately — the two cannot drift.
+  return { cleaned: removed.length, removed };
 }
 
 /**
@@ -137,7 +182,7 @@ function forceCleanupOrphans(
   config: WorktreeConfig,
   projectPath: string,
   opts: CleanupOptions,
-): number {
+): RemovedWorktree[] {
   const repoRoot = getRepoRoot(projectPath);
   const prefix = config.branchPrefix; // e.g. "sentinal/spec-"
   const current = opts.currentWorktree
@@ -168,10 +213,10 @@ function forceCleanupOrphans(
         `\`ownsLiveRuntime\` explicitly. Worktrees whose directory is already gone were still ` +
         `cleaned up by the default pass.`,
     );
-    return 0;
+    return [];
   }
 
-  let cleaned = 0;
+  const removed: RemovedWorktree[] = [];
 
   for (const gwt of listGitWorktrees(repoRoot)) {
     // Guard 1: only sentinal-owned branches.
@@ -204,11 +249,11 @@ function forceCleanupOrphans(
 
     // Remove the worktree fully. Best-effort per entry — one failure must not
     // abort the whole pass.
-    const removed = gitExec(
+    const removeResult = gitExec(
       ["worktree", "remove", "--force", gwt.path],
       repoRoot,
     );
-    if (removed.exitCode !== 0) {
+    if (removeResult.exitCode !== 0) {
       try {
         rmSync(gwt.path, { recursive: true, force: true });
         gitExec(["worktree", "prune"], repoRoot);
@@ -223,8 +268,13 @@ function forceCleanupOrphans(
     const rec = store.resolveBySlug(slug, repoRoot);
     if (rec) store.updateStatus(rec.id, "abandoned");
 
-    cleaned++;
+    removed.push({
+      path: gwt.path,
+      branch: gwt.branch,
+      slug,
+      pass: "force",
+    });
   }
 
-  return cleaned;
+  return removed;
 }

@@ -7,7 +7,8 @@
  *   - POST /worktree/cleanup — clean up stale worktrees
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import * as fileLogModule from "../utils/file-log.js";
 import { join } from "node:path";
 import {
   mkdirSync,
@@ -327,7 +328,7 @@ describe("worktree-routes", () => {
     it("should return cleaned count of 0 when no stale worktrees", async () => {
       const origCleanup = WorktreeManager.prototype.cleanup;
       WorktreeManager.prototype.cleanup = function () {
-        return 0;
+        return { cleaned: 0, removed: [] };
       };
 
       try {
@@ -352,7 +353,7 @@ describe("worktree-routes", () => {
     it("should return count of cleaned stale worktrees", async () => {
       const origCleanup = WorktreeManager.prototype.cleanup;
       WorktreeManager.prototype.cleanup = function () {
-        return 2;
+        return { cleaned: 2, removed: [] };
       };
 
       try {
@@ -379,7 +380,7 @@ describe("worktree-routes", () => {
       let received: unknown = "NOT_CALLED";
       WorktreeManager.prototype.cleanup = function (opts?: unknown) {
         received = opts;
-        return 1;
+        return { cleaned: 1, removed: [] };
       };
 
       try {
@@ -423,7 +424,7 @@ describe("worktree-routes", () => {
         (opts as { warnings?: string[] }).warnings?.push(
           "Skipped /wt/spec-z: pid 5150 is running from it.",
         );
-        return 0;
+        return { cleaned: 0, removed: [] };
       };
 
       try {
@@ -450,7 +451,7 @@ describe("worktree-routes", () => {
         sawResolver =
           typeof (this as unknown as { config: { ownsLiveRuntime?: unknown } })
             .config.ownsLiveRuntime === "function";
-        return 0;
+        return { cleaned: 0, removed: [] };
       };
 
       try {
@@ -624,6 +625,314 @@ describe("POST /worktree/abandon stops the owned group first", () => {
     expect(existsSync(wt.worktreePath)).toBe(false);
     expect(ctx.wtStore.get(wt.id)!.status).toBe("abandoned");
   }, 20_000);
+});
+
+// ─── Acted-on set on the wire (issue #9) ───────────────────────────────────
+
+describe("POST /worktree/cleanup — acted-on set", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = makeCtx(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function cleanup(body: unknown): Promise<any> {
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await (await handleWorktreeRequest(req, ctx))!.json()) as any;
+  }
+
+  it("returns the removed set alongside the count", async () => {
+    const orig = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return {
+        cleaned: 1,
+        removed: [
+          {
+            path: "/repo/.sentinal/worktrees/spec-x",
+            branch: "sentinal/spec-x",
+            slug: "x",
+            pass: "force" as const,
+          },
+        ],
+      };
+    };
+    try {
+      const body = await cleanup({ project: tmpDir, force: true });
+      expect(body.ok).toBe(true);
+      expect(body.data.removed).toHaveLength(1);
+      expect(body.data.removed[0].path).toBe(
+        "/repo/.sentinal/worktrees/spec-x",
+      );
+      expect(body.data.removed[0].branch).toBe("sentinal/spec-x");
+    } finally {
+      WorktreeManager.prototype.cleanup = orig;
+    }
+  });
+
+  it("STILL returns `cleaned` — an older bundled client reads only that", async () => {
+    const orig = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return {
+        cleaned: 2,
+        removed: [
+          {
+            path: "/a",
+            branch: "sentinal/spec-a",
+            slug: "a",
+            pass: "force" as const,
+          },
+          {
+            path: "/b",
+            branch: "sentinal/spec-b",
+            slug: "b",
+            pass: "force" as const,
+          },
+        ],
+      };
+    };
+    try {
+      const body = await cleanup({ project: tmpDir, force: true });
+      expect(body.data.cleaned).toBe(2);
+    } finally {
+      WorktreeManager.prototype.cleanup = orig;
+    }
+  });
+});
+
+// ─── Idempotency keys on destructive routes (issue #9) ─────────────────────
+
+describe("POST /worktree/cleanup — idempotency", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = makeCtx(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function cleanup(body: unknown): Promise<any> {
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await (await handleWorktreeRequest(req, ctx))!.json()) as any;
+  }
+
+  it("does the work ONCE for a repeated idempotency_key", async () => {
+    const orig = WorktreeManager.prototype.cleanup;
+    let runs = 0;
+    WorktreeManager.prototype.cleanup = function () {
+      runs++;
+      return {
+        cleaned: 7,
+        removed: [
+          {
+            path: "/w/7",
+            branch: "sentinal/spec-7",
+            slug: "7",
+            pass: "force" as const,
+          },
+        ],
+      };
+    };
+    try {
+      const first = await cleanup({
+        project: tmpDir,
+        force: true,
+        idempotencyKey: "req-42",
+      });
+      // This is the retry the reporter made after being told it failed.
+      const second = await cleanup({
+        project: tmpDir,
+        force: true,
+        idempotencyKey: "req-42",
+      });
+
+      expect(runs).toBe(1);
+      expect(first.data.cleaned).toBe(7);
+      // The retry must learn what the ORIGINAL call did — not report 0.
+      expect(second.data.cleaned).toBe(7);
+      expect(second.data.replayed).toBe(true);
+      expect(second.data.removed).toEqual(first.data.removed);
+    } finally {
+      WorktreeManager.prototype.cleanup = orig;
+    }
+  });
+
+  it("runs again without a key — unchanged behaviour", async () => {
+    const orig = WorktreeManager.prototype.cleanup;
+    let runs = 0;
+    WorktreeManager.prototype.cleanup = function () {
+      runs++;
+      return { cleaned: 0, removed: [] };
+    };
+    try {
+      await cleanup({ project: tmpDir, force: true });
+      const second = await cleanup({ project: tmpDir, force: true });
+      expect(runs).toBe(2);
+      expect(second.data.replayed).toBeUndefined();
+    } finally {
+      WorktreeManager.prototype.cleanup = orig;
+    }
+  });
+});
+
+// ─── Audit logging (issue #9) ──────────────────────────────────────────────
+// `rg -c "worktree" ~/.sentinal/sidecar.log` returned 0 on a real machine after
+// a destructive cleanup had run: worktree operations were NEVER logged
+// server-side. Combined with a client error that misreported a timeout as
+// "unreachable", there was no way to determine whether a destructive operation
+// had executed short of manually inspecting git state.
+
+describe("worktree-routes audit logging", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+  let logPath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = makeCtx(store);
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+    logPath = join(tmpDir, fileLogModule.SIDECAR_LOG_FILE);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function logLines(): string[] {
+    return fileLogModule.readLastLines(logPath, 100);
+  }
+
+  it("logs start and outcome for POST /worktree/cleanup", async () => {
+    const repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project: repoDir, force: false }),
+    });
+    const res = await handleWorktreeRequest(req, ctx);
+    expect(res).not.toBeNull();
+
+    const lines = logLines();
+    // Every record must be greppable by the word an operator would search for.
+    expect(lines.some((l) => l.includes("worktree"))).toBe(true);
+    expect(
+      lines.some((l) => l.includes("/worktree/cleanup") && l.includes("start")),
+    ).toBe(true);
+    expect(
+      lines.some(
+        (l) => l.includes("/worktree/cleanup") && l.includes("cleaned="),
+      ),
+    ).toBe(true);
+  });
+
+  it("records the force flag — the difference between safe and destructive", async () => {
+    const repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project: repoDir, force: true }),
+    });
+    await handleWorktreeRequest(req, ctx);
+
+    expect(logLines().some((l) => l.includes("force=true"))).toBe(true);
+  });
+
+  it("logs the elapsed duration so a client timeout can be reconciled", async () => {
+    const repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project: repoDir }),
+    });
+    await handleWorktreeRequest(req, ctx);
+
+    expect(logLines().some((l) => /\d+ms/.test(l))).toBe(true);
+  });
+
+  it("logs start and outcome for POST /worktree/abandon", async () => {
+    const wtPath = join(tmpDir, ".worktrees", "log-abandon");
+    mkdirSync(wtPath, { recursive: true });
+    ctx.wtStore.insert({
+      id: "wt-log-abandon",
+      projectPath: tmpDir,
+      worktreePath: wtPath,
+      branchName: "sentinal/spec-2026-09-07-log",
+      baseBranch: "main",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const req = new Request("http://localhost/worktree/abandon", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree_id: "wt-log-abandon" }),
+    });
+    await handleWorktreeRequest(req, ctx);
+
+    const lines = logLines();
+    expect(
+      lines.some((l) => l.includes("/worktree/abandon") && l.includes("start")),
+    ).toBe(true);
+    expect(
+      lines.some(
+        (l) => l.includes("/worktree/abandon") && l.includes("wt-log-abandon"),
+      ),
+    ).toBe(true);
+  });
+
+  it("logs a FAILED outcome when a handler throws", async () => {
+    // force + a non-existent project makes getRepoRoot throw inside cleanup.
+    const req = new Request("http://localhost/worktree/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project: join(tmpDir, "definitely-not-a-repo"),
+        force: true,
+      }),
+    });
+    const res = await handleWorktreeRequest(req, ctx);
+    expect(res!.status).toBe(500);
+
+    const lines = logLines();
+    expect(lines.some((l) => l.includes("/worktree/cleanup"))).toBe(true);
+    expect(lines.some((l) => l.includes("FAILED"))).toBe(true);
+  });
 });
 
 function isAlive(pid: number): boolean {

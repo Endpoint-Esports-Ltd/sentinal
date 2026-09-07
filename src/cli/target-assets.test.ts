@@ -300,6 +300,35 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  // ── Version identity in the OpenCode bundle (issue #9) ──────────────────
+  //
+  // The shipped plugin bundles src/sidecar/version.ts, whose FIRST resolution
+  // step is the `__SENTINAL_VERSION__` build define. `build:cli` passes it;
+  // `build:opencode` did NOT. The bundle's package.json fallback then resolves
+  // relative to ~/.config/opencode/plugins/, finds nothing, and returns
+  // "0.0.0" — producing 36 occurrences of
+  //   "client: version mismatch — sidecar is v1.36.3 but this client is v0.0.0"
+  // in a single real sidecar.log. A permanent false alarm makes a GENUINE
+  // version skew unnoticeable, which is the actual cost.
+  describe("OpenCode plugin bundle — version must be baked in", () => {
+    it("build:opencode passes --define __SENTINAL_VERSION__", () => {
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+      ) as { scripts: Record<string, string> };
+      expect(pkg.scripts["build:opencode"]).toContain("__SENTINAL_VERSION__");
+    });
+
+    it("the built bundle carries the real version, not the 0.0.0 fallback", () => {
+      const bundlePath = join(OPENCODE_DIR, "dist", "sentinal.mjs");
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+      ) as { version: string };
+      const bundle = readFileSync(bundlePath, "utf-8");
+      // The define substitutes the literal, so the real version must appear.
+      expect(bundle).toContain(pkg.version);
+    });
+  });
+
   describe("targets/opencode/skills/ — every SKILL.md must have valid OpenCode skill frontmatter", () => {
     // Root cause guard for the 2026-07-18 master-workflow failure: OpenCode's
     // skill schema (@opencode-ai/sdk v2 AppSkillsResponses = { name, description,
@@ -333,9 +362,10 @@ describe("target asset namespace parity", () => {
       const fm = parseFrontmatter(content);
 
       it(`${folder}/SKILL.md declares a non-empty name matching its folder`, () => {
-        expect(fm.name, `${folder}/SKILL.md is missing 'name:' frontmatter`).toBe(
-          folder,
-        );
+        expect(
+          fm.name,
+          `${folder}/SKILL.md is missing 'name:' frontmatter`,
+        ).toBe(folder);
       });
 
       it(`${folder}/SKILL.md declares a non-empty description`, () => {

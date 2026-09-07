@@ -71,6 +71,23 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 | `worktree_abandon` | Remove worktree from disk and mark abandoned     |
 | `worktree_cleanup` | Clean up all stale worktrees missing from disk   |
 
+⛔ **A transport failure on a destructive route is NOT evidence the work did not happen** (issue #9).
+`worktree_cleanup` and `worktree_abandon` take an optional `idempotency_key`: a repeat within 15
+minutes replays the recorded outcome (`src/sidecar/idempotency.ts`) instead of acting again, and the
+response is flagged `replayed`. A **rejected** operation is never recorded, so a genuine failure
+stays retryable. `worktree_cleanup` additionally returns `removed[]` (path, branch, slug, pass)
+alongside `cleaned`, so a retry is a _verified_ no-op rather than an ambiguous `0`.
+
+⛔ `cleaned` is load-bearing for BACK-COMPAT — the deployed OpenCode plugin bundle reads only that
+field. `removed` and `replayed` are additive; never make either one replace it.
+
+⛔ **`worktree_sync` does NOT go through the sidecar.** `registerWorktreeSyncTool` calls
+`manager.squashMerge()` directly in the MCP process (`mcp-tools.ts`); the client is used only to
+_resolve_ the worktree. There is no `/worktree/sync` route, so the client-timeout failure class
+cannot reach it — which is why it takes no idempotency key. It is nevertheless listed in
+`DESTRUCTIVE_PATHS` (`src/sidecar/client-errors.ts`) so that adding such a route later cannot
+silently skip the reconcile warning.
+
 ### Analysis Domain (`src/analysis/mcp-tools.ts`) — 4 tools
 
 | Tool                | Purpose                                                                              |

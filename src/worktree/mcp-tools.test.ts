@@ -637,7 +637,7 @@ describe("worktree_cleanup MCP tool", () => {
   it("should return count of 0 when no stale worktrees exist", async () => {
     const origCleanup = WorktreeManager.prototype.cleanup;
     WorktreeManager.prototype.cleanup = function () {
-      return 0;
+      return { cleaned: 0, removed: [] };
     };
 
     try {
@@ -654,7 +654,7 @@ describe("worktree_cleanup MCP tool", () => {
   it("should return count of cleaned worktrees", async () => {
     const origCleanup = WorktreeManager.prototype.cleanup;
     WorktreeManager.prototype.cleanup = function () {
-      return 3;
+      return { cleaned: 3, removed: [] };
     };
 
     try {
@@ -668,12 +668,102 @@ describe("worktree_cleanup MCP tool", () => {
     }
   });
 
+  // ── Idempotency on abandon (issue #9) ───────────────────────────────────
+  // Abandon removes a directory AND stops a process group, so a
+  // double-execute after an ambiguous transport failure is not harmless the
+  // way a double-cleanup is.
+  it("forwards idempotency_key to the sidecar on abandon", async () => {
+    let received: unknown = "NOT_CALLED";
+    const fakeClient = {
+      resolveWorktreeBySlug: async () => ({
+        id: "wt-1",
+        branchName: "sentinal/spec-x",
+        worktreePath: "/w/x",
+      }),
+      abandonWorktree: async (_id: string, opts?: unknown) => {
+        received = opts;
+      },
+    };
+    const clientTools = captureTools(registerWorktreeTools, {
+      client: fakeClient as any,
+      store,
+    });
+    const handler = clientTools.get("worktree_abandon")!;
+    await handler({ plan_slug: "x", idempotency_key: "abandon-key-1" });
+
+    expect((received as { idempotencyKey?: string }).idempotencyKey).toBe(
+      "abandon-key-1",
+    );
+  });
+
+  // ── The acted-on set (issue #9) ─────────────────────────────────────────
+  // A destructive cleanup that reported failure had in fact removed 7
+  // worktrees. `Cleaned up 7 stale worktrees.` would have made the success
+  // obvious; a bare count paired with an error message did not. The tool must
+  // name what it removed.
+  it("names the worktrees it removed, not just how many", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return {
+        cleaned: 2,
+        removed: [
+          {
+            path: "/repo/.sentinal/worktrees/spec-alpha",
+            branch: "sentinal/spec-alpha",
+            slug: "alpha",
+            pass: "force" as const,
+          },
+          {
+            path: "/repo/.sentinal/worktrees/spec-beta",
+            branch: "sentinal/spec-beta",
+            slug: "beta",
+            pass: "missing-dir" as const,
+          },
+        ],
+      };
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_cleanup")!;
+      const result = await handler({ project: tmpDir, force: true });
+      const text = result.content[0].text as string;
+
+      expect(text).toContain("2");
+      expect(text).toContain("/repo/.sentinal/worktrees/spec-alpha");
+      expect(text).toContain("sentinal/spec-alpha");
+      expect(text).toContain("/repo/.sentinal/worktrees/spec-beta");
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
+  it("states plainly that nothing remained when a retry is a no-op", async () => {
+    const origCleanup = WorktreeManager.prototype.cleanup;
+    WorktreeManager.prototype.cleanup = function () {
+      return { cleaned: 0, removed: [] };
+    };
+
+    try {
+      const mockedTools = captureTools(registerWorktreeTools, store);
+      const handler = mockedTools.get("worktree_cleanup")!;
+      const result = await handler({ project: tmpDir, force: true });
+      const text = result.content[0].text as string;
+
+      // "Cleaned up 0 stale worktrees." alone reads as "there was nothing to
+      // do" — which is exactly the reading that drives an agent to rm -rf.
+      expect(text).toMatch(/nothing (was )?remain|already|no worktrees/i);
+    } finally {
+      WorktreeManager.prototype.cleanup = origCleanup;
+    }
+  });
+
   it("passes force + project + an isPlanActive guard to cleanup() on the direct path", async () => {
     const origCleanup = WorktreeManager.prototype.cleanup;
     let received: unknown = "NOT_CALLED";
     WorktreeManager.prototype.cleanup = function (opts?: unknown) {
       received = opts;
-      return 1;
+      return { cleaned: 1, removed: [] };
     };
 
     try {
@@ -707,7 +797,7 @@ describe("worktree_cleanup MCP tool", () => {
     let received: { currentWorktree?: string } = {};
     WorktreeManager.prototype.cleanup = function (opts?: unknown) {
       received = opts as { currentWorktree?: string };
-      return 0;
+      return { cleaned: 0, removed: [] };
     };
 
     try {
@@ -730,7 +820,7 @@ describe("worktree_cleanup MCP tool", () => {
     let received: { currentWorktree?: string } = {};
     WorktreeManager.prototype.cleanup = function (opts?: unknown) {
       received = opts as { currentWorktree?: string };
-      return 0;
+      return { cleaned: 0, removed: [] };
     };
 
     try {
@@ -779,7 +869,7 @@ describe("worktree_cleanup MCP tool", () => {
       (opts as { warnings?: string[] }).warnings?.push(
         "Skipped /wt/spec-x: pid 4242 is running from it.",
       );
-      return 0;
+      return { cleaned: 0, removed: [] };
     };
 
     try {

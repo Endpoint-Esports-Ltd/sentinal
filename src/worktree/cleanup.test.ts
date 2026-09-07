@@ -89,7 +89,7 @@ describe("worktree cleanup", () => {
 
       rmSync(wt.worktreePath, { recursive: true, force: true });
 
-      const cleaned = manager.cleanup();
+      const { cleaned } = manager.cleanup();
       expect(cleaned).toBe(1);
 
       const updated = wtStore.get(wt.id);
@@ -98,12 +98,12 @@ describe("worktree cleanup", () => {
 
     it("should not cleanup worktrees that still exist", () => {
       manager.create(undefined, repoDir);
-      const cleaned = manager.cleanup();
+      const { cleaned } = manager.cleanup();
       expect(cleaned).toBe(0);
     });
 
     it("should return 0 when no active worktrees", () => {
-      expect(manager.cleanup()).toBe(0);
+      expect(manager.cleanup().cleaned).toBe(0);
     });
   });
 
@@ -113,7 +113,7 @@ describe("worktree cleanup", () => {
       const wt = manager.create("2026-07-24-orphan-a", repoDir);
       expect(existsSync(wt.worktreePath)).toBe(true);
 
-      const cleaned = manager.cleanup();
+      const { cleaned } = manager.cleanup();
       expect(cleaned).toBe(0);
       expect(existsSync(wt.worktreePath)).toBe(true);
       expect(wtStore.get(wt.id)!.status).toBe("active");
@@ -123,7 +123,7 @@ describe("worktree cleanup", () => {
       const wt = manager.create("2026-07-24-orphan-b", repoDir);
       expect(existsSync(wt.worktreePath)).toBe(true);
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -144,7 +144,7 @@ describe("worktree cleanup", () => {
       wtStore.delete(wt.id);
       expect(existsSync(path)).toBe(true);
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -158,7 +158,7 @@ describe("worktree cleanup", () => {
 
     it("force does NOT remove a worktree whose plan is IN_PROGRESS", () => {
       const wt = manager.create("2026-07-24-inprogress", repoDir);
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: (slug) => slug.includes("2026-07-24-inprogress"),
@@ -170,7 +170,7 @@ describe("worktree cleanup", () => {
 
     it("force does NOT remove the caller's current worktree", () => {
       const wt = manager.create("2026-07-24-current", repoDir);
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         currentWorktree: wt.worktreePath,
@@ -190,7 +190,7 @@ describe("worktree cleanup", () => {
       const sub = join(wt.worktreePath, "src");
       mkdirSync(sub, { recursive: true });
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         currentWorktree: sub,
@@ -234,7 +234,7 @@ describe("worktree cleanup", () => {
       const wt = manager.create("2026-08-09-guard5", repoDir);
       const warnings: string[] = [];
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -306,7 +306,7 @@ describe("worktree cleanup", () => {
         ownsLiveRuntime: () => ({ live: true, detail: "still running" }),
       });
 
-      const cleaned = m.cleanup({
+      const { cleaned } = m.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -330,7 +330,7 @@ describe("worktree cleanup", () => {
       const wt = manager.create("2026-08-09-guard5-inert", repoDir);
       const warnings: string[] = [];
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -352,7 +352,7 @@ describe("worktree cleanup", () => {
       const gone = manager.create("2026-08-09-guard5-inert-gone", repoDir);
       rmSync(gone.worktreePath, { recursive: true, force: true });
 
-      const cleaned = manager.cleanup({
+      const { cleaned } = manager.cleanup({
         force: true,
         projectPath: repoDir,
         isPlanActive: () => false,
@@ -384,7 +384,7 @@ describe("worktree cleanup", () => {
       rmSync(wtA.worktreePath, { recursive: true, force: true });
       rmSync(wtB.worktreePath, { recursive: true, force: true });
 
-      const cleaned = manager.cleanup({ projectPath: repoDir });
+      const { cleaned } = manager.cleanup({ projectPath: repoDir });
 
       expect(cleaned).toBe(1);
       expect(wtStore.get(wtA.id)!.status).toBe("abandoned");
@@ -405,11 +405,95 @@ describe("worktree cleanup", () => {
       rmSync(wtA.worktreePath, { recursive: true, force: true });
       rmSync(wtB.worktreePath, { recursive: true, force: true });
 
-      const cleaned = manager.cleanup();
+      const { cleaned } = manager.cleanup();
 
       expect(cleaned).toBe(2);
       expect(wtStore.get(wtA.id)!.status).toBe("abandoned");
       expect(wtStore.get(wtB.id)!.status).toBe("abandoned");
+    });
+  });
+
+  // ── The acted-on set (issue #9) ───────────────────────────────────────────
+  // A bare count cannot tell a caller whose request timed out whether the work
+  // landed. `Cleaned up 7 stale worktrees.` after a "failed" call is ambiguous;
+  // a list of the exact paths and branches removed is not. It also makes a
+  // retry self-evidently a no-op: the second call returns an empty set.
+  describe("acted-on set", () => {
+    it("names each worktree removed by the directory-gone pass", () => {
+      const wt = manager.create("2026-09-07-set-a", repoDir);
+      const path = wt.worktreePath;
+      const branch = wt.branchName;
+      rmSync(path, { recursive: true, force: true });
+
+      const result = manager.cleanup();
+
+      expect(result.cleaned).toBe(1);
+      expect(result.removed).toHaveLength(1);
+      expect(result.removed[0]!.path).toBe(path);
+      expect(result.removed[0]!.branch).toBe(branch);
+      expect(result.removed[0]!.slug).toBe("2026-09-07-set-a");
+      expect(result.removed[0]!.pass).toBe("missing-dir");
+    });
+
+    it("names each worktree removed by the force pass", () => {
+      const wt = manager.create("2026-09-07-set-b", repoDir);
+      const path = wt.worktreePath;
+
+      const result = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+        ownsLiveRuntime: () => ({ live: false }),
+      });
+
+      expect(result.cleaned).toBeGreaterThanOrEqual(1);
+      const hit = result.removed.find((r) => r.path === path);
+      expect(hit).toBeDefined();
+      expect(hit!.branch).toBe("sentinal/spec-2026-09-07-set-b");
+      expect(hit!.slug).toBe("2026-09-07-set-b");
+      expect(hit!.pass).toBe("force");
+    });
+
+    it("makes a RETRY verifiably a no-op — the exact reassurance issue #9 lacked", () => {
+      manager.create("2026-09-07-set-retry", repoDir);
+
+      const first = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+        ownsLiveRuntime: () => ({ live: false }),
+      });
+      expect(first.cleaned).toBeGreaterThanOrEqual(1);
+      expect(first.removed.length).toBe(first.cleaned);
+
+      // The caller was told "outcome unknown" and retries. There must be
+      // nothing left to do, and the result must SAY so rather than merely
+      // reporting another opaque zero.
+      const second = manager.cleanup({
+        force: true,
+        projectPath: repoDir,
+        isPlanActive: () => false,
+        ownsLiveRuntime: () => ({ live: false }),
+      });
+      expect(second.cleaned).toBe(0);
+      expect(second.removed).toEqual([]);
+    });
+
+    it("keeps removed.length and cleaned in agreement", () => {
+      const a = manager.create("2026-09-07-set-c", repoDir);
+      const b = manager.create("2026-09-07-set-d", repoDir);
+      rmSync(a.worktreePath, { recursive: true, force: true });
+      rmSync(b.worktreePath, { recursive: true, force: true });
+
+      const result = manager.cleanup();
+      expect(result.cleaned).toBe(2);
+      expect(result.removed).toHaveLength(2);
+    });
+
+    it("returns an empty set — never undefined — when nothing was removed", () => {
+      const result = manager.cleanup();
+      expect(result.cleaned).toBe(0);
+      expect(result.removed).toEqual([]);
     });
   });
 
@@ -419,7 +503,7 @@ describe("worktree cleanup", () => {
       const wt = manager.create("2026-08-08-direct", repoDir);
       rmSync(wt.worktreePath, { recursive: true, force: true });
 
-      expect(cleanupWorktrees(wtStore, testConfig)).toBe(1);
+      expect(cleanupWorktrees(wtStore, testConfig).cleaned).toBe(1);
       expect(wtStore.get(wt.id)!.status).toBe("abandoned");
     });
 
@@ -427,7 +511,7 @@ describe("worktree cleanup", () => {
       // `CleanupOptions` has no external consumers today, but it is part of the
       // manager's published surface — re-exported for hygiene after the split.
       const opts: CleanupOptions = { force: false };
-      expect(cleanupWorktrees(wtStore, testConfig, opts)).toBe(0);
+      expect(cleanupWorktrees(wtStore, testConfig, opts).cleaned).toBe(0);
     });
   });
 });

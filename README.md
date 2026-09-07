@@ -356,6 +356,14 @@ The sidecar shuts itself down automatically:
 
 When it shuts down, it also stops the dashboard process.
 
+**Request timeouts.** Client requests are bounded per route: 180s for `/quality-check` and `/worktree/*` (cost scales with disk size), 30s for embedding- and git-backed routes, 2s for DB-only routes. Override globally when an operation is legitimately slow:
+
+```bash
+SENTINAL_SIDECAR_TIMEOUT_MS=300000   # applies to every route; invalid values are ignored
+```
+
+A request that exceeds its budget reports the outcome as **unknown** — the sidecar was reached but did not answer in time, so the work may still be running or may have completed. This is distinct from the sidecar being unreachable, and for destructive endpoints the error tells you to reconcile with `git worktree list` before retrying.
+
 ### Claude Code: Hook Pipeline
 
 Claude Code uses compiled TypeScript hooks that intercept lifecycle events via the `sentinal hook <scope> <name>` CLI dispatcher:
@@ -646,6 +654,20 @@ Because a failed stop aborts the exit path, a worktree whose runtime cannot be s
 **Stopping happens on every exit path.** `worktree_sync` and `worktree_abandon` stop the worktree's process group **before** they touch the directory (and, for a merge, before `git checkout` — a live process holding files can fail the checkout itself). `worktree_cleanup --force` skips any worktree that still owns live processes and tells you which. Worktrees that never started a runtime pay nothing: with no pidfile the stop returns immediately, without loading the contract or running `down`.
 
 **⚠️ POSIX only.** Process groups exist on macOS and Linux. **On Windows Sentinal records no process group**, so teardown reduces to the declared `down` — the guarantee becomes _"we ran the declared `down`"_ rather than _"we own the PIDs"_, and the tool output says so. A Windows contract with no `down` and a non-detaching `up` has no teardown mechanism at all, and `runtime_stop` reports that as an explicit failure naming the PID rather than a false success. **On Windows, declare a `down`.** The same reduction applies on any platform when `"detached": true`, which is why the schema requires `down` in that case.
+
+### Retrying a destructive worktree operation
+
+A destructive call whose transport fails is **not** evidence that the work did not happen. `worktree_cleanup` and `worktree_abandon` therefore accept an optional `idempotency_key`:
+
+```jsonc
+{ "project": "/repo", "force": true, "idempotency_key": "cleanup-2026-09-07-a" }
+```
+
+If a call with the same key succeeded within the last 15 minutes, the sidecar **replays the original outcome** instead of doing the work again, and marks the response `replayed`. A rejected operation is never recorded, so a genuine failure stays retryable.
+
+`worktree_cleanup` also reports **what** it removed — each path, branch and which pass removed it — so a retry is verifiably a no-op rather than an ambiguous `0`. Every worktree operation is additionally logged server-side to `~/.sentinal/sidecar.log` with start, outcome and duration, which is the record to check when a client call ends ambiguously.
+
+The CLI is a genuine fallback when the MCP path is failing: `sentinal worktree cleanup --force [--project <p>] [--current-worktree <p>]`, and `sentinal worktree abandon-orphan <slug>` for a worktree left by a crashed session that has no database record.
 
 ## MCP Servers
 

@@ -292,18 +292,45 @@ export abstract class SidecarRoutes {
     return this.get(`/worktree/resolve?${params}`);
   }
 
-  async abandonWorktree(worktreeId: string): Promise<void> {
-    await this.post("/worktree/abandon", { worktree_id: worktreeId });
+  async abandonWorktree(
+    worktreeId: string,
+    opts?: { idempotencyKey?: string },
+  ): Promise<void> {
+    await this.post("/worktree/abandon", {
+      worktree_id: worktreeId,
+      idempotencyKey: opts?.idempotencyKey,
+    });
   }
 
+  /**
+   * `removed` is OPTIONAL on the return type by design (issue #9): a NEWER
+   * client may be talking to an OLDER sidecar that answers with `cleaned`
+   * alone. Callers must treat its absence as an empty list, never as an error.
+   */
   async cleanupWorktrees(
     projectPath?: string,
-    opts?: { force?: boolean; currentWorktree?: string },
-  ): Promise<{ cleaned: number }> {
+    opts?: {
+      force?: boolean;
+      currentWorktree?: string;
+      idempotencyKey?: string;
+    },
+  ): Promise<{
+    cleaned: number;
+    removed?: Array<{
+      path: string;
+      branch: string;
+      slug: string;
+      pass: string;
+    }>;
+    warnings?: string[];
+    /** True when the sidecar replayed an earlier identical request. */
+    replayed?: boolean;
+  }> {
     return this.post("/worktree/cleanup", {
       project: projectPath,
       force: opts?.force,
       currentWorktree: opts?.currentWorktree,
+      idempotencyKey: opts?.idempotencyKey,
     });
   }
 

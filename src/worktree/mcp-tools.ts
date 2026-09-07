@@ -300,8 +300,19 @@ function registerWorktreeAbandonTool(
     {
       plan_slug: z.string().describe("Plan slug (e.g. '2026-03-12-add-auth')"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
+      idempotency_key: z
+        .string()
+        .optional()
+        .describe(
+          "Opaque caller-supplied id making this call safely RETRY-able. If a " +
+            "request with the same key succeeded within the last 15 minutes, " +
+            "the original outcome is replayed instead of abandoning again. " +
+            "Supply one whenever you may retry — in particular after a " +
+            "timeout, where the outcome is reported as unknown because the " +
+            "work may already have completed.",
+        ),
     },
-    async ({ plan_slug, project }) => {
+    async ({ plan_slug, project, idempotency_key }) => {
       try {
         const projectPath = project ?? process.cwd();
         const wt = client
@@ -313,7 +324,9 @@ function registerWorktreeAbandonTool(
         }
 
         if (client) {
-          await client.abandonWorktree(wt.id);
+          await client.abandonWorktree(wt.id, {
+            idempotencyKey: idempotency_key,
+          });
         } else {
           await manager.abandon(wt.id);
         }

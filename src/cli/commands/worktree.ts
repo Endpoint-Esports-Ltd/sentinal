@@ -9,7 +9,8 @@
  *   sentinal worktree diff    <id> [--json]
  *   sentinal worktree merge   <id> [--message <msg>] [--json]
  *   sentinal worktree abandon <id> [--json]
- *   sentinal worktree cleanup [--json]
+ *   sentinal worktree cleanup [-p <path>] [-f|--force] [--current-worktree <path>] [--json]
+ *   sentinal worktree abandon-orphan <slug> [-p <path>] [--json]
  *   sentinal worktree detect  <slug> [--project <path>] [--json]
  *   sentinal worktree create  <slug> [--project <path>] [--base <branch>] [--json]
  *   sentinal worktree sync    <slug> [-m <msg>] [--json]
@@ -24,6 +25,7 @@ import { formatSlot } from "../../worktree/slots.js";
 // The CLI lives outside src/worktree/, so it supplies the runtime deps
 // directly rather than having them threaded down (see worktree-deps.ts).
 import { runtimeWorktreeConfig } from "../../runtime/worktree-deps.js";
+import { registerWorktreeCleanupCommands } from "./worktree-cleanup.js";
 
 /**
  * The slot fields every `--json` shape carries.
@@ -230,48 +232,12 @@ export function registerWorktreeCommand(program: Command): void {
       }
     });
 
-  // ─── abandon ──────────────────────────────────────────────────────────
-
-  wt.command("abandon")
-    .description("Abandon a worktree (remove from disk, mark as abandoned)")
-    .argument("<id>", "Worktree ID")
-    .option("--json", "Output as JSON")
-    .action(async (id: string, opts: { json?: boolean }) => {
-      const { manager, store } = createManager();
-      try {
-        await manager.abandon(id);
-        if (opts.json) {
-          console.log(JSON.stringify({ id, status: "abandoned" }));
-        } else {
-          console.log(`Abandoned: ${id}`);
-        }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
-
-  // ─── cleanup ──────────────────────────────────────────────────────────
-
-  wt.command("cleanup")
-    .description("Remove stale/orphaned worktrees")
-    .option("--json", "Output as JSON")
-    .action((opts: { json?: boolean }) => {
-      const { manager, store } = createManager();
-      try {
-        const cleaned = manager.cleanup();
-        if (opts.json) {
-          console.log(JSON.stringify({ cleaned }));
-        } else {
-          console.log(`Cleaned up ${cleaned} stale worktree(s).`);
-        }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
+  // ─── abandon + cleanup + abandon-orphan ───────────────────────────────
+  // Registered from the sibling `worktree-cleanup.ts`: this file was already
+  // at 428/400 lines, and those two commands are the only ones here that
+  // DELETE things, so they carry the guard-wiring rationale together
+  // (issue #9).
+  registerWorktreeCleanupCommands(wt);
 
   // ─── detect ───────────────────────────────────────────────────────────
 
