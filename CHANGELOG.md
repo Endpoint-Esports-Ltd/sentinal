@@ -1,3 +1,10 @@
+## [1.36.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.3...v1.36.4) (2026-09-07)
+
+
+### Bug Fixes
+
+* **sidecar:** report a destructive-route timeout as unknown, not unreachable ([c4f3950](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c4f3950d416349e5aa7faa36adbc446f4b89da87)), closes [#9](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/9)
+
 ## [1.36.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.2...v1.36.3) (2026-09-02)
 
 
