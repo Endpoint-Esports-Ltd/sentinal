@@ -1,3 +1,10 @@
+## [1.36.5](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.4...v1.36.5) (2026-09-10)
+
+
+### Bug Fixes
+
+* **context:** base context monitor on real tokens + inferred window ([d7ad87f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d7ad87fe52b44d8d5d7c3b1ca0b7f0b239e21e89))
+
 ## [1.36.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.3...v1.36.4) (2026-09-07)
 
 
