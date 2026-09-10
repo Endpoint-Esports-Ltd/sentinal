@@ -1,0 +1,97 @@
+{
+  "pass_summary": "Phase 3 lands the full `.sentinal/runtime.json` contract (schema, strict prefix-scoped interpolator, string-aware JSONC parser, loader, scaffolder, two MCP tools) plus the R9 gitignore fix, sync.md parity guard, and shipped docs — all 10 flagged plan-review findings verified as correctly implemented and test-backed. The only real gap is the deliberately deferred R11 population, which is honestly disclosed rather than silently dropped.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 7,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 7 DoD items 1 and 2 remain unchecked while the plan is marked COMPLETE",
+      "description": "docs/plans/2026-08-07-worktree-runtime-isolation-phase-3.md:652-653 still show `[ ] Schema documented where a project author will read it (README + shipped rule)` and `[ ] R13's self-attestation limitation stated plainly`, yet the plan header says `Status: COMPLETE` and Progress Tracking reports 7/7. Both items are in fact DONE — README.md gained the `## Runtime Contract — .sentinal/runtime.json` section with the full annotated schema, and both `targets/*/rules/verification.md` copies carry the `isolation` is self-attested / a wrong `\"isolated\"` is a silent green light wording. This is a bookkeeping inconsistency that makes an automated DoD sweep report a false incomplete.",
+      "suggested_fix": "Tick both boxes in docs/plans/2026-08-07-worktree-runtime-isolation-phase-3.md:652-653 (`- [x]`), since the Outcome section immediately below already records the evidence."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "R11 mitigation ships as an unreachable seam — zero production effect in Phase 3",
+      "description": "src/worktree/worktree-config.ts:68-86 adds `SeedOptions.sharedResources?: string[]` and :266-273 threads it into `notIsolatedWarning`, but nothing in production ever populates it (the only three `seedWorktreeConfig`/`seedNonFatally` call sites are src/worktree/manager.ts:171/:448/:485, which is off-limits at 582/600). The deferral is honest and explicitly permitted by Task 5's own escape clause (plan:560), is marked `[~]` at :568, and is logged under Deferred Issues at :326 — so this is not a silent gap. But the master plan calls this map 'the durable fix for R11' (plan:110), and today a project that declares `\"database\": \"shared\"` still gets Phase 2's blanket 'may not be isolated' warning during seeding. The risk is that Phase 4 does not carry the obligation.",
+      "suggested_fix": "Add an explicit DoD line to the Phase 4 plan: 'the three `seedWorktreeConfig` call sites in src/worktree/manager.ts pass `sharedResources: loadRuntimeConfig(worktreePath).sharedResources`, and a test asserts the seeded warning names a declared-shared resource end-to-end (not just via the direct `notIsolatedWarning` unit test)'. Also note in that plan that `manager.ts` must be split before the edit, since it is at 582/600."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "no-module-cycle guard is non-vacuous but has two blind spots",
+      "description": "src/runtime/no-module-cycle.test.ts is genuinely behavioural — it enumerates real files, has an explicit `files.length > 0` + `toContain(\"worktree-config.ts\")` anti-vacuity guard (:41-44), asserts the offending direction is empty (:46-51), AND asserts the legal direction still exists (:53-58) so a reversal is visible. It would go red on `import { loadRuntimeConfig } from \"../runtime/loader.js\"` in any src/worktree/*.ts. Two residual holes: (1) `readdirSync(WORKTREE_DIR)` is non-recursive, so a future `src/worktree/<subdir>/` would be unscanned; (2) the offender regex `/(^|\\/)\\.\\.\\/runtime\\//` only catches direct specifiers — a cycle closed via the `src/index.js` barrel (which re-exports the whole runtime domain at src/index.ts:274-306) would pass.",
+      "suggested_fix": "In src/runtime/no-module-cycle.test.ts, walk src/worktree recursively (or assert no subdirectories exist), and extend the offender filter to also reject barrel imports from src/worktree — e.g. `/(\\.\\.\\/runtime\\/|(^|\\/)\\.\\.\\/index\\.js$)/`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "Repo-level R9 test inherits the developer's global git config",
+      "description": "src/memory/shared.test.ts's temp-repo test correctly neutralises ambient config with `GIT_CONFIG_GLOBAL=/dev/null` / `GIT_CONFIG_SYSTEM=/dev/null`, but the `describe(\"this repo's own .sentinal/.gitignore (R9)\")` block (added at the end of the file) calls `execFileSync(\"git\", [\"check-ignore\", ...], { cwd: repoRoot })` with no env override. A developer whose `core.excludesFile` ignores `.sentinal/` or `*.json` would get a spurious failure on `does not ignore .sentinal/runtime.json`. It cannot produce a false pass (a global rule can only add ignores), so the R9 property is still soundly guarded; this is a local-flakiness concern only.",
+      "suggested_fix": "Pass the same `{ ...process.env, GIT_CONFIG_GLOBAL: \"/dev/null\", GIT_CONFIG_SYSTEM: \"/dev/null\" }` env into `isIgnoredHere`'s `execFileSync` call in src/memory/shared.test.ts, matching the temp-repo helper directly above it."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "unknownResources reports all nine classes for every scaffolded file",
+      "description": "src/runtime/loader.ts:204-206 computes `unknownResources` as every RESOURCE_CLASS with no declaration, and src/runtime/mcp-tools.ts:101-108 renders them inline. For a file produced by the scaffolder (which correctly omits `isolation` entirely, R13), that is a nine-item 'Undeclared (treated as unknown...)' line on every `runtime_config` call. This is compliant with D10 rule 3 (report non-blockingly, never prompt) and is correctly empty when no file exists (loader.ts:74-86, so backward compatibility is intact), but a nine-item list is close to the noise threshold the rule was written to avoid.",
+      "suggested_fix": "Consider condensing in src/runtime/mcp-tools.ts:101-108 — e.g. emit 'no isolation declared (all classes unknown, non-blocking)' when `unknownResources.length === RESOURCE_CLASSES.length`, and enumerate only when the map is partially filled. Behaviour-neutral; purely a signal-density change."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "`git check-ignore -v .sentinal/runtime.json` reports no match (exit 1) in a Sentinal-installed project",
+      "status": "verified",
+      "evidence": "All three edits landed: `!runtime.json` added to GITIGNORE_CONTENT (src/memory/shared.ts, after the deny-all `*`); the pre-change v2 content appended verbatim to KNOWN_PRIOR_GITIGNORES so v2 installs upgrade instead of being classed user-customised; and this repo's own .sentinal/.gitignore hand-edited with a HAND-MAINTAINED warning comment. Both regression tests are behavioural, not string-matching: one runs a real `git init` + `git check-ignore` in a temp repo and additionally asserts the negation is not too broad (.sentinal/runtime.log and .sentinal/runtime.json.bak stay ignored); the second runs `git check-ignore` against THIS repo. A third test proves the v2→v3 upgrade preserves the rules/skills allowlist."
+    },
+    {
+      "truth": "A runtime.json containing ${SENTINAL_WORKTREE_SLOT} in `up` resolves to the worktree's actual slot via runtime_config",
+      "status": "verified",
+      "evidence": "src/runtime/loader.ts:178-186 calls `readSlotFromWorktree(projectPath)` (the authoritative Phase 2 source, no invented DB accessor) and applies `interpolateStrict` to exactly `up`, `down` and `readiness.target`. src/runtime/loader.test.ts:107-112 asserts `\"PORT=${PORT:-3000} npm start ${SENTINAL_WORKTREE_SLOT}\"` → `\"PORT=${PORT:-3000} npm start 2\"` — proving substitution and pass-through in one assertion. A slotless directory leaves the placeholder in place and emits `slotlessWarning` (loader.ts:112-122, :190-197) rather than substituting an empty value."
+    },
+    {
+      "truth": "A runtime.json containing ${UNKNOWN_TOKEN} fails validation naming the token — never substituted with an empty string",
+      "status": "verified",
+      "evidence": "Correctly NARROWED to the ${SENTINAL_*} prefix per the plan-review correction. src/runtime/interpolate.ts:67 `\\$\\{(SENTINAL_[^}]*)\\}` — the `[^}]*` deliberately catches `${SENTINAL_WORKTREE_SLOT:-0}` too. schema.ts:259-264 wires `checkTokens` into the top-level superRefine for all three interpolated fields. All three required behaviours are proven by test: schema.test.ts:219-222 (`${SENTINAL_WORKTREE_SLOTT}` errors, message contains the token), :227-231 (`PORT=${PORT:-3000} npm start` ACCEPTED and round-trips unchanged), :235 (bare `$VAR` untouched), plus :243-252 and interpolate.test.ts:45-52 proving no process.env fallthrough inside the prefix (a real `SENTINAL_MADE_UP` env var still errors)."
+    },
+    {
+      "truth": "With no .sentinal/runtime.json: runtime_config returns an inert not-configured result, notIsolatedWarning is byte-identical to Phase 2, and no new prompt or block path is reachable",
+      "status": "verified",
+      "evidence": "loader.ts:136 returns `notConfigured()` on `!existsSync` with empty warnings AND empty unknownResources (:74-86, deliberately, so an unconfigured project acquires no new context line); mcp-tools.ts:53-58 renders it as plain informational text with `error: null`. worktree-config.test.ts asserts `r.warnings` toContain `notIsolatedWarning(\".env.example\")` exactly, plus `notIsolatedWarning(x, []) === notIsolatedWarning(x)`, plus a negative assertion that no \"Shared with the main checkout\" text leaks in. `sharedResources` is `[]` when absent, so the only blocking branch (mcp-tools.ts:85) is unreachable. Shipped prose reinforces it: \"No `.sentinal/runtime.json`? Nothing changes.\""
+    },
+    {
+      "truth": "Both spec-verify copies describe up → health → tests → down, and spec-verify.diff is still 0 bytes",
+      "status": "verified",
+      "evidence": "targets/claude-code/commands/spec-verify.md and targets/opencode/skills/spec-verify/SKILL.md received a byte-identical 9-line replacement of item 1 (lifecycle order, never-test-before-readiness, read the runtime.log tail on failure, process-group teardown when `down` is absent, explicit no-file fallthrough) and an identical item-2 extension. No `Skill(...)` call was introduced, so the double-quote trap was not tripped. `git diff HEAD --stat` shows src/cli/__fixtures__/target-parity/spec-verify.diff is untouched from the Phase 1 commit, i.e. still 0 bytes and still in MUST_STAY_BYTE_EQUAL."
+    },
+    {
+      "truth": "/sync on a project without runtime.json offers a scaffolded draft containing no isolation key",
+      "status": "verified",
+      "evidence": "Byte-identical `## Phase 6.5: Sync Runtime Contract` blocks added to both targets/claude-code/commands/sync.md and targets/opencode/commands/sync.md (check → draft → report-in-conversation), with the Phase 11 cross-check gaining item 8 and the Phase 12 summary a Runtime-contract line; 6.5 avoids renumbering Phases 7-12. Enforcement is by test, not prose: scaffold.test.ts asserts on the KEY after comment-stripping (`/^\\s*\"isolation\"\\s*:/m`) AND on the parsed object across all input shapes, while separately asserting the draft DOES mention isolation in a comment (:75) — the corrected assertion. mcp-tools.test.ts:127 repeats the key assertion at the tool boundary. The parity gap is closed: `sync` added to PAIRS with a new OPENCODE_COMMAND_PAIRS set routing to commands/sync.md, so a one-sided edit now diverges from the baseline and fails; sync.diff is a single 9-line hunk containing only the predicted double-quoted `Skill(skill=\"sentinal:learn\")` vs `Skill(skill=\"learn\")` divergence, documented in the test file."
+    },
+    {
+      "truth": "sentinal-mcp-servers.md reports 7 domains and the new tool count",
+      "status": "verified",
+      "evidence": ".sentinal/rules/sentinal-mcp-servers.md:3 now reads \"33 tools across 7 domains\" with a Runtime domain table listing runtime_config and runtime_init (:86-87). README.md was corrected in three places (feature bullet, catalog heading, and the Memory row from 6→9 tools, which was wrong before this phase). src/mcp/server.ts:55 registers `registerRuntimeTools(server, {})` and src/mcp/server.test.ts asserts both tool names appear in the factory's registered set — catching the unwired-domain failure mode that per-module unit tests cannot."
+    },
+    {
+      "truth": "D10 rule 1 — unstated means unknown, unknown NEVER prompts, only an explicit human-written \"shared\" blocks",
+      "status": "verified",
+      "evidence": "The implementer's refusal to write the plan's contradictory Task 7 line (\"state that `shared` is the effective default\") was correct and is recorded at plan:661. No artifact contradicts the rule. Code: schema.ts:280-285 `isolationOf` returns \"unknown\" on absence and \"unknown\" is deliberately NOT a schema enum value; sharedResourceNames returns only explicit `\"shared\"` entries; IsolationSchema and the top-level object are `.strict()` so a typo'd `db` errors instead of silently becoming invisible-unknown (tested at schema.test.ts:126). Docs: README's four-row blocks/reported table plus \"Unstated means `unknown`, not `shared`\"; both verification.md copies; both spec-verify copies (\"Never prompt on `unknown`\"); both sync.md copies (\"Omission is fail-safe: unstated means unknown, and unknown never blocks\"). Runtime surface: mcp-tools.ts:85 is the sole blocking branch and is gated on `sharedResources.length`, while unknowns render as italic context at :101-108."
+    },
+    {
+      "truth": "src/worktree/manager.ts and src/sidecar/client.ts are untouched",
+      "status": "verified",
+      "evidence": "Neither file appears in `git diff HEAD --stat`. The direct-only design is documented as a correctness decision first (stateless fs read of a path from the tool's own `project` arg) with the 582/600 budget as the secondary reason, in both src/mcp/server.ts:53-55 and the src/runtime/mcp-tools.ts module docblock, so it will not be 'fixed' later by adding a sidecar route. No new file exceeds 400 lines (largest: scaffold.ts at 379 after the jsonc.ts extraction; schema.ts split at 312 + interpolate.ts 114)."
+    },
+    {
+      "truth": "jsonc.ts is string-aware — a naive regex would truncate \"curl http://localhost/x\"",
+      "status": "verified",
+      "evidence": "src/runtime/jsonc.ts is a character-scanner with explicit inString state (:36), correct backslash-escape consumption (:43-49, so `\\\"` is not a terminator and `\\\\` does not swallow the real one), newline preservation through block comments (:71) so parse-error line numbers survive, and a bounded loop on an unterminated block comment (:74). jsonc.test.ts covers precisely the flagged case — `{\"up\":\"curl http://x//y /* z */\"}` round-trips intact — plus escaped quotes, a trailing escaped backslash, newline preservation, the plain-JSON no-op, and the unterminated-comment hang guard. Trailing commas are deliberately rejected and the loader's parse-error message says so (loader.ts:161)."
+    }
+  ]
+}

@@ -21,6 +21,10 @@ import {
   runExport,
   runStats,
   runPrune,
+  runUpdate,
+  runDelete,
+  runDecay,
+  runMaintain,
 } from "./cli.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -419,5 +423,256 @@ describe("runPrune", () => {
       flags: { "older-than": "90d" },
     });
     expect(result).toContain("No observations");
+  });
+});
+
+describe("runUpdate", () => {
+  let dbPath: string;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    dbPath = makeTmpDb();
+    service = new MemoryService(new MemoryStore(dbPath));
+  });
+
+  afterEach(() => {
+    service.close();
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
+  });
+
+  it("should show usage when no id", () => {
+    const result = runUpdate(service, {
+      command: "update",
+      positional: [],
+      flags: { content: "x" },
+    });
+    expect(result).toContain("Usage:");
+  });
+
+  it("should update content via the service", () => {
+    const o = service.addObservation(
+      makeObservation({ title: "Orig", content: "old content" }),
+    );
+    const result = runUpdate(service, {
+      command: "update",
+      positional: [String(o.id)],
+      flags: { content: "corrected content" },
+    });
+    expect(result).toContain(String(o.id));
+    expect(service.getObservations([o.id])[0].content).toBe(
+      "corrected content",
+    );
+  });
+
+  it("should update title, type, and tags", () => {
+    const o = service.addObservation(makeObservation({ title: "Before" }));
+    runUpdate(service, {
+      command: "update",
+      positional: [String(o.id)],
+      flags: { title: "After", type: "decision", tags: "a,b" },
+    });
+    const obs = service.getObservations([o.id])[0];
+    expect(obs.title).toBe("After");
+    expect(obs.type).toBe("decision");
+    expect(obs.tags).toEqual(["a", "b"]);
+  });
+
+  it("should report not found for missing id", () => {
+    const result = runUpdate(service, {
+      command: "update",
+      positional: ["9999"],
+      flags: { content: "x" },
+    });
+    expect(result.toLowerCase()).toContain("not found");
+  });
+
+  it("should show usage when no fields provided (no silent staleness touch)", () => {
+    const o = service.addObservation(makeObservation({ title: "Untouched" }));
+    const before = service
+      .getStore()
+      .getRawDb()
+      .prepare("SELECT timestamp AS t FROM observations WHERE id = ?")
+      .get(o.id) as { t: number };
+    const result = runUpdate(service, {
+      command: "update",
+      positional: [String(o.id)],
+      flags: {},
+    });
+    expect(result).toContain("Usage:");
+    const after = service
+      .getStore()
+      .getRawDb()
+      .prepare("SELECT timestamp AS t FROM observations WHERE id = ?")
+      .get(o.id) as { t: number };
+    expect(after.t).toBe(before.t); // not touched
+  });
+});
+
+describe("runDelete", () => {
+  let dbPath: string;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    dbPath = makeTmpDb();
+    service = new MemoryService(new MemoryStore(dbPath));
+  });
+
+  afterEach(() => {
+    service.close();
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
+  });
+
+  it("should show usage when no id", () => {
+    const result = runDelete(service, {
+      command: "delete",
+      positional: [],
+      flags: {},
+    });
+    expect(result).toContain("Usage:");
+  });
+
+  it("should delete via the service", () => {
+    const o = service.addObservation(makeObservation({ title: "Doomed" }));
+    const result = runDelete(service, {
+      command: "delete",
+      positional: [String(o.id)],
+      flags: {},
+    });
+    expect(result).toContain(String(o.id));
+    expect(service.getObservations([o.id])).toEqual([]);
+  });
+
+  it("should report not found for missing id", () => {
+    const result = runDelete(service, {
+      command: "delete",
+      positional: ["9999"],
+      flags: {},
+    });
+    expect(result.toLowerCase()).toContain("not found");
+  });
+});
+
+describe("runDecay", () => {
+  let dbPath: string;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    dbPath = makeTmpDb();
+    service = new MemoryService(new MemoryStore(dbPath));
+  });
+
+  afterEach(() => {
+    service.close();
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
+  });
+
+  it("reports decay results", () => {
+    const old = Date.now() - 200 * 24 * 60 * 60 * 1000;
+    service.addObservation(
+      makeObservation({ type: "error", timestamp: old, title: "Old error" }),
+    );
+    const result = runDecay(service, {
+      command: "decay",
+      positional: [],
+      flags: {},
+    });
+    expect(result.toLowerCase()).toContain("decay");
+  });
+
+  it("does not mutate scores in --dry-run", () => {
+    const old = Date.now() - 200 * 24 * 60 * 60 * 1000;
+    const o = service.addObservation(
+      makeObservation({ type: "error", timestamp: old }),
+    );
+    const before = service
+      .getStore()
+      .getRawDb()
+      .prepare("SELECT quality_score AS q FROM observations WHERE id = ?")
+      .get(o.id) as { q: number };
+    runDecay(service, {
+      command: "decay",
+      positional: [],
+      flags: { "dry-run": "true" },
+    });
+    const after = service
+      .getStore()
+      .getRawDb()
+      .prepare("SELECT quality_score AS q FROM observations WHERE id = ?")
+      .get(o.id) as { q: number };
+    expect(after.q).toBe(before.q);
+  });
+});
+
+describe("runMaintain", () => {
+  let dbPath: string;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    dbPath = makeTmpDb();
+    service = new MemoryService(new MemoryStore(dbPath));
+  });
+
+  afterEach(() => {
+    service.close();
+    try {
+      rmSync(dbPath, { force: true });
+    } catch {}
+  });
+
+  it("shows usage when no action", () => {
+    const result = runMaintain(service, {
+      command: "maintain",
+      positional: [],
+      flags: {},
+    });
+    expect(result).toContain("Usage:");
+  });
+
+  it("routes maintain stats", () => {
+    const result = runMaintain(service, {
+      command: "maintain",
+      positional: ["stats"],
+      flags: {},
+    });
+    expect(result).toContain("Total Observations");
+  });
+
+  it("routes maintain decay", () => {
+    const result = runMaintain(service, {
+      command: "maintain",
+      positional: ["decay"],
+      flags: {},
+    });
+    expect(result.toLowerCase()).toContain("decay");
+  });
+
+  it("maintain prune defaults to dry-run and does NOT delete without --apply", () => {
+    const old = Date.now() - 200 * 24 * 60 * 60 * 1000;
+    service.addObservation(makeObservation({ timestamp: old }));
+    const result = runMaintain(service, {
+      command: "maintain",
+      positional: ["prune"],
+      flags: { "older-than": "90d" },
+    });
+    // Dry-run wording; nothing actually deleted.
+    expect(result.toLowerCase()).toContain("dry");
+    expect(service.getStats().totalObservations).toBe(1);
+  });
+
+  it("maintain prune --apply actually deletes", () => {
+    const old = Date.now() - 200 * 24 * 60 * 60 * 1000;
+    service.addObservation(makeObservation({ timestamp: old }));
+    runMaintain(service, {
+      command: "maintain",
+      positional: ["prune"],
+      flags: { "older-than": "90d", apply: "true" },
+    });
+    expect(service.getStats().totalObservations).toBe(0);
   });
 });

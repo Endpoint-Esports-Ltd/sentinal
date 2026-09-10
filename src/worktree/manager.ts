@@ -6,19 +6,23 @@
  */
 
 import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { WorktreeStore } from "./store.js";
+import { parseNumstat } from "./diff-parse.js";
 import {
   gitExec,
   gitExecOrThrow,
   getCurrentCommit,
-  detectBaseBranch,
   getRepoRoot,
-  checkGitVersion,
-  slugify,
-  randomHex,
-  branchExists,
 } from "../git/utils.js";
+import { createWorktree } from "./create.js";
+import { cleanupWorktrees } from "./cleanup.js";
+import type { CleanupOptions, CleanupResult } from "./cleanup.js";
+import { resolveWithReconcile } from "./reconcile.js";
+import {
+  assertCleanForMerge,
+  assertMainCheckoutCleanForMerge,
+  removeMergedWorktree,
+} from "./merge-guards.js";
 import {
   WorktreeError,
   DEFAULT_WORKTREE_CONFIG,
@@ -27,6 +31,10 @@ import {
   type DiffSummary,
   type DiffFileSummary,
 } from "./types.js";
+
+// `CleanupOptions` moved to `cleanup.ts` with the pass it configures. Re-export
+// so the manager's published surface is unchanged for existing importers.
+export type { CleanupOptions } from "./cleanup.js";
 
 // ─── Manager ────────────────────────────────────────────────────────────────
 
@@ -37,81 +45,29 @@ export class WorktreeManager {
   ) {}
 
   /**
-   * Create a new git worktree for a spec.
-   * Creates a branch and worktree directory, records in SQLite.
+   * Create a new git worktree for a spec. Delegates to {@link createWorktree}
+   * in `create.ts`, which carries the rollback envelope.
+   *
+   * @param warnings - optional collector for non-fatal problems raised while
+   *   seeding config (missing `.env.example`, a non-isolated seed source, a
+   *   file that could not be hidden from git). Callers that surface output to a
+   *   human or an LLM should pass one — a silently unseeded worktree is what
+   *   sends an agent back to copying the repo-root `.env`.
    */
   create(
     specId: string | undefined,
     projectPath: string,
     baseBranch?: string,
+    warnings?: string[],
   ): Worktree {
-    // Check git version
-    const versionCheck = checkGitVersion();
-    if (!versionCheck.ok) {
-      throw new WorktreeError(versionCheck.warning!, "GIT_TOO_OLD");
-    }
-
-    // Resolve repo root
-    const repoRoot = getRepoRoot(projectPath);
-
-    // Check max active limit
-    const activeCount = this.store.countActive(repoRoot);
-    if (activeCount >= this.config.maxActive) {
-      throw new WorktreeError(
-        `Maximum active worktrees (${this.config.maxActive}) reached. Merge or abandon existing worktrees first.`,
-        "MAX_ACTIVE",
-      );
-    }
-
-    // Detect base branch
-    const base = baseBranch ?? detectBaseBranch(repoRoot);
-    const baseCommit = getCurrentCommit(repoRoot);
-
-    // Generate identifiers
-    const slug = specId ? slugify(specId) : `worktree-${randomHex(4)}`;
-    const hash = randomHex(4);
-    const id = `${slug}-${hash}`;
-    const branchName = `${this.config.branchPrefix}${slug}`;
-    const worktreePath = join(
-      repoRoot,
-      this.config.directory,
-      `spec-${slug}-${hash}`,
+    return createWorktree(
+      this.store,
+      this.config,
+      specId,
+      projectPath,
+      baseBranch,
+      warnings,
     );
-
-    // Check if branch already exists
-    if (branchExists(repoRoot, branchName)) {
-      throw new WorktreeError(
-        `Branch ${branchName} already exists. Abandon the existing worktree first.`,
-        "ALREADY_EXISTS",
-      );
-    }
-
-    // Create the worktree
-    gitExecOrThrow(
-      ["worktree", "add", "-b", branchName, worktreePath, base],
-      repoRoot,
-    );
-
-    // Record in SQLite — always insert with spec_id=NULL to avoid FK constraint
-    // failures when the spec hasn't been registered yet (normal workflow ordering).
-    // Use linkSpec() after spec registration to set the spec_id.
-    try {
-      return this.store.insert({
-        id,
-        specId: undefined,
-        projectPath: repoRoot,
-        worktreePath,
-        branchName,
-        baseBranch: base,
-        baseCommit,
-        status: "active",
-        createdAt: Date.now(),
-      });
-    } catch (err) {
-      // Cleanup: remove the git worktree if DB insert fails
-      gitExec(["worktree", "remove", "--force", worktreePath], repoRoot);
-      throw err;
-    }
   }
 
   /**
@@ -198,10 +154,74 @@ export class WorktreeManager {
   }
 
   /**
+   * Stop the process group this worktree owns, before anything touches its
+   * directory. Throws `RUNTIME_STOP_FAILED` if the stop refused or failed.
+   *
+   * ⛔ **Fast no-op** in the case that matters: `stopOwnedGroup` short-circuits
+   * on an absent pidfile *before* it loads the runtime contract, so a worktree
+   * that never started a runtime never runs `down` and never pays `graceMs`
+   * (Pre-Mortem #2 — `abandon` is called on every worktree, not just the ones
+   * that ran something).
+   *
+   * ⛔ A failed stop **aborts the exit path**. `stopOwnedGroup` reports
+   * `ok: false` exactly when it could not prove ownership or could not signal;
+   * removing the directory anyway would orphan a live process with its cwd
+   * deleted, which is precisely the failure this phase exists to prevent. The
+   * caller gets an actionable message naming what to do by hand.
+   *
+   * ⛔ An **absent** resolver aborts it too. This used to `return` early, which
+   * made "nobody wired the dep" behave identically to "there is nothing to
+   * stop" — the one decision in this tier that failed OPEN, guarded only by a
+   * grep over five known construction sites. `stopOwnedRuntime` is now required
+   * on `WorktreeConfig`, so omission is a compile error; this branch catches the
+   * JS caller and the `as any` that tsc never sees. A deliberate opt-out is
+   * spelled {@link NO_RUNTIME_STOP}, which is a real function and never lands
+   * here.
+   */
+  private async stopOwnedRuntime(wt: Worktree): Promise<void> {
+    const stop = this.config.stopOwnedRuntime;
+    if (!stop) {
+      throw new WorktreeError(
+        `Refusing to remove ${wt.worktreePath}: this WorktreeManager was built with no ` +
+          `\`stopOwnedRuntime\` resolver, so Sentinal cannot tell whether the worktree owns ` +
+          `running processes. Removing the directory now could orphan a live process with a ` +
+          `deleted working directory. ` +
+          `Remedy: construct the manager via runtimeWorktreeConfig() (src/runtime/worktree-deps.ts), ` +
+          `or — if this manager genuinely owns no runtime — declare that by setting ` +
+          `stopOwnedRuntime: NO_RUNTIME_STOP.`,
+        "RUNTIME_STOP_FAILED",
+      );
+    }
+
+    const outcome = await stop(wt.worktreePath);
+    if (outcome.ok) return;
+
+    throw new WorktreeError(
+      `Refusing to remove ${wt.worktreePath}: the runtime it owns could not be stopped. ` +
+        `${outcome.reason ?? "No reason was given."} ` +
+        `Removing the directory now would leave a live process with a deleted working ` +
+        `directory — resolve this first, then retry.`,
+      "RUNTIME_STOP_FAILED",
+    );
+  }
+
+  /**
    * Squash merge the worktree branch into the base branch.
    * Returns the merge commit hash.
+   *
+   * The main checkout is put back on the branch it was on before the merge —
+   * including on failure paths after the `checkout` already moved it. A
+   * detached HEAD is left on the base branch (there is no branch to go back
+   * to) and noted via `warnings`.
+   *
+   * @param warnings - optional collector for non-fatal notes (detached HEAD,
+   *   a branch restore that itself failed). Same channel as {@link create}.
    */
-  squashMerge(worktreeId: string, message?: string): string {
+  async squashMerge(
+    worktreeId: string,
+    message?: string,
+    warnings?: string[],
+  ): Promise<string> {
     const wt = this.store.get(worktreeId);
     if (!wt)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
@@ -221,36 +241,96 @@ export class WorktreeManager {
       );
     }
 
+    // ⛔ Refuse a worktree git will not let us remove, BEFORE anything is done.
+    // The alternative outcomes are both bad: `--force` would silently discard
+    // untracked work the squash never carried across, and swallowing the
+    // refusal (the old behaviour) marked the row `merged` — terminal, so its
+    // slot was released — while the directory stayed on disk. See
+    // `merge-guards.ts` for the full argument.
+    assertCleanForMerge(wt);
+
+    // ⛔ H3: the merge also runs `git checkout` + `git commit` in the MAIN
+    // checkout, so its staged/modified tracked work would be swept into the
+    // squash commit. Refuse BEFORE anything is done. Untracked files are
+    // allowed — see `assertMainCheckoutCleanForMerge`.
+    assertMainCheckoutCleanForMerge(wt);
+
     const commitMsg =
       message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
 
-    // Checkout base branch in main project
-    gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
+    // ⛔ Stop BEFORE `git checkout`, not merely before `worktree remove`. A live
+    // process holding files under the worktree can make the checkout itself
+    // fail, which would leave the main checkout on the wrong branch with the
+    // merge half-done — a worse state than not having started.
+    await this.stopOwnedRuntime(wt);
 
-    // Squash merge
-    gitExecOrThrow(["merge", "--squash", wt.branchName], wt.projectPath);
+    // H3: remember where the user was, so we can put them back. Empty string
+    // means detached HEAD — nothing to restore to; the checkout below will
+    // leave them on the base branch, and we say so instead of guessing a ref.
+    const originalBranch = gitExec(
+      ["branch", "--show-current"],
+      wt.projectPath,
+    ).stdout;
+    if (!originalBranch) {
+      warnings?.push(
+        `The main checkout was on a detached HEAD before the merge; it has been ` +
+          `left on ${wt.baseBranch}. Re-detach manually if you need that state back.`,
+      );
+    }
 
-    // Commit
-    gitExecOrThrow(["commit", "-m", commitMsg], wt.projectPath);
+    let checkedOut = false;
+    try {
+      // Checkout base branch in main project
+      gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
+      checkedOut = true;
 
-    // Get merge commit hash
-    const mergeCommit = getCurrentCommit(wt.projectPath);
+      // Squash merge
+      gitExecOrThrow(["merge", "--squash", wt.branchName], wt.projectPath);
 
-    // Cleanup: remove worktree directory and delete branch
-    gitExec(["worktree", "remove", wt.worktreePath], wt.projectPath);
-    gitExec(["branch", "-D", wt.branchName], wt.projectPath);
+      // Commit
+      gitExecOrThrow(["commit", "-m", commitMsg], wt.projectPath);
 
-    // Update store
-    this.store.updateStatus(worktreeId, "merged", mergeCommit);
+      // Get merge commit hash
+      const mergeCommit = getCurrentCommit(wt.projectPath);
 
-    return mergeCommit;
+      // Cleanup: remove the worktree directory and delete the branch — and THROW
+      // if the directory survives. The preflight cannot see a file created since,
+      // and `merged` must never be written over a directory that is still there:
+      // it is terminal, so it frees the slot for a worktree that would then
+      // collide with this one's ports, databases and seeded `.env`.
+      removeMergedWorktree(wt, mergeCommit);
+
+      // Update store — reached only once the directory is gone.
+      this.store.updateStatus(worktreeId, "merged", mergeCommit);
+
+      return mergeCommit;
+    } finally {
+      // H3: restore the user's branch — on success AND on any failure after
+      // the checkout moved HEAD. Best-effort (`gitExec`, not OrThrow): a
+      // restore failure must never mask the real error travelling out of the
+      // try block. No-op when the user was already on the base branch, or
+      // detached, or the checkout never happened.
+      if (checkedOut && originalBranch && originalBranch !== wt.baseBranch) {
+        const restore = gitExec(["checkout", originalBranch], wt.projectPath);
+        if (restore.exitCode !== 0) {
+          warnings?.push(
+            `Could not restore the main checkout to ${originalBranch} ` +
+              `(it is on ${wt.baseBranch}): ${restore.stderr || restore.stdout}`,
+          );
+        }
+      }
+    }
   }
 
   /** Abandon a worktree — remove from disk and mark as abandoned. */
-  abandon(worktreeId: string): void {
+  async abandon(worktreeId: string): Promise<void> {
     const wt = this.store.get(worktreeId);
     if (!wt)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+
+    // ⛔ Before the directory is touched at all — including the `rmSync`
+    // fallback below, which git cannot veto.
+    await this.stopOwnedRuntime(wt);
 
     // Remove worktree from disk (force in case of uncommitted changes)
     if (existsSync(wt.worktreePath)) {
@@ -264,12 +344,26 @@ export class WorktreeManager {
           rmSync(wt.worktreePath, { recursive: true, force: true });
           gitExec(["worktree", "prune"], wt.projectPath);
         } catch {
-          // Best effort
+          // Swallowed deliberately — the existsSync verification below is
+          // what the invariant is actually about (M3c).
         }
+      }
+      // ⛔ M3c: `abandoned` is terminal, so it frees the row's slot. Writing it
+      // over a SURVIVING directory hands the next worktree this one's ports and
+      // seeded `.env` — mirror `removeMergedWorktree`'s discipline.
+      if (existsSync(wt.worktreePath)) {
+        throw new WorktreeError(
+          `Could not remove ${wt.worktreePath} — both \`git worktree remove --force\` and ` +
+            `the manual fallback failed, and the directory is still on disk. Deliberately ` +
+            `left active rather than marked abandoned: abandoning would release its slot ` +
+            `while the directory survives. Remedy: resolve whatever blocks removal ` +
+            `(permissions, a process holding the directory), then re-run worktree_abandon.`,
+          "REMOVE_FAILED",
+        );
       }
     }
 
-    // Delete the branch
+    // Delete the branch — only after the directory is confirmed gone.
     gitExec(["branch", "-D", wt.branchName], wt.projectPath);
 
     // Update store
@@ -278,163 +372,30 @@ export class WorktreeManager {
 
   /**
    * Resolve a plan slug to a worktree, reconciling against the filesystem.
-   * The on-disk state is authoritative:
-   * - Index hit + directory exists → return it.
-   * - Index hit + directory gone → mark abandoned, then try the disk scan.
-   * - Index miss + git worktree on disk (e.g. the DB insert was lost to a
-   *   transport failure, or the record was wrongly abandoned) → re-register
-   *   it as active and return it.
+   * Delegates to {@link resolveWithReconcile} in `reconcile.ts`.
    */
-  resolveWithReconcile(slug: string, projectPath?: string): Worktree | null {
-    const fromDb = this.store.resolveBySlug(slug, projectPath);
-    if (fromDb) {
-      if (existsSync(fromDb.worktreePath)) return fromDb;
-      // Self-heal: directory gone — don't keep returning a dead record
-      this.store.updateStatus(fromDb.id, "abandoned");
-    }
-
-    if (!projectPath) return null;
-
-    let repoRoot: string;
-    try {
-      repoRoot = getRepoRoot(projectPath);
-    } catch {
-      return null;
-    }
-
-    // Disk scan: find a git worktree whose branch matches the slug
-    const wanted = `${this.config.branchPrefix}${slugify(slug)}`;
-    const onDisk = listGitWorktrees(repoRoot).find(
-      (w) =>
-        (w.branch === wanted || w.branch.startsWith(wanted)) &&
-        existsSync(w.path),
+  resolveWithReconcile(
+    slug: string,
+    projectPath?: string,
+    warnings?: string[],
+  ): Worktree | null {
+    return resolveWithReconcile(
+      this.store,
+      this.config,
+      slug,
+      projectPath,
+      warnings,
     );
-    if (!onDisk) return null;
-
-    // Re-register: disk is authoritative
-    const base = detectBaseBranch(repoRoot);
-    const mergeBase = gitExec(["merge-base", base, onDisk.branch], repoRoot);
-    const baseCommit =
-      mergeBase.exitCode === 0 && mergeBase.stdout.trim()
-        ? mergeBase.stdout.trim()
-        : onDisk.head;
-
-    return this.store.insert({
-      id: `${slugify(slug)}-${randomHex(4)}`,
-      specId: undefined,
-      projectPath: repoRoot,
-      worktreePath: onDisk.path,
-      branchName: onDisk.branch,
-      baseBranch: base,
-      baseCommit,
-      status: "active",
-      createdAt: Date.now(),
-    });
   }
 
   /**
-   * Cleanup stale worktrees:
-   * - Worktrees whose directory no longer exists on disk
-   * - Worktrees for specs that are verified/cancelled
-   * Returns count of cleaned up worktrees.
+   * Cleanup stale worktrees (directory-gone pass, plus the opt-in `force` pass
+   * over orphans whose directory still exists). Delegates to
+   * {@link cleanupWorktrees} in `cleanup.ts`. Returns the count AND what was
+   * removed ({@link CleanupResult}) — a bare count is not reconcilable after
+   * an ambiguous transport failure (issue #9).
    */
-  cleanup(): number {
-    const active = this.store.listAll("active");
-    let cleaned = 0;
-
-    for (const wt of active) {
-      let shouldClean = false;
-
-      // Check if directory still exists
-      if (!existsSync(wt.worktreePath)) {
-        shouldClean = true;
-      }
-
-      if (shouldClean) {
-        // Remove git worktree reference if still tracked
-        gitExec(["worktree", "prune"], wt.projectPath);
-        // Delete branch if it exists
-        gitExec(["branch", "-D", wt.branchName], wt.projectPath);
-        this.store.updateStatus(wt.id, "abandoned");
-        cleaned++;
-      }
-    }
-
-    return cleaned;
+  cleanup(opts?: CleanupOptions): CleanupResult {
+    return cleanupWorktrees(this.store, this.config, opts);
   }
-}
-
-// ─── Disk Scan ──────────────────────────────────────────────────────────────
-
-interface GitWorktreeEntry {
-  path: string;
-  head: string;
-  branch: string;
-}
-
-/**
- * Parse `git worktree list --porcelain` into entries.
- * Skips the main checkout and detached/bare entries (no branch line).
- */
-function listGitWorktrees(repoRoot: string): GitWorktreeEntry[] {
-  const result = gitExec(["worktree", "list", "--porcelain"], repoRoot);
-  if (result.exitCode !== 0) return [];
-
-  const entries: GitWorktreeEntry[] = [];
-  for (const block of result.stdout.split("\n\n")) {
-    let path = "";
-    let head = "";
-    let branch = "";
-    for (const line of block.split("\n")) {
-      if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
-      else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
-      else if (line.startsWith("branch "))
-        branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-    }
-    if (path && branch) entries.push({ path, head, branch });
-  }
-  return entries;
-}
-
-// ─── Diff Parsing ───────────────────────────────────────────────────────────
-
-/** Parse `git diff --numstat` output into a DiffSummary. */
-function parseNumstat(output: string): DiffSummary {
-  const files: DiffFileSummary[] = [];
-  let totalInsertions = 0;
-  let totalDeletions = 0;
-
-  for (const line of output.split("\n")) {
-    // numstat lines: "10\t5\tsrc/file.ts" or "-\t-\tbinary-file"
-    const match = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
-    if (!match) continue;
-
-    const insertions = match[1] === "-" ? 0 : parseInt(match[1]);
-    const deletions = match[2] === "-" ? 0 : parseInt(match[2]);
-    const path = match[3];
-
-    // Detect renamed files: "old => new" or "{old => new}/rest"
-    const isRenamed = path.includes(" => ");
-    let status: DiffFileSummary["status"];
-    if (isRenamed) {
-      status = "renamed";
-    } else if (insertions > 0 && deletions === 0) {
-      status = "added";
-    } else if (insertions === 0 && deletions > 0) {
-      status = "deleted";
-    } else {
-      status = "modified";
-    }
-
-    files.push({ path, status, insertions, deletions });
-    totalInsertions += insertions;
-    totalDeletions += deletions;
-  }
-
-  return {
-    filesChanged: files.length,
-    insertions: totalInsertions,
-    deletions: totalDeletions,
-    files,
-  };
 }

@@ -1,3 +1,96 @@
+## [1.36.4](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.3...v1.36.4) (2026-09-07)
+
+
+### Bug Fixes
+
+* **sidecar:** report a destructive-route timeout as unknown, not unreachable ([c4f3950](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c4f3950d416349e5aa7faa36adbc446f4b89da87)), closes [#9](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/9)
+
+## [1.36.3](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.2...v1.36.3) (2026-09-02)
+
+
+### Bug Fixes
+
+* close out the v1.36.1 audit — deferred items and all medium-severity findings ([3a7c64a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3a7c64a6f54d390843589327ea7d2b9bafb26556))
+
+## [1.36.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.1...v1.36.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* remediate the v1.36.1 audit's critical and high-severity findings ([e3f9194](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e3f9194e78ce13c0ddae25ac056c1ccee5d52c78)), closes [hi#severity](https://github.com/hi/issues/severity)
+
+## [1.36.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.0...v1.36.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **mcp:** report a missing required enum as missing rather than an invalid value ([bcd0156](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bcd0156112fca1b1edf1c901ce4a9289da29ab64))
+
+# [1.36.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.35.0...v1.36.0) (2026-08-26)
+
+
+### Features
+
+* **analysis:** add plan_impact, multi-source reach injection, and code-exploration capability catalogue ([ab7068e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ab7068ef7ea223f7ba3f89ffc2d78afd031182bb))
+
+# [1.35.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.34.0...v1.35.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **analysis:** score impact_analysis on reach, not file length ([ec642c6](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ec642c637d9940ba45f1dc8fca7a3d4694da19d7))
+
+
+### Features
+
+* **sync:** detect MCP servers at both scopes for both targets, wire graph-tool reach into impact_analysis ([bbd74b8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bbd74b8beab10f868ec0f3e0f4bb08c39e7e9041))
+
+# [1.34.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.33.0...v1.34.0) (2026-08-23)
+
+
+### Features
+
+* **worktree:** runtime isolation for worktrees (closes [#2](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/2)) ([13d23e6](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/13d23e68fabe43f678a81c0acb5399ccd0464014))
+
+# [1.33.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.32.0...v1.33.0) (2026-07-24)
+
+
+### Bug Fixes
+
+* **opencode:** stop spec-worktree adaptor silently editing the main checkout ([f016621](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/f016621c8efee6901ad3ec607dab82d2531f0762))
+* **worktree:** cleanup can remove orphaned worktrees whose dir still exists ([79d3c32](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/79d3c32514c79973d5b05871ca954e8f468f8490))
+
+
+### Features
+
+* **memory:** auto-run throttled quality decay on sidecar startup ([de081ad](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/de081ad538ac4f0f0c0327f89f907f0bbfbcdbd7))
+* **memory:** track .sentinal/skills and rules in generated .gitignore ([d4feb14](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d4feb1431bdc344156ed2ee96f508d6ca9b7d766))
+* **memory:** update/delete observations and rank FTS by freshness ([c8dda84](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c8dda842500a73f3de4362f3968b3a3cb4c2e05d))
+
+# [1.32.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.6...v1.32.0) (2026-07-18)
+
+
+### Bug Fixes
+
+* **build:** embed-assets consumers must build the plugin bundle first ([eb81f5e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/eb81f5ee7b32cdb2bb79c1104e2818acb22ec449))
+* **build:** generate embedded-assets.ts instead of committing it ([1788dc3](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1788dc3e5c75ff2961adfe081bfc635e23a7e172))
+* **e2e:** make Layer B actually drive real binaries; verified live with subscription OAuth ([ebb01d2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ebb01d270044bebc9961ba1a37d73717560f8c1a))
+* **rules:** correct stale memory tool references + add recall cues ([800ab0b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/800ab0b7b2dc60b5fca43348dddb16b375a1726a))
+* **spec:** add name: frontmatter so master skills load on OpenCode ([70a2a82](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/70a2a821175329abcd87c4554b3db3e2ce3d6fad))
+
+
+### Features
+
+* **changelog:** adopt top-4 CC/OC changelog recommendations ([50a90ce](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/50a90ce4757c94802cce6e818f2385189ce89e20))
+* **e2e:** harness binary override + config knobs (release-gate task 1) ([05cab2f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/05cab2fb2dc392a6405b16b5ee1445794a673205)), closes [#1](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/1)
+* **e2e:** isolated sandbox harness (task 1) ([6dcbe34](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/6dcbe3479d3de99db218914cb1393fcf7db0b621))
+* **e2e:** opt-in real-binary smoke layer (task 8) ([85c432d](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/85c432d5cb55637979ec30b298b6770b36a5bbed))
+* **e2e:** pre-release gate runner + docs (task 5) ([3bb9d87](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3bb9d87a557c68243e288d77dac3f2d35d704843))
+* **e2e:** release-gate tests + download helper (wave 2, tasks 2/3/4/6) ([7c96aa5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7c96aa5ee835aea099a521df3c0ff2c2a71d3d83))
+* **e2e:** runner scripts + docs (task 7) ([4137e1c](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4137e1c39bad3012bbf1d423e25ab01f8eeea0b5))
+* **e2e:** Wave 2 deterministic layers (tasks 2-6) ([d146fce](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d146fce950cd6989ad497147ef6868a420fd904b))
+* **spec:** use memory_search/memory_save at planning and pivot points ([3d05208](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3d05208d21a64b90e9cea0224de386527f10aa85))
+
 ## [1.31.6](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.31.5...v1.31.6) (2026-06-11)
 
 

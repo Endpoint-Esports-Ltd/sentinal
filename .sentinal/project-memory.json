@@ -42,6 +42,37 @@
       ],
       "createdAt": "2026-03-18",
       "author": "Evan Tiley"
+    },
+    {
+      "type": "decision",
+      "title": "SHIPPED: worktree runtime isolation (issue #2) — 4 phases merged to main as c79e68c",
+      "content": "Master plan docs/plans/2026-08-07-worktree-runtime-isolation.md — VERIFIED and squash-merged to main as c79e68c (137 files, +24069/-1627, 18 branch commits). Post-merge on main: 2476 pass / 0 fail, tsc clean, build:all + build:cli clean, all four runtime_* tools present in the compiled binary.\n\nWHAT SHIPPED (4 phases): (1) shared-state guidance — DELETED the `lsof` port lines rather than adding a contradicting instruction; forbade copying the repo-root .env and terminating by name/pattern; tool-agnostic E2E; pkill/killall→ask opt-out on OpenCode only. (2) per-project slots, unique among LIVE worktrees (ready-to-merge IS live), slot 0 reserved for the main checkout, .env seeded from .env.example with the slot substituted. (3) .sentinal/runtime.json contract + runtime_config/runtime_init + /sync scaffolder. (4) runtime_up/runtime_stop — detached spawn into its own process group, worktree-local pidfile, ownership-verified teardown, stop-on-exit for abandon/squashMerge/cleanup.\n\nSIX DIVERGENCES FROM THE ISSUE, each recorded as a decision: D4 no destructive-command guard (shell safety is user config; both platforms already provide the mechanism); D5 pidfile not a sidecar supervisor; D7 slot 0 reserved; D8 .env seeding; D10 three-state isolation map where absence = unknown and unknown NEVER prompts; D12 lifecycle borrowed from Playwright webServer + Testcontainers.\n\nREVIEW CAUGHT REAL BUGS AT EVERY STAGE — the process earned its keep:\n- Phase 2 plan review: my partial unique index was `WHERE status='active'`, but ready-to-merge is LIVE — would have freed the slot of a still-running worktree, reintroducing the exact collision.\n- Phase 3 plan review: my strict interpolator rejected legitimate shell (`PORT=${PORT:-3000}`) AND didn't catch the bare-dollar `$UNSET` used to justify it. Narrowed to the ${SENTINAL_*} prefix.\n- Phase 4 spec review (must_fix): realListGroup returned [] on ANY failure → {kind:\"gone\"} → stopOwnedGroup reported success and DELETED the ownership record while the orphan ran. Guard 5 authorised a directory deletion on a probe failure. Fixed with a third `unknown` state that fails closed. A test was pinning the wrong behaviour.\n- Implementing agents refused two of my own bad instructions: Phase 3 Task 7 told them to write \"shared is the effective default\" (the pre-correction wording D10 exists to overturn) — refused and flagged. Phase 4 orphan-reap: I mandated verification then specified a row where verification is structurally impossible.\n\nEMPIRICAL FINDINGS THAT ASSUMPTION WOULD HAVE MISSED:\n- .git/info/exclude is DISPROVEN in both forms for linked worktrees — `git rev-parse --git-path info/exclude` resolves to the COMMON dir and leaks into the main checkout; the per-worktree copy is never read. Selected: tiered self-ignoring .gitignore.\n- Claude Code reads ONLY `agent` and `subagentStatusLine` from a plugin-root settings.json — `permissions` there is INERT. That is why no CC permission default shipped; the ~45-entry allow-list was deleted.\n- A bind-only port probe is WRONG on macOS: SO_REUSEADDR lets listen(P,\"127.0.0.1\") succeed while something holds 0.0.0.0:P. Now connects first.\n- Ownership verification needs symlink resolution (/var→/private/var) or runtime_stop refuses to stop a process it just started.\n- Bun.spawn({detached:true}) DOES call setsid() on POSIX so pgid===pid; stdio:[\"ignore\",logFd,logFd] does NOT keep the parent alive (bun.d.ts:6503's warning applies to pipes, not real fds).\n- OpenCode per-agent permission blocks MERGE with top-level (verified via GET /agent), so no duplication needed.\n\nMY OWN ERRORS, RECORDED: marked Phase 4 VERIFIED while the enumeration-safety fix was UNCOMMITTED (a merge then would have silently discarded it); asserted client.ts \"untouched at 582\" for many turns when main was 573 — I was checking my expectation, not the baseline; `rm -f docs/plans/*.spec-review.json` deleted 28 unrelated review files (restored); dropped the master's Progress Tracking section in a restructure and a silent .replace() no-oped rather than erroring.\n\n12 PIECES OF DEBT FIXED BEFORE MERGE, incl. pre-existing: squashMerge removed without --force and swallowed the error (slot released, directory survived — made far more reachable by R9 making runtime.json committable); stopOwnedRuntime failed OPEN; install.ts split 1057→222; `argument-hint: \"...\" or \"...\"` is invalid YAML so /spec shipped with NO frontmatter at all, in BOTH targets, because validate:plugin ends in `|| true`; LspClient test had NO timeout (the 30s belonged to the preceding test) while initialize() grants itself 10s and is called twice.\n\nSTILL OPEN: issue #3 (installer has no manifest — uninstall leaves 17 files on OpenCode); store.ts 836 / uninstall.ts 691 / spec-mcp-tools 681 / analysis-mcp-tools 602 all over the 600 block; validate:plugin still `|| true` and not in CI. RESIDUAL RISK (recorded in the plan): an UNCONFIGURED project can still reproduce incident steps 2-4 — the contract is opt-in and prose is the only barrier. registerWorktreeTools still degrades silently if worktreeConfig is omitted.\n\nDON'T: run quality_report's prettier check project-wide on this repo — it reformatted 85 unrelated files (repo is not prettier-clean at HEAD under any 3.x; prettier isn't even a devDependency).",
+      "tags": [
+        "worktree",
+        "runtime-isolation",
+        "issue-2",
+        "shipped",
+        "merged",
+        "slots",
+        "runtime.json",
+        "process-ownership",
+        "pidfile",
+        "macos-so-reuseaddr",
+        "git-info-exclude-disproven",
+        "claude-code-inert-settings",
+        "alarm-fatigue"
+      ],
+      "filePaths": [
+        "docs/plans/2026-08-07-worktree-runtime-isolation.md",
+        "src/runtime/",
+        "src/worktree/slots.ts",
+        "src/worktree/merge-guards.ts",
+        "src/worktree/git-exclude.ts",
+        "targets/claude-code/settings.json",
+        "targets/opencode/opencode.json"
+      ],
+      "createdAt": "2026-08-20",
+      "author": "Evan Tiley"
     }
   ]
 }

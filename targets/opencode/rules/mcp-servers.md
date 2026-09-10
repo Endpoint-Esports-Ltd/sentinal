@@ -12,34 +12,34 @@ All Sentinal MCP servers use the `mcp__plugin_sentinal_` prefix. Tools are avail
 
 ---
 
-### mem-search — Persistent Memory
+### memory — Persistent Memory (sentinal server)
 
-**Purpose:** Search past work, decisions, and context across sessions.
+**Purpose:** Recall past work, decisions, and context across sessions; persist new ones.
 
-**3-step workflow (token-efficient — never skip to step 3):**
+**3-step read workflow (token-efficient — never skip to step 3):**
 
-| Step | Tool               | Purpose                                       |
-| ---- | ------------------ | --------------------------------------------- |
-| 1    | `search`           | Find observations → returns index with IDs    |
-| 2    | `timeline`         | Get chronological context around an anchor ID |
-| 3    | `get_observations` | Fetch full details for specific IDs only      |
+| Step | Tool              | Purpose                                       |
+| ---- | ----------------- | --------------------------------------------- |
+| 1    | `memory_search`   | Find observations → returns index with IDs    |
+| 2    | `memory_timeline` | Get chronological context around an anchor ID |
+| 3    | `memory_get`      | Fetch full details for specific IDs only      |
 
-| Tool               | Key Params                                                  |
-| ------------------ | ----------------------------------------------------------- |
-| `search`           | `query`, `limit`, `type`, `project`, `dateStart`, `dateEnd` |
-| `timeline`         | `anchor` (ID) or `query`, `depth_before`, `depth_after`     |
-| `get_observations` | `ids` (array, required)                                     |
-| `save_memory`      | `text` (required), `title`, `project`                       |
+| Tool              | Key Params                                               |
+| ----------------- | -------------------------------------------------------- |
+| `memory_search`   | `query` (required), `project`, `type`, `limit`           |
+| `memory_timeline` | `anchor` (ID, required), `depth`, `project`              |
+| `memory_get`      | `ids` (array, required)                                  |
+| `memory_save`     | `title`, `content`, `type` (required), `project`, `tags` |
+| `memory_stats`    | (none)                                                   |
+| `memory_share`    | `ids`, `project`                                         |
 
-**Types:** `bugfix`, `feature`, `refactor`, `discovery`, `decision`, `change`
+**Observation types:** `decision`, `discovery`, `error`, `fix`, `pattern`.
 
 ```
-ToolSearch(query="+mem-search search")
-
-mcp__plugin_sentinal_mem-search__search(query="authentication flow", limit=5)
-mcp__plugin_sentinal_mem-search__timeline(anchor=22865, depth_before=3, depth_after=3)
-mcp__plugin_sentinal_mem-search__get_observations(ids=[22865, 22866])
-mcp__plugin_sentinal_mem-search__save_memory(text="Important finding", title="Short title")
+memory_search(query="authentication flow", project="/path/to/repo", limit=5)
+memory_timeline(anchor=22865, depth=3)
+memory_get(ids=[22865, 22866])
+memory_save(title="Short title", content="Important finding", type="discovery", project="/path/to/repo")
 ```
 
 ---
@@ -122,12 +122,128 @@ mcp__plugin_sentinal_web-fetch__fetch_url(url="https://docs.nestjs.com/guards")
 
 ### Tool Selection Quick Reference
 
-| Need                     | Server/Tool                 | Reference                                  |
-| ------------------------ | --------------------------- | ------------------------------------------ |
-| **Codebase search**      | **Vexor** (`vexor "query"`) | `cli-tools.md`                             |
-| Past work / decisions    | mem-search                  | `search` → `timeline` → `get_observations` |
-| Library/framework docs   | context7                    | `resolve-library-id` → `query-docs`        |
-| Web search               | web-search                  | `search`                                   |
-| GitHub README            | web-search                  | `fetchGithubReadme`                        |
-| Production code examples | grep-mcp                    | `searchGitHub`                             |
-| Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                 |
+| Need                     | Server/Tool                 | Reference                                          |
+| ------------------------ | --------------------------- | -------------------------------------------------- |
+| **Codebase search**      | **Vexor** (`vexor "query"`) | `cli-tools.md`                                     |
+| Past work / decisions    | memory (sentinal)           | `memory_search` → `memory_timeline` → `memory_get` |
+| Library/framework docs   | context7                    | `resolve-library-id` → `query-docs`                |
+| Web search               | web-search                  | `search`                                           |
+| GitHub README            | web-search                  | `fetchGithubReadme`                                |
+| Production code examples | grep-mcp                    | `searchGitHub`                                     |
+| Full web page content    | web-fetch                   | `fetch_url` / `fetch_urls`                         |
+| Reach for risk scoring   | a code-graph server, if any | _Code-Graph Reach_ below (optional)                |
+
+---
+
+## Code-Graph Reach (Optional)
+
+**If a code-graph MCP server is configured for this project, pass its reach numbers to `impact_analysis`.** If none is configured, this section does not apply — `impact_analysis` measures reach from its own parsed-import graph and needs nothing from you.
+
+Sentinal **detects** a code-graph server when one is already present in your MCP config; it never installs or configures one. Adding one is your decision, and no part of Sentinal depends on it.
+
+**Check what is actually available before choosing — do not assume.** The requirement is on the _capability_, never on a vendor: any server exposing both rows below qualifies.
+
+| Capability needed                                         | Example tool names (yours will differ) |
+| --------------------------------------------------------- | -------------------------------------- |
+| Modules transitively reaching a given file                | `trace_path`, `find_importers`         |
+| Total modules in the graph — the universe the above spans | `graph_stats`, `index_status`          |
+
+```
+ToolSearch(query="graph reach importers trace")
+```
+
+### Passing reach to `impact_analysis`
+
+`impact_analysis` takes an optional `reach` object in **one of two shapes**. Supply one or the other, never both and never neither.
+
+#### Multi-source form
+
+Use this when more than one tool can answer, or when you want to attribute the numbers. Each source carries **its own** universe.
+
+| Field                   | Type                     | Required | Meaning                                                                    |
+| ----------------------- | ------------------------ | -------- | -------------------------------------------------------------------------- |
+| `sources`               | non-empty array          | yes      | One entry per tool. **Exactly one of them is scored** — see below          |
+| `sources[].moduleCount` | positive integer         | yes      | Total modules in **this source's own** universe                            |
+| `sources[].files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it, **for this source** |
+| `sources[].source`      | string                   | no       | Tool that produced these numbers, e.g. `"<server> <tool>"`                 |
+| `sources[].primary`     | boolean                  | no       | Marks the one source that scores. At most one; defaults to the first entry |
+| `callSites`             | array                    | no       | Evidence only, never scored — see _Call sites_ below                       |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "sources": [
+    {"source": "<server> <tool>", "primary": true, "moduleCount": 334,
+     "files": {"src/a.ts": 89, "src/b.ts": 2, "src/c.tsx": 0}},
+    {"source": "<other server> <tool>", "moduleCount": 8440,
+     "files": {"src/a.ts": 200, "src/b.ts": 11, "src/c.tsx": 0}}
+  ]
+})
+```
+
+#### Single-source form
+
+**Still accepted, unchanged.** It is exactly equivalent to a one-element `sources` list, so nothing that already sends this shape needs to change.
+
+| Field         | Type                     | Required | Meaning                                                           |
+| ------------- | ------------------------ | -------- | ----------------------------------------------------------------- |
+| `moduleCount` | positive integer         | yes      | Total modules in the universe these numbers were measured against |
+| `files`       | `{ "<path>": <number> }` | yes      | Repo-relative path → modules transitively reaching it             |
+| `source`      | string                   | no       | Tool that produced the numbers, e.g. `"<server> <tool>"`          |
+| `callSites`   | array                    | no       | Evidence only, never scored — see _Call sites_ below              |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "moduleCount": 334,
+  "files": {"src/a.ts": 89, "src/b.ts": 2, "src/c.tsx": 0},
+  "source": "<server> <tool>"
+})
+```
+
+### ⛔ Exactly one source is scored
+
+**Sentinal scores from one source only: the one marked `primary: true`, or the first entry if none is marked. Every other source is accepted, reported, and rendered explicitly as unscored.**
+
+Per-source universes make a reach number and its universe travel together — that fixes _pairing_. It does **not** make the resulting shares comparable. The same file can be 89 of 334 modules (26.6% → HIGH) to a module-level tool and 200 of 8440 symbols (2.4% → LOW) to a symbol-level one; both are correct and neither converts into the other. Taking the max across sources means installing a server can only raise the verdict, taking the min only lowers it, and taking whichever came first makes it depend on declaration order. In every variant **the risk score for identical code becomes a function of which servers you happen to have installed.** Sentinal's 25% cutoff was derived from a module-level distribution; nothing establishes that it means anything in a symbol universe.
+
+So supply as many sources as are useful — all of them are reported — but **mark the one whose universe the thresholds should be read in.** If you are unsure, mark the module-level one.
+
+### ⛔ Same universe, full coverage — per source
+
+**Whichever tool supplies the numbers, its `moduleCount` must be that tool's own universe size, and its `files` must cover every changed `.ts`/`.tsx`/`.js` file. A source's universe stays with that source and is never applied to another source's numbers.**
+
+`moduleCount` is **not** a report-level scalar — it is per source, and only the scored source's scalar is ever divided into anything. Every file's reach is divided by that scalar to produce a share, and the risk thresholds are share-based (HIGH at ≥25% of the module tree). So a partial `files` map in the scored source would score the uncovered files' built-in counts against _your_ universe, silently mis-scoring the whole report. For the same reason a symbol-graph reach paired with a module count marks everything HIGH — alarm fatigue, not signal. Per-source universes prevent that mis-pairing; they are not a licence to blend sources. **Reach decides HIGH only among changesets that are otherwise plan-compliant:** the risk score is `unexpected-files OR high-reach`, and unexpected files fire on 45-90% of real changesets, so accurate reach sharpens the remainder rather than driving the headline verdict.
+
+What that means in practice:
+
+- Omit one changed `.ts`/`.tsx`/`.js` file from the **scored** source's `files` and the entire `reach` object is rejected and nothing is scored. The response names the missing paths and the source they were missing from, so complete the map and retry.
+- A **non-primary** source that fails coverage is dropped by name and listed as unscored. The verdict is unaffected — one incomplete reporting source cannot cost you the analysis.
+- Non-TS files (`.md`, `.json`, …) never consult reach and are excluded from the coverage requirement.
+- Any value in a source's `files` greater than **that source's** `moduleCount` is rejected — it proves the two numbers came from different metrics.
+- At most one source may carry `primary: true`. Two would make the scored source depend on declaration order.
+- Keys must be repo-relative exactly as `git diff --name-only` prints them (`src/a.ts`, not `/abs/path/src/a.ts`).
+- **If the universe size is not obtainable, omit that source — and if no source has one, omit `reach` entirely.** A guessed `moduleCount` is worse than none; the built-in graph is the fail-safe.
+
+### Call sites (optional evidence)
+
+`callSites` may accompany either shape. They are **evidence only and are never scored** — no call site can move the risk verdict. They exist to make a HIGH actionable by naming where the coupling actually is, rather than only how much of it there is.
+
+| Field    | Type             | Required | Meaning                                                       |
+| -------- | ---------------- | -------- | ------------------------------------------------------------- |
+| `file`   | string           | yes      | Repo-relative path of the file containing the call            |
+| `line`   | positive integer | yes      | 1-based line of the call site                                 |
+| `caller` | string           | yes      | Symbol the call is made from                                  |
+| `callee` | string           | yes      | Symbol being called                                           |
+| `target` | string           | yes      | Repo-relative path of the changed file this is evidence _for_ |
+
+```
+impact_analysis(project="/path/to/repo", reach={
+  "moduleCount": 334,
+  "files": {"src/a.ts": 89},
+  "callSites": [
+    {"file": "src/b.ts", "line": 42, "caller": "handleRequest",
+     "callee": "resolveOwner", "target": "src/a.ts"}
+  ]
+})
+```
+
+`callSites` does not stand alone — it requires one of the two reach shapes alongside it.

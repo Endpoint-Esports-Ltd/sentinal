@@ -10,6 +10,7 @@ import {
 import {
   getAssetName,
   checkForUpdateWithStore,
+  downloadAndInstall,
   reinstallPlugins,
   runPostUpdateReinstall,
   registerUpdateCommand,
@@ -19,7 +20,15 @@ import * as uninstallModule from "./uninstall.js";
 import * as installModule from "./install.js";
 import * as autoSetupModule from "./auto-setup.js";
 import { MemoryStore } from "../../memory/store.js";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir, platform, arch } from "node:os";
 import { realpathSync } from "node:fs";
@@ -349,5 +358,190 @@ describe("runPostUpdateReinstall", () => {
 
     expect(spawnedWith).toEqual([]);
     expect(detectCalled).toBe(true);
+  });
+});
+
+// ─── M8: download verification + rollback ────────────────────────────────────
+//
+// All fetches are mocked (no network) and all paths are tmp-dir local (the
+// real installed binary is never touched).
+
+describe("downloadAndInstall verification (M8)", () => {
+  const assetName = getAssetName();
+  // These tests only make sense on a supported platform (they all are in CI).
+  if (!assetName) return;
+
+  let tmpDir: string;
+  let binDir: string;
+  let binPath: string;
+  const OLD = "old-binary-contents";
+  const NEW_BYTES = new TextEncoder().encode("this-is-the-new-binary-payload");
+  const NEW_SHA = createHash("sha256").update(NEW_BYTES).digest("hex");
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "sentinal-dl-test-"));
+    binDir = join(tmpDir, "bin");
+    mkdirSync(binDir, { recursive: true });
+    binPath = join(binDir, "sentinal");
+    writeFileSync(binPath, OLD);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  interface MockAsset {
+    name: string;
+    url: string;
+    browser_download_url: string;
+    size: number;
+  }
+
+  function makeRelease(
+    assetSize: number,
+    withChecksums: boolean,
+  ): {
+    release: Record<string, unknown>;
+  } {
+    const assets: MockAsset[] = [
+      {
+        name: assetName!,
+        url: "https://api.test/binary-by-api",
+        browser_download_url: "https://dl.test/binary-direct",
+        size: assetSize,
+      },
+    ];
+    if (withChecksums) {
+      assets.push({
+        name: "checksums.txt",
+        url: "https://api.test/checksums-by-api",
+        browser_download_url: "https://dl.test/checksums.txt",
+        size: 1,
+      });
+    }
+    return {
+      release: {
+        tag_name: "v99.0.0",
+        name: "v99.0.0",
+        html_url: "https://example.test/release",
+        assets,
+      },
+    };
+  }
+
+  function makeFetch(opts: {
+    release: Record<string, unknown>;
+    binaryBytes: Uint8Array;
+    checksums?: string;
+  }) {
+    return async (url: string | URL | Request): Promise<Response> => {
+      const u = String(url);
+      if (u.includes("/releases/latest")) {
+        return new Response(JSON.stringify(opts.release));
+      }
+      if (u.includes("checksums")) {
+        if (opts.checksums === undefined) {
+          return new Response("not found", { status: 404 });
+        }
+        return new Response(opts.checksums);
+      }
+      if (u.includes("binary")) {
+        return new Response(opts.binaryBytes);
+      }
+      return new Response("unexpected url: " + u, { status: 404 });
+    };
+  }
+
+  test("truncated download (size mismatch) → rejected, old binary intact", async () => {
+    // The release claims a bigger asset than the bytes actually served.
+    const { release } = makeRelease(NEW_BYTES.length + 1000, false);
+    const ok = await downloadAndInstall("1.0.0", {
+      fetchFn: makeFetch({ release, binaryBytes: NEW_BYTES }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: true }),
+    });
+
+    expect(ok).toBe(false);
+    expect(readFileSync(binPath, "utf-8")).toBe(OLD);
+    expect(existsSync(`${binPath}.bak`)).toBe(false);
+    expect(existsSync(`${binPath}.tmp`)).toBe(false);
+  });
+
+  test("wrong checksum → rejected, old binary intact", async () => {
+    const { release } = makeRelease(NEW_BYTES.length, true);
+    const wrongSha = "0".repeat(64);
+    const ok = await downloadAndInstall("1.0.0", {
+      fetchFn: makeFetch({
+        release,
+        binaryBytes: NEW_BYTES,
+        checksums: `${wrongSha}  ${assetName}\n`,
+      }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: true }),
+    });
+
+    expect(ok).toBe(false);
+    expect(readFileSync(binPath, "utf-8")).toBe(OLD);
+    expect(existsSync(`${binPath}.bak`)).toBe(false);
+  });
+
+  test("new binary fails the --version smoke → rolled back, old binary answering again", async () => {
+    const { release } = makeRelease(NEW_BYTES.length, true);
+    const ok = await downloadAndInstall("1.0.0", {
+      fetchFn: makeFetch({
+        release,
+        binaryBytes: NEW_BYTES,
+        checksums: `${NEW_SHA}  ${assetName}\n`,
+      }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: false, detail: "exit code 1" }),
+    });
+
+    expect(ok).toBe(false);
+    // Rollback: the OLD binary is back in place and no droppings remain.
+    expect(readFileSync(binPath, "utf-8")).toBe(OLD);
+    expect(existsSync(`${binPath}.bak`)).toBe(false);
+    expect(existsSync(`${binPath}.tmp`)).toBe(false);
+  });
+
+  test("valid size + checksum + smoke → installed, .bak cleaned up", async () => {
+    const { release } = makeRelease(NEW_BYTES.length, true);
+    const ok = await downloadAndInstall("1.0.0", {
+      fetchFn: makeFetch({
+        release,
+        binaryBytes: NEW_BYTES,
+        checksums: `${NEW_SHA}  ${assetName}\n`,
+      }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: true }),
+    });
+
+    expect(ok).toBe(true);
+    expect(readFileSync(binPath, "utf-8")).toBe(
+      "this-is-the-new-binary-payload",
+    );
+    expect(existsSync(`${binPath}.bak`)).toBe(false);
+    expect(existsSync(`${binPath}.tmp`)).toBe(false);
+  });
+
+  test("missing checksums.txt → best-effort: size-only verification still installs", async () => {
+    // No checksums asset in the release at all — the update must NOT fail
+    // for a missing checksum (best-effort by design).
+    const { release } = makeRelease(NEW_BYTES.length, false);
+    const ok = await downloadAndInstall("1.0.0", {
+      fetchFn: makeFetch({ release, binaryBytes: NEW_BYTES }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: true }),
+    });
+
+    expect(ok).toBe(true);
+    expect(readFileSync(binPath, "utf-8")).toBe(
+      "this-is-the-new-binary-payload",
+    );
   });
 });

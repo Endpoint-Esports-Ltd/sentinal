@@ -216,7 +216,9 @@ Build/compile the project. Verify zero errors.
 
 #### 3.6b: Deploy (if applicable)
 
-If project builds artifacts deployed separately from source: copy to install location, restart services. Check `ps aux | grep <service>` before restarting shared services.
+If project builds artifacts deployed separately from source: copy to install location, restart services.
+
+**A restart hits shared runtime.** A service you restart here is the same one the developer's checkout and every other worktree is using. Restart it through the service's own management command (`systemctl`, `docker compose`, the project's script) so you are naming _the service_, not guessing at a process. Read the shared-state rules in Step 3.7 first — they apply to a restart exactly as they apply to a fresh start.
 
 #### 3.6c: Code Identity Verification
 
@@ -231,7 +233,17 @@ If project builds artifacts deployed separately from source: copy to install loc
 
 **If runtime profile is Minimal:** Skip.
 
-**⚠️ Parallel spec warning:** Before starting a server, check port availability: `lsof -i :<port>`.
+**⚠️ A worktree isolates code, not runtime.** Ports, databases, caches and processes are shared with the developer's checkout and with every other worktree. Before starting anything:
+
+1. **If `.sentinal/runtime.json` declares an `up` command, use it — that is the only thing that actually buys you isolation.** Read the contract with the `runtime_config` MCP tool, passing the WORKTREE path as `project`; it returns the commands already interpolated for this worktree's slot. Then run the whole lifecycle, in order:
+   **`up` → wait for `readiness` → tests → `down`.**
+   - **Never start the tests before the readiness probe passes.** A failure against a stack that has not finished booting looks exactly like a code bug, and you will spend an hour on it.
+   - **If `up` fails, read the tail of `.sentinal/runtime.log` before changing anything.** Improvising against a stack you cannot see is what produced this whole section.
+   - **If `down` is absent**, terminate the process group you started — the declared `shutdown.signal`, then SIGKILL after `shutdown.graceMs`. Still only the PIDs you captured; see item 3.
+   - **No `.sentinal/runtime.json`? Nothing changes.** Fall through to items 2-4 exactly as before — an absent contract is not an error and is not worth a remark.
+2. **Otherwise determine what this run shares.** **Do not copy the repo-root `.env` into the worktree** — it points at the developer's live databases, caches and queues, and copying it is how a verification run ends up writing to them. **State plainly what is shared and proceed** — do not stop to ask on every run. Ask only where the project has explicitly declared a resource `"shared"` in `.sentinal/runtime.json`. **An UNDECLARED resource is `unknown`, not `shared`: report it in your summary and carry on. Never prompt on `unknown`** — a prompt that fires on every run of every project carries no information, and a reflexively-accepted one teaches the user to wave through "not isolated". Equally, `runtime.json` only records what the project claims; Sentinal cannot verify it, so an `"isolated"` declaration is a statement of intent, not a proof.
+3. **Record the PID you start.** Stop only the PIDs you captured. **Never terminate by name or pattern** (`pkill -f`, `killall`) — a pattern matches the developer's processes too, and you cannot tell from the pattern which ones you own.
+4. **If the port you need is occupied, stop and ask. Never switch to a different port.** A second stack on a spare port still writes to the same shared database — a free port proves nothing about what is behind it.
 
 - Program starts without errors
 - Inspect logs for errors/warnings/stack traces
@@ -294,14 +306,22 @@ List what was **NOT** verified and why. Include in the verification report (Step
 
 **If runtime profile is not Full:** Skip.
 
-#### 3.9a: Resolve Playwright Session
+#### 3.9a: Select Browser Tool and Isolate the Instance
+
+**Pick one browser-automation tool and state which.** `playwright-cli` (default) or **Chrome DevTools MCP** if it is configured in your MCP setup. Either satisfies the E2E requirement — see `playwright-cli.md`. Do not mix them in one run.
+
+**⛔ Isolate the browser instance whichever tool you picked.** The browser is shared runtime state: parallel specs collide on one instance, and Chrome DevTools MCP can attach to a Chrome the developer is actively using (their profile, cookies, logged-in sessions).
+
+**If playwright-cli** — resolve the session and use it on every command:
 
 ```bash
 PW_SESSION="${SENTINAL_SESSION_ID:-default}"
 # ALL playwright-cli commands use: -s="$PW_SESSION"
 ```
 
-Use Firefox (default) or Chromium via `--browser=firefox` / `--browser=chromium`.
+Choose a browser that is actually installed — check, don't assume — via `--browser=firefox` / `--browser=chromium`.
+
+**If Chrome DevTools MCP** — drive a dedicated Chrome with its own user-data-dir and debug port. Never attach to the everyday browser during a spec run.
 
 #### 3.9b: Happy Path
 

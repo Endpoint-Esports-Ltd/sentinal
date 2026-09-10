@@ -54,6 +54,21 @@ export function captureTools<D>(
     return origTool(...(args as Parameters<typeof origTool>));
   }) as typeof server.tool;
 
+  // Tools that need a full (e.g. `.strict()`) schema register via
+  // `registerTool(name, config, cb)` — the deprecated `tool()` overload treats
+  // a full ZodObject as annotations. Intercept both registration paths.
+  // `registerTool` is generic, so `Parameters<>` collapses to `never` — a
+  // loose cast on the bound original keeps the pass-through type-safe enough.
+  const origRegisterTool = server.registerTool.bind(server) as (
+    ...args: unknown[]
+  ) => unknown;
+  server.registerTool = ((...args: unknown[]) => {
+    if (typeof args[0] === "string" && typeof args[2] === "function") {
+      tools.set(args[0] as string, args[2] as ToolHandler);
+    }
+    return origRegisterTool(...args);
+  }) as typeof server.registerTool;
+
   registerFn(server, deps);
   return tools;
 }

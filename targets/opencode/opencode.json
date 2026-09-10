@@ -4,6 +4,10 @@
   "plugin": ["@endpoint/sentinal/opencode-plugin"],
 
   "permission": {
+    "bash": {
+      "pkill*": "ask",
+      "killall*": "ask"
+    },
     "skill": {
       "*": "allow",
       "spec-*": "allow"
@@ -74,7 +78,8 @@
     },
     "sentinal": {
       "type": "local",
-      "command": ["sentinal", "mcp-server"]
+      "command": ["sentinal", "mcp-server"],
+      "timeout": 30000
     }
   },
 

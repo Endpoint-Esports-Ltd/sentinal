@@ -21,6 +21,7 @@ import {
   rebuildFtsIndex,
   backupDatabase,
   checkIntegrity,
+  decayQualityScores,
 } from "./maintenance.js";
 import type { ObservationType } from "./types.js";
 import { OBSERVATION_TYPES } from "./types.js";
@@ -222,6 +223,55 @@ export function runStats(service: MemoryService): string {
   return lines.join("\n");
 }
 
+export function runUpdate(service: MemoryService, args: ParsedArgs): string {
+  const id = parseInt(args.positional[0] ?? "", 10);
+  if (isNaN(id))
+    return "Usage: sentinal memory update <id> [--title <t>] [--content <c>] [--type <type>] [--tags <a,b,c>]";
+
+  const patch: {
+    title?: string;
+    content?: string;
+    type?: ObservationType;
+    tags?: string[];
+    filePaths?: string[];
+  } = {};
+  if (args.flags.title !== undefined) patch.title = args.flags.title;
+  if (args.flags.content !== undefined) patch.content = args.flags.content;
+  if (args.flags.type !== undefined)
+    patch.type = args.flags.type as ObservationType;
+  if (args.flags.tags !== undefined)
+    patch.tags = args.flags.tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+  if (args.flags.files !== undefined)
+    patch.filePaths = args.flags.files
+      .split(",")
+      .map((f) => f.trim())
+      .filter(Boolean);
+
+  // Require at least one field — a bare `update <id>` must NOT silently reset
+  // timestamp/quality (staleness) as a no-op field change.
+  if (Object.keys(patch).length === 0) {
+    return "Usage: sentinal memory update <id> [--title <t>] [--content <c>] [--type <type>] [--tags <a,b,c>] [--files <a,b,c>]";
+  }
+
+  const updated = service.updateObservation(id, patch);
+  return updated
+    ? `Updated observation #${id} (staleness refreshed).`
+    : `Observation #${id} not found — nothing updated.`;
+}
+
+export function runDelete(service: MemoryService, args: ParsedArgs): string {
+  const id = parseInt(args.positional[0] ?? "", 10);
+  if (isNaN(id)) return "Usage: sentinal memory delete <id>";
+
+  const deleted = service.deleteObservation(id);
+  return deleted
+    ? `Deleted observation #${id}.`
+    : `Observation #${id} not found — nothing deleted.`;
+}
+
 export function runPrune(service: MemoryService, args: ParsedArgs): string {
   const olderThan = args.flags["older-than"] ?? "90d";
   const ms = parseDuration(olderThan);
@@ -231,6 +281,52 @@ export function runPrune(service: MemoryService, args: ParsedArgs): string {
   return count > 0
     ? `Pruned ${count} observation(s) older than ${olderThan}.`
     : `No observations older than ${olderThan} to prune.`;
+}
+
+export function runDecay(service: MemoryService, args: ParsedArgs): string {
+  const dryRun = args.flags["dry-run"] === "true";
+  const result = decayQualityScores(service.getStore(), { dryRun });
+  const verb = dryRun ? "Would decay" : "Decayed";
+  return `${verb} ${result.decayed} observation quality score(s)${
+    dryRun ? " (dry-run — no changes written)." : "."
+  }`;
+}
+
+/**
+ * `sentinal memory maintain <decay|prune|stats>`.
+ * ⚠️ `prune` is DESTRUCTIVE and defaults to a dry-run — pass `--apply` to
+ * actually delete. Deleting memory is unrecoverable.
+ */
+export function runMaintain(service: MemoryService, args: ParsedArgs): string {
+  const action = args.positional[0];
+  switch (action) {
+    case "decay":
+      return runDecay(service, args);
+    case "stats":
+      return runStats(service);
+    case "prune": {
+      const olderThan = args.flags["older-than"] ?? "90d";
+      const ms = parseDuration(olderThan);
+      if (ms === null)
+        return "Invalid duration. Use format: 30d, 90d, 1y, etc.";
+
+      const apply = args.flags.apply === "true";
+      if (!apply) {
+        const candidates = service
+          .getStore()
+          .getRawDb()
+          .prepare("SELECT COUNT(*) AS n FROM observations WHERE timestamp < ?")
+          .get(Date.now() - ms) as { n: number };
+        return `Dry-run: ${candidates.n} observation(s) older than ${olderThan} would be pruned. Pass --apply to delete (destructive, unrecoverable).`;
+      }
+      const count = service.prune(ms);
+      return count > 0
+        ? `Pruned ${count} observation(s) older than ${olderThan}.`
+        : `No observations older than ${olderThan} to prune.`;
+    }
+    default:
+      return "Usage: sentinal memory maintain <decay|prune|stats> [--older-than <dur>] [--dry-run] [--apply]";
+  }
 }
 
 export function runRepair(service: MemoryService): string {
@@ -298,9 +394,13 @@ Commands:
   list               List recent observations
   timeline           Show chronological context around an observation
   get <id> [<id>...] Get full observation details
+  update <id>        Correct an observation in place (refreshes staleness)
+  delete <id>        Delete an observation (destructive, removes vector)
   export             Export all observations
   stats              Show database statistics
   prune              Remove old observations
+  decay              Decay quality scores by age (--dry-run to preview)
+  maintain <action>  Run decay|prune|stats (prune needs --apply to delete)
   repair             Check integrity and rebuild FTS index
   setup              Install native deps for vector search (~/.sentinal/deps)
 
@@ -311,7 +411,14 @@ Options:
   --anchor <id>      Observation ID for timeline
   --depth <n>        Timeline depth (default 5)
   --format <fmt>     Export format: json (default) or markdown
-  --older-than <dur> Prune duration: 30d, 90d, 1y, etc.`;
+  --older-than <dur> Prune duration: 30d, 90d, 1y, etc.
+  --title <t>        New title (update)
+  --content <c>      New content (update)
+  --type <type>      New type (update)
+  --tags <a,b,c>     Comma-separated tags (update)
+  --files <a,b,c>    Comma-separated file paths (update)
+  --dry-run          Preview without writing (decay/maintain)
+  --apply            Actually delete (maintain prune)`;
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -344,12 +451,20 @@ export async function runCli(argv: string[]): Promise<string> {
         return runTimeline(service, args);
       case "get":
         return runGet(service, args);
+      case "update":
+        return runUpdate(service, args);
+      case "delete":
+        return runDelete(service, args);
       case "export":
         return runExport(service, args);
       case "stats":
         return runStats(service);
       case "prune":
         return runPrune(service, args);
+      case "decay":
+        return runDecay(service, args);
+      case "maintain":
+        return runMaintain(service, args);
       case "repair":
         return runRepair(service);
       default:

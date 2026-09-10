@@ -112,9 +112,11 @@ This ensures the dispatcher, stop guard, and prompt-context all know the plan is
 | **Ask user**                 | STOP, describe the issue, wait for decision | New DB tables, switching libraries, changing API contracts, architectural changes, scope expansion         |
 | **Out of scope**             | Note in plan `## Deferred Issues`, continue | Pre-existing bugs, issues in files not touched by this plan, performance issues unrelated to current task  |
 
-**Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. Document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task.
+**Fix attempt limit:** After 3 auto-fix attempts on the same test/issue within a task, STOP fixing. **Before deferring, run `memory_search` for this exact failure/error** — a known fix or workaround may already exist. If the search did NOT surface this exact blocker, `memory_save` it (type `error`: the symptom + what was tried) so a future session recalls it — but **do not re-save a blocker the search just returned** (this step is re-entrant across the verify→implement loop; duplicate saves are noise). Then document the remaining issue in the plan under `## Deferred Issues`, mark the task as blocked, and continue to the next task. Memory calls are best-effort, single-shot — if they error, continue immediately.
 
 **Scope boundary:** Only fix issues caused by current task's changes. Pre-existing issues go to `## Deferred Issues`.
+
+**Pivot recall (Ask-user deviations):** Before you STOP to ask the user about a pivot (switching libraries, changing an API contract, an architectural change), run `memory_search` for prior `decision`/`discovery` observations on that library/subsystem — the pivot may already have a recorded answer that changes what you ask. When the pivot is resolved, `memory_save` the outcome (type `decision`). Best-effort, single call — `memory_search` is itself a valid next action and never a stall; if empty or it errors, proceed to ask the user.
 
 ---
 
@@ -169,8 +171,11 @@ FOR each wave (1, 2, 3, ...):
 
 1. **Read plan's implementation steps** — list files to create/modify/delete
 2. **Pre-Mortem check:** Scan plan's `## Pre-Mortem` section — if any trigger condition is observably true for this task, note it in the plan and adapt your approach autonomously. Only escalate to user if it's an architectural-level change.
-3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects. Use `LSP({ operation: "incomingCalls", ... })` / `LSP({ operation: "outgoingCalls", ... })` for accurate results. If LSP unavailable, use grep as fallback.
-4. **Pre-edit type check:** Use `LSP({ operation: "hover", file: "...", line: N, character: N })` to confirm the current type signature before writing your test. If LSP unavailable, read the source file directly.
+3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects. Work down this order and stop at the first rung actually available to you:
+   1. **LSP, where the runtime provides it** — `LSP({ operation: "incomingCalls", filePath: "...", line: N, character: N })` and `"outgoingCalls"`. Compiler-accurate: resolves path aliases, barrel re-exports and overloads.
+   2. **A catalogued code-graph capability** — check `.sentinal/rules/{slug}-mcp-servers.md` for the block marked `SENTINAL GRAPH TOOLS`. If it lists a call-sites-with-file-and-line row marked ✅ verified, use the exact invocation recorded there; that block records what was smoke-tested on this project, not what merely looked plausible. Never rely on a row marked ⚠️ unverified.
+   3. **Grep, as a last resort** — it matches text, not symbols. It misses aliased imports, barrel re-exports, dynamic and computed dispatch, and it over-reports identically-named symbols from unrelated modules. Treat a grep result as a lower bound: never conclude "nothing calls this" from grep alone.
+4. **Pre-edit type check:** Use `LSP({ operation: "hover", filePath: "...", line: N, character: N })` to confirm the current type signature before writing your test. If LSP unavailable, read the source file directly.
 5. **Mark in_progress:** `TaskUpdate(taskId, status="in_progress")`
 6. **TDD Flow:**
    - **RED:** Write failing test → verify it fails (feature missing, not syntax error)
@@ -182,13 +187,13 @@ FOR each wave (1, 2, 3, ...):
    - **REFACTOR:** Improve while keeping tests green
    - After GREEN: use `tdd_clear` MCP tool to reset TDD state for the file
    - Skip TDD for: docs, config, IaC, formatting-only changes
-   - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing.
+   - **Surprise discovery:** If something contradicts expected behavior, check plan's `## Assumptions` — note invalidated assumptions in the plan before continuing. Also run `memory_search` for this contradiction — a past session may have already hit and explained it. If it's a genuinely new finding, `memory_save` it (type `discovery`: the invalidated assumption + the actual behavior). Best-effort, single call — if memory is empty or errors, continue immediately (do not stall).
 7. **Verify tests pass** — run full test suite
    - Jest: `npx jest --testPathPattern=<test-file> --verbose`
    - Vitest: `npx vitest run <test-file>`
    - Angular: `npx ng test --include=<test-file> --watch=false`
    - Bun: `bun test <test-file>`
-8. **Run actual program** — use plan's Runtime Environment section. Check port: `lsof -i :<port>`
+8. **Run actual program** — use plan's Runtime Environment section. **A worktree isolates code, not runtime:** ports, databases and caches are shared with the developer's checkout. Use the project's isolated-runtime command if it declares one; otherwise **determine what this run shares** (database, cache, queue, processes) and **state plainly what is shared and proceed** — do not stop to ask on every run. **Do not copy the repo-root `.env` into the worktree**. Record the PID you start and stop only that PID — **never terminate by name or pattern** (`pkill -f`, `killall`). **If the port you need is occupied, stop and ask — never switch to a different port.**
 9. **Run quality checks** — `quality_report` MCP tool. **Quality checks do NOT run automatically on edit.** You MUST call this after completing edits to each file. Runs tsc + eslint + prettier. Zero errors required.
 10. **Validate Definition of Done** — all criteria from plan
 11. **Self-review:** Completeness? Names clear? YAGNI? Tests verify behavior not implementation?

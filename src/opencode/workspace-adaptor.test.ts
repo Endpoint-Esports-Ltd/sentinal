@@ -10,7 +10,10 @@ import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import type { SidecarClient } from "../sidecar/client.js";
-import { createSpecWorktreeAdaptor } from "./workspace-adaptor.js";
+import {
+  createSpecWorktreeAdaptor,
+  type WorkspaceTarget,
+} from "./workspace-adaptor.js";
 
 // ─── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -134,7 +137,9 @@ describe("createSpecWorktreeAdaptor — target()", () => {
         createdAt: Date.now(),
       })),
     });
-    const adaptor = createSpecWorktreeAdaptor(sidecar);
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      existsSync: () => true,
+    });
     const config = makeConfig({
       extra: { planPath: "/test/project/docs/plans/2026-06-09-my-feature.md" },
       directory: "/test/project",
@@ -244,5 +249,135 @@ describe("createSpecWorktreeAdaptor — remove()", () => {
     const adaptor = createSpecWorktreeAdaptor(null);
     const config = makeConfig({ extra: null });
     expect(adaptor.remove(config)).resolves.toBeUndefined();
+  });
+});
+
+// ─── target() — silent-main-fallback fix (2026-07-24) ───────────────────────────
+//
+// Regression coverage for the worktree edit-leak: when a spec worktree is ACTIVE
+// (extra.planPath present) but resolveWorktreeBySlug does not positively resolve
+// in time, target() must NOT silently return the main checkout as a local
+// directory. It must return a loud non-main sentinel (remote target) and log a
+// warning. See docs/plans/2026-07-24-worktree-adaptor-silent-fallback.md.
+
+/** A sidecar whose resolveWorktreeBySlug hangs forever (simulates >timeout latency). */
+function makeHangingSidecar(): SidecarClient {
+  return makeMockSidecar({
+    resolveWorktreeBySlug: mock(() => new Promise(() => {}) as Promise<never>),
+  });
+}
+
+const MAIN_ROOT = "/test/project";
+const PLAN_EXTRA = {
+  planPath: "/test/project/docs/plans/2026-06-09-my-feature.md",
+};
+
+function isLocalDir(t: WorkspaceTarget, dir: string): boolean {
+  return t.type === "local" && (t as { directory: string }).directory === dir;
+}
+
+describe("createSpecWorktreeAdaptor — target() silent-main-fallback fix", () => {
+  it("does NOT silently target main when a spec worktree is active and resolution times out", async () => {
+    const logs: string[] = [];
+    const adaptor = createSpecWorktreeAdaptor(makeHangingSidecar(), undefined, {
+      timeoutMs: 20,
+      logger: (m) => logs.push(m),
+    });
+    const config = makeConfig({ extra: PLAN_EXTRA, directory: MAIN_ROOT });
+
+    const result = await adaptor.target(config);
+
+    // MUST NOT resolve to the main checkout.
+    expect(isLocalDir(result, MAIN_ROOT)).toBe(false);
+    // MUST be the loud non-main sentinel (remote target).
+    expect(result.type).toBe("remote");
+    // MUST have logged a warning.
+    expect(logs.some((m) => /worktree/i.test(m))).toBe(true);
+  });
+
+  it("returns the worktree path on positive resolve (preserved)", async () => {
+    const sidecar = makeMockSidecar({
+      resolveWorktreeBySlug: mock(async () => ({
+        id: "wt-1",
+        worktreePath: "/test/project/.sentinal/worktrees/spec-my-feature-abc1",
+        branchName: "b",
+        baseBranch: "main",
+        projectPath: MAIN_ROOT,
+        status: "active" as const,
+        baseCommit: "abc",
+        createdAt: Date.now(),
+      })),
+    });
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      existsSync: () => true,
+    });
+    const config = makeConfig({ extra: PLAN_EXTRA, directory: MAIN_ROOT });
+    const result = await adaptor.target(config);
+    expect(
+      isLocalDir(
+        result,
+        "/test/project/.sentinal/worktrees/spec-my-feature-abc1",
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to project directory when NO spec worktree is active (no planPath)", async () => {
+    const adaptor = createSpecWorktreeAdaptor(makeHangingSidecar(), undefined, {
+      timeoutMs: 20,
+    });
+    const config = makeConfig({ extra: null, directory: MAIN_ROOT });
+    const result = await adaptor.target(config);
+    // No planPath → not a spec worktree → normal fallback to main is correct.
+    expect(isLocalDir(result, MAIN_ROOT)).toBe(true);
+  });
+
+  it("resolves once and reuses across repeated target() calls; remove() invalidates", async () => {
+    const resolveFn = mock(async () => ({
+      id: "wt-cache",
+      worktreePath: "/test/project/.sentinal/worktrees/spec-my-feature-abc1",
+      branchName: "b",
+      baseBranch: "main",
+      projectPath: MAIN_ROOT,
+      status: "active" as const,
+      baseCommit: "abc",
+      createdAt: Date.now(),
+    }));
+    const sidecar = makeMockSidecar({ resolveWorktreeBySlug: resolveFn });
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      existsSync: () => true,
+    });
+    const config = makeConfig({ extra: PLAN_EXTRA, directory: MAIN_ROOT });
+
+    await adaptor.target(config);
+    await adaptor.target(config);
+    expect(resolveFn).toHaveBeenCalledTimes(1); // cached second call
+
+    await adaptor.remove(config); // invalidates the cache
+    await adaptor.target(config);
+    expect(resolveFn.mock.calls.length).toBeGreaterThan(1); // re-resolved
+  });
+
+  it("emits the loud sentinel (not main) when the cached/resolved worktree path no longer exists", async () => {
+    const logs: string[] = [];
+    const sidecar = makeMockSidecar({
+      resolveWorktreeBySlug: mock(async () => ({
+        id: "wt-gone",
+        worktreePath: "/test/project/.sentinal/worktrees/spec-gone-abc1",
+        branchName: "b",
+        baseBranch: "main",
+        projectPath: MAIN_ROOT,
+        status: "active" as const,
+        baseCommit: "abc",
+        createdAt: Date.now(),
+      })),
+    });
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      existsSync: () => false, // resolved worktree dir is gone
+      logger: (m) => logs.push(m),
+    });
+    const config = makeConfig({ extra: PLAN_EXTRA, directory: MAIN_ROOT });
+    const result = await adaptor.target(config);
+    expect(isLocalDir(result, MAIN_ROOT)).toBe(false);
+    expect(result.type).toBe("remote");
   });
 });

@@ -693,6 +693,259 @@ describe("SidecarClient self-healing reconnect", () => {
   });
 });
 
+// ─── Request timeouts (H8) ─────────────────────────────────────────────────
+//
+// A sidecar that is alive-but-hung (accepts connections, never responds) used
+// to stall every sync hook to its full hooks.json timeout because get/post
+// passed no AbortSignal. Requests must now be bounded by a path-based map.
+
+describe("SidecarClient request timeouts", () => {
+  it("bounds GET against an alive-but-hung sidecar", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}), // accept, never respond
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      const start = Date.now();
+      let threw = false;
+      try {
+        await client.ping(); // GET /ping — default (short) budget
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+      expect(Date.now() - start).toBeLessThan(5000);
+    } finally {
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  it("bounds POST against an alive-but-hung sidecar", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      const start = Date.now();
+      let threw = false;
+      try {
+        await client.insertNotification({
+          type: "info",
+          title: "t",
+          message: "m",
+          source: "test",
+        }); // POST /notification — default (short) budget
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+      expect(Date.now() - start).toBeLessThan(5000);
+    } finally {
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  // ── issue #9 ──────────────────────────────────────────────────────────
+  // The two tests above only assert THAT a hung sidecar throws. The bug was
+  // in WHAT it threw: every rejection was labelled "unreachable", so a
+  // destructive op that had already completed reported as never having run.
+  it("reports a hung-sidecar timeout as an unknown outcome, not as unreachable", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}), // accept, never respond
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      let message = "";
+      try {
+        await client.ping();
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      // The server was REACHED — saying "unreachable" is factually wrong and
+      // invites a retry of work that may have landed.
+      expect(message).not.toMatch(/unreachable/i);
+      expect(message).toMatch(/timed out/i);
+      expect(message).toMatch(/OUTCOME UNKNOWN/);
+      expect(message).toContain("SENTINAL_SIDECAR_TIMEOUT_MS");
+    } finally {
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  it("tells a destructive-endpoint caller to reconcile before retrying", async () => {
+    const hang = Bun.serve({
+      port: 0,
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    // /worktree/* now carries the 180s disk-scaled budget, so shrink it via
+    // the override this task adds rather than making this a 3-minute test.
+    const saved = process.env.SENTINAL_SIDECAR_TIMEOUT_MS;
+    process.env.SENTINAL_SIDECAR_TIMEOUT_MS = "300";
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${hang.port}`,
+      );
+      let message = "";
+      try {
+        await client.cleanupWorktrees("/tmp/x", { force: true });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).not.toMatch(/unreachable/i);
+      expect(message).toContain("git worktree list");
+      expect(message).toMatch(/DESTRUCTIVE/);
+      // The message must quote the budget that was ACTUALLY applied.
+      expect(message).toContain("300ms");
+    } finally {
+      if (saved === undefined) delete process.env.SENTINAL_SIDECAR_TIMEOUT_MS;
+      else process.env.SENTINAL_SIDECAR_TIMEOUT_MS = saved;
+      hang.stop(true);
+    }
+  }, 10_000);
+
+  it("sizes the path map: long budget for /quality-check, moderate for embedding/git routes, short default", async () => {
+    // Dynamic import so a missing export fails THIS test, not the whole file.
+    const mod: any = await import("./client.js");
+    expect(typeof mod.requestTimeoutMsFor).toBe("function");
+    // Must cover the subprocess timeout (default 30s/tool, callers pass up
+    // to 60s, checks run sequentially) plus margin.
+    expect(mod.requestTimeoutMsFor("/quality-check")).toBeGreaterThanOrEqual(
+      120_000,
+    );
+    // Embedding-backed and git-backed routes: cold model load / git can
+    // exceed a 2s default.
+    expect(mod.requestTimeoutMsFor("/memory/search")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    expect(mod.requestTimeoutMsFor("/observation")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    expect(mod.requestTimeoutMsFor("/worktree/cleanup")).toBeGreaterThanOrEqual(
+      30_000,
+    );
+    // issue #9: 30s was NOT enough — `rm -rf` of 6.3 GB across 7 node_modules
+    // trees blew the budget, and idle-shutdown respawn is charged to it too.
+    // Cost scales with disk, so it gets the /quality-check-class budget.
+    expect(mod.requestTimeoutMsFor("/worktree/cleanup")).toBeGreaterThanOrEqual(
+      180_000,
+    );
+    // Fast DB-only routes keep the lifecycle.ts-style short budget.
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(2_000);
+    expect(mod.requestTimeoutMsFor("/tdd-state")).toBe(2_000);
+  });
+});
+
+// ─── Idempotency key on the wire (issue #9) ────────────────────────────────
+// The key must actually reach the sidecar. A client that accepts the option
+// and drops it would leave every destructive retry unguarded while looking
+// correct at the call site.
+
+describe("SidecarClient forwards idempotency keys", () => {
+  it("sends idempotencyKey on POST /worktree/cleanup", async () => {
+    let received: any = null;
+    const srv = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        received = await req.json();
+        return Response.json({ ok: true, data: { cleaned: 0, removed: [] } });
+      },
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${srv.port}`,
+      );
+      await client.cleanupWorktrees("/repo", {
+        force: true,
+        idempotencyKey: "abc-123",
+      });
+      expect(received.idempotencyKey).toBe("abc-123");
+      expect(received.force).toBe(true);
+    } finally {
+      srv.stop(true);
+    }
+  });
+
+  it("sends idempotencyKey on POST /worktree/abandon", async () => {
+    let received: any = null;
+    const srv = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        received = await req.json();
+        return Response.json({ ok: true, data: { status: "abandoned" } });
+      },
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${srv.port}`,
+      );
+      await client.abandonWorktree("wt-1", { idempotencyKey: "xyz-9" });
+      expect(received.worktree_id).toBe("wt-1");
+      expect(received.idempotencyKey).toBe("xyz-9");
+    } finally {
+      srv.stop(true);
+    }
+  });
+});
+
+// ─── SENTINAL_SIDECAR_TIMEOUT_MS (issue #9) ────────────────────────────────
+// The reporter could find no way to raise the budget for an operation whose
+// cost scales with disk size — `strings` on the shipped binary turned up no
+// SENTINAL_*TIMEOUT* at all. There genuinely was none.
+
+describe("SENTINAL_SIDECAR_TIMEOUT_MS override", () => {
+  const ENV = "SENTINAL_SIDECAR_TIMEOUT_MS";
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env[ENV];
+    delete process.env[ENV];
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env[ENV];
+    else process.env[ENV] = saved;
+  });
+
+  it("overrides every route budget when set", async () => {
+    const mod: any = await import("./client.js");
+    process.env[ENV] = "500";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(500);
+    expect(mod.requestTimeoutMsFor("/worktree/cleanup")).toBe(500);
+    expect(mod.requestTimeoutMsFor("/quality-check")).toBe(500);
+  });
+
+  it("ignores a non-numeric value rather than failing the request", async () => {
+    const mod: any = await import("./client.js");
+    process.env[ENV] = "soon";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(2_000);
+  });
+
+  it("ignores zero and negative values", async () => {
+    const mod: any = await import("./client.js");
+    process.env[ENV] = "0";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(2_000);
+    process.env[ENV] = "-1";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(2_000);
+  });
+
+  it("is read per call, not cached at module load", async () => {
+    const mod: any = await import("./client.js");
+    process.env[ENV] = "750";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(750);
+    process.env[ENV] = "1250";
+    expect(mod.requestTimeoutMsFor("/ping")).toBe(1250);
+  });
+});
+
 // ─── withSidecarOrDirect ───────────────────────────────────────────────────
 
 describe("withSidecarOrDirect", () => {
@@ -735,5 +988,99 @@ describe("withSidecarOrDirect", () => {
       async () => "from-async-direct",
     );
     expect(result).toBe("from-async-direct");
+  });
+});
+
+// ─── Version skew (M2c) ─────────────────────────────────────────────────────
+//
+// /health carries the sidecar's version. tryConnect compares it against its
+// own and logs LOUDLY on mismatch — but the check is ADVISORY ONLY: the
+// connection must always succeed (a hard refusal would strand users
+// mid-upgrade, Assumption 4).
+
+describe("SidecarClient version skew (M2c)", () => {
+  let tmpDir: string;
+  let fake: ReturnType<typeof Bun.serve> | null = null;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "none.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid"),
+    );
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    if (fake) {
+      fake.stop(true);
+      fake = null;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  /** Fake sidecar answering /health with a chosen version (or none). */
+  function serveHealth(version?: string): void {
+    fake = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        Response.json({
+          ok: true,
+          data: {
+            status: "running",
+            pid: process.pid,
+            httpPort: null,
+            ...(version ? { version } : {}),
+          },
+        }),
+    });
+    writeFileSync(join(tmpDir, "sidecar.port"), String(fake.port), "utf-8");
+  }
+
+  function mismatchLogged(): boolean {
+    const lines = fileLogModule.readLastLines(
+      join(tmpDir, fileLogModule.SIDECAR_LOG_FILE),
+      20,
+    );
+    return lines.some((l) => l.includes("version mismatch"));
+  }
+
+  it("logs loudly on version mismatch but still connects (advisory only)", async () => {
+    serveHealth("0.0.1-mismatch");
+
+    const client = await SidecarClient.connect();
+
+    // Advisory only — the connection must succeed.
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(true);
+  });
+
+  it("does not log a mismatch when versions match", async () => {
+    const { readFileSync: readPkg } = require("node:fs");
+    const pkg = JSON.parse(
+      readPkg(join(import.meta.dir, "..", "..", "package.json"), "utf-8"),
+    ) as { version: string };
+    serveHealth(pkg.version);
+
+    const client = await SidecarClient.connect();
+
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(false);
+  });
+
+  it("does not log a mismatch when the sidecar reports no version (older sidecar)", async () => {
+    serveHealth(undefined);
+
+    const client = await SidecarClient.connect();
+
+    expect(client).not.toBeNull();
+    expect(mismatchLogged()).toBe(false);
   });
 });

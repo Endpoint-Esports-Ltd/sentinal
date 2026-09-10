@@ -25,7 +25,7 @@ If any item is unclear: **STOP** — do not implement anything yet. Ask for clar
 
 When a reviewer suggests adding or "properly implementing" a feature:
 
-1. Search codebase for actual usage (Vexor, `Grep`, or LSP `findReferences`)
+1. Search codebase for actual usage. Start with Vexor, then confirm in this order, stopping at the first rung available: LSP `findReferences` → a code-graph capability catalogued under the `SENTINAL GRAPH TOOLS` block in `.sentinal/rules/{slug}-mcp-servers.md` → `Grep` as a last resort. **A grep miss is not proof of non-use** — grep matches text, not symbols, so aliased imports and barrel re-exports hide real callers.
 2. If unused → push back: "This isn't called anywhere. Remove it (YAGNI)?"
 3. If used → implement properly
 

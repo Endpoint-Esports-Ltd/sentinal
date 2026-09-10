@@ -9,7 +9,8 @@
  *   sentinal worktree diff    <id> [--json]
  *   sentinal worktree merge   <id> [--message <msg>] [--json]
  *   sentinal worktree abandon <id> [--json]
- *   sentinal worktree cleanup [--json]
+ *   sentinal worktree cleanup [-p <path>] [-f|--force] [--current-worktree <path>] [--json]
+ *   sentinal worktree abandon-orphan <slug> [-p <path>] [--json]
  *   sentinal worktree detect  <slug> [--project <path>] [--json]
  *   sentinal worktree create  <slug> [--project <path>] [--base <branch>] [--json]
  *   sentinal worktree sync    <slug> [-m <msg>] [--json]
@@ -19,10 +20,24 @@ import type { Command } from "commander";
 import { MemoryStore } from "../../memory/store.js";
 import { WorktreeStore } from "../../worktree/store.js";
 import { WorktreeManager } from "../../worktree/manager.js";
-import {
-  WorktreeError,
-  DEFAULT_WORKTREE_CONFIG,
-} from "../../worktree/types.js";
+import { WorktreeError, type Worktree } from "../../worktree/types.js";
+import { formatSlot } from "../../worktree/slots.js";
+// The CLI lives outside src/worktree/, so it supplies the runtime deps
+// directly rather than having them threaded down (see worktree-deps.ts).
+import { runtimeWorktreeConfig } from "../../runtime/worktree-deps.js";
+import { registerWorktreeCleanupCommands } from "./worktree-cleanup.js";
+
+/**
+ * The slot fields every `--json` shape carries.
+ *
+ * `slot` is the machine-readable value (`null` when unassigned); `slotNote` is
+ * the prose a human needs, because JSON has nowhere else to state that **slot 0
+ * is the developer's main checkout and is never allocated** (D7). Without the
+ * note a consumer cannot tell whether 0 is free.
+ */
+function slotFields(wt: Worktree): { slot: number | null; slotNote: string } {
+  return { slot: wt.slot ?? null, slotNote: formatSlot(wt.slot) };
+}
 
 function createManager(): {
   manager: WorktreeManager;
@@ -31,7 +46,7 @@ function createManager(): {
 } {
   const memStore = new MemoryStore();
   const wtStore = new WorktreeStore(memStore);
-  const manager = new WorktreeManager(wtStore, DEFAULT_WORKTREE_CONFIG);
+  const manager = new WorktreeManager(wtStore, runtimeWorktreeConfig());
   return { manager, wtStore, store: memStore };
 }
 
@@ -177,7 +192,10 @@ export function registerWorktreeCommand(program: Command): void {
     .argument("<id>", "Worktree ID")
     .option("-m, --message <msg>", "Commit message")
     .option("--json", "Output as JSON")
-    .action((id: string, opts: { message?: string; json?: boolean }) => {
+    // ⛔ async because `squashMerge` stops the worktree's own process group
+    // before `git checkout base`. Commander awaits an async action, so
+    // `store.close()` in `finally` still runs after the merge completes.
+    .action(async (id: string, opts: { message?: string; json?: boolean }) => {
       const { manager, store } = createManager();
       try {
         // Check conflicts first
@@ -198,7 +216,7 @@ export function registerWorktreeCommand(program: Command): void {
           return;
         }
 
-        const commit = manager.squashMerge(id, opts.message);
+        const commit = await manager.squashMerge(id, opts.message);
         if (opts.json) {
           console.log(
             JSON.stringify({ mergeCommit: commit, status: "merged" }),
@@ -214,48 +232,12 @@ export function registerWorktreeCommand(program: Command): void {
       }
     });
 
-  // ─── abandon ──────────────────────────────────────────────────────────
-
-  wt.command("abandon")
-    .description("Abandon a worktree (remove from disk, mark as abandoned)")
-    .argument("<id>", "Worktree ID")
-    .option("--json", "Output as JSON")
-    .action((id: string, opts: { json?: boolean }) => {
-      const { manager, store } = createManager();
-      try {
-        manager.abandon(id);
-        if (opts.json) {
-          console.log(JSON.stringify({ id, status: "abandoned" }));
-        } else {
-          console.log(`Abandoned: ${id}`);
-        }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
-
-  // ─── cleanup ──────────────────────────────────────────────────────────
-
-  wt.command("cleanup")
-    .description("Remove stale/orphaned worktrees")
-    .option("--json", "Output as JSON")
-    .action((opts: { json?: boolean }) => {
-      const { manager, store } = createManager();
-      try {
-        const cleaned = manager.cleanup();
-        if (opts.json) {
-          console.log(JSON.stringify({ cleaned }));
-        } else {
-          console.log(`Cleaned up ${cleaned} stale worktree(s).`);
-        }
-      } catch (err) {
-        handleError(err, opts.json);
-      } finally {
-        store.close();
-      }
-    });
+  // ─── abandon + cleanup + abandon-orphan ───────────────────────────────
+  // Registered from the sibling `worktree-cleanup.ts`: this file was already
+  // at 428/400 lines, and those two commands are the only ones here that
+  // DELETE things, so they carry the guard-wiring rationale together
+  // (issue #9).
+  registerWorktreeCleanupCommands(wt);
 
   // ─── detect ───────────────────────────────────────────────────────────
 
@@ -283,11 +265,12 @@ export function registerWorktreeCommand(program: Command): void {
               branch: wt.branchName,
               baseBranch: wt.baseBranch,
               status: wt.status,
+              ...slotFields(wt),
             }),
           );
         } else {
           console.log(
-            `Worktree found: ${wt.worktreePath} (branch: ${wt.branchName})`,
+            `Worktree found: ${wt.worktreePath} (branch: ${wt.branchName}, slot: ${formatSlot(wt.slot)})`,
           );
         }
       } catch (err) {
@@ -315,19 +298,24 @@ export function registerWorktreeCommand(program: Command): void {
       ) => {
         const { manager, store } = createManager();
         try {
-          const wt = manager.create(slug, opts.project, opts.base);
+          const warnings: string[] = [];
+          const wt = manager.create(slug, opts.project, opts.base, warnings);
           if (opts.json) {
             console.log(
               JSON.stringify({
                 path: wt.worktreePath,
                 branch: wt.branchName,
                 baseBranch: wt.baseBranch,
+                ...slotFields(wt),
+                warnings,
               }),
             );
           } else {
             console.log(
-              `Created worktree: ${wt.worktreePath} (branch: ${wt.branchName})`,
+              `Created worktree: ${wt.worktreePath} (branch: ${wt.branchName}, slot: ${formatSlot(wt.slot)})`,
             );
+            // stderr, so `--json`-less scripting still pipes cleanly.
+            for (const w of warnings) console.error(`Warning: ${w}`);
           }
         } catch (err) {
           handleError(err, opts.json);
@@ -346,7 +334,7 @@ export function registerWorktreeCommand(program: Command): void {
     .option("-p, --project <path>", "Project path", process.cwd())
     .option("--json", "Output as JSON")
     .action(
-      (
+      async (
         slug: string,
         opts: { message?: string; project: string; json?: boolean },
       ) => {
@@ -382,7 +370,7 @@ export function registerWorktreeCommand(program: Command): void {
             return;
           }
 
-          const commit = manager.squashMerge(wt.id, opts.message);
+          const commit = await manager.squashMerge(wt.id, opts.message);
           if (opts.json) {
             console.log(
               JSON.stringify({

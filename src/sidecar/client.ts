@@ -9,13 +9,66 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getSidecarSocketPath, getSidecarPortPath } from "./paths.js";
 import { logSidecar } from "../utils/file-log.js";
-import type { QualityCheckResult } from "./quality-routes.js";
+import { getSentinalVersion } from "./version.js";
+import { classifySidecarFailure } from "./client-errors.js";
+import { SidecarRoutes } from "./client-routes.js";
 export type { QualityCheckResult } from "./quality-routes.js";
-import type { Spec } from "../spec/types.js";
-import type { TddCycle, SpecEvent } from "../memory/types.js";
-import type { Worktree } from "../worktree/types.js";
 
-export class SidecarClient {
+// ─── Request timeouts ──────────────────────────────────────────────────────
+
+/**
+ * Path-pattern → request timeout budget (H8). Without a bound, a sidecar
+ * that is alive-but-hung stalls every sync hook to its full hooks.json
+ * timeout. Follows the AbortSignal.timeout pattern from lifecycle.ts.
+ *
+ * - /quality-check runs tsc/eslint/prettier subprocesses SEQUENTIALLY, each
+ *   with its own server-side timeout (default 30s; callers pass up to 60s,
+ *   and prettier spawns twice) — the budget must cover the whole run + margin.
+ * - /worktree/* cost scales with DISK SIZE, not with a fixed unit of work, so
+ *   it shares /quality-check's budget (issue #9). At the previous 30s, a
+ *   `--force` cleanup of 6.3 GB across 7 node_modules trees timed out AFTER
+ *   succeeding; idle-shutdown respawn (~8s observed) is charged to the same
+ *   budget, and the caller was then told the operation had failed.
+ * - Embedding-backed (/observation, /memory/*, /context — cold
+ *   @xenova/transformers model load) and git/fs-backed (/spec/sync,
+ *   /project-context) routes get a moderate budget.
+ * - Everything else is DB-only and must answer fast (default 2s, matching
+ *   lifecycle.ts health probes).
+ *
+ * spec_wait_file's long-poll does NOT go through this client — it is pure
+ * fs-watching in src/spec/mcp-tools.ts — so no entry is needed for it.
+ */
+const REQUEST_TIMEOUTS: Array<[RegExp, number]> = [
+  [/^\/(quality-check|worktree\/)/, 180_000],
+  [/^\/(observation|context|memory\/|spec\/sync|project-context)/, 30_000],
+];
+const DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
+
+/**
+ * Global escape hatch for the budgets above (issue #9).
+ *
+ * The reporter had a legitimately slow operation and no way to give it more
+ * time — there was no SENTINAL_*TIMEOUT* anywhere in the binary. Read on EVERY
+ * call rather than cached at module load: hooks are short-lived, but the
+ * sidecar client is long-lived and a cached value could not be changed without
+ * a restart.
+ *
+ * Invalid input is IGNORED, never fatal — a typo in an env var must not take
+ * down every sidecar request.
+ */
+const TIMEOUT_OVERRIDE_ENV = "SENTINAL_SIDECAR_TIMEOUT_MS";
+
+/** Resolve the request timeout budget for a sidecar route path. */
+export function requestTimeoutMsFor(path: string): number {
+  const override = Number(process.env[TIMEOUT_OVERRIDE_ENV]);
+  if (Number.isFinite(override) && override > 0) return override;
+  for (const [pattern, ms] of REQUEST_TIMEOUTS) {
+    if (pattern.test(path)) return ms;
+  }
+  return DEFAULT_REQUEST_TIMEOUT_MS;
+}
+
+export class SidecarClient extends SidecarRoutes {
   // ─── Self-healing reconnect knobs (overridable in tests) ────────────────
 
   /**
@@ -42,7 +95,9 @@ export class SidecarClient {
     private baseUrl: string,
     private fetchOpts: RequestInit & { unix?: string },
     private readonly reconnectEnabled = false,
-  ) {}
+  ) {
+    super();
+  }
 
   /** Build a client for a known base URL (for testing only). */
   static buildForTest(baseUrl: string): SidecarClient {
@@ -87,6 +142,7 @@ export class SidecarClient {
       });
       try {
         const health = await probe.health();
+        SidecarClient.noteVersionSkew(health.version);
 
         // Self-heal: sync the HTTP port file from the health response
         // so Node.js clients (which can't use Unix sockets) find the right port
@@ -111,7 +167,8 @@ export class SidecarClient {
         const port = parseInt(content, 10);
         if (Number.isNaN(port)) return null;
         const probe = new SidecarClient(`http://127.0.0.1:${port}`, {});
-        await probe.health();
+        const health = await probe.health();
+        SidecarClient.noteVersionSkew(health.version);
         return new SidecarClient(`http://127.0.0.1:${port}`, {}, true);
       } catch {
         /* port file exists but server not responding */
@@ -119,6 +176,22 @@ export class SidecarClient {
     }
 
     return null;
+  }
+
+  /**
+   * ADVISORY version-skew check (M2c). Logs LOUDLY when the sidecar runs a
+   * different sentinal version than this client, but NEVER refuses the
+   * connection (Assumption 4 — a hard refusal would strand users
+   * mid-upgrade). Older sidecars report no version: nothing to compare.
+   */
+  private static noteVersionSkew(serverVersion: string | undefined): void {
+    if (!serverVersion) return;
+    const own = getSentinalVersion();
+    if (serverVersion === own) return;
+    logSidecar(
+      `client: version mismatch — sidecar is v${serverVersion} but this client is v${own}; ` +
+        `connecting anyway (advisory). Run \`sentinal sidecar restart\` to align.`,
+    );
   }
 
   // ─── Self-healing reconnect ──────────────────────────────────────────────
@@ -174,7 +247,11 @@ export class SidecarClient {
         ...init,
       });
     } catch (err) {
-      if (!this.reconnectEnabled) {
+      // A timeout means the request may have REACHED the server (it is
+      // alive-but-slow/hung) — retrying is not connection-safe and would
+      // double the wait. Only pure connection failures reconnect-retry.
+      const isTimeout = err instanceof Error && err.name === "TimeoutError";
+      if (isTimeout || !this.reconnectEnabled) {
         throw SidecarClient.enrich(err, init.method ?? "GET", path, this);
       }
       logSidecar(
@@ -187,6 +264,8 @@ export class SidecarClient {
         return await fetch(`${this.baseUrl}${path}`, {
           ...this.fetchOpts,
           ...init,
+          // Fresh budget — reconnect polling may have consumed the original.
+          signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
         });
       } catch (err2) {
         throw SidecarClient.enrich(err2, init.method ?? "GET", path, this);
@@ -194,20 +273,29 @@ export class SidecarClient {
     }
   }
 
-  /** Wrap a raw fetch error with method, path, target, and cause. */
+  /**
+   * Wrap a raw fetch error with method, path, target, and cause.
+   *
+   * ⛔ Delegates to `classifySidecarFailure` so a READ TIMEOUT is never
+   * reported as "unreachable" (issue #9). This used to hardcode that word for
+   * every rejection, telling the caller a destructive operation had not run
+   * when it had in fact completed — and the natural response to that is a
+   * retry. The timeout/connect distinction is the SAME one `fetchWithReconnect`
+   * already makes above to decide retry-safety; it simply never reached the
+   * message the caller reads.
+   */
   private static enrich(
     err: unknown,
     method: string,
     path: string,
     client: SidecarClient,
   ): Error {
-    const cause = err instanceof Error ? err.message : String(err);
-    const code =
-      err instanceof Error && "code" in err
-        ? ` (${(err as { code?: string }).code})`
-        : "";
-    return new Error(
-      `${method} ${path} failed: sidecar at ${client.target()} unreachable — ${cause}${code}`,
+    return classifySidecarFailure(
+      err,
+      method,
+      path,
+      client.target(),
+      requestTimeoutMsFor(path),
     );
   }
 
@@ -236,8 +324,11 @@ export class SidecarClient {
   // ─── Internal ──────────────────────────────────────────────────────────
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  private async get(path: string): Promise<any> {
-    const res = await this.fetchWithReconnect(path, { method: "GET" });
+  protected async get(path: string): Promise<any> {
+    const res = await this.fetchWithReconnect(path, {
+      method: "GET",
+      signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
+    });
     const body = (await res.json()) as {
       ok: boolean;
       data?: any;
@@ -247,11 +338,12 @@ export class SidecarClient {
     return body.data;
   }
 
-  private async post(path: string, data: unknown): Promise<any> {
+  protected async post(path: string, data: unknown): Promise<any> {
     const res = await this.fetchWithReconnect(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
+      signal: AbortSignal.timeout(requestTimeoutMsFor(path)),
     });
     const body = (await res.json()) as {
       ok: boolean;
@@ -262,263 +354,6 @@ export class SidecarClient {
     return body.data;
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
-
-  // ─── Health ────────────────────────────────────────────────────────────
-
-  async health(): Promise<{
-    status: string;
-    pid: number;
-    httpPort?: number | null;
-  }> {
-    return this.get("/health");
-  }
-
-  /**
-   * Lightweight keep-alive ping. Preferred over health() — /ping returns
-   * minimal JSON without full status serialization overhead.
-   */
-  async ping(): Promise<void> {
-    await this.get("/ping");
-  }
-
-  // ─── Sessions ──────────────────────────────────────────────────────────
-
-  async createSession(opts: {
-    id: string;
-    projectPath: string;
-    assistant: string;
-    transcriptPath?: string | null;
-  }): Promise<{ id: string }> {
-    return this.post("/session", opts);
-  }
-
-  async endSession(
-    id: string,
-    opts: { summary?: string; notification?: boolean } = {},
-  ): Promise<void> {
-    await this.post(`/session/${id}/end`, opts);
-  }
-
-  async getActiveSessions(): Promise<
-    Array<{ id: string; projectPath: string; assistant: string }>
-  > {
-    return this.get("/session/active");
-  }
-
-  // ─── Config ────────────────────────────────────────────────────────────
-
-  async getModelRouting(): Promise<{
-    planning: string;
-    implementation: string;
-    verification: string;
-    plan_reviewer: string;
-    spec_reviewer: string;
-  }> {
-    return this.get("/config/model-routing");
-  }
-
-  async getCompactionConfig(
-    projectPath: string,
-  ): Promise<{ reserved: number }> {
-    return this.get(
-      `/config/compaction?project=${encodeURIComponent(projectPath)}`,
-    );
-  }
-
-  // ─── TDD State ─────────────────────────────────────────────────────────
-
-  async getTddState(
-    filePath: string,
-    projectPath?: string,
-  ): Promise<{ state: string; hasActiveSpec: boolean }> {
-    const params = new URLSearchParams({ file: filePath });
-    if (projectPath) params.set("project", projectPath);
-    return this.get(`/tdd-state?${params}`);
-  }
-
-  async setTddState(opts: {
-    filePath: string;
-    state: string;
-    specId?: string;
-    taskPosition?: number;
-    testFilePath?: string;
-    lastFailOutput?: string;
-  }): Promise<void> {
-    await this.post("/tdd-state", { action: "set", ...opts });
-  }
-
-  async clearTddState(filePath: string): Promise<void> {
-    await this.post("/tdd-state", { action: "clear", filePath });
-  }
-
-  async clearTddStatesForSpec(specId: string): Promise<void> {
-    await this.post("/tdd-state", { action: "clearForSpec", specId });
-  }
-
-  async listActiveTddStates(specId?: string | null): Promise<TddCycle[]> {
-    const params = new URLSearchParams();
-    if (specId) params.set("spec_id", specId);
-    const qs = params.toString();
-    return this.get(`/tdd-state/list${qs ? `?${qs}` : ""}`);
-  }
-
-  // ─── TDD Bulk Transition ────────────────────────────────────────────────
-
-  async tddTransition(
-    action: "confirm_red" | "confirm_green",
-    specId?: string,
-  ): Promise<{ count: number }> {
-    return this.post("/tdd-state/transition", { action, specId });
-  }
-
-  // ─── Memory ────────────────────────────────────────────────────────────
-
-  async addObservation(obs: {
-    sessionId: string;
-    projectPath: string;
-    type: string;
-    title: string;
-    content: string;
-    filePaths?: string[];
-    tags?: string[];
-    metadata?: Record<string, unknown>;
-  }): Promise<{ id: number }> {
-    return this.post("/observation", obs);
-  }
-
-  async restoreContext(
-    projectPath: string,
-    semanticQuery?: string,
-  ): Promise<{ hasMemory: boolean; markdown: string | null }> {
-    let url = `/context?project=${encodeURIComponent(projectPath)}`;
-    if (semanticQuery)
-      url += `&semanticQuery=${encodeURIComponent(semanticQuery)}`;
-    return this.get(url);
-  }
-
-  // ─── Project Context ────────────────────────────────────────────────────
-
-  async projectContext(
-    projectPath: string,
-    refresh?: boolean,
-  ): Promise<Record<string, unknown>> {
-    let url = `/project-context?project=${encodeURIComponent(projectPath)}`;
-    if (refresh) url += "&refresh=true";
-    return this.get(url);
-  }
-
-  /**
-   * Invalidate the project-context cache for a specific project path.
-   * Best-effort — never throws. The sidecar will clear the cached context
-   * so the next /project-context request re-analyzes from disk.
-   */
-  async invalidateProjectContext(projectPath: string): Promise<void> {
-    await this.post("/project-context/invalidate", { project: projectPath });
-  }
-
-  // ─── Memory Search/Timeline/Get/Stats (MCP delegation) ─────────────────
-
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  async memorySearch(opts: {
-    query: string;
-    project?: string;
-    type?: string;
-    limit?: number;
-  }): Promise<any[]> {
-    return this.post("/memory/search", opts);
-  }
-
-  async memoryTimeline(opts: {
-    anchor: number;
-    depth?: number;
-    project?: string;
-  }): Promise<any> {
-    return this.post("/memory/timeline", opts);
-  }
-
-  async memoryGet(ids: number[]): Promise<any[]> {
-    return this.post("/memory/get", { ids });
-  }
-
-  async memoryStats(): Promise<any> {
-    return this.get("/memory/stats");
-  }
-  /* eslint-enable @typescript-eslint/no-explicit-any */
-
-  // ─── Specs ─────────────────────────────────────────────────────────────
-
-  async syncSpec(
-    planPath: string,
-    projectPath: string,
-    sessionId?: string,
-  ): Promise<void> {
-    await this.post("/spec/sync", {
-      planPath,
-      projectPath,
-      sessionId: sessionId ?? null,
-    });
-  }
-
-  /**
-   * Bump the last_active heartbeat for a session.
-   * Fire-and-forget — callers should .catch(() => {}) as this is non-critical.
-   */
-  async touchSession(sessionId: string): Promise<void> {
-    await this.post("/session/touch", { sessionId });
-  }
-
-  async getCurrentSpec(projectPath: string): Promise<Spec | null> {
-    return this.get(`/spec/current?project=${encodeURIComponent(projectPath)}`);
-  }
-
-  async getSpecEvents(specId: string, limit?: number): Promise<SpecEvent[]> {
-    const params = new URLSearchParams({ spec_id: specId });
-    if (limit !== undefined) params.set("limit", String(limit));
-    return this.get(`/spec/events?${params}`);
-  }
-
-  // ─── Worktrees ────────────────────────────────────────────────────────
-
-  async resolveWorktreeBySlug(
-    slug: string,
-    project?: string,
-  ): Promise<Worktree | null> {
-    const params = new URLSearchParams({ slug });
-    if (project) params.set("project", project);
-    return this.get(`/worktree/resolve?${params}`);
-  }
-
-  async abandonWorktree(worktreeId: string): Promise<void> {
-    await this.post("/worktree/abandon", { worktree_id: worktreeId });
-  }
-
-  async cleanupWorktrees(projectPath?: string): Promise<{ cleaned: number }> {
-    return this.post("/worktree/cleanup", { project: projectPath });
-  }
-
-  // ─── Notifications ─────────────────────────────────────────────────────
-
-  async insertNotification(notif: {
-    type: string;
-    title: string;
-    message?: string;
-    source?: string;
-    specId?: string;
-    sessionId?: string;
-  }): Promise<void> {
-    await this.post("/notification", notif);
-  }
-
-  // ─── Quality Checks ──────────────────────────────────────────────────
-
-  async qualityCheck(opts: {
-    projectPath: string;
-    filePath?: string;
-    checks?: string[];
-    timeout?: number;
-  }): Promise<QualityCheckResult> {
-    return this.post("/quality-check", opts);
-  }
 }
 
 /**

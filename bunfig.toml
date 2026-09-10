@@ -1,2 +1,2 @@
 [test]
-preload = ["./src/memory/test-preload.ts"]
+preload = ["./src/cli/embed-assets-preload.ts", "./src/memory/test-preload.ts"]

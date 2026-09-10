@@ -1,0 +1,70 @@
+{
+  "review_summary": "Plan aligns well with the user request (config-driven routing, tough_bugs phase, implementer subagent, scope-guard included) and has a credible pivot for the OpenCode merge risk. However, the scope-guard's core enforcement trigger is broken as designed: tasks are never 'in-progress' in SQLite under the current spec-implement workflow, and the plan-edit resync fires before the edit lands, so the stale-state loop does not actually close.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Scope-guard will never enforce: no task is ever 'in-progress' in SQLite under the current workflow",
+      "description": "Matrix rule 3 says 'No in_progress task OR union of task files empty → allow', and the parallel-wave risk mitigation enforces 'against UNION of files across all in_progress tasks'. But verified in code: SQLite task status comes only from syncFromPlanFile (parser maps checkbox marker '[~]' or an explicit '- **Status:** in-progress' line, src/spec/parser.ts:336,354) or an explicit updateTaskStatus call (src/spec/store.ts:366). The spec-implement skill (targets/opencode/skills/spec-implement/SKILL.md:170) marks tasks in_progress via the session TaskUpdate tool — which never touches the SQLite spec store — and plan checkboxes are only flipped to '[x]' on completion. So in practice tasks transition pending → complete and the union of in-progress task files is permanently empty: scope-guard self-disables for the entire implementation, defeating the user's primary guardrail requirement ('keep weak models from going on tangents during implementation').",
+      "suggested_fix": "Add to Task 7 (spec-implement content): before dispatching a wave, the orchestrator MUST mark every wave task '[~]' (or '- **Status:** in-progress') in the plan file AND trigger a sync (spec_register MCP tool or sidecar /spec/sync), then flip to '[x]' + resync on completion. Alternatively (more robust), change matrix rule 3 to fall back to 'pending tasks of the current wave' / getCurrentTask semantics (store.ts:343 already prefers in-progress then first pending). Either way, add an integration test asserting the guard actually denies during a realistically-synced wave."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Plan-edit resync fires at PreToolUse — it syncs the PRE-edit (stale) plan content",
+      "description": "Matrix rule 4: 'Edited file IS the plan file → allow + fire-and-forget sidecar /spec/sync'. Scope-guard is a PreToolUse hook, which runs BEFORE the Write/Edit is applied. The /spec/sync (verified at src/sidecar/routes.ts:81) will therefore re-parse the OLD plan file that does not yet contain the newly added Files entry. The deny message instructs the model to 'add the file to Task N's Files section (then retry)' — but on retry the SQLite state is still stale, producing a second deny and exactly the weak-model deny-loop the plan's own Risk table warns about.",
+      "suggested_fix": "Move the resync to a PostToolUse trigger (e.g., add a plan-file branch to the existing file-checker or tdd-tracker PostToolUse hooks, and the tool.execute.after handler on OpenCode), OR make scope-guard self-healing: before issuing a deny, compare the plan file's mtime against the spec's last-synced timestamp and perform a synchronous /spec/sync + re-evaluate if stale. Add a test for the edit-plan-then-retry sequence."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 2 omits the spec_tasks SQLite schema migration for the new files column",
+      "description": "Task 2's Files list says 'src/spec/store.ts (serialize/deserialize if field-explicit)' but the spec_tasks table has explicit columns (store queries use SELECT * FROM spec_tasks with column-mapped rows, src/spec/store.ts:347). Persisting SpecTask.files requires a new column (e.g., files TEXT JSON) plus an ALTER TABLE migration for existing user databases — sentinal's sidecar DB is long-lived state in ~/.sentinal. Without a migration, deserialize on existing installs returns undefined/throws, and the round-trip DoD ('syncFromPlanFile → getCurrentSpec returns files') only passes on fresh test DBs.",
+      "suggested_fix": "Explicitly add to Task 2: ALTER TABLE spec_tasks ADD COLUMN files (following the store's existing migration pattern), with a test against a pre-existing DB missing the column. If the store instead JSON-serializes whole tasks, state that and drop the caveat."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "OpenCode pivot plan is missing its re-apply trigger and conflicts mildly with the 'not hardcoded in frontmatter' requirement",
+      "description": "Pre-Mortem #1 pivot: 'deploy-time frontmatter rewrite via existing applyModelRouting pattern pointed at ~/.config/opencode/agents/'. Two gaps: (1) the Claude Code path re-patches on 'config set' (src/cli/commands/config.ts:131-134) via findInstalledPluginDirs, which targets Claude Code plugin dirs — the pivot needs the OpenCode agents dir added to that re-apply path, otherwise routing changes only take effect on the next deploy:opencode, silently violating the user's 'specified in Sentinal config' expectation. (2) The user explicitly requested runtime injection 'NOT hardcoded in frontmatter' — the pivot is acceptable as a documented fallback, but the plan should note it must be presented to the user as a degradation requiring sign-off, not silently executed.",
+      "suggested_fix": "In Task 5's pivot note, add: extend config-set re-apply (config.ts:131-134) to cover ~/.config/opencode/agents/ when the pivot is taken, and record in the plan + notify the user that runtime injection was downgraded to deploy-time patching."
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "Scope-guard false-positive surface: reviewer output JSONs and other workflow artifacts are not allowlisted",
+      "description": "Matrix rule 6 allowlists only: plan file, companion test files of listed files, and .sentinal/ paths. The spec workflow itself writes files no task ever lists: docs/plans/*.plan-review.json and *.spec-review.json (reviewer subagents Write to output_path), '## Deferred Issues' edits are covered (plan file), but e.g. new docs/plans entries are not. Per plan Assumption 3, Claude Code hooks fire for subagent tool calls too — so a reviewer dispatched while any task is in-progress gets hard-denied writing its own output file, hanging the orchestrator's spec_wait_file. Also unaddressed: renamed files (Edit on the new path after a git mv) will deny even though the old name was listed.",
+      "suggested_fix": "Extend rule 6: allow docs/plans/<active-plan-stem>.*.json (reviewer outputs) — or more simply, allow all writes under the plan file's directory matching the active plan slug. Document the rename case in the deny message ('if the file was renamed, update the plan's Files entry')."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Wave 3 declares Task 5 and Task 7 parallel, but Task 7 lists Task 5 as a dependency",
+      "description": "Execution Waves: 'Wave 3 — (parallel): Task 5 (OpenCode plugin only), Task 7 (skills/commands md + embed regen)'. Task 7's Dependencies line reads 'Tasks 3, 5'. These contradict — an orchestrator honoring deps will serialize Wave 3; one honoring waves may start Task 7 before Task 5. In reality Task 7 only edits SKILL.md/command md and regenerates embedded-assets (which embeds targets/**/*.md, not plugins/sentinal.ts), so the Task 5 dependency appears spurious.",
+      "suggested_fix": "Drop Task 5 from Task 7's dependency list (keep Task 3), or move Task 7 to Wave 4 before Task 8. Pick one and make waves and deps consistent."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "config.command.spec.model = planning routes the ENTIRE /spec dispatcher session — verification phase included — to the premium model; document and confirm intent",
+      "description": "User asked for per-phase routing. /spec is a dispatcher that loads spec-plan, spec-implement, AND spec-verify skills in the same session; setting command.spec.model to the planning model means main-session verification and implementation orchestration all run on the premium model. This is defensible (implementation work is delegated to the implementer subagent, and the plan's Task 7 'advisory model hint' acknowledges main-session phases can't switch), but the plan never states that the 'verification' routing phase has NO runtime effect on OpenCode and that planning-model pricing applies to the whole orchestration session. A user configuring a cheap verification model will see it silently ignored.",
+      "suggested_fix": "Add to Task 6's README content: an explicit table row stating which phases are runtime-enforced on OpenCode (plan-review, spec-review, implementation via implementer, tough_bugs via tough-debugger; planning via command.spec) and which are advisory-only (verification, main-session implementation coordination). Optionally skip injecting command.spec.model if the user's planning value equals the default."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "Double-deny UX when tdd-guard and scope-guard both fire on the same Write",
+      "description": "On Claude Code all matching PreToolUse hooks run for the same tool call; a weak model creating an unlisted implementation file with no failing test can receive both a TDD deny and a scope deny (or fix one, then immediately hit the other). The plan orders the OpenCode branch (scope-guard after tdd-guard, sequential throw) but doesn't define which message wins on Claude Code or guide the model through the two-step recovery (add to plan → write failing test → write impl).",
+      "suggested_fix": "In Task 4, make the scope-guard deny message TDD-aware ordering-wise: instruct 'first add <file> to the task's Files list, then follow TDD (failing test first)'. Cheap, prevents a 3-cycle deny loop for weak models."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Regression sweep: existing fixtures with '**Files:**' sections and Truth 4's /tmp cwd",
+      "description": "The 1495-test baseline includes plan fixtures across parser, store, mcp-tools, prompt-context, tdd-tracker, and embedded-assets tests; several embed full plan markdown with Files sections. Files extraction is additive, but any Zod schema change to SpecTaskSchema ripples into mcp-tools formatting tests and the compiled embedded-assets.ts copy of the parser (src/cli/embedded-assets.ts:1347-1366 contains a duplicated status-parsing implementation) — if the embedded CLI bundles its own parser snapshot, Files extraction must be regenerated there too or CLI-path behavior diverges. Also Truth 4 assumes cwd=/tmp has no active spec — fine, but a developer running it from the sentinal repo root with this very plan IN_PROGRESS could get a deny; pin cwd in the truth command (it already does, /tmp) — keep it.",
+      "suggested_fix": "Add to Task 8: run 'bun run embed-assets' AFTER Task 2 lands and diff embedded-assets.ts to confirm the embedded parser copy picked up Files extraction (or confirm embedded-assets only embeds md, in which case note it in Context to prevent an implementer hand-editing it)."
+    }
+  ]
+}

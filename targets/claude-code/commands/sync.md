@@ -432,13 +432,58 @@ Use `paths` frontmatter to scope rules to specific files — unscoped rules load
 
 **README rules:** Auto-generate the table from actual files — don't hardcode. Include each rule's description. Keep under 80 lines.
 
+## Phase 6.5: Sync Runtime Contract
+
+**Offer to draft `.sentinal/runtime.json`** — the machine-readable start/readiness/stop contract that lets `/spec` verification bring the project's stack up, wait for it, run the tests against it, and tear it down. It is **project-authored**: Sentinal drafts, the human reviews and commits.
+
+Phase 6 has just recorded the tech stack and dev commands, which are exactly the inputs a draft needs, so this is the cheapest moment to ask.
+
+### Step 6.5.1: Check
+
+If `.sentinal/runtime.json` already exists, **skip this phase entirely** — Sentinal never regenerates over a file the project owns. Report it as "present" in the Phase 12 summary and move on.
+
+### Step 6.5.2: Draft
+
+Call the `runtime_init` MCP tool with `project` set to the repo root. It inspects `docker-compose.yml`, `package.json` scripts and `Procfile` and returns a draft. **It does not write anything.**
+
+Show the draft to the user and offer to save it to `.sentinal/runtime.json`.
+
+If nothing was inferable, the draft is a commented template. Say so plainly and let the user decline — an empty contract is worth less than the two minutes of attention it costs.
+
+### Step 6.5.3: Report detected resources — in the conversation, once
+
+`runtime_init` reports the shared-resource classes it detected (postgres, redis, and so on). **Say them here, out loud, and do not write them into the file.** A human reading `/sync` output is paying attention; a human reading a generated file tends to accept it.
+
+Use this framing:
+
+> Detected postgres and redis. I have left `isolation` unset, so Sentinal will note them but will **not** interrupt your runs. If your `up` command namespaces them per-slot, set them to `"isolated"`. If they are genuinely shared with your main checkout, set them to `"shared"` and Sentinal will ask before any run that could touch them.
+
+**⛔ Never add an `isolation` map to the draft yourself, and never offer to.** Every value would be a guess:
+
+- `"isolated"` is a **false all-clear** — a `db` service in compose says nothing about whether the project name is slot-parameterised.
+- `"none"` is absence-of-evidence — it would suppress a real confirmation gate.
+- `"shared"` would manufacture a **false block on every run**, which is alarm fatigue; blocking is reserved for a deliberate human declaration.
+
+Omission is fail-safe: unstated means **unknown**, and unknown never blocks. This is the one moment the user is asked to think about isolation; after that the decision is theirs to record.
+
 ## Phase 7: Sync MCP Rules
 
-**Document user-configured MCP servers.** Skip Sentinal core servers (context7, mem-search, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.
+**Document user-configured MCP servers.** Skip Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.
 
 ### Step 7.1: Discover
 
-Parse `.mcp.json`, exclude Sentinal core servers (context7, mem-search, web-search, web-fetch, grep-mcp).
+Read every location below that exists — **both targets, both scopes** — and merge the results. Reading only `.mcp.json` finds nothing on an OpenCode-only project.
+
+| Scope   | Claude Code (`mcpServers` key)              | OpenCode (`mcp` key)                                                    |
+| ------- | ------------------------------------------- | ----------------------------------------------------------------------- |
+| Project | `.mcp.json`                                 | `opencode.json{,c}`, `.opencode/opencode.json`                          |
+| User    | `~/.claude.json`, `~/.claude/settings.json` | `$XDG_CONFIG_HOME/opencode/opencode.json{,c}` (defaults to `~/.config`) |
+
+**⚠️ Extract the `mcpServers` key from `~/.claude.json` — never read that file whole.** It stores per-project session state and routinely reaches tens of megabytes. Use `jq '.mcpServers' ~/.claude.json` or equivalent.
+
+Entry shapes differ: Claude Code `{command, args}`, OpenCode `{type, command[]|url}`. Record which scope each server came from — Step 7.4 labels the user-scope ones.
+
+Exclude Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp).
 
 ### Step 7.2: Smoke-Test
 
@@ -478,7 +523,44 @@ Create/update `.sentinal/rules/{slug}-mcp-servers.md`:
 **Example:** `ToolSearch(query="+server-name keyword")` then call directly.
 ```
 
-**Skip if:** no `.mcp.json`, no user-added servers, user declines.
+**Label user-scope servers.** For a server found only in a user config, the `**Source:**` line must say so — this file is committed and shared, so an unlabelled user-global server is a false promise to teammates. Write exactly: `**Source:** ~/.claude.json (user-global — may not be present for teammates)`.
+
+**Graph-tool wiring.** If a detected server exposes any code-exploration capability, catalogue it in the same file, delimited by these exact markers:
+
+```markdown
+<!-- SENTINAL GRAPH TOOLS: BEGIN (managed by /sync — edits inside are overwritten) -->
+
+### Code-graph capabilities for `impact_analysis` / `plan_impact`
+
+| Capability                                 | Verified invocation             | Status                              |
+| ------------------------------------------ | ------------------------------- | ----------------------------------- |
+| Total modules in the graph (universe size) | `graph_stats`                   | ✅ verified                         |
+| Modules transitively reaching a given file | `query(…, <confidence filter>)` | ✅ verified — per-file, not totals  |
+| Call sites with file + line                | `query(...)`                    | ✅ verified                         |
+| Symbol search by name                      | `find_symbol`                   | ✅ verified                         |
+| Cross-repo / cross-service linking         | `mode="cross_service"`          | ⚠️ unverified — never score from it |
+
+Before calling `impact_analysis`, collect reach for **every** changed `.ts`/`.tsx`/`.js` file, then pass it with the universe size from the same tool:
+
+`impact_analysis(project="<repo>", reach={"sources": [{"source": "<server> <tool>", "primary": true, "moduleCount": <total>, "files": {"src/a.ts": <n>, ...}}], "callSites": [{"file": "src/b.ts", "line": 42, "caller": "<fn>", "callee": "<fn>", "target": "src/a.ts"}]})`
+
+The single-source form is still accepted unchanged and is exactly equivalent to a one-entry `sources` list — nothing already sending it needs to change: `reach={"moduleCount": <total>, "files": {"src/a.ts": <n>, ...}, "source": "<server> <tool>"}`
+
+Before implementing a plan: `plan_impact(project="<repo>", plan_path="<plan>.md", reach=<same shape>)`. Its wave-overlap half is deterministic on the plan text and needs **no** injected reach — call it even with no graph server configured.
+
+A partial `files` map is rejected outright and nothing is scored; exactly one source is scored (`primary`, else the first) and `callSites` are evidence only — see "Code-Graph Reach" in `mcp-servers.md` for the full contract.
+
+<!-- SENTINAL GRAPH TOOLS: END -->
+```
+
+- **Name only what Step 7.2 actually returned** — the invocations above are placeholders, not names to copy. Drop any row the server cannot answer.
+- **⛔ Catalogue the invocation that was VERIFIED, not the obvious one.** A server's best-named, purpose-built tool can return aggregate-only counts, or collide on a short symbol name and answer for an unrelated function — one trace of a common name returned 13 callers, nearly all unrelated. A lower-level query interface with a confidence filter was the only path yielding correct per-file data. Record the exact invocation that worked, filters included.
+- **This block SHOULD be vendor-specific.** It is generated per project from Step 7.2's smoke-testing and is never shipped, so concrete tool names, arguments and filters belong here. Sentinal's own shipped rules stay vendor-neutral because they must run everywhere; this file does not. Do not "fix" it to match them.
+- **⛔ Cross-repo/cross-service is recorded, never scored.** Measured: a cross-service mode returned output byte-identical to single-repo mode with no empty-result marker, and route extraction was dominated by misparsed path literals from test fixtures. Keep it out of every `reach` payload until verified here.
+- **⛔ Emit the block only if the universe size (`moduleCount`) is obtainable from the detected tool.** A guessed `moduleCount` manufactures a false HIGH on every change — the same alarm fatigue a guessed `isolation` would cause in Phase 6.5. Omission is fail-safe: write nothing and report "detected but universe size unknown" in Phase 12.
+- **Idempotent:** if both markers are already present, replace everything between them; otherwise append the whole block. Exactly one block per file.
+
+**Skip if:** no MCP config at any of the four locations, no user-added servers, user declines.
 
 ## Phase 8: Sync Existing Skills
 
@@ -547,6 +629,8 @@ Skills are appropriate for: multi-step workflows, tool integrations, reusable sc
 5. **Reference validity** — cross-references between files point to files that actually exist
 6. **README currency** — if `.sentinal/rules/README.md` exists, verify it lists all current rule files and directories. Update if stale.
 7. **Path-scoping enforcement** — re-verify all team-level rules have `paths` frontmatter
+8. **Runtime contract validity** — if `.sentinal/runtime.json` exists, confirm it still parses (`runtime_config`) and that it declares no `isolation` entry Sentinal invented rather than the user
+9. **Graph-tool block validity** — if a `SENTINAL GRAPH TOOLS` block exists, confirm every tool it names is still reachable and that **exactly one** such block is present; two means a re-run appended instead of replacing between the markers, so merge them back into one
 
 Auto-fix any issues found. Report fixes in summary.
 
@@ -560,6 +644,8 @@ Report:
 - Rules: created, updated, unchanged (by directory level)
 - Path-scoping: team rules validated, violations fixed
 - Skills: created, updated, removed, unchanged
+- Runtime contract: present | drafted | declined | nothing to infer (and any detected shared resources)
+- Graph tools: wired <names> | detected but universe size unknown (block omitted) | none detected
 - Cross-check: issues found and fixed (if any)
 - Vexor: available / not available (Grep/Glob used as fallback)
 

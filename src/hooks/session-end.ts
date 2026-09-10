@@ -1,53 +1,72 @@
 /**
  * Session End Hook
  *
- * Ends the session in SQLite, creates a notification, and auto-stops
- * the dashboard server if no active sessions remain.
+ * Ends the session (sidecar-first, direct-store fallback), creates a
+ * notification, auto-stops the dashboard server if no active sessions
+ * remain, and cleans up the per-project event buffer.
+ *
+ * ⛔ Deliberately does NOT call `stopSidecarProcess` (review-mandated
+ * carve-out, M10c): post-v1.36.2 H1 the sidecar owns its own lifecycle
+ * via session-aware shutdown (including the sessions-never-seen
+ * fallback). A hook-side stop is redundant and racy with other live
+ * sessions. Pinned by `session-end.test.ts`.
+ *
+ * `processSessionEnd` is consumed by BOTH the standalone entry below and
+ * the CLI dispatcher (`src/cli/commands/hook.ts`).
  */
 
-import { readStdin } from "../utils/hook-output.js";
 import { unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { MemoryStore } from "../memory/store.js";
+import { readStdin, type HookInput } from "../utils/hook-output.js";
+import { SidecarClient } from "../sidecar/client.js";
 import { stopServer } from "../dashboard/lifecycle.js";
 
-async function main(): Promise<void> {
-  const input = await readStdin();
-
+export async function processSessionEnd(input: HookInput): Promise<void> {
   try {
-    const store = new MemoryStore();
-
-    // End session in SQLite
-    store.endSession(input.session_id);
-
-    // Create session-end notification
-    store.insertNotification({
-      type: "info",
-      title: "Session ended",
-      message: `Session ${input.session_id.slice(0, 8)} ended`,
-      source: "session-end",
-      sessionId: input.session_id,
-    });
-
-    // Auto-stop dashboard if no active sessions remain
-    const active = store.getActiveSessions();
-    if (active.length === 0) {
-      stopServer();
+    const client = await SidecarClient.connect();
+    if (client) {
+      await client.endSession(input.session_id, { notification: true });
+      const active = await client.getActiveSessions();
+      if (active.length === 0) {
+        stopServer();
+      }
+    } else {
+      // Direct fallback (no sidecar running)
+      const { MemoryStore } = await import("../memory/store.js");
+      const store = new MemoryStore();
+      store.endSession(input.session_id);
+      store.insertNotification({
+        type: "info",
+        title: "Session ended",
+        message: `Session ${input.session_id.slice(0, 8)} ended`,
+        source: "session-end",
+        sessionId: input.session_id,
+      });
+      const active = store.getActiveSessions();
+      if (active.length === 0) {
+        stopServer();
+      }
+      store.close();
     }
-
-    store.close();
   } catch {
     // Non-fatal — session may not have been started
   }
 
   // Clean up event buffer (no longer needed after session ends)
-  const bufferPath = join(input.cwd, ".sentinal", "event-buffer.json");
   try {
+    const bufferPath = join(input.cwd, ".sentinal", "event-buffer.json");
     if (existsSync(bufferPath)) {
       unlinkSync(bufferPath);
     }
   } catch {
-    // Non-fatal cleanup
+    // Non-fatal cleanup (including empty input with no cwd)
   }
 }
-main().catch(() => {});
+
+async function main(): Promise<void> {
+  await processSessionEnd(await readStdin());
+}
+
+if (import.meta.main) {
+  main().catch(() => {});
+}

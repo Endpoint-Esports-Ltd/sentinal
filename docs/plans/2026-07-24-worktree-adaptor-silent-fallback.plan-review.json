@@ -1,0 +1,56 @@
+{
+  "review_summary": "Root-cause localization to target() is correct and well-evidenced. The riskiest decision — throw from target() to fail loud — rests on an UNVERIFIED assumption about how OpenCode's workspace machinery handles a thrown/rejected target(); if OpenCode does not catch it, throwing could crash the session or (worse) still fall through to main. The plan also under-addresses the dual-race: configure()'s getCurrentSpec timeout can produce a planPath from a stale compact-state, and the caching + existence-check interaction has a gap.",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Throwing from target() has unverified crash/handling semantics in OpenCode",
+      "description": "The plan's riskiest decision (Fix Approach step 1, Task 2) is to THROW from target() when a spec worktree is active and resolution is indeterminate. But target() is invoked by OpenCode's workspace machinery (experimental_workspace.register, plugin sentinal.ts:398-404), whose error-handling contract is NOT in this repo — the authoritative WorkspaceAdaptor.target() API ships in the installed OpenCode binary's node_modules (@opencode-ai/plugin), per .sentinal/skills/sentinal-opencode-api-source/SKILL.md. The in-repo type (workspace-adaptor.ts:41) only declares the return type, not what happens on rejection. If OpenCode does NOT catch a rejected target(): every file op could throw and crash the session, OR OpenCode may swallow it and fall back to its own default (possibly main), reintroducing the silent-main bug the fix intends to close. The plan even hedges: 'will throwing there crash the session or is it caught... Exact loud-signal mechanism confirmed in impl.' This is deferred to impl but is the load-bearing design decision — it must be spiked FIRST.",
+      "suggested_fix": "Before Task 2, add a spike gate (per sentinal-opencode-api-source SKILL): read the installed @opencode-ai/plugin dist .d.ts for the WorkspaceAdaptor.target() error contract, and probe live (log('target throw test'), throw, run a real OC session, read ~/.sentinal/plugin.debug.log) to confirm observed behavior on a thrown target(). Only choose throw vs. an alternative loud signal (see next issue) AFTER this spike. Record the verdict in the plan."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Safer loud signal than throw not evaluated: return a remote/error target",
+      "description": "WorkspaceTarget is a union: { type:'local'; directory } | { type:'remote'; url; headers? } (workspace-adaptor.ts:31-33). The plan fixates on throw vs. return-main but does not evaluate returning a non-local target as the loud signal. A remote target with an obviously-invalid URL (e.g. 'sentinal-error://worktree-resolution-failed') would make file ops fail visibly at a well-defined boundary WITHOUT relying on OpenCode catching a thrown promise — and critically, it can never resolve to the main directory. This is a strictly safer failure mode than either 'throw (unknown handling)' or 'return main (silent bug)'. The plan mentions 'return a sentinel that prevents silent main-editing' in the Behavior Contract but does not carry the remote-target option into the Fix Approach.",
+      "suggested_fix": "In the spike, test all three loud signals (throw, remote-target with sentinel url, and return main+prominent-log) and pick the one that (a) never edits main, (b) surfaces visibly to the user, (c) does not crash the whole session. Prefer the remote-error-target if it fails ops cleanly, since it is independent of OpenCode's throw-handling."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Dual-race: configure()'s getCurrentSpec timeout can hand target() a stale planPath from compact-state",
+      "description": "Question 5 is only partially handled. configure() (workspace-adaptor.ts:88-121) races getCurrentSpec (1s, :94-99); on timeout spec=null, so it falls through to readCompactState (:104-106) and sets extra.planPath from compact-state.json's activePlan. That planPath then drives target()'s slug. The leak is subtler than the plan states: if getCurrentSpec times out and compact-state points at a DIFFERENT/older plan than the truly-active one, target() will resolve (or fail to resolve) a worktree for the WRONG slug. The plan's C-condition keys entirely on 'extra.planPath present' but treats planPath as trustworthy. A planPath sourced from a timed-out configure() is itself indeterminate. The plan asserts configure() 'only sets metadata' and is out of scope, but that metadata is the exact input to target()'s correctness.",
+      "suggested_fix": "Either (a) also fail-loud in configure() when getCurrentSpec times out AND a spec worktree context is expected (rather than silently trusting compact-state), or (b) have target() re-validate the slug against a fresh (post-timeout, longer-budget) resolve before trusting planPath. At minimum, document in the plan that compact-state-derived planPath is a known secondary indeterminacy and state why it is safe to trust here."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Per-slug cache + existence-check ordering can still return a stale worktree path",
+      "description": "Question 4: Fix Approach step 2 caches worktreePath per slug for the session; step 4 asserts existsSync on return. If a worktree is abandoned mid-session (remove()/worktree_abandon deletes the dir), a cached path becomes stale. existsSync catches a DELETED dir — good. But git worktree abandon can leave the directory on disk while de-registering it (the plan's own Investigation note :28 says abandon/cleanup 'leave git worktree registered + dir on disk' — 10 orphaned dirs observed). In that case existsSync PASSES on a stale/detached worktree and the cache returns a path that is no longer the active worktree. The existence-check does not fully mitigate the staleness the caching introduces.",
+      "suggested_fix": "Invalidate the per-slug cache in remove() (and on abandon) rather than relying solely on existsSync. Alternatively, cache only for a short TTL or only across a single tool-batch, not the whole session. State the invalidation strategy explicitly in Task 2."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Regression test cannot exercise the real crash-vs-swallow behavior it most needs to prove",
+      "description": "Task 1's key regression test injects a fake sidecar whose resolveWorktreeBySlug hangs, then asserts target() 'throws OR returns a non-main sentinel'. This proves target() no longer returns main — necessary but NOT sufficient. It does NOT prove the chosen loud signal actually protects against main-editing in the REAL OpenCode workspace pipeline (whether a thrown target() is caught and downgraded to main by OpenCode). The existing tests (workspace-adaptor.test.ts:123-172) all call adaptor.target() directly, bypassing OpenCode's machinery — so the unit test can be GREEN while the shipped behavior still leaks. This is exactly the false-GREEN class the bug is about.",
+      "suggested_fix": "Keep the unit regression test, but add a live/e2e smoke (per sentinal-live-smoke skill) that drives a real OC session with a hung/slow worktree-resolve and asserts an edit does NOT land in main. Gate 'done' on the live check, not just the unit test."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Verify command 'bun run embed-assets' / check-embed-assets.mjs script names unverified",
+      "description": "Task 3 and Fix Approach reference 'bun run embed-assets', 'bun scripts/check-embed-assets.mjs', and rebuild via build:opencode. The clarification notes a recent 'generated-not-committed' change to how the bundle ships. These exact script names were not verified against package.json in this review. If the delivery path changed (e.g. embed step folded into build, or dist no longer committed), these verify commands may be stale and the fix could fail to actually ship in sentinal.mjs.",
+      "suggested_fix": "Before Task 3, confirm the exact scripts in package.json (build:opencode, embed-assets, check-embed-assets) and confirm whether targets/opencode/dist/sentinal.mjs is committed or generated-on-install. Update Task 3 verify commands to match, and add an assertion that the fixed code string appears in the shipped bundle."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "Raising the timeout (step 3) is a mitigation, not part of the correctness fix — confirm it does not mask",
+      "description": "Fix Approach step 3 raises/makes-configurable the 1s timeout. Combined with the loud-fail (step 1), a longer timeout only shrinks the window. This is fine as defense-in-depth, but a longer default timeout also makes every non-worktree target() call slower on a cold sidecar and could mask the loud-fail path in testing (the race rarely trips). YAGNI-adjacent: the correctness fix is steps 1+2+4; step 3 is tuning.",
+      "suggested_fix": "Keep step 3 but ensure the regression test forces the indeterminate branch deterministically (hung promise) regardless of timeout value, so the loud-fail path is always exercised. Consider making the raised timeout modest (e.g. 3-5s) to avoid slowing the common non-worktree path."
+    }
+  ]
+}

@@ -22,6 +22,7 @@ import { loadCustomSqlite, VectorStore } from "../memory/vector-store.js";
 import { EmbeddingService } from "../memory/embeddings.js";
 import { SearchOrchestrator } from "../memory/search/orchestrator.js";
 import { backfillVectors } from "../memory/backfill.js";
+import { runAutoDecayIfStale } from "../memory/auto-decay.js";
 import {
   nativeDepsStatus,
   type NativeDepsStatus,
@@ -33,6 +34,7 @@ import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";
 import { handleTddTransitionRequest } from "./tdd-routes.js";
+import { handleSpecMetricsRequest } from "./spec-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
 import { LspClient } from "./lsp-client.js";
@@ -260,6 +262,27 @@ export function cleanupStaleSessionsOnStartup(store: MemoryStore): number {
 }
 
 /**
+ * Schedule the throttled quality-score decay OFF the hot path (after listen).
+ * The sidecar boots ~once per work-session, so the 24h throttle gives natural
+ * ~daily decay. Best-effort — `runAutoDecayIfStale` never throws, and this is
+ * deferred via `queueMicrotask` so it can never delay the listen path.
+ */
+function scheduleStartupDecay(store: MemoryStore): void {
+  queueMicrotask(() => {
+    try {
+      const result = runAutoDecayIfStale(store);
+      if (result.ran) {
+        logSidecar(
+          `sidecar: startup decay ran (${result.updated ?? 0} updated)`,
+        );
+      }
+    } catch {
+      /* best-effort — decay must never affect the sidecar */
+    }
+  });
+}
+
+/**
  * Start the sidecar server. Returns the Bun server instance.
  *
  * Primary: Unix domain socket at ~/.sentinal/sidecar.sock
@@ -361,6 +384,8 @@ export async function startSidecar(
     if (projectResponse) return projectResponse;
     const tddResponse = await handleTddTransitionRequest(req, ctx);
     if (tddResponse) return tddResponse;
+    const specResponse = await handleSpecMetricsRequest(req, ctx);
+    if (specResponse) return specResponse;
     const configResponse = await handleConfigRequest(req, ctx);
     if (configResponse) return configResponse;
     const worktreeResponse = await handleWorktreeRequest(req, ctx);
@@ -392,6 +417,7 @@ export async function startSidecar(
       ctx.httpPort = httpServer.port;
       writeFileSync(getSidecarPortPath(), String(httpServer.port), "utf-8");
       startBackgroundVectorInit(ctx, vectorEnabled);
+      scheduleStartupDecay(store);
       return { server, httpServer, ctx, transport: "unix" };
     } catch {
       // Unix socket failed — fall through to HTTP-only
@@ -408,6 +434,7 @@ export async function startSidecar(
   ctx.httpPort = server.port;
   writeFileSync(getSidecarPortPath(), String(server.port), "utf-8");
   startBackgroundVectorInit(ctx, vectorEnabled);
+  scheduleStartupDecay(store);
   return { server, ctx, transport: "http" };
 }
 

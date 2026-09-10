@@ -18,6 +18,8 @@ import { registerWorktreeTools } from "../worktree/mcp-tools.js";
 import { registerTddTools } from "../tdd/mcp-tools.js";
 import { registerAnalysisTools } from "../analysis/mcp-tools.js";
 import { registerProjectTools } from "../project/mcp-tools.js";
+import { registerRuntimeTools } from "../runtime/mcp-tools.js";
+import { runtimeWorktreeConfig } from "../runtime/worktree-deps.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
 
@@ -47,10 +49,22 @@ export function createSentinalServer(opts: ServerOptions = {}): {
 
   registerMemoryTools(server, { client, store });
   registerSpecTools(server, { client, store });
-  registerWorktreeTools(server, { client, store });
+  // ⛔ The worktree tools cannot build this themselves: `src/worktree/` may
+  // import nothing from `src/runtime/` (no-module-cycle guard), and
+  // `worktree/mcp-tools.ts` constructs a manager from inside that directory.
+  // Threading the config down from here is what keeps the graph acyclic.
+  registerWorktreeTools(server, {
+    client,
+    store,
+    worktreeConfig: runtimeWorktreeConfig(),
+  });
   registerTddTools(server, { client, store });
   registerAnalysisTools(server, { client, store });
   registerProjectTools(server, { client });
+  // Direct-only by design — a stateless fs read of a path derived from the
+  // tool's own `project` argument, so the sidecar's warm state buys nothing.
+  // See the docblock in src/runtime/mcp-tools.ts before adding a route.
+  registerRuntimeTools(server, {});
 
   return { server, store };
 }
@@ -62,25 +76,45 @@ export function createSentinalServer(opts: ServerOptions = {}): {
  * Returns a cleanup function that can be called directly (for testing)
  * or is invoked automatically on SIGTERM/SIGINT/exit.
  *
- * Only stops the sidecar if no active sessions remain in the store.
+ * Client mode (store === null, i.e. production): NEVER stops the sidecar.
+ * The sidecar is shared across concurrent sessions and owns its own
+ * lifecycle — session-aware idle shutdown including a sessions-never-seen
+ * fallback (src/sidecar/server.ts:235-241) — so MCP-only usage cannot
+ * orphan it, and stopping it here would kill it out from under other
+ * live sessions.
+ *
+ * Direct-store mode: stops the sidecar only when no active sessions remain.
+ *
+ * SIGTERM/SIGINT run cleanup then exit (143/130) — a swallowing handler
+ * would otherwise leave the process alive after `kill <pid>`.
  */
 export function registerMcpCleanupHandlers(
   store: MemoryStore | null,
 ): () => void {
+  let ran = false;
   const cleanup = () => {
+    // process.exit() from a signal handler re-fires this via the exit event.
+    if (ran) return;
+    ran = true;
     try {
-      if (store) {
-        const active = store.getActiveSessions();
-        if (active.length > 0) return;
-      }
+      if (!store) return; // client mode — sidecar owns its own lifecycle
+      const active = store.getActiveSessions();
+      if (active.length > 0) return;
       stopSidecarProcess();
     } catch {
       // Non-fatal — best effort cleanup
     }
   };
 
-  process.on("SIGTERM", cleanup);
-  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", () => {
+    cleanup();
+    process.exit(143);
+  });
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
+  // Must stay sync — the exit event cannot await anything.
   process.on("exit", cleanup);
 
   return cleanup;
@@ -100,9 +134,9 @@ export async function main(): Promise<void> {
   const client = await SidecarClient.connectWithRetry();
   const { server, store } = createSentinalServer({ client });
 
-  // Register cleanup handlers so sidecar is stopped when MCP server exits (if no sessions remain)
-  const cleanup = registerMcpCleanupHandlers(store);
-  process.on("exit", cleanup);
+  // Register cleanup handlers (registers its own SIGTERM/SIGINT/exit
+  // listeners — do NOT add another `exit` registration here).
+  registerMcpCleanupHandlers(store);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

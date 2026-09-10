@@ -1,0 +1,63 @@
+{
+  "review_summary": "Strong plan: all 10 findings covered, wave file-disjointness holds as written, and both load-bearing design facts I challenged (sidecar no-sessions-ever idle fallback at server.ts:235-241; pidfile written before readiness at lifecycle.ts:231-238) verified TRUE against source. One real trap remains: Task 8's 'per-call timeout override' option would force edits to client-routes.ts, which Task 9 owns in the same wave.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 8's timeout design can collide with Task 9 on client-routes.ts (same wave)",
+      "description": "Task 8 (files: quality-routes.ts + client.ts) says client timeouts should be 'generous for known-long routes (/quality-check — pass-through or per-call override)'. Verified: the abstract transport signatures `protected abstract get(path)` / `post(path, data)` (client-routes.ts:22-23) AND `qualityCheck()` (client-routes.ts:314-321) live in client-routes.ts — the file Task 9 modifies in the SAME wave to add getSpecMetrics. Any 'per-call override' implementation changes those signatures or qualityCheck's body, editing client-routes.ts and violating the shared-working-dir wave rule the plan itself flags as High impact (Risk 6). The plan's file lists are disjoint only if the implementer picks the non-obvious option.",
+      "suggested_fix": "In Task 8's Key Decisions, mandate the path-based option and forbid the alternative: implement timeouts entirely inside client.ts's concrete get/post using a path-pattern → timeout map (e.g. /quality-check gets the long budget, everything else ~2s), with NO signature change; add '⛔ Do not edit client-routes.ts — Task 9 owns it this wave.' Alternatively move Task 9 to a third wave."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 1: bash exitCode may not exist anywhere in the after-hook — specify the fallback now",
+      "description": "Current dead code derives memory-capture success from `output.args?.exitCode ?? output.args?.exit_code` (sentinal.ts:671). After the fix, `output` = {title, output, metadata}; whether OpenCode's bash tool puts an exit code in `metadata` is unverified and not pinned by the .d.ts (metadata is loosely typed). The plan says 'verify what metadata carries' but gives no direction for the negative case. Note the TDD transitions are NOT at risk: sidecarTddTrack consumes bash output TEXT (sentinal.ts:637-647), available via `output.output`. Only eventSuccess needs exit info, and a graceful degradation already exists (`if (typeof exitCode === 'number')` guard at :672 falls back to `!asyncShouldBlock`).",
+      "suggested_fix": "Add to Task 1's notes: 'If metadata carries no exit code, keep the existing degradation — eventSuccess = !asyncShouldBlock (the typeof-guard at :672 already does this). Pin BOTH cases in tests: metadata-with-exit → success derived from it; metadata-without → falls back, no throw.' This closes the hole without blocking on OpenCode internals."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 10 Option A: the client has NO cheap exact-match lookup — force the dedup mechanism",
+      "description": "Verified client-routes.ts memory surface: memorySearch({query, project, type, limit}) → POST /memory/search (BM25/semantic RANKED search), memoryGet(ids), updateObservation, addObservation. There is no list-by-title or exact-filter method. The plan's 'query for an existing observation with the same title + project (check client-routes.ts for the cheapest call)' assumes a surface that doesn't exist; ranked search alone does not guarantee the exact-duplicate row is returned, making dedup-by-title unreliable if left to a naive top-1 check.",
+      "suggested_fix": "Mandate the mechanism in Task 10: call memorySearch({query: title, project: projectPath, type: 'discovery', limit: ~10}) and apply a client-side EXACT title+project equality filter over the results; treat any exact match within the window as the duplicate (optionally updateObservation to touch it). If that proves unreliable in the RED test, fall back to adding a tiny exact-lookup route — but decide that in the task, not silently."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 6b DoD's mtime/row-count comparison is not a workable automated check on a dev machine",
+      "description": "DoD: 'no new writes to the real ~/.sentinal (verify by mtime/row-count comparison before/after a suite run)'. A live sidecar from OTHER sessions (this repo's own dev workflow keeps one resident per sentinal-sidecar.md) writes to the real ~/.sentinal concurrently — mtime/row counts will drift during any suite run regardless of the fix, producing false failures (or masking real leaks). The check is only meaningful on a quiet machine with the sidecar stopped.",
+      "suggested_fix": "Make the guard test the authoritative DoD: with SENTINAL_HOME set, assert resolveDbPath() AND every sidecar path (socket/port/pid) resolve outside os.homedir()/.sentinal — that is deterministic and CI-safe. Demote the mtime/row-count comparison to a one-off manual verification note ('stop the sidecar first')."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "H1's idle-fallback dependency verified — pin it with a test since the design now leans on it",
+      "description": "Challenged and confirmed: server.ts:235-241 has a 'no sessions ever seen' hybrid idle fallback (shutdown after fallbackIdleMs of no HTTP activity), so MCP-only usage with zero registered sessions does NOT orphan sidecars — Task 2's 'client mode never stops the sidecar' design is safe. But H1 converts this fallback from a nicety into the sole lifecycle mechanism for MCP-only users.",
+      "suggested_fix": "Add to Task 2's DoD: verify (or add) a test asserting the sessions-never-seen fallback branch fires — it is now load-bearing for H1."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 5's open 'is startedAt reusable?' question can be closed now",
+      "description": "Verified: the pidfile is written IMMEDIATELY after spawn, BEFORE readiness polling (lifecycle.ts:231-238, '⛔ IMMEDIATELY, before the first poll'), so startedAt (Date.now() at write, schema pidfile.ts:64) is within spawn latency (~ms) of true process start — NOT seconds-to-minutes. Reuse is viable, but ps -o etimes= has 1-second granularity plus rounding at both capture and compare, so the plan's ±2s tolerance is marginal against startedAt.",
+      "suggested_fix": "Close the question in the task: reuse startedAt with tolerance widened to ±3-5s (documenting the etimes granularity math), OR add a ps-derived field at spawn if the RED test shows flake. Either way, state the decision instead of leaving it to the implementer to rediscover the write-ordering."
+    },
+    {
+      "severity": "suggestion",
+      "category": "hidden_dependency",
+      "title": "Task 6b's test-preload edit changes every Wave-2 agent's test behavior mid-wave",
+      "description": "File-disjointness holds, but test-preload.ts is preloaded for EVERY `bun test` run. The moment 6b lands, concurrent Wave-2 agents (5, 8, 9, 10) running 'full suite green' checks see different sidecar-connection behavior (no live socket at the new path). Not corruption, but a source of confusing mid-wave failures the plan already predicts ('expect some test output changes') without warning the other agents.",
+      "suggested_fix": "Note in the Wave 2 description (or Task 6b) that 6b should run last in the wave, or that other Wave-2 agents should treat sudden sidecar-fallback test shifts as expected once 6b's commit appears."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Task 1 is the heaviest single task — four awakened paths plus .d.ts plus pinning test plus build",
+      "description": "Task 1 covers the after-handler fix, the .d.ts correction, a pinning test against the installed package, four awakened-path test scenarios (quality gate, exemption, RED transition, green clear), two ride-alongs, and embed-assets/build:all verification. It's coherent (one file cluster) but roughly 2x any other task's scope, and Risk 1 (latent bugs in awakened paths) concentrates there.",
+      "suggested_fix": "Keep it one task (splitting would break file-disjointness), but mark the installed-package pinning test as best-effort/stretch in the DoD so the agent doesn't burn its budget on filesystem-path gymnastics against ~/.opencode when the mutation-style assertion suffices."
+    }
+  ]
+}

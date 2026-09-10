@@ -184,6 +184,67 @@ describe("POST /quality-check concurrency", () => {
   }, 30_000);
 });
 
+// ─── Hung subprocess (H8 wedge) ─────────────────────────────────────────
+//
+// A bunx/npx grandchild that ignores SIGTERM and holds stderr open used to
+// hang the post-kill `new Response(proc.stderr).text()` read forever, so the
+// route's `finally` never ran and `activeChecks` retained the project until
+// sidecar restart (every later check → 429).
+
+describe("POST /quality-check hung subprocess", () => {
+  let hungDir: string;
+
+  beforeAll(() => {
+    hungDir = join(tmpdir(), `qc-hung-${Date.now().toString(36)}`);
+    mkdirSync(join(hungDir, "node_modules", ".bin"), { recursive: true });
+    // Fake eslint: ignores SIGTERM and holds stderr open (sleep keeps the
+    // inherited pipe fd alive). Self-cleans after 15s so a failing run
+    // cannot wedge the whole test file.
+    writeFileSync(
+      join(hungDir, "node_modules", ".bin", "eslint"),
+      "#!/bin/sh\ntrap '' TERM\nsleep 15\n",
+      { mode: 0o755 },
+    );
+    // Fake prettier: instant success — used to prove activeChecks released.
+    writeFileSync(
+      join(hungDir, "node_modules", ".bin", "prettier"),
+      "#!/bin/sh\nexit 0\n",
+      { mode: 0o755 },
+    );
+  });
+
+  afterAll(() => {
+    rmSync(hungDir, { recursive: true, force: true });
+  });
+
+  it("returns within budget when the subprocess ignores SIGTERM and holds stderr open", async () => {
+    const start = Date.now();
+    const r = await post(base, "/quality-check", {
+      projectPath: hungDir,
+      checks: ["eslint"],
+      timeout: 500, // subprocess timeout — fake ignores the SIGTERM that follows
+    });
+    // Post-kill read must be raced against a short deadline, not awaited
+    // unconditionally: subprocess timeout (500ms) + read deadline + slack.
+    expect(Date.now() - start).toBeLessThan(8000);
+    expect(r.ok).toBe(true);
+    expect(r.data.eslint.timedOut).toBe(true);
+    expect(r.data.eslint.ok).toBe(false);
+  }, 10_000); // it() timeout matches the subprocess budget (repo rule)
+
+  it("allows a second check for the same project after a hung first (activeChecks released)", async () => {
+    // Before the fix this 429s ("already running") because the first
+    // request's finally never ran. Assert via behaviour, not internals.
+    const r2 = await post(base, "/quality-check", {
+      projectPath: hungDir,
+      checks: ["prettier"],
+      timeout: 5000,
+    });
+    expect(r2.ok).toBe(true);
+    expect(r2.data.prettier.ok).toBe(true);
+  }, 10_000);
+});
+
 // ─── getToolCommand ─────────────────────────────────────────────────────────
 
 describe("getToolCommand", () => {

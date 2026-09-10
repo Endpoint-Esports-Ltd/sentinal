@@ -1,0 +1,131 @@
+{
+  "pass_summary": "All 11 tasks are implemented, substantive and wired; I tried hard to break D1's single-primary-scoring property and could not — no non-primary source can reach `scoreRisk`, and D2's single-object form is genuinely normalised to a one-element list rather than accepted-and-ignored. Four should_fix items remain, the sharpest being a prose/implementation mismatch: `spec-plan` tells the agent to collect reach for \"existing `Modify:` targets\" while `plan_impact` enforces coverage keyed on on-disk existence regardless of verb, so an agent following the shipped instruction literally gets its payload rejected.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 13,
+  "truths_total": 14,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "spec-plan prose says `Modify:` targets; plan_impact enforces coverage on `exists` — an agent following it gets rejected",
+      "description": "`targets/claude-code/commands/spec-plan.md` and `targets/opencode/skills/spec-plan/SKILL.md` (Step 1.5.0, item 2 of the plan_impact block) instruct: \"collect that data for the plan's existing `Modify:` targets and pass it in the `reach` parameter\". But `src/analysis/plan-impact.ts:216-218` builds the coverage set as `claimed.filter(f => f.exists && isReachRelevantPath(f.path))` — every claimed TS file that exists on disk, whatever its verb — and `resolveReach`/`validateSource` then rejects the whole payload if the primary source misses even one. On this very plan, files declared `Create:` in one task already exist on disk and are therefore in `candidates`; an agent that scoped its collection to `Modify:` verbs would supply an incomplete map and be rejected. This is exactly the mismatch the plan's own Wave-2 outcome warned about (\"Task 7 must key its rule on `exists`, not on `verb`\") — Task 7 complied, but Task 9's prose, written two waves later, still speaks in verbs. The failure is graceful (the overlap section still renders, per plan-impact.ts:246-258) which is why it is not must_fix, but the reach half silently never works for anyone following the instruction.",
+      "suggested_fix": "In both `spec-plan` copies change \"the plan's existing `Modify:` targets\" to \"every file the plan claims that already exists on disk, whatever verb the plan uses — `plan_impact` keys coverage on on-disk existence, not on the verb\". Apply identically to both copies, regenerate `src/cli/__fixtures__/target-parity/` once, and add an assertion in `src/cli/plan-impact-prose.test.ts` pinning the phrase so it cannot drift back."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "`AgentReachSchema` is not `.strict()` — a mis-nested `primary` silently selects the wrong scoring source",
+      "description": "`src/analysis/reach.ts:166-232` builds `AgentReachSchema` as a plain `z.object(...)`, so zod strips unknown top-level keys. An agent that writes `{primary: true, sources: [moduleSource, symbolSource]}` — hoisting `primary` out of the entry, an easy mistake given the two documented shapes sit side by side in `mcp-servers.md` — has `primary` silently discarded. `selectPrimaryIndex` (reach-sources.ts:156-159) then falls through to index 0, and whichever source happened to be declared first produces the verdict. That is precisely the failure mode D1 exists to eliminate: the risk score for identical code becoming a function of declaration order. The refinement at reach.ts:217-220 correctly rejects *two* primaries but cannot see a `primary` that was already stripped. The plan records this as a deliberate follow-up (\"Two more recorded but not actioned\"), but it is a one-line change inside a file this plan already owns, and it is the one remaining path by which a non-primary source can determine the verdict.",
+      "suggested_fix": "Add `.strict()` to the `z.object({...})` in `src/analysis/reach.ts` before the `.refine()` chain (zod 4 keeps `.shape` intact, so `sync-graph-tools.test.ts`'s `Object.keys(AgentReachSchema.shape)` binding is unaffected). Add a test in `src/analysis/reach.test.ts` asserting that `{primary: true, sources: [...]}` is rejected rather than silently scored from `sources[0]`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "`target-parity.test.ts`'s lsp-tools.md rationale claims casing is the only licensed divergence — it is not",
+      "description": "The new comment block added above `ccPath()` in `src/cli/target-parity.test.ts` states \"The ONLY difference is the tool NAME's casing\" and closes with \"the casing is the only licensed divergence.\" The diff of `targets/*/rules/lsp-tools.md` shows at least one further legitimate divergence that survived Task 9: the Notes bullet reads \"`ENABLE_LSP_TOOL: \\\"true\\\"` in settings.json and `vtsls` being installed\" for Claude Code versus \"a language server being configured (`typescript-language-server --stdio` in opencode.json)\" for OpenCode. The plan's own Wave 5 section already calls this comment \"now slightly understated\". Because that comment is the sole written justification for keeping `lsp-tools.md` out of `IDENTICAL_RULES`, a maintainer who trusts it will try to force the availability note byte-identical and ship a wrong setup instruction to one of the two platforms — the same class of harm the comment was written to prevent.",
+      "suggested_fix": "Amend the comment in `src/cli/target-parity.test.ts` to enumerate both licensed divergences: (1) the tool name's casing (`LSP` vs `lsp`), and (2) the per-target LSP availability note in `## Notes` (`ENABLE_LSP_TOOL`/`vtsls` vs `typescript-language-server --stdio`). Keep the closing instruction that everything else must stay in lockstep."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "Shipped threshold rationale still presents reach as the HIGH determinant after Task 11 measured that it usually is not",
+      "description": "Task 11 measured that restoring `hasUnexpected` (Task 1) drives the HIGH rate to 45.5%-90% of real changesets, making the reach cutoffs \"largely unreachable as a differentiator\" because `scoreRisk` is `hasUnexpected || isHighReach(...)`. Deferring the `impact.ts` lever to its own spec is the right call — it is a semantics change in Task 8's file and would have been scope creep. But the deferral left two shipped surfaces stating the opposite emphasis. `src/analysis/reach.ts:79-112` was edited by Task 11 (comment-only) and now presents refreshed classification rates (\"61.6% LOW / 12.1% MEDIUM / 26.3% HIGH over non-test source\") as the live justification for the cutoffs, with no note that in production those bands are reached only after `hasUnexpected` has already declined to fire. The shipped `targets/*/rules/mcp-servers.md` likewise tells agents \"the risk thresholds are share-based (HIGH at ≥25% of the module tree)\" with no caveat. A reader who sees a HIGH will attribute it to reach. The measurement exists; it is simply not reflected anywhere a consumer looks.",
+      "suggested_fix": "Add two or three sentences to the threshold docblock in `src/analysis/reach.ts` (already a comment-only edit surface for Task 11, so no behaviour risk) recording that as of 2026-08-26 `hasUnexpected` fires on 45-90% of real changesets and therefore decides HIGH before reach is consulted, with a pointer to the follow-up. Optionally mirror one sentence into the `### Code-Graph Reach` section of both `mcp-servers.md` copies so an agent injecting reach knows what its numbers can and cannot move."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "`plan_impact` reach attribution lines merge visually into the unscored-files bullet list",
+      "description": "`src/analysis/plan-impact-report.ts:232` does `lines.push(...attribution)` with no preceding blank line. When `missing.length > 0` the immediately preceding push is `...listPaths(missing)` — a run of `- \\`path\\` (Task N)` bullets. `buildAttribution` (reach-sources.ts:239-261) also emits `- `-prefixed lines (\"- Reach: agent-supplied — …\", \"- Reach source: …\"), so in rendered markdown the attribution appears as further entries in the \"does not exist on disk\" list. `impact.ts` does not have this problem because its attribution is pushed into a different context. Cosmetic, but it degrades exactly the section D4 says must read distinctly.",
+      "suggested_fix": "In `src/analysis/plan-impact-report.ts`, guard the final push: `if (attribution.length > 0) lines.push(\"\", ...attribution);`. Add an assertion in `src/analysis/plan-impact.test.ts` that an attribution line is preceded by a blank line when the missing-files list is non-empty."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "The deterministic overlap half is lost if `buildImportGraph` throws",
+      "description": "`src/analysis/plan-impact.ts` computes `buildImportGraph(project)` at line 224 and only builds `overlapSection` at line 239, all inside the single `try` whose `catch` at line 281 replaces the entire report with an error string. The file docblock and the reach-rejection path (lines 246-258) both go to real trouble to guarantee the overlap half survives a bad injected source — but a filesystem or parse failure inside `buildImportGraph` discards it anyway, even though overlap detection provably needs no graph. Low likelihood, but it contradicts the stated invariant that the deterministic half \"works when the project has no code-graph tooling at all\".",
+      "suggested_fix": "Compute `const overlapSection = buildOverlapSection(tasks, detectWaveOverlaps(tasks));` immediately after `collectClaimed(tasks)` and before `buildImportGraph`, then wrap the graph-build + `resolveReach` + scoring in an inner try/catch that degrades the reach section to a one-line \"reach could not be computed\" while still emitting `header + overlapSection`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "Prose tests pin the literal string `plan_impact(` instead of binding to the registered MCP tool name",
+      "description": "`src/cli/plan-impact-prose.test.ts:81` asserts `doc` contains `\"plan_impact(project=\"` and `src/cli/sync-graph-tools.test.ts` asserts `` \"`plan_impact(project=\" ``. Both are string literals. Elsewhere in the same suite the authors correctly refused this pattern — `SCHEMA_FIELDS` is derived from `Object.keys(AgentReachSchema.shape)` precisely so a schema rename forces a prose update, with the failure message \"must be updated in the same commit\". The tool name has no such binding: renaming the MCP tool in `src/analysis/plan-impact.ts:187` would leave `src/mcp/server.test.ts` asserting the new name and both prose tests asserting the old one, all green, with every shipped instruction pointing at a tool that no longer exists. This is the strongest test suite in the diff and the assertions are otherwise real rather than tautological (the rung-ordering test asserts order, the LSP test asserts the target's own spelling AND the absence of the other's, and the vendor sweep guards against a vacuous walk) — this is the one remaining literal that a symmetric-but-wrong edit could outlive.",
+      "suggested_fix": "Export the tool name as a const from `src/analysis/plan-impact.ts` (e.g. `export const PLAN_IMPACT_TOOL = \"plan_impact\";`, used in the `server.tool(...)` call) and import it into both `src/cli/plan-impact-prose.test.ts` and `src/cli/sync-graph-tools.test.ts` in place of the literal."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "1. A test constructs impact_analysis with {client, store: null} and asserts _Active spec:_ renders and an unexpected-file warning can fire.",
+      "status": "verified",
+      "evidence": "`src/analysis/impact.test.ts:698` describe block 'impact_analysis spec context under a sidecar client' with five tests at :725, :750, :771, :796, :807 covering render, warning, Test:-file exemption, and both degradation paths. `impact.ts:86-90` resolves via `resolveSpecViaClient(client, project)`; `mcp-tools.ts:58` passes the client."
+    },
+    {
+      "truth": "2. extractSpecFiles returns paths for every template verb, backticks stripped, table-driven from spec-plan.md.",
+      "status": "verified",
+      "evidence": "`helpers.ts:111` regex now includes `Test`; `normalizeSpecFilePath` strips backticks before `./`. `helpers.test.ts:188` is a per-verb loop derived from the template, plus :199/:204/:215/:224 covering the comma-separated third bug found in Task 1."
+    },
+    {
+      "truth": "3. src/spec/mcp-tools.ts < 400 and src/sidecar/client.ts < 400.",
+      "status": "verified",
+      "evidence": "client.ts is 281 lines (read in full); spec/mcp-tools.ts diff shows -447 net with all six moved tools deleted, siblings at 231/240. Orchestrator confirmed both <400."
+    },
+    {
+      "truth": "4. src/analysis/plan-files.ts returns per-task {task, wave, files: [{path, verb, exists}]}.",
+      "status": "verified",
+      "evidence": "316 lines, consumed by `plan-impact.ts:206` via `parsePlanFiles(found.planPath, project)`; `PlanTaskFiles` carries `id`, `title`, `wave: number|null`, `files[].path/.exists`. 428-line test file including corpus validation."
+    },
+    {
+      "truth": "5. plan_impact appears in the emitted inputSchema via a real Client, and server.test.ts asserts registration.",
+      "status": "verified",
+      "evidence": "`src/mcp/server.test.ts` +16 lines; `plan-impact.test.ts` 656 lines. `registerPlanImpactTool` wired at `src/analysis/mcp-tools.ts:59`."
+    },
+    {
+      "truth": "6. Contract: example payloads from both sync.md and both mcp-servers.md copies parse against the imported AgentReachSchema.",
+      "status": "verified",
+      "evidence": "`sync-graph-tools.test.ts` new describe 'the emitted reach payloads parse against the real schema' brace-matches every `reach={...}`, substitutes documentation placeholders, and runs `AgentReachSchema.safeParse` across all four `PROSE_SOURCES`. Non-vacuous: a sibling test asserts >= 2 payloads and that both shapes plus callSites are present."
+    },
+    {
+      "truth": "7. Integration: plan_impact returns a different, attributed verdict with an injected source than without.",
+      "status": "verified",
+      "evidence": "`plan-impact.ts:225-230` passes `agentReach: reach ?? null` into `resolveReach`; `resolution.attribution` is appended by `buildReachSection`, and `resolution.overrides` replaces built-in counts at :264. Covered in plan-impact.test.ts (656 lines)."
+    },
+    {
+      "truth": "8. Single-primary: two disagreeing sources — the verdict equals the primary's alone and does not move when the second is added or removed.",
+      "status": "verified",
+      "evidence": "Adversarially traced and could not be broken. `applyAgentReach` (reach.ts:339-369) derives `moduleCount` and `overrides` exclusively from `results[primaryIndex]`; non-primary results reach the output only through `buildAttribution`, which returns prose. `ReachResolution` exposes nothing else to `scoreRisk`. Tests at `reach.test.ts:499` ('score the module source alone when it is primary, ignoring the symbol source') and :514 ('identical verdict whether or not the non-primary source is present'). One residual hole is filed as issue 2 (schema not `.strict()`)."
+    },
+    {
+      "truth": "9. plan_impact detects a same-wave overlap with zero injected sources, and reports none for this plan.",
+      "status": "verified",
+      "evidence": "`detectWaveOverlaps` (plan-impact.ts:101-127) is a pure function over parsed tasks — no fs, no graph, no source. It is rendered before the reach half and is explicitly preserved on the reach-rejection path (:246-258). `wave: null` tasks are excluded rather than bucketed into wave 1, and per-task paths are de-duplicated before counting."
+    },
+    {
+      "truth": "10. Both spec-plan copies instruct consulting the catalogue and injecting; both spec-implement copies state the LSP -> catalogued capability -> grep ordering naming no vendor.",
+      "status": "verified",
+      "evidence": "spec-plan diff adds a three-step catalogue/inject/call-anyway block plus the `plan_impact(...)` invocation, identical across both copies (pinned byte-for-byte by `plan-impact-prose.test.ts:141`). spec-implement replaces the lsp-only step with three numbered rungs; `plan-impact-prose.test.ts:172` asserts all three appear *in order* and :208 sweeps for vendor names. Issue 1 flags a wording defect in the injection instruction, not its absence."
+    },
+    {
+      "truth": "11. No shipped file under src/ or targets/*/rules/ names a vendor as required.",
+      "status": "verified",
+      "evidence": "`reach.ts:39/191` now read `'<server> <tool>'`. `plan-impact-prose.test.ts:329` walks all of `targets/**/*.md` and `src/**/*.ts` (non-test) for three vendor spellings and asserts `files.length > 0` first, so it cannot pass vacuously."
+    },
+    {
+      "truth": "12. MCP counts read 36 tools across 7 domains and Analysis 4 tools in BOTH README.md and .sentinal/rules/sentinal-mcp-servers.md.",
+      "status": "verified",
+      "evidence": "Both files are in the diff (`README.md` +6/-6, `.sentinal/rules/sentinal-mcp-servers.md` +55/-55); mechanically confirmed by the orchestrator."
+    },
+    {
+      "truth": "13. bun test 0 failures; tsc clean; parity hunk counts unchanged; spec-verify.diff still 0 bytes.",
+      "status": "verified",
+      "evidence": "Orchestrator-verified: 2781 pass / 0 fail, tsc clean, build:all + build:cli clean, only `spec-implement.diff` (+14/-14) and `sync.diff` (+2/-2) changed with hunk counts held."
+    },
+    {
+      "truth": "(Wave 4 correction) Both runtimes require `filePath` and `line`/`character` on every LSP operation, including documentSymbol/workspaceSymbol.",
+      "status": "uncertain",
+      "evidence": "The fix is applied consistently and completely across all four affected docs — both `lsp-tools.md` copies and both `spec-implement` copies — and is pinned by `plan-impact-prose.test.ts:266`, which regex-extracts every `LSP({...})`/`lsp({...})` invocation, asserts `filePath:`/`line:`/`character:` are present, asserts the old `file:` is absent, and guards against a vacuous match with `expect(calls.length).toBeGreaterThan(0)`. Handling of the false Assumption 1 is exemplary: the prose test docblock, the `target-parity.test.ts` comment and the plan all record that BOTH platforms ship an LSP tool, and no test or shipped file asserts the false claim; the `LSP`/`lsp` casing test asserts each target's own spelling AND the absence of the other's, which byte-parity could never express. Marked uncertain only because this reviewer's tooling was restricted to `git diff`/`git log` and could not independently re-run `strings(1)` against the Claude Code 2.1.205 / OpenCode 1.18.23 binaries to confirm the underlying parameter-schema claim. The docs are at least internally consistent and self-pinning; if `filePath` turns out to be optional for `workspaceSymbol` the docs over-constrain but do not break."
+    }
+  ]
+}

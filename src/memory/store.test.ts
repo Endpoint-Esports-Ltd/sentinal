@@ -123,6 +123,71 @@ describe("MemoryStore", () => {
     });
   });
 
+  describe("updateObservation", () => {
+    it("should return null for a non-existent ID", () => {
+      expect(store.updateObservation(999, { content: "x" })).toBeNull();
+    });
+
+    it("should update the given fields and return the observation", () => {
+      const obs = store.insertObservation(
+        makeObservation({ title: "Old title", content: "old content" }),
+      );
+      const updated = store.updateObservation(obs.id, {
+        title: "New title",
+        content: "new content",
+        tags: ["fresh"],
+      });
+      expect(updated).not.toBeNull();
+      expect(updated!.title).toBe("New title");
+      expect(updated!.content).toBe("new content");
+      expect(updated!.tags).toEqual(["fresh"]);
+      // Untouched fields preserved
+      expect(updated!.type).toBe(obs.type);
+      expect(updated!.projectPath).toBe(obs.projectPath);
+    });
+
+    it("should reset timestamp and quality_score to fresh on update", () => {
+      const oldTs = Date.now() - 100 * 24 * 60 * 60 * 1000; // 100 days ago
+      const obs = store.insertObservation(
+        makeObservation({ timestamp: oldTs }),
+      );
+      // Simulate a decayed quality score.
+      store
+        .getRawDb()
+        .run("UPDATE observations SET quality_score = 0.2 WHERE id = ?", [
+          obs.id,
+        ]);
+
+      const updated = store.updateObservation(obs.id, { content: "corrected" });
+      expect(updated!.timestamp).toBeGreaterThan(oldTs);
+      expect(updated!.qualityScore).toBeGreaterThan(0.2); // refreshed
+    });
+
+    it("should keep FTS in sync: new content found, old content not", () => {
+      const obs = store.insertObservation(
+        makeObservation({ content: "zebraphrase unique original" }),
+      );
+      store.updateObservation(obs.id, {
+        content: "giraffephrase unique corrected",
+      });
+
+      const foundNew = store.searchFTS('"giraffephrase"', {
+        limit: 10,
+        offset: 0,
+        orderBy: "relevance",
+        exactMatch: false,
+      });
+      const foundOld = store.searchFTS('"zebraphrase"', {
+        limit: 10,
+        offset: 0,
+        orderBy: "relevance",
+        exactMatch: false,
+      });
+      expect(foundNew.some((o) => o.id === obs.id)).toBe(true);
+      expect(foundOld.some((o) => o.id === obs.id)).toBe(false);
+    });
+  });
+
   describe("getRecentForProject", () => {
     it("should return observations for a specific project", () => {
       store.insertObservation(

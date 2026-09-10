@@ -1,6 +1,19 @@
-## Browser Automation with playwright-cli
+## Browser Automation
 
-**MANDATORY for E2E testing of any app with a UI.** API tests verify backend; playwright-cli verifies what the user sees.
+> Despite the filename, this rule covers browser automation generally — **playwright-cli** and **Chrome DevTools MCP**. The rest of the file documents playwright-cli in depth because it is the tool Sentinal can install and give a full command reference for.
+
+**E2E verification through a browser-automation tool is MANDATORY for any UI change.** API tests verify the backend; only a browser verifies what the user sees. **Either tool satisfies this requirement:**
+
+| Tool                    | Use when                                                                    |
+| ----------------------- | --------------------------------------------------------------------------- |
+| **playwright-cli**      | Default. Installable, scriptable, works with Firefox/Chromium/Brave.        |
+| **Chrome DevTools MCP** | Already configured in your MCP setup, or you specifically need real Chrome. |
+
+Pick one per verification run and say which you picked. Do not mix them in a single run — they drive different browser instances and their state will not agree.
+
+**⛔ Whichever you pick, the isolation rule below is not optional.** See _Browser Instance Isolation_.
+
+Sentinal **detects** Chrome DevTools MCP at install time when Chrome is present; it never installs or configures it. Adding it to your MCP config is your decision.
 
 ### Installation
 
@@ -21,15 +34,26 @@ If `playwright-cli: command not found` after install, ensure your global npm `bi
 
 ### Browser Selection
 
-**Use Firefox or Brave — NOT Chrome.** Chrome is not installed on this machine.
+**Check what is actually available before choosing — do not assume.** Browser availability is per-machine.
 
-- **Project config:** `.playwright/cli.config.json` with `{"browser": "firefox"}` handles this automatically.
+```bash
+command -v firefox || ls -d /Applications/Firefox.app 2>/dev/null
+command -v google-chrome chromium chromium-browser || ls -d "/Applications/Google Chrome.app" 2>/dev/null
+```
+
+- **Project config:** `.playwright/cli.config.json` with `{"browser": "firefox"}` pins the choice for everyone.
 - **Manual override:** `playwright-cli -s="$PW_SESSION" open --browser=firefox <url>`
-- **If Firefox unavailable:** `playwright-cli -s="$PW_SESSION" open --browser=chromium <url>`
+- **Fallbacks in order:** `firefox` → `chromium` → `chrome`.
+- **Prefer a browser you do not use interactively.** Driving the browser you have open yourself means the automation shares your profile, cookies and logged-in sessions — see below.
 
-### Session Isolation (Parallel Workflows)
+### Browser Instance Isolation (Parallel Workflows)
 
-**⛔ MANDATORY when running inside `/spec` or any parallel workflow.** Without session isolation, parallel agents share the default browser instance and overwrite each other's state.
+**⛔ MANDATORY when running inside `/spec` or any parallel workflow, for whichever tool you chose.** The browser is shared runtime state exactly like a port or a database: without isolation, parallel agents drive the same instance and overwrite each other's state.
+
+| Tool                    | The hazard                                                                                                                                                          | The requirement                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **playwright-cli**      | Parallel agents share the default browser instance.                                                                                                                 | Pass `-s=$SENTINAL_SESSION_ID` on **every** command (below).                                                                                    |
+| **Chrome DevTools MCP** | Sharper: it can attach to a Chrome **you are actively using** — your profile, cookies, logged-in sessions — and two worktrees collide on one instance / debug port. | Point it at a **dedicated Chrome instance with its own user-data-dir and debug port**. Never attach to your everyday browser during a spec run. |
 
 **Use `-s=$SENTINAL_SESSION_ID` on ALL `playwright-cli` commands:**
 

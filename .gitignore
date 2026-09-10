@@ -1,9 +1,14 @@
 node_modules/
 dist/
 targets/claude-code/hooks/dist/
+# Generated at build/install/test time — never committed (see scripts/embed-assets.mjs).
+# Kept in the npm tarball via the "files" allowlist in package.json.
+src/cli/embedded-assets.ts
 *.tsbuildinfo
 .DS_Store
 # OpenCode-local tool state — only .opencode/skills/ is tracked
 .opencode/package-lock.json
 # .sentinal/ contents controlled by .sentinal/.gitignore (ignores all except rules/, skills/, project-memory.json)
 .idea/
+# Local debugging artifacts (logs, ps dumps, diagnostics) — never commit; may contain PII/paths.
+docs/bug_reports/

@@ -54,6 +54,8 @@ import { processPostCompact } from "../../../src/hooks/post-compact.js";
 import { processTaskCreated } from "../../../src/hooks/task-created.js";
 import { handleCompactionAutocontinue } from "../../../src/opencode/compaction-autocontinue.js";
 import { buildCompactionContext } from "../../../src/opencode/compaction-context.js";
+import { disposePlugin } from "../../../src/opencode/plugin-dispose.js";
+import { buildLivenessProbe } from "../../../src/opencode/session-liveness.js";
 import { createTddStatusTool } from "../../../src/opencode/native-tdd-status.js";
 import { buildSemanticQuery } from "../../../src/memory/restore.js";
 import {
@@ -113,13 +115,25 @@ interface ToolDefinition {
 }
 
 interface PluginHooks {
+  // Shapes mirror the installed @opencode-ai/plugin types (dist/index.d.ts):
+  // before: args are WRITABLE on `output` (that is the args-rewriting API);
+  // after:  args arrive on `input`, and `output` is {title, output, metadata}.
   "tool.execute.before"?: (
-    input: { tool: string },
+    input: { tool: string; sessionID?: string; callID?: string },
     output: { args: Record<string, unknown> },
   ) => Promise<void>;
   "tool.execute.after"?: (
-    input: { tool: string },
-    output: { args: Record<string, unknown> },
+    input: {
+      tool: string;
+      sessionID?: string;
+      callID?: string;
+      args: Record<string, unknown>;
+    },
+    output: {
+      title: string;
+      output: string;
+      metadata: Record<string, unknown>;
+    },
   ) => Promise<void>;
   "experimental.session.compacting"?: (
     input: { sessionID: string },
@@ -343,7 +357,9 @@ export const SentinalPlugin: Plugin = async ({
     await ensureDashboard({ currentVersion: ver ?? "unknown" });
   })().catch((e) => {
     try {
-      log(`init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`);
+      log(
+        `init dashboard ensure failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } catch {
       /* even logging must not throw during init */
     }
@@ -397,7 +413,10 @@ export const SentinalPlugin: Plugin = async ({
   if (experimental_workspace) {
     experimental_workspace.register(
       "sentinal-spec-worktree",
-      createSpecWorktreeAdaptor(sidecar),
+      // Wire `log` so the adaptor's loud "worktree unresolved" warning surfaces
+      // in plugin.debug.log instead of being silently swallowed — this is what
+      // makes the silent-main-fallback fix visible to the user (2026-07-24).
+      createSpecWorktreeAdaptor(sidecar, undefined, { logger: log }),
     );
     log("workspace adaptor registered: sentinal-spec-worktree");
   }
@@ -465,7 +484,7 @@ export const SentinalPlugin: Plugin = async ({
             body: { service: "sentinal", level: "info", message: grepHint },
           });
       }
-      if (tool === "fetch") {
+      if (tool === "webfetch") {
         await client.app.log({
           body: { service: "sentinal", level: "info", message: getFetchHint() },
         });
@@ -486,7 +505,7 @@ export const SentinalPlugin: Plugin = async ({
     },
 
     "tool.execute.after": async (input, output) => {
-      const QUALITY_TOOLS = ["write", "edit", "patch"];
+      const QUALITY_TOOLS = ["write", "edit", "multiedit", "patch"];
       const MEMORY_TOOLS = [
         "write",
         "edit",
@@ -498,8 +517,11 @@ export const SentinalPlugin: Plugin = async ({
       ];
 
       // ── Sync phase: quality checks (can throw to block) ──────────────
-      const filePath =
-        output.args?.filePath || output.args?.file_path || output.args?.path;
+      // ⛔ In the AFTER hook, args live on `input` (output is {title, output,
+      // metadata}). Reading `output.args` here was the C1 bug that left the
+      // whole quality gate dead on OpenCode.
+      const args = (input.args ?? {}) as Record<string, unknown>;
+      const filePath = args.filePath || args.file_path || args.path;
       const issues: string[] = [];
       let shouldBlock = false;
 
@@ -627,11 +649,11 @@ export const SentinalPlugin: Plugin = async ({
           if (sidecar) {
             const trackerFilePath =
               typeof filePath === "string" ? filePath : undefined;
-            const bashOutput = ["bash", "shell", "terminal"].includes(
-              input.tool,
-            )
-              ? (output.args?.output as string | undefined)
-              : undefined;
+            const bashOutput =
+              ["bash", "shell", "terminal"].includes(input.tool) &&
+              typeof output.output === "string"
+                ? output.output
+                : undefined;
             await sidecarTddTrack(
               sidecar,
               input.tool,
@@ -646,10 +668,7 @@ export const SentinalPlugin: Plugin = async ({
             // TDD cycle, and build-fix heuristics), fall back to quality-check issues
             let eventOutput: string | undefined;
             if (["bash", "shell", "terminal"].includes(input.tool)) {
-              const raw =
-                output.args?.output ??
-                output.args?.stdout ??
-                output.args?.stderr;
+              const raw = output.output;
               if (typeof raw === "string" && raw.length > 0) {
                 eventOutput = raw.slice(0, 2000);
               }
@@ -658,10 +677,18 @@ export const SentinalPlugin: Plugin = async ({
               eventOutput = asyncIssues.join("\n").slice(0, 500);
             }
 
-            // For bash tools, use exit code if available; otherwise rely on quality-check blocking
+            // For bash tools, use exit code if available; otherwise rely on
+            // quality-check blocking. OpenCode's shell tool puts it at
+            // `metadata.exit` (may be null on abort/timeout — the typeof
+            // guard degrades gracefully to !asyncShouldBlock then).
             let eventSuccess = !asyncShouldBlock;
             if (["bash", "shell", "terminal"].includes(input.tool)) {
-              const exitCode = output.args?.exitCode ?? output.args?.exit_code;
+              const metadata = (output.metadata ?? {}) as Record<
+                string,
+                unknown
+              >;
+              const exitCode =
+                metadata.exit ?? metadata.exitCode ?? metadata.exit_code;
               if (typeof exitCode === "number") eventSuccess = exitCode === 0;
             }
 
@@ -721,7 +748,11 @@ export const SentinalPlugin: Plugin = async ({
       try {
         if (sidecar) {
           if (active)
-            await sidecar.syncSpec(active.filePath, projectRootForSidecar, sessionId ?? undefined);
+            await sidecar.syncSpec(
+              active.filePath,
+              projectRootForSidecar,
+              sessionId ?? undefined,
+            );
           const restored = await sidecar.restoreContext(
             projectRootForSidecar,
             sq,
@@ -822,8 +853,7 @@ export const SentinalPlugin: Plugin = async ({
         const keys = Object.keys(output);
         log(`system.transform output keys: [${keys.join(", ")}]`);
         const systemArr = (output.system ?? output.context) as
-          | string[]
-          | undefined;
+          string[] | undefined;
         if (!Array.isArray(systemArr)) {
           log(
             `system.transform: no usable array in output — skipping injection`,
@@ -1082,20 +1112,20 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (event.type === "session.deleted") {
-        if (sessionId) {
-          try {
-            if (sidecar) {
-              await sidecar.endSession(sessionId, { notification: true });
-              const active = await sidecar.getActiveSessions();
-              if (active.length === 0) {
-                stopDashboard();
-                stopSidecar();
-              }
-            }
-            log(`Session ended: ${sessionId}`);
-          } catch (e) {
-            log(`endSession failed: ${e instanceof Error ? e.message : e}`);
-          }
+        // Teardown via the extracted, testable disposePlugin. OpenCode 1.18.3
+        // has no native `dispose` hook (spike verified), so this runs here; the
+        // same helper can be wired to a native dispose hook when one ships.
+        if (sessionId && sidecar) {
+          const sc = sidecar;
+          await disposePlugin({
+            sessionId,
+            endSession: (id) => sc.endSession(id, { notification: true }),
+            getActiveSessions: () => sc.getActiveSessions(),
+            stopDashboard,
+            stopSidecar,
+            log,
+          });
+          log(`Session ended: ${sessionId}`);
         }
         if (projectRoot) {
           const bufferPath = join(
@@ -1112,26 +1142,57 @@ export const SentinalPlugin: Plugin = async ({
       }
 
       if (event.type === "session.idle") {
-        // Session-aware stop decision: only warn when THIS session owns the plan
-        // (or the plan is unowned/orphaned). Never warn for a different live session's plan.
-        let ocStore: import("../../../src/memory/store.js").MemoryStore | null = null;
+        // Session-aware stop decision (ADVISORY on OpenCode — warn log only; OC
+        // has no hard-deny equivalent). Only warn when THIS session owns the plan
+        // (or it's unowned/orphaned). Never warn for a different live session's plan.
+        //
+        // Store-free by design: the plugin does NOT import MemoryStore (that pulls
+        // bun:sqlite/sqlite-vec/@xenova into the plugin bundle and crashes OpenCode
+        // load on machines with node_modules in ~/.config/opencode/). Ownership +
+        // liveness are resolved via the SDK client and the sidecar instead.
+        if (sessionId) sidecar?.touchSession(sessionId).catch(() => {});
+
+        // Liveness: prefer the OpenCode SDK active-sessions API (authoritative);
+        // fall back to the sidecar's store-side isSessionAlive.
+        let livenessProbe: ((id: string) => boolean) | undefined;
         try {
-          const { MemoryStore } = await import("../../../src/memory/store.js");
-          ocStore = new MemoryStore();
-          if (sessionId) ocStore.touchSession(sessionId);
+          const probe = await buildLivenessProbe({ client });
+          if (probe) livenessProbe = probe;
         } catch {
-          /* fail-safe: store stays null → blocks on any active plan */
+          /* fall through to sidecar-backed liveness cache below */
         }
+
+        // Ownership: read the current spec's owner from the sidecar (store-free).
+        let ownerLookup: ((specId: string) => string | null) | undefined;
+        const aliveCache = new Map<string, boolean>();
+        try {
+          if (sidecar) {
+            const current = await sidecar.getCurrentSpec(projectRootForSidecar);
+            const ownerId = current?.sessionId ?? null;
+            const currentSpecId = current?.id ?? null;
+            // Only vouch for ownerId when the sidecar's current spec matches the
+            // spec resolveStopDecision actually resolved (findActivePlan). If they
+            // diverge (multiple plans / post-switch race), return null → orphaned
+            // → fail-safe block, never a wrong-owner ALLOW.
+            ownerLookup = (specId: string) =>
+              specId === currentSpecId ? ownerId : null;
+            // When no SDK probe, prime a sidecar-backed liveness fallback.
+            if (!livenessProbe && ownerId) {
+              aliveCache.set(ownerId, await sidecar.isSessionAlive(ownerId));
+              livenessProbe = (id) => aliveCache.get(id) === true;
+            }
+          }
+        } catch {
+          /* ownerLookup stays undefined → resolveStopDecision fail-safe blocks */
+        }
+
         const decision = resolveStopDecision({
           searchDir: projectRootForSidecar || process.cwd(),
           currentSessionId: sessionId ?? "",
-          store: ocStore,
+          store: null,
+          ownerLookup,
+          livenessProbe,
         });
-        try {
-          ocStore?.close();
-        } catch {
-          /* non-fatal */
-        }
         if (decision.block && decision.reason) {
           await client.app.log({
             body: {

@@ -1,10 +1,26 @@
+/**
+ * Post-Compact Restore Hook
+ *
+ * Reads `.sentinal/compact-state.json` (written by `pre-compact`) and
+ * re-injects the active plan pointer + memory context after compaction.
+ *
+ * `processPostCompactRestore` is consumed by BOTH the standalone entry
+ * below and the CLI dispatcher (`src/cli/commands/hook.ts`).
+ */
+
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { readStdin, hint, output } from "../utils/hook-output.js";
+import {
+  readStdin,
+  hint,
+  output,
+  type HookInput,
+} from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 
-async function main(): Promise<void> {
-  const input = await readStdin();
+export async function processPostCompactRestore(
+  input: HookInput,
+): Promise<void> {
   const gitRoot = await findGitRoot(input.cwd);
   const stateFile = join(
     gitRoot ?? input.cwd,
@@ -33,4 +49,11 @@ async function main(): Promise<void> {
     /* corrupted state */
   }
 }
-main().catch(() => {});
+
+async function main(): Promise<void> {
+  await processPostCompactRestore(await readStdin());
+}
+
+if (import.meta.main) {
+  main().catch(() => {});
+}

@@ -1,0 +1,70 @@
+{
+  "review_summary": "Plan is well-aligned with the approved design and honors every user-approved decision (dual artifact source, opt-in real native deps, mandatory checksum verify, offline default). Isolation for native-dep provisioning is verified safe (DEPS_DIR keys off homedir() which respects the sandbox HOME override). Main gaps: the version-identity gate can still false-pass because local release build and dev source share the same package.json version, so the binaryPath assertion must be made a hard, falsifiable failure (not merely present); and a few DoDs are not fully falsifiable as written.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "Version-identity gate can false-pass; binaryPath assertion must hard-fail on dev fallback",
+      "description": "Confirmed in src/cli/index.ts:47-63: getVersion() returns __SENTINAL_VERSION__ (injected from package.json at build time via release-build.mjs). Because the LOCAL release build and the dev `dist/sentinal` are built from the SAME package.json, `sentinal --version` is IDENTICAL for both. Pre-mortem #1 flags exactly this. Task 2 (lines 202-208) lists asserting `sb.binaryPath` equals the release path as a Key Decision, but the DoD (line 206) reads 'asserts binary path + --version match expectations' without specifying that a mismatch (i.e. entry() silently fell back to dev dist/sentinal because SENTINAL_E2E_BINARY was a typo, unset, or the file was missing) is a HARD failure. Asserting version alone is provably insufficient here; the binaryPath check is the ONLY thing that catches the dev-fallback trap.",
+      "suggested_fix": "In Task 2 DoD (line 206) make explicit: 'When SENTINAL_E2E_BINARY is set, the test MUST assert sb.binaryPath === resolve(SENTINAL_E2E_BINARY) and FAIL if binaryPath resolves to CLI_COMPILED (dev dist/sentinal) or the bun-src fallback.' Additionally, in entry() (Task 1, line 177) specify behavior when SENTINAL_E2E_BINARY is set but the file does NOT exist: it must THROW (not silently fall back to dist/sentinal), otherwise a bad path in pre-release.mjs produces a green gate against the dev build. Add this as a Task 1 DoD line and a sandbox.spec-e2e.ts case."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "SandboxEnv type change: relaxing SENTINAL_NO_AUTO_SETUP to optional loosens the Sandbox contract for existing consumers",
+      "description": "sandbox.ts:32-39 declares SandboxEnv with SENTINAL_NO_AUTO_SETUP as a REQUIRED string field, and the index signature already permits `string | undefined`. Task 1 (line 178) relaxes this field to optional. Verified assertEnvContained (sandbox.ts:133-159) only checks HOME/XDG_CONFIG_HOME/CLAUDE_CONFIG_DIR/CLAUDE_PLUGIN_DATA, so isolation is NOT weakened by making NO_AUTO_SETUP optional — that part of the plan is correct. HOWEVER, when createSandbox({autoSetup:true}) is used, the env spreads `...process.env` (line 65). If the developer's REAL shell has SENTINAL_NO_AUTO_SETUP set (or any other SENTINAL_* var), it leaks into the sandbox and could mask a provisioning failure or change behavior non-deterministically. The plan does not address inherited SENTINAL_* env bleed-through for the autoSetup:true path.",
+      "suggested_fix": "In Task 1, when autoSetup===true, explicitly DELETE SENTINAL_NO_AUTO_SETUP from the spread env (delete env.SENTINAL_NO_AUTO_SETUP) rather than merely not setting it — otherwise an inherited value from process.env survives. Add a sandbox.spec-e2e.ts assertion that createSandbox({autoSetup:true}).env.SENTINAL_NO_AUTO_SETUP is undefined even when process.env had it set. This keeps the native-dep test (Task 6) deterministic."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Native-dep test proof is disjunctive ('resolved OR memory round-trip') — the weaker branch can pass green-by-accident",
+      "description": "Task 6 DoD (line 267) accepts EITHER `nativeDepsStatus resolved` OR `a memory round-trip`. nativeDepsStatus() (native-deps.ts:180-197) reports what resolves, but 'resolved' status alone does not exercise embeddings end-to-end — pre-mortem #3 warns exactly against asserting a status/file rather than functionality. A `memory_save`+`memory_search` round-trip is the real proof (it forces the 384-dim @xenova/transformers embedding + sqlite-vec to actually load and run); nativeDepsStatus can report 'resolved' while the transformers bundle is stale/broken. The OR makes the strong assertion optional.",
+      "suggested_fix": "Require BOTH, or make the memory round-trip the PRIMARY assertion and nativeDepsStatus a secondary sanity check: 'Assert a memory_save+memory_search round-trip succeeds against the provisioned release binary AND nativeDepsStatus() reports both deps resolved.' Since this test is already opt-in and long-timeout, the extra round-trip cost is acceptable and eliminates the green-by-accident branch."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Native-dep provisioning HOME isolation is correct but undocumented in the plan's risk table — add an explicit escape assertion for ~/.sentinal/deps",
+      "description": "VERIFIED SAFE: native-deps.ts:19,25 — DEPS_DIR = join(homedir(), DB_CONSTANTS.DB_DIR, 'deps'); store.ts:44, config.ts:54, embeddings.ts:67 all key off homedir(). On POSIX homedir() reads $HOME, and the sandbox overrides HOME (sandbox.ts:66), so provisioning writes to <sandbox>/.sentinal/deps, NOT the real ~/.sentinal/deps. The plan asserts this in Assumptions (line 80) but the native-dep test (Task 6) does not explicitly assert that ~/.sentinal/deps (the REAL one) was untouched after a network provisioning run. Given this test unsets NO_AUTO_SETUP and runs real `bun add`/`npm install`, it is the single highest-blast-radius test; a HOME-resolution regression would silently pollute the developer's real deps dir.",
+      "suggested_fix": "In Task 6, in addition to assertNoRealEscape (which snapshots real dirs), add an explicit pre/post assertion that the developer's real ~/.sentinal/deps mtime/content is unchanged, AND assert that the provisioned bundle lives under sb.home (e.g. sb.exists(join(sb.home, '.sentinal', 'deps'))). Add a risk-table row noting that Task 6 is network+filesystem heavy and relies on homedir()===HOME."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Cross-platform artifact coverage gap: a Mac dev machine never gates the linux binaries pre-release",
+      "description": "User-approved scope has pre-release DEFAULT to a local release-build of the CURRENT platform (line 28,33,284). This is honored, but it means running `bun run pre-release` on a Mac only validates sentinal-darwin-{x64,arm64}; sentinal-linux-{x64,arm64} — which release-build.mjs (TARGETS at :22-27) DOES produce and ship — are never exercised by the gate before a tag. The plan documents this as Out of Scope (line 33) but does not make the linux coverage path actionable, so a real user on Linux could hit a broken artifact that the pre-release gate structurally cannot catch.",
+      "suggested_fix": "Keep current-platform as the offline default, but make the linux-coverage path explicit and actionable in Task 5 / README: either (a) the download mode (Task 4) can fetch and gate the published linux asset from a Mac (it downloads but cannot EXECUTE a linux binary, so this only covers download+checksum, not run — state that limitation), or (b) document that CI must run `bun run pre-release` on a linux runner as the authoritative linux gate. Add a Truth to Goal Verification that pins where linux coverage actually happens so it isn't silently dropped."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "pre-release script is .mjs run via `node` but the repo runtime is Bun; release-build/version injection assume Bun",
+      "description": "Task 5 (line 285) wires `\"pre-release\": \"node scripts/pre-release.mjs\"`. The project runtime is Bun >=1.0 (per project rules; many features depend on Bun APIs), and release-build.mjs uses `bun build --compile`. Invoking the orchestrator via `node` (rather than `bun`) is inconsistent with the rest of package.json scripts and risks node-vs-bun API drift (e.g. Bun.spawnSync, import.meta, fetch semantics) inside pre-release.mjs. The bare `bun test ./paths` invocation from inside a node process must also be confirmed to inherit sqlite-vec preload from bunfig.toml.",
+      "suggested_fix": "Use `bun scripts/pre-release.mjs` (or `bun run`) for consistency with the Bun runtime and to keep bunfig.toml preload semantics when the script shells out to `bun test`. If node is intentional, add a DoD line asserting the orchestrator uses only cross-runtime APIs and that the spawned `bun test` still loads the sqlite-vec preload."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Download helper 'mismatch throws' is unit-tested with an in-memory fixture, but tag-resolution / asset-id lookup path is entirely untested",
+      "description": "Task 4 correctly splits pure (unit-tested: assetNameFor, parseChecksums, verifyChecksum) from network (downloadReleaseAsset, gated). basename-keying of checksums.txt is VERIFIED correct against the plan's cited release-build.mjs:62 (cwd:DIST_DIR). The gap: downloadReleaseAsset's release-resolution logic (latest vs tags/<tag>, finding the asset id AND the checksums.txt id among release assets, Accept: application/octet-stream) has no test coverage at all — it only runs when GITHUB_TOKEN is present, and the DoD (lines 247-248) only covers the mismatch-throw via fixture. A bug in asset-id selection (e.g. picking checksums.txt as the binary, or matching a partial asset name) would ship silently.",
+      "suggested_fix": "Extract the asset-selection logic (given a releases API JSON response, pick the asset id for assetNameFor() and the checksums.txt id) into a PURE function and unit-test it against a captured GitHub releases JSON fixture (no network). This is the same split already applied to checksum parsing. Add a DoD line for it in Task 4."
+    },
+    {
+      "severity": "nice_to_have",
+      "category": "definition_of_done",
+      "title": "Task 5 DoD 'runs the gate green' is not falsifiable without pinning the exact gate file list",
+      "description": "Task 5 DoD (line 289) says pre-release 'runs the deterministic + identity + install gate green' but the Key Decision (line 284) leaves 'current-platform is enough — decide' as an open question and lists the file set loosely. Without an explicit, pinned list of the gate suite files (Layer A files + release-identity + release-install), the DoD can pass while silently omitting a gate file (e.g. release-install.e2e.ts never wired in), which is precisely the kind of silent-omission this whole plan exists to prevent.",
+      "suggested_fix": "Resolve the open 'decide' in line 284 (current-platform only, per approved default) and enumerate the exact explicit `bun test ./...` path list in the Task 5 DoD. Add a check that pre-release exits non-zero if any listed gate file reports 0 tests run (guards against a mistyped ./path silently running nothing)."
+    },
+    {
+      "severity": "nice_to_have",
+      "category": "scope_alignment",
+      "title": "Goal Verification Truth #8 rg count check is brittle",
+      "description": "Truth #8 (line 129) asserts `bun test 2>&1 | rg -c \"release-.*\\.e2e\"` == 0 to prove new e2e files are excluded from the default suite. This greps test OUTPUT for a filename pattern, which is fragile — a passing default run may not print filenames at all, making the check trivially/accidentally satisfied (0) even if discovery were broken, and a future bun version could change output formatting.",
+      "suggested_fix": "Prefer a positive-and-negative assertion: confirm the new release-asset.test.ts (unit) IS discovered by bare `bun test` (grep for a test name it defines) AND that no `.e2e.ts` file executes (e.g. assert a sentinel test-name that only exists in an .e2e.ts file does NOT appear). This makes both halves of the exclusion contract falsifiable rather than relying on absence-of-substring."
+    }
+  ]
+}

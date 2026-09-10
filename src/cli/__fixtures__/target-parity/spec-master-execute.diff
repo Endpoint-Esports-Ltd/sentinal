@@ -1,0 +1,34 @@
+@@ -84,12 +84,11 @@
+ 
+ ### Spawning Subagents
+ 
+-For each child plan in the current wave, spawn an Agent with worktree isolation:
++For each child plan in the current wave, spawn a subagent:
+ 
+ ```
+-Agent(
+-  description="Execute Phase N: <title>",
+-  isolation="worktree",
++Task(
++  subagent_type="general",
+   prompt="""
+   Execute the spec workflow for this child plan.
+ 
+@@ -108,7 +107,7 @@
+ )
+ ```
+ 
+-**Spawn all Agents for a wave in a single message** to enable parallel execution. Each Agent gets its own worktree, ensuring phases don't interfere with each other.
++**Spawn all subagents for a wave in a single message** to enable parallel execution.
+ 
+ ### Failure Handling
+ 
+@@ -167,7 +166,7 @@
+ - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
+ - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
+ 
+-When spawning subagents via `Agent()` (the primary Claude Code pattern), the flag is not needed — subagents inherit the parent's permission context. This flag is only relevant when invoking `opencode run` as a CLI subprocess from scripts or CI.
++When spawning subagents via `Task()` (the primary pattern), the flag is not needed — subagents inherit the parent's permission context. This flag is only relevant when invoking `opencode run` as a CLI subprocess from scripts or CI.
+ 
+ ---
+ 

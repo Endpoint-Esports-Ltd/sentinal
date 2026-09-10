@@ -12,9 +12,13 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { join } from "node:path";
 import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
+import {
+  withAbort,
+  emitProgress,
+  type ProgressExtra,
+} from "../mcp/tool-runtime.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
@@ -28,14 +32,11 @@ import {
   projectHash,
   parseTscOutput,
   extractSpecFiles,
-  countLines,
-  isExpectedFile,
-  countImporters,
   countUniqueFiles,
   type DiagnosticsBaseline,
-  type ChangedFile,
-  type RiskLevel,
 } from "./helpers.js";
+import { registerImpactAnalysisTool } from "./impact.js";
+import { registerPlanImpactTool } from "./plan-impact.js";
 
 // --- Public API ---
 
@@ -53,7 +54,10 @@ export function registerAnalysisTools(
   const specStore = effectiveStore ? new SpecStore(effectiveStore) : null;
 
   registerCheckDiagnosticsTool(server, client, effectiveStore, specStore);
-  registerImpactAnalysisTool(server, client, effectiveStore, specStore);
+  // `client` is required, not decorative: with a sidecar `store` is null, so
+  // `specStore` is null and impact_analysis has no other way to see the spec.
+  registerImpactAnalysisTool(server, specStore, null, client);
+  registerPlanImpactTool(server, specStore, client);
   registerQualityReportTool(server, client);
 }
 
@@ -243,109 +247,6 @@ function registerCheckDiagnosticsTool(
   );
 }
 
-// --- impact_analysis ---
-
-function registerImpactAnalysisTool(
-  server: McpServer,
-  _client: SidecarClient | null,
-  _store: MemoryStore | null,
-  specStore: SpecStore | null,
-): void {
-  server.tool(
-    "impact_analysis",
-    "Analyze the impact of changed files against the active spec. Reports expected vs unexpected changes, file length limit violations, and an overall risk score (LOW/MEDIUM/HIGH). More useful than `git diff --stat`: cross-references plan task files, checks Sentinal's 400-line limit, and scores risk.",
-    {
-      project: z.string().describe("Absolute path to the project root"),
-    },
-    async ({ project }) => {
-      try {
-        // Get changed files (unstaged + staged)
-        const [diffOut, diffCachedOut] = await Promise.all([
-          runGitDiff(project, ["git", "diff", "--name-only", "HEAD"]),
-          runGitDiff(project, ["git", "diff", "--name-only", "--cached"]),
-        ]);
-
-        const allChangedRelPaths = new Set<string>(
-          [...diffOut.split("\n"), ...diffCachedOut.split("\n")]
-            .map((l) => l.trim())
-            .filter((l) => l.length > 0),
-        );
-
-        if (allChangedRelPaths.size === 0) {
-          return mcpText(
-            "## Impact Analysis\n\n0 files changed. Nothing to analyze.",
-          );
-        }
-
-        // Get active spec task files
-        const activeSpec = specStore?.getCurrentSpec(project) ?? null;
-        const specFiles = activeSpec
-          ? extractSpecFiles(activeSpec.planFile)
-          : new Set<string>();
-
-        // Analyze each changed file
-        const changedFiles: ChangedFile[] = [];
-        for (const relPath of allChangedRelPaths) {
-          const isTsFile =
-            relPath.endsWith(".ts") ||
-            relPath.endsWith(".js") ||
-            relPath.endsWith(".tsx");
-          if (!isTsFile) {
-            changedFiles.push({
-              path: join(project, relPath),
-              relPath,
-              isExpected: isExpectedFile(relPath, specFiles),
-              lineCount: 0,
-              overLimit: false,
-              importerCount: 0,
-            });
-            continue;
-          }
-          const fullPath = join(project, relPath);
-          const lineCount = countLines(fullPath);
-          const importerCount = await countImporters(relPath, project);
-          changedFiles.push({
-            path: fullPath,
-            relPath,
-            isExpected: isExpectedFile(relPath, specFiles),
-            lineCount,
-            overLimit: lineCount > 400,
-            importerCount,
-          });
-        }
-
-        // Compute risk level
-        const hasUnexpected =
-          specFiles.size > 0 && changedFiles.some((f) => !f.isExpected);
-        const hasLimitViolation = changedFiles.some((f) => f.overLimit);
-        let risk: RiskLevel = "LOW";
-        if (hasUnexpected || hasLimitViolation) risk = "HIGH";
-        else if (changedFiles.some((f) => f.importerCount > 3)) risk = "MEDIUM";
-
-        // Build output
-        const lines = buildImpactOutput(
-          risk,
-          changedFiles,
-          specFiles,
-          activeSpec?.title ?? null,
-        );
-        return mcpText(lines);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return mcpText(
-          `Error running impact_analysis: ${msg}\n\nFallback: run \`git diff --stat HEAD\` directly.`,
-        );
-      }
-    },
-  );
-}
-
-async function runGitDiff(project: string, cmd: string[]): Promise<string> {
-  const proc = Bun.spawn(cmd, { cwd: project, stdout: "pipe", stderr: "pipe" });
-  await proc.exited;
-  return proc.stdout.text();
-}
-
 // --- quality_report ---
 
 function registerQualityReportTool(
@@ -372,36 +273,56 @@ function registerQualityReportTool(
         .optional()
         .describe("Per-check timeout in milliseconds (default 30000)"),
     },
-    async ({ project, file, checks, timeout_ms }) => {
+    async ({ project, file, checks, timeout_ms }, extra) => {
       try {
+        const progressExtra = extra as ProgressExtra | undefined;
+        const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+        await emitProgress(progressExtra, {
+          progress: 0,
+          message: "running quality checks",
+        });
         let result: QualityCheckResult;
 
-        // Try sidecar first, fall back to direct execution
+        // Try sidecar first, fall back to direct execution.
+        // withAbort makes the tool return promptly on client cancellation even
+        // if the underlying subprocess lingers (reaped by the sidecar's
+        // runWithTimeout; the activeChecks/MAX_CONCURRENT guards release in a finally).
         if (client) {
           try {
-            result = await client.qualityCheck({
-              projectPath: project,
-              filePath: file,
-              checks,
-              timeout: timeout_ms,
-            });
-          } catch {
+            result = await withAbort(
+              signal,
+              client.qualityCheck({
+                projectPath: project,
+                filePath: file,
+                checks,
+                timeout: timeout_ms,
+              }),
+            );
+          } catch (err) {
+            if (signal?.aborted) throw err;
             // Sidecar failed — fall back to direct
-            result = await runQualityChecks({
+            result = await withAbort(
+              signal,
+              runQualityChecks({
+                projectPath: project,
+                filePath: file,
+                checks: checks as CheckName[] | undefined,
+                timeout: timeout_ms,
+              }),
+            );
+          }
+        } else {
+          result = await withAbort(
+            signal,
+            runQualityChecks({
               projectPath: project,
               filePath: file,
               checks: checks as CheckName[] | undefined,
               timeout: timeout_ms,
-            });
-          }
-        } else {
-          result = await runQualityChecks({
-            projectPath: project,
-            filePath: file,
-            checks: checks as CheckName[] | undefined,
-            timeout: timeout_ms,
-          });
+            }),
+          );
         }
+        await emitProgress(progressExtra, { progress: 1, message: "done" });
 
         return mcpText(formatQualityReport(project, file, result));
       } catch (err) {
@@ -492,86 +413,6 @@ function formatQualityReport(
     }
     lines.push("");
   }
-
-  return lines.join("\n");
-}
-
-function buildImpactOutput(
-  risk: RiskLevel,
-  changedFiles: ChangedFile[],
-  specFiles: Set<string>,
-  specTitle: string | null,
-): string {
-  const riskSuffix =
-    risk === "MEDIUM"
-      ? " (review recommended)"
-      : risk === "HIGH"
-        ? " (action required)"
-        : "";
-  const lines: string[] = [
-    `## Impact Analysis — Risk: **${risk}**${riskSuffix}`,
-    "",
-    `**${changedFiles.length} file${changedFiles.length === 1 ? "" : "s"} changed**`,
-  ];
-  if (specTitle) lines.push(`_Active spec: ${specTitle}_`);
-
-  lines.push("", "### Changed Files");
-  const expectedFiles = changedFiles.filter(
-    (f) => f.isExpected || specFiles.size === 0,
-  );
-  const unexpectedFiles = changedFiles.filter(
-    (f) => !f.isExpected && specFiles.size > 0,
-  );
-
-  if (expectedFiles.length > 0) {
-    lines.push("");
-    if (specFiles.size > 0) lines.push("**Expected (in spec):**");
-    for (const f of expectedFiles) {
-      const linePart = f.lineCount > 0 ? ` — ${f.lineCount} lines` : "";
-      const importPart =
-        f.importerCount > 0
-          ? ` — ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}`
-          : "";
-      lines.push(`- \`${f.relPath}\`${linePart}${importPart}`);
-    }
-  }
-  if (unexpectedFiles.length > 0) {
-    lines.push("");
-    for (const f of unexpectedFiles) {
-      const linePart = f.lineCount > 0 ? ` (${f.lineCount} lines)` : "";
-      const importPart =
-        f.importerCount > 0
-          ? `, ${f.importerCount} importer${f.importerCount === 1 ? "" : "s"}`
-          : "";
-      lines.push(
-        `- ⚠️ **WARNING: \`${f.relPath}\` modified but not listed in any task's Files section**${linePart}${importPart}`,
-      );
-    }
-  }
-
-  const overLimitFiles = changedFiles.filter((f) => f.overLimit);
-  if (overLimitFiles.length > 0) {
-    lines.push("", "### File Length Warnings");
-    for (const f of overLimitFiles) {
-      lines.push(
-        `- ⚠️ **WARNING: \`${f.relPath}\` is ${f.lineCount} lines (over 400-line limit)**`,
-      );
-    }
-  }
-
-  lines.push(
-    "",
-    "### Summary",
-    `- Risk: **${risk}**`,
-    `- Files changed: ${changedFiles.length}`,
-  );
-  if (specFiles.size > 0) {
-    lines.push(`- Expected (in spec): ${expectedFiles.length}`);
-    if (unexpectedFiles.length > 0)
-      lines.push(`- Unexpected (not in spec): ${unexpectedFiles.length}`);
-  }
-  if (overLimitFiles.length > 0)
-    lines.push(`- Over 400-line limit: ${overLimitFiles.length}`);
 
   return lines.join("\n");
 }

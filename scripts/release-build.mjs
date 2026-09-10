@@ -37,7 +37,7 @@ if (!existsSync(DIST_DIR)) {
 // Bundle OpenCode plugin and generate embedded assets before compiling
 console.log("Bundling OpenCode plugin and embedding assets...");
 execSync("bun run build:opencode", { stdio: "inherit" });
-execSync("node scripts/embed-assets.mjs", { stdio: "inherit" });
+execSync("bun scripts/embed-assets.mjs", { stdio: "inherit" });
 
 console.log(`Building sentinal v${version} for ${TARGETS.length} platforms...`);
 

@@ -10,10 +10,14 @@
  *   sentinal uninstall opencode     Uninstall from OpenCode only
  *   sentinal uninstall both         Uninstall from both assistants
  *   sentinal uninstall --local      Uninstall OpenCode from current project (not global)
+ *
+ * Split for file length (pure move):
+ *   - uninstall-opencode.ts         OpenCode uninstaller body + shell/binary cleanup
+ *   - uninstall-opencode-config.ts  OpenCode config cleanup helpers
  */
 
 import type { Command } from "commander";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -21,17 +25,22 @@ import {
   info,
   ok,
   err,
-  note,
   run,
   commandExists,
   resolveXdgConfig,
-  removeFileIfExists,
   removeDirIfExists,
-  removeDirIfEmpty,
   promptMenu,
-  stripJsoncComments,
 } from "../../utils/shell.js";
-import { detectShell, getShellConfigPath, removeBlock } from "./shell-init.js";
+import {
+  uninstallOpenCode as uninstallOpenCodeImpl,
+  AGENT_FILES,
+  SKILL_DIRS,
+  PLUGIN_FILENAMES,
+  type UninstallOptions,
+} from "./uninstall-opencode.js";
+
+export type { UninstallOptions } from "./uninstall-opencode.js";
+export { cleanupOpenCodeConfig } from "./uninstall-opencode-config.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -43,74 +52,6 @@ const MARKETPLACE_DIR = join(
 );
 const MARKETPLACE_NAME = "sentinal-marketplace";
 const PLUGIN_NAME = "sentinal";
-
-/** Command files installed by Sentinal (sub-phases removed — now skills). */
-const COMMAND_FILES = ["spec", "sync", "learn"];
-
-/** Hardcoded list of rule files installed by Sentinal. */
-const RULE_FILES = [
-  "standards-typescript",
-  "standards-angular",
-  "standards-nestjs",
-  "standards-frontend",
-  "standards-backend",
-];
-
-/** MCP server keys managed by Sentinal. */
-const MCP_KEYS = [
-  "context7",
-  "web-search",
-  "grep-mcp",
-  "web-fetch",
-  "sentinal",
-];
-
-/** Agent files installed by Sentinal. */
-const AGENT_FILES = ["plan-reviewer.md", "spec-reviewer.md"];
-
-/** Skill directory names installed by Sentinal. */
-const SKILL_DIRS = [
-  "spec-plan",
-  "spec-implement",
-  "spec-verify",
-  "spec-bugfix-plan",
-  "spec-bugfix-verify",
-];
-
-/** All possible plugin filenames (deployed via different install paths). */
-const PLUGIN_FILENAMES = ["sentinal.mjs", "sentinal.ts", "sentinal.js"];
-
-/** All possible plugin path strings that may appear in the opencode config plugin array. */
-const PLUGIN_PATH_PATTERNS = [
-  "@endpoint/sentinal/opencode-plugin",
-  "./plugins/sentinal.mjs",
-  "./plugins/sentinal.ts",
-  "./plugins/sentinal.js",
-];
-
-/** Agent task permission keys managed by Sentinal. */
-const SENTINAL_TASK_KEYS = [
-  "plan-reviewer",
-  "spec-reviewer",
-  "explore",
-  "general",
-];
-
-/** Edit permission glob keys managed by Sentinal. */
-const SENTINAL_EDIT_PLAN_KEYS = [
-  "docs/plans/*.md",
-  "docs/plans/**/*.md",
-  "docs/plans/*.json",
-];
-
-// ─── Options ────────────────────────────────────────────────────────────────
-
-export interface UninstallOptions {
-  /** Uninstall OpenCode from current project instead of global. */
-  local?: boolean;
-  /** When true, preserve binary, npm package, shell integration, and AGENTS.md. */
-  preserveBinary?: boolean;
-}
 
 // ─── Register command ───────────────────────────────────────────────────────
 
@@ -348,344 +289,12 @@ export async function uninstallClaudeCode(): Promise<void> {
 
 // ─── OpenCode uninstaller ───────────────────────────────────────────────────
 
+/**
+ * Delegates to uninstall-opencode.ts. Kept as a real function declaration here
+ * (not a re-export) so module-namespace spies on `./uninstall.js` keep working.
+ */
 export async function uninstallOpenCode(
   opts: UninstallOptions = {},
 ): Promise<void> {
-  const local = opts.local ?? false;
-  const preserveBinary = opts.preserveBinary ?? true;
-
-  console.log("Sentinal for OpenCode — Uninstaller");
-  console.log("====================================");
-  console.log("");
-
-  // ── Determine target directories ──
-
-  const xdgConfig = resolveXdgConfig();
-  const globalConfig = join(xdgConfig, "opencode");
-
-  let targetDir: string;
-  let pluginsDir: string;
-  let commandsDir: string;
-  let rulesDir: string;
-
-  if (local) {
-    targetDir = join(process.cwd(), ".opencode");
-    pluginsDir = join(targetDir, "plugins");
-    commandsDir = join(targetDir, "commands");
-    rulesDir = join(targetDir, "rules");
-    note(`Uninstalling from current project: ${targetDir}`);
-  } else {
-    targetDir = globalConfig;
-    pluginsDir = join(globalConfig, "plugins");
-    commandsDir = join(globalConfig, "commands");
-    rulesDir = join(globalConfig, "rules");
-    note(`Uninstalling globally: ${targetDir}`);
-  }
-
-  console.log("");
-
-  // ── Remove plugin files (all known variants) ──
-
-  info("Removing Sentinal plugin...");
-  let pluginRemoved = false;
-  for (const filename of PLUGIN_FILENAMES) {
-    if (removeFileIfExists(join(pluginsDir, filename))) {
-      ok(`  Removed ${filename}`);
-      pluginRemoved = true;
-    }
-  }
-  if (!pluginRemoved) {
-    info("  ! No plugin files found");
-  }
-
-  // ── Remove commands ──
-
-  info("Removing commands...");
-  if (existsSync(commandsDir)) {
-    for (const cmd of COMMAND_FILES) {
-      if (removeFileIfExists(join(commandsDir, `${cmd}.md`))) {
-        ok(`    ${cmd}.md`);
-      }
-    }
-  }
-
-  // ── Remove rules ──
-
-  info("Removing rules...");
-  if (existsSync(rulesDir)) {
-    for (const rule of RULE_FILES) {
-      if (removeFileIfExists(join(rulesDir, `${rule}.md`))) {
-        ok(`    ${rule}.md`);
-      }
-    }
-  }
-
-  // ── Remove agents ──
-
-  const agentsDir = join(targetDir, "agents");
-  info("Removing agents...");
-  for (const agent of AGENT_FILES) {
-    if (removeFileIfExists(join(agentsDir, agent))) {
-      ok(`    ${agent}`);
-    }
-  }
-
-  // ── Remove skills ──
-
-  const skillsDir = join(targetDir, "skills");
-  info("Removing skills...");
-  for (const skill of SKILL_DIRS) {
-    const skillDir = join(skillsDir, skill);
-    if (existsSync(skillDir)) {
-      removeDirIfExists(skillDir);
-      ok(`    ${skill}/`);
-    }
-  }
-
-  // ── Remove global package ──
-
-  if (!preserveBinary) {
-    info("Removing @endpoint/sentinal (global)...");
-    if (commandExists("bun")) {
-      run(["bun", "remove", "-g", "@endpoint/sentinal"]);
-      ok("  @endpoint/sentinal removed globally");
-    } else {
-      info("  ! bun not available, skipping global package removal");
-    }
-  }
-
-  // ── Remove AGENTS.md (global only, if ours, and not during update) ──
-
-  if (!local && !preserveBinary) {
-    info("Removing AGENTS.md...");
-    const agentsPath = join(targetDir, "AGENTS.md");
-    if (existsSync(agentsPath)) {
-      const content = readFileSync(agentsPath, "utf-8");
-      if (content.includes("Sentinal Global Standards")) {
-        unlinkSync(agentsPath);
-        ok("  AGENTS.md removed");
-      } else {
-        info("  ! AGENTS.md not created by Sentinal, skipping");
-      }
-    }
-  }
-
-  // ── Clean opencode config ──
-
-  info("Cleaning opencode config...");
-
-  const configDir = local ? process.cwd() : targetDir;
-
-  // Find config file
-  let configFile: string | null = null;
-  if (existsSync(join(configDir, "opencode.json"))) {
-    configFile = join(configDir, "opencode.json");
-  } else if (existsSync(join(configDir, "opencode.jsonc"))) {
-    configFile = join(configDir, "opencode.jsonc");
-  }
-
-  if (configFile) {
-    let content = readFileSync(configFile, "utf-8");
-
-    // Strip comments for .jsonc
-    if (configFile.endsWith(".jsonc")) {
-      content = stripJsoncComments(content);
-    }
-
-    let config: Record<string, unknown>;
-    try {
-      config = JSON.parse(content);
-    } catch {
-      info(`  ! Config has invalid JSON, skipping: ${configFile}`);
-      config = null as unknown as Record<string, unknown>;
-    }
-
-    if (config) {
-      const cleaned = cleanupOpenCodeConfig(config);
-
-      // Check if config is now effectively empty
-      if (isConfigEffectivelyEmpty(cleaned)) {
-        unlinkSync(configFile);
-        ok(`  Config was Sentinal-only, removed: ${configFile}`);
-      } else {
-        writeFileSync(configFile, JSON.stringify(cleaned, null, 2) + "\n");
-        ok("  Sentinal entries removed from config");
-      }
-    }
-  } else {
-    info("  ! No opencode config found");
-  }
-
-  // ── Clean up empty directories ──
-
-  info("Cleaning up empty directories...");
-  for (const dir of [pluginsDir, commandsDir, rulesDir, agentsDir, skillsDir]) {
-    removeDirIfEmpty(dir);
-  }
-  ok("  Cleanup complete");
-
-  // ── Remove shell integration and binary (global only, full removal) ──
-
-  if (!local && !preserveBinary) {
-    removeShellIntegration();
-    removeBinary();
-  }
-
-  // ── Done ──
-
-  console.log("");
-  console.log(`${colors.green}${"=".repeat(68)}${colors.nc}`);
-  ok("  Sentinal for OpenCode uninstalled successfully!");
-  console.log(`${colors.green}${"=".repeat(68)}${colors.nc}`);
-  console.log("");
-}
-
-// ─── Shell & binary cleanup ─────────────────────────────────────────────────
-
-/** Remove the sentinal managed block from the user's shell config file. */
-function removeShellIntegration(): void {
-  info("Removing shell integration...");
-  const shell = detectShell();
-  if (!shell) {
-    info("  ! Could not detect shell, skipping");
-    return;
-  }
-
-  const configPath = getShellConfigPath(shell);
-  if (!existsSync(configPath)) {
-    info("  ! Shell config not found, skipping");
-    return;
-  }
-
-  const existing = readFileSync(configPath, "utf-8");
-  const result = removeBlock(existing);
-  if (result) {
-    writeFileSync(configPath, result);
-    ok(`  Removed PATH, alias, and completions from ${configPath}`);
-  } else {
-    info("  ! No sentinal block found in shell config");
-  }
-}
-
-/** Remove the sentinal binary from ~/.sentinal/bin/. */
-function removeBinary(): void {
-  const binDir = join(homedir(), ".sentinal", "bin");
-  const binPath = join(binDir, "sentinal");
-
-  info("Removing sentinal binary...");
-  if (removeFileIfExists(binPath)) {
-    ok(`  Removed ${binPath}`);
-    removeDirIfEmpty(binDir);
-  } else {
-    info("  ! Binary not found");
-  }
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Pure function to clean up Sentinal-managed entries from an OpenCode config object.
- * Removes only Sentinal-owned keys; preserves user-added keys.
- * Returns a new config object (does not mutate input).
- */
-export function cleanupOpenCodeConfig(
-  input: Record<string, unknown>,
-): Record<string, unknown> {
-  const config = JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
-
-  // Remove sentinal plugin entries
-  const plugins = (config.plugin as string[]) ?? [];
-  const pluginPaths = new Set(PLUGIN_PATH_PATTERNS);
-  config.plugin = plugins.filter(
-    (p) => !pluginPaths.has(p) && !p.includes("sentinal"),
-  );
-
-  // Remove sentinal MCP server keys
-  const mcp = (config.mcp as Record<string, unknown>) ?? {};
-  for (const key of MCP_KEYS) delete mcp[key];
-  config.mcp = mcp;
-  if (Object.keys(mcp).length === 0) delete config.mcp;
-
-  // Remove sentinal permission entries
-  const perm = config.permission as Record<string, unknown> | undefined;
-  if (perm) {
-    delete perm.skill;
-    if (typeof perm.edit === "object" && perm.edit) {
-      const edit = perm.edit as Record<string, string>;
-      for (const key of Object.keys(edit)) {
-        if (key.includes("docs/plans")) delete edit[key];
-      }
-      if (Object.keys(edit).length <= 1) delete perm.edit; // only "*" left
-    }
-    if (Object.keys(perm).length === 0) delete config.permission;
-  }
-
-  // Remove sentinal agent config entries
-  const agents = config.agent as
-    | Record<string, Record<string, unknown>>
-    | undefined;
-  if (agents) {
-    for (const [name, agentCfg] of Object.entries(agents)) {
-      const permission = agentCfg.permission as
-        | Record<string, unknown>
-        | undefined;
-      if (!permission) continue;
-
-      // Clean up task permissions
-      const taskPerm = permission.task as Record<string, string> | undefined;
-      if (taskPerm) {
-        for (const key of SENTINAL_TASK_KEYS) delete taskPerm[key];
-        // Remove task block if only "*" remains
-        const taskKeys = Object.keys(taskPerm);
-        if (
-          taskKeys.length === 0 ||
-          (taskKeys.length === 1 && taskKeys[0] === "*")
-        ) {
-          delete permission.task;
-        }
-      }
-
-      // Clean up edit permissions
-      const editPerm = permission.edit as Record<string, string> | undefined;
-      if (editPerm) {
-        for (const key of SENTINAL_EDIT_PLAN_KEYS) delete editPerm[key];
-        // Remove edit block if empty or only "*" with sentinal's default value
-        const editKeys = Object.keys(editPerm);
-        if (editKeys.length === 0) {
-          delete permission.edit;
-        } else if (editKeys.length === 1 && editKeys[0] === "*") {
-          // If it's {"*": "allow"} (build agent default) or {"*": "ask"} (plan agent after removing plan keys), remove it
-          delete permission.edit;
-        }
-      }
-
-      // Remove agent entry if permission is empty
-      if (Object.keys(permission).length === 0) {
-        delete agentCfg.permission;
-      }
-      if (Object.keys(agentCfg).length === 0) {
-        delete agents[name];
-      }
-    }
-    if (Object.keys(agents).length === 0) delete config.agent;
-  }
-
-  // Clean up empty plugin array
-  if (
-    Array.isArray(config.plugin) &&
-    (config.plugin as string[]).length === 0
-  ) {
-    delete config.plugin;
-  }
-
-  return config;
-}
-
-/**
- * Check if an opencode config is effectively empty after removing Sentinal entries.
- * Returns true if only $schema and/or lsp remain.
- */
-function isConfigEffectivelyEmpty(config: Record<string, unknown>): boolean {
-  const knownEmptyKeys = new Set(["$schema", "lsp"]);
-  return Object.keys(config).every((k) => knownEmptyKeys.has(k));
+  return uninstallOpenCodeImpl(opts);
 }

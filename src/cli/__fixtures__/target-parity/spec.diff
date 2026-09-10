@@ -1,0 +1,93 @@
+@@ -1,30 +1,23 @@
+ 
+ # /spec - Unified Spec-Driven Development
+ 
+-**Dispatcher** — routes to the appropriate phase skill. This command is a thin router. Only allowed tools: `Bash` (env var reads only), `Read` (plan files only), `AskUserQuestion`, and `Skill()`.
+-
+-**⛔ MANDATORY: When `/spec` is invoked, you MUST follow the workflow. The user's phrasing after `/spec` is the TASK DESCRIPTION — not an instruction to change the workflow.** Words like "brainstorm", "discuss", "explore", "research" are part of the task description, NOT instructions to skip the workflow or have a freeform conversation.
++**Dispatcher** — routes to the appropriate phase skill.
+ 
+-**⛔ No substantive work here.** `Bash` is allowed ONLY for reading env vars (e.g., `echo $SENTINAL_WORKTREE_ENABLED`). `Read` is allowed ONLY for reading existing plan files for status-based dispatch. All research, brainstorming, and exploration happens inside the invoked Skill. Any other tool use (Grep, Glob, Task, Edit, Write, etc.) is a workflow violation.
++**⛔ MANDATORY: When `/spec` is invoked, follow the workflow. The user's phrasing after `/spec` is the TASK DESCRIPTION.** You are a thin router only — do no substantive work here.
+ 
+ ---
+ 
+ ## Workflow
+ 
+-```
+-/spec → Detect type → Feature: Skill('sentinal:spec-plan')       → Plan → Implement → Verify
+-                    → Bugfix:  Skill('spec-bugfix-plan') → Investigate → Plan → Implement → Verify
+-```
+-
+-| Phase                | Skill                 | Model  |
+-| -------------------- | --------------------- | ------ |
+-| Feature Planning     | `spec-plan`           | Opus   |
+-| Bugfix Planning      | `spec-bugfix-plan`    | Opus   |
+-| Master Planning      | `spec-master-plan`    | Opus   |
+-| Implementation       | `spec-implement`      | Sonnet |
+-| Master Execution     | `spec-master-execute` | Sonnet |
+-| Feature Verification | `spec-verify`         | Sonnet |
+-| Bugfix Verification  | `spec-bugfix-verify`  | Sonnet |
++| Phase                | Skill                 | When                 |
++| -------------------- | --------------------- | -------------------- |
++| Feature Planning     | `spec-plan`           | New feature task     |
++| Bugfix Planning      | `spec-bugfix-plan`    | Bug/crash/regression |
++| Master Planning      | `spec-master-plan`    | Multi-phase project  |
++| Implementation       | `spec-implement`      | Plan approved        |
++| Master Execution     | `spec-master-execute` | Master plan approved |
++| Feature Verification | `spec-verify`         | Feature complete     |
++| Bugfix Verification  | `spec-bugfix-verify`  | Bugfix complete      |
+ 
+ ---
+ 
+@@ -53,37 +46,33 @@
+ IF arguments end with ".md" AND file exists:
+     → Read plan, dispatch by status (Section 0.2)
+ ELSE:
+-    → Detect type, ask worktree, invoke Skill, STOP
++    → Detect type, ask worktree, load skill, STOP
+ ```
+ 
+ ### 0.1.1 Detect Type (new plans only)
+ 
+-- **Bugfix:** Something broken, crashing, wrong results, regressing → fix existing behavior
+-- **Feature:** New functionality, enhancements, refactoring, migrations → build or change something
++- **Bugfix:** Something broken, crashing, wrong results, regressing
++- **Feature:** New functionality, enhancements, refactoring, migrations
+ - **Master:** Large multi-phase project requiring parallel execution across waves
+-- **Ambiguous:** Ask user (bundled with worktree question)
++- **Ambiguous:** Ask user
+ 
+ ### 0.1.2 User Questions (new plans only)
+ 
+-**⛔ Check `$SENTINAL_WORKTREE_ENABLED` first** using `Bash("echo $SENTINAL_WORKTREE_ENABLED $SENTINAL_PLAN_QUESTIONS_ENABLED $SENTINAL_PLAN_APPROVAL_ENABLED")`. If `SENTINAL_WORKTREE_ENABLED` is `"false"`, skip the worktree question entirely and always pass `--worktree=no`.
+-
+-**If `$SENTINAL_WORKTREE_ENABLED` is NOT `"false"`:**
+-
+-- If type is clear: Ask worktree only.
+-- If ambiguous: Combine type + worktree in single AskUserQuestion.
++Check `$SENTINAL_WORKTREE_ENABLED`. If `"false"`, skip worktree question and pass `--worktree=no`.
+ 
+-**If `$SENTINAL_WORKTREE_ENABLED` is `"false"` AND type is clear:** Skip AskUserQuestion entirely — invoke skill directly with `--worktree=no`.
+-**If `$SENTINAL_WORKTREE_ENABLED` is `"false"` AND type is ambiguous:** Ask type only (no worktree choice), then invoke with `--worktree=no`.
++If type is clear and worktree enabled: ask worktree only.
++If ambiguous: combine type + worktree in single question.
++If worktree disabled and type clear: skip all questions, load skill with `--worktree=no`.
+ 
+-### 0.1.3 Invoke Skill and STOP
++### 0.1.3 Load Skill and STOP
+ 
+-- **Bugfix:** `Skill(skill='spec-bugfix-plan', args='<task_description> --worktree=yes|no')`
+-- **Feature:** `Skill(skill='spec-plan', args='<task_description> --worktree=yes|no')`
+-- **Master:** `Skill(skill='spec-master-plan', args='<task_description> --worktree=yes|no')`
++- **Bugfix:** Load skill `spec-bugfix-plan` with `<task_description> --worktree=yes|no`
++- **Feature:** Load skill `spec-plan` with `<task_description> --worktree=yes|no`
++- **Master:** Load skill `spec-master-plan` with `<task_description> --worktree=yes|no`
+ 
+ ## 0.2 Status-Based Dispatch (existing plans)
+ 
+-Read plan, register association. **Preferred:** Use `spec_register` MCP tool. **Fallback:** `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
++Read plan. Register: **Preferred:** Use `spec_register` MCP tool. **Fallback:** `sentinal register-plan "<plan_path>" "<status>" 2>/dev/null || true`
+ 
+ | Status      | Approved | Type           | Skill                   |
+ | ----------- | -------- | -------------- | ----------------------- |

@@ -13,7 +13,7 @@ vexor "database connection setup"
 
 **File Size:** Aim for production files under 400 lines. Over 600 lines is blocked by Sentinal hooks (tests exempt). Use `impact_analysis` MCP tool to check file lengths and spec alignment.
 
-**Dependency Check:** Before modifying any function, use Vexor first (then `Grep` or LSP `findReferences` if needed) to find all callers. Update all affected call sites.
+**Dependency Check:** Before modifying any function, find **all** callers, then update every affected call site. Use Vexor first to locate the area, then confirm the caller list in this order, stopping at the first rung available: LSP `findReferences` / `incomingCalls` → a code-graph capability catalogued under the `SENTINAL GRAPH TOOLS` block in `.sentinal/rules/{slug}-mcp-servers.md` → `Grep` as a last resort. Grep matches text, not symbols, so it misses aliased imports and barrel re-exports — treat its result as a lower bound, never as proof a function has no callers.
 
 **Self-Correction:** Fix obvious mistakes (syntax errors, typos, missing imports) in code you are actively writing. Do not auto-fix errors in code the user edited — report them and let the user decide.
 
@@ -25,7 +25,7 @@ vexor "database connection setup"
 
 **No fixes without root cause investigation. Complete phases sequentially.**
 
-**Phase 1 — Root Cause:** Read errors completely, reproduce consistently, check recent changes (git diff), instrument at boundaries.
+**Phase 1 — Root Cause:** Read errors completely, reproduce consistently, check recent changes (git diff), instrument at boundaries. Also run `memory_search` for this error/component — a past session may have recorded the root cause or fix. Best-effort.
 
 **Phase 2 — Pattern Analysis:** Use Vexor to find working examples in codebase by intent. Compare against references, identify ALL differences.
 
@@ -33,7 +33,7 @@ vexor "database connection setup"
 
 **Phase 4 — Implementation:** Create failing test first (TDD), implement single fix, verify completely.
 
-**3+ failed fixes = architectural problem.** Question the pattern, don't fix again.
+**3+ failed fixes = architectural problem.** Question the pattern, don't fix again. Before re-deriving, `memory_search` prior `error`/`decision` observations on this subsystem — the architectural truth may already be recorded.
 
 **Red Flags → STOP:** "Quick fix for now", multiple changes at once, proposing fixes before tracing data flow, 2+ failed fixes.
 

@@ -1,0 +1,77 @@
+{
+  "review_summary": "Well-structured layered harness that correctly honors the approved design (deterministic Layer A + opt-in real Layer B, full env isolation, all 5 features covered). However, three isolation/soundness gaps are must-fix: the default `bun test` will discover and run the e2e files (no exclusion config exists), the escape-assertion is too weak to PROVE no escape, and the Claude Code install spawns the real `claude` binary which likely does NOT redirect its plugin state via HOME alone (needs CLAUDE_CONFIG_DIR), risking mutation of the user's real Claude install.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Default `bun test` will pick up tests/e2e/**/*.test.ts and *.e2e.test.ts — bunfig.toml preload is global, no exclusion exists",
+      "description": "bunfig.toml (verified: only 2 lines, `[test] preload = [\"./src/memory/test-preload.ts\"]`) has NO `[test].root` or path scoping. Bun's default discovery globs `**/*.test.ts` from the repo root, so `tests/e2e/harness/sandbox.test.ts` AND every `tests/e2e/*.e2e.test.ts` file WILL run on a bare `bun test`. This directly contradicts Truth #9 ('new e2e tests are excluded from / additive to the default run as designed') and the Risks/Task 7 ambivalence — there is no mechanism specified to keep them out. Result: the default suite spawns installs, sidecar cold-starts, and (worse) may attempt real-binary paths, making `bun test` slow and non-deterministic, and Layer B `skipIf` only guards the real-binary CASES not the file's sandbox setup/import cost. The plan's DoD in Task 7 ('bun test full suite still exits 0') is not falsifiable without a concrete exclusion strategy.",
+      "suggested_fix": "Task 7 MUST specify the concrete config. Option A (recommended): name e2e files WITHOUT the `.test.ts` suffix that default discovery matches — e.g. keep them as `tests/e2e/*.e2e.ts` and run via explicit path `bun test tests/e2e/`. But note bun still matches `*.e2e.test.ts` because it ends in `.test.ts`; rename to `*.e2e.ts` and drive them with an explicit runner glob, OR Option B: move e2e under a directory bun doesn't auto-scan and invoke only via `bun run e2e` (`bun test tests/e2e/`). Add a DoD assertion to Task 7 that runs `bun test` (no args) and greps that NO `tests/e2e/` file executed (e.g. assert run count/duration unchanged). Also confirm the sqlite-vec preload still applies when invoked via the explicit `tests/e2e/` path (it does — preload is unconditional)."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Claude Code install spawns real `claude` which likely uses CLAUDE_CONFIG_DIR (not HOME) for plugin state — real-install mutation risk",
+      "description": "install.ts:417-437 (verified) runs `claude plugin marketplace add <MARKETPLACE_DIR>` and `claude plugin install ...` via the `run()` helper. The plan's verified-facts and Task 2 assume a sandbox HOME redirects this safely, but Claude Code resolves its plugin/config state via `CLAUDE_CONFIG_DIR` when set, and its marketplace registry is a global user-level store — setting only HOME may NOT redirect it, so `claude plugin marketplace add/install` could mutate the USER'S REAL Claude plugin registry even inside the sandbox. This is exactly the escape the harness exists to prevent. The sandbox env map (Task 1) sets HOME/XDG_CONFIG_HOME but does NOT set CLAUDE_CONFIG_DIR. Additionally, `configureStatusline()` (install.ts:470) writes `join(homedir(),'.claude','settings.json')` which is HOME-relative and fine, masking the fact that the CLI spawn is the unsafe path.",
+      "suggested_fix": "Task 1 sandbox env MUST also set `CLAUDE_CONFIG_DIR=$HOME/.claude` (or the sandbox-appropriate path) so the spawned `claude` binary redirects its plugin registry into the sandbox. Task 2/Task 5 must SPIKE-verify (before asserting activation) that `claude plugin marketplace add` inside the sandbox does NOT touch the real registry — run it once with the escape-assertion active and confirm the real `~/.claude/plugins` is byte-unchanged. If `claude` cannot be redirected, Task 2 MUST NOT spawn the real `claude` at all for Layer A: either (a) call `installClaude` in an asset-only mode, or (b) assert only the pre-spawn on-disk assets and move the real CLI activation entirely behind SENTINAL_E2E_REAL. Also verify the `run()` helper in install.ts actually threads `process.env` (sandbox env) to the spawned `claude` — confirm it does not reset env."
+    },
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "Escape-assertion (Task 1) via mtime+entry-list snapshot is not sufficient to PROVE no escape; DoD is not falsifiable for the risks that matter",
+      "description": "Task 1 / Testing Strategy snapshot mtime+entry-list of ~/.claude, ~/.config/opencode, ~/.opencode, ~/.sentinal. This misses real escape vectors the plan itself raises: (1) a file rewritten with identical content on filesystems with coarse mtime granularity, or restored mtime, produces NO detectable change; (2) shell rc files (~/.bashrc, ~/.zshrc — shell-init.ts:42-46 writes these) and ~/.npmrc (install.ts:639) are NOT in the snapshot set; (3) directory entry-list + top-level mtime does not detect modifications to nested existing files (mtime of a dir doesn't change when a nested file's content changes); (4) macOS keychain / Claude's CLAUDE_CONFIG_DIR store is outside all four snapshotted dirs. So `assertNoRealEscape()` can pass while a real escape occurred — the DoD 'would FAIL if a write hit a real dir' is only proven for the narrow case of a new top-level entry.",
+      "suggested_fix": "Strengthen Task 1's boundary and DoD: (a) expand the snapshot set to include ~/.bashrc, ~/.zshrc, ~/.config/fish/config.fish, ~/.npmrc, and the CLAUDE_CONFIG_DIR path; (b) snapshot recursive content HASHES (not just mtime+entries) for the real dirs, or better, (c) make escape DETECTION structural rather than observational: assert that no spawned process's env contained a HOME/XDG/CLAUDE_CONFIG_DIR resolving outside the sandbox (thread + assert the env you pass), which the plan already lists as an alternative in Testing Strategy line 85 — promote that to the PRIMARY guarantee. The mtime snapshot becomes a defense-in-depth backstop, not the proof. Update the Task 1 DoD to require the unit test prove detection of an in-nested-file content change, not just a new top-level entry."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Sidecar teardown by pid file (Task 6) is race-prone if the sidecar double-forks or the pid is stale/reused",
+      "description": "Tasks 1/6 teardown 'kill by $HOME/.sentinal/*.pid before rm -rf'. Per the sidecar rules, `autoStartSidecar()` spawns a DETACHED process; a detached child may reparent, and a stale pid file could name a PID that has since been reused by an unrelated process on the host — `kill` would then signal the wrong process, or the real sidecar child leaks past `rm -rf` and keeps a handle to the deleted socket. There is no verification that the killed PID actually belongs to the sandbox sidecar.",
+      "suggested_fix": "Task 6 teardown should: (1) read the pid, verify the process's cwd/argv or the socket path points into the sandbox HOME before killing (guard against PID reuse); (2) after SIGTERM, poll for socket/pid-file removal with a short timeout, then SIGKILL; (3) as a backstop, since the sandbox HOME is unique per test, grep running processes for the sandbox HOME path and kill any survivors. Add this to the Task 1 `cleanup()` DoD explicitly."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "MCP test client (Task 4): hand-rolled stdio JSON-RPC risks framing bugs; reuse the SDK client",
+      "description": "Task 4 creates `tests/e2e/harness/mcp-client.ts` as a 'minimal stdio JSON-RPC' client and even hedges on framing ('Content-Length or newline-delimited per the SDK'). The repo already depends on `@modelcontextprotocol/sdk` 1.27.1 (per project context). A hand-rolled client is the single most likely source of a uniform false-failure across all MCP assertions (the plan's own Pre-Mortem #2 flags this). The MCP stdio transport framing is a solved problem in the SDK.",
+      "suggested_fix": "Task 4 should use `@modelcontextprotocol/sdk`'s `Client` + `StdioClientTransport` pointed at the spawned sandbox `sentinal mcp-server` (with sandbox env) instead of hand-rolling framing. This eliminates the framing-bug risk entirely and matches how real clients connect. If a bespoke client is kept for control, the DoD must include a 'validate against `bun run mcp`' gate BEFORE the deeper calls, as the notes suggest — but SDK reuse is strictly safer and lower-effort."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Bundled install network-freeness not fully proven — no assertion that install performs ZERO network calls",
+      "description": "The plan asserts (Assumptions, Risks) that bundled mode + SENTINAL_NO_AUTO_SETUP=1 makes install network-free/deterministic, citing install.ts:630-635 + auto-setup.ts:32-37. But update.ts (verified) contains `fetch(RELEASE_URL)` and `fetch(downloadUrl)` for self-update, and the install path's `run()` may still invoke `claude`/`opencode` which do their own network I/O. The plan never adds a test that PROVES no network egress during a Layer A install, so 'deterministic, CI-safe' is an untested claim.",
+      "suggested_fix": "Add to Task 2 DoD a determinism guard: run the sandbox install with network disabled (e.g. set proxy env to an unreachable host, or run under a no-network shim) and assert it still succeeds for bundled OpenCode install. At minimum, grep the install code path actually exercised for `fetch(`/`https://` and assert none are on the bundled+NO_AUTO_SETUP branch. This makes the 'CI-safe' claim falsifiable rather than asserted."
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "Layer B `it.skipIf` guards test cases but not the file's sandbox construction — verify skip is truly zero-cost and binary-free",
+      "description": "Truth #7 / Task 8 rely on `it.skipIf(!SENTINAL_E2E_REAL)`. `skipIf` skips the test body, but any top-level `describe`/module code (sandbox creation, cred-copy setup in `beforeAll`) can still execute unless it's inside the skipped `it` or a guarded `beforeAll`. If `real-binary.e2e.test.ts` builds a sandbox or references the real binaries at module load, the 'green-by-skip in CI' guarantee (which has no binaries/creds) breaks. Combined with must-fix #1 (default discovery), this file could fail CI outright.",
+      "suggested_fix": "Task 8 DoD must state that ALL sandbox setup and cred-copy occur INSIDE the `skipIf` test bodies (or a `beforeAll` that early-returns when the flag is unset), and add an assertion/CI check that `bun test tests/e2e/real-binary.e2e.test.ts` with the flag UNSET performs no sandbox build, no cred access, and no binary spawn (green-by-skip, zero side effects)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Cred cleanup for Layer B (Task 8) has no failure-safe guarantee — copied real creds could leak if a test throws",
+      "description": "Task 8 copies `~/.claude` creds + `~/.config/opencode/auth*` into the sandbox and 'delete copied creds on teardown'. If an assertion throws before teardown, or the process is killed mid-run, the copied real credentials sit in a temp dir. The approved design explicitly requires creds 'deleted after'. The plan doesn't specify `afterEach`/`try-finally` guaranteeing deletion even on failure, nor scrubbing on unexpected exit.",
+      "suggested_fix": "Task 8: perform cred copy + run + assert inside a `try/finally`, with the finally deleting creds and `rm -rf`-ing the sandbox even on throw; register an unref'd process exit/SIGINT handler that scrubs the sandbox HOME. Add a DoD line: 'copied creds are removed even when the test body throws (proven by a fault-injection case).' Prefer env-passthrough (ANTHROPIC_API_KEY) over file-copy where possible to avoid persisting creds to disk at all — the plan already lists this as a preferred spike outcome; make it the default when it authenticates."
+    },
+    {
+      "severity": "nice_to_have",
+      "category": "scope_alignment",
+      "title": "Task numbering/wave ordering is confusing (Task 8 in Wave 3 before Task 7 in Wave 4)",
+      "description": "Tasks are numbered 1-8 but Task 8 (real-binary, Wave 3) executes before Task 7 (runner/docs, Wave 4). Progress Tracking lists them out of numeric order. This is cosmetic but invites implementer error in a parallel wave execution.",
+      "suggested_fix": "Renumber so execution order matches task numbers (make the runner/docs task the last number), or add an explicit note that numeric order != execution order. Low priority; does not affect correctness."
+    },
+    {
+      "severity": "nice_to_have",
+      "category": "task_completeness",
+      "title": "Wave 2 parallelism assumes no shared on-disk state, but all tests snapshot the SAME real dirs concurrently",
+      "description": "Wave 2 marks Tasks 2-6 parallel 'no file overlap' because each uses a separate sandbox. Correct for sandbox writes. However, every test's `assertNoRealEscape()` reads/snapshots the SAME real `~/.claude`, `~/.config/opencode`, `~/.opencode`, `~/.sentinal` concurrently. If the developer runs the REAL sidecar/Claude during the test run (or Layer B in the same session), a concurrent real-dir mutation from an unrelated process would cause a spurious escape-assertion failure across parallel tests. Read-only snapshotting is safe between the e2e tests themselves, so this is minor.",
+      "suggested_fix": "Note in Task 1 that the escape-assertion's real-dir snapshot assumes no concurrent real Sentinal/Claude/OpenCode activity during the e2e run; document running e2e in a quiescent environment, or scope the assertion to only the specific files the install path could touch (reducing false positives from unrelated background writes)."
+    }
+  ]
+}

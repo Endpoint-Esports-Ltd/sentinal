@@ -6,12 +6,23 @@
  */
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { MemoryStore } from "../memory/store.js";
 import {
   DEFAULT_WORKTREE_CONFIG,
   type Worktree,
   type WorktreeStatus,
 } from "./types.js";
+
+/** Canonicalize a path for scope comparison; falls back for missing paths. */
+function canonicalPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
 
 // ─── Raw DB Row Type ────────────────────────────────────────────────────────
 
@@ -27,6 +38,7 @@ interface RawWorktree {
   created_at: number;
   merged_at: number | null;
   merge_commit: string | null;
+  slot: number | null;
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────
@@ -42,8 +54,8 @@ export class WorktreeStore {
   insert(wt: Omit<Worktree, "mergedAt" | "mergeCommit">): Worktree {
     this.db
       .prepare(
-        `INSERT INTO worktrees (id, spec_id, project_path, worktree_path, branch_name, base_branch, base_commit, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO worktrees (id, spec_id, project_path, worktree_path, branch_name, base_branch, base_commit, status, created_at, slot)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         wt.id,
@@ -55,6 +67,7 @@ export class WorktreeStore {
         wt.baseCommit,
         wt.status,
         wt.createdAt,
+        wt.slot ?? null,
       );
     return this.get(wt.id)!;
   }
@@ -153,10 +166,65 @@ export class WorktreeStore {
     return row.count;
   }
 
+  // ─── Slots ────────────────────────────────────────────────────────────
+
+  /**
+   * The slots currently held by **live** worktrees of `projectPath`, ascending.
+   *
+   * ⛔ "Live" is `('active','ready-to-merge')`, matching the `idx_wt_slot_live`
+   * partial unique index exactly. Filtering on `'active'` alone here would let
+   * the allocator hand out the slot of a `ready-to-merge` worktree that is
+   * still on disk — and the DB would then reject the insert anyway.
+   *
+   * Rows with `slot IS NULL` (pre-V12, or a reconcile that found no free slot)
+   * are omitted: they hold nothing.
+   */
+  listLiveSlots(projectPath: string): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT slot FROM worktrees
+          WHERE project_path = ?
+            AND slot IS NOT NULL
+            AND status IN ('active', 'ready-to-merge')
+          ORDER BY slot ASC`,
+      )
+      .all(projectPath) as Array<{ slot: number }>;
+    return rows.map((r) => r.slot);
+  }
+
+  /**
+   * Assign a slot to an existing row.
+   *
+   * ⚠️ This exists **only** for lazy allocation of pre-V12 rows that carry
+   * `slot = NULL` (master plan assumption: "allocated lazily on next resolve").
+   * It is NOT a release mechanism — nothing in production ever writes
+   * `slot = NULL`, because that would destroy the record of which slot a
+   * merged/abandoned worktree held, which is what lets `resolveWithReconcile`
+   * recover the slot its on-disk config was written against.
+   */
+  assignSlot(id: string, slot: number): void {
+    this.db.prepare("UPDATE worktrees SET slot = ? WHERE id = ?").run(slot, id);
+  }
+
+  /**
+   * Run `fn` inside a `BEGIN IMMEDIATE` transaction.
+   *
+   * ⚠️ Bun's `db.transaction()` defaults to DEFERRED, which takes no write lock
+   * until the first write — leaving a read-then-write sequence (allocate, then
+   * insert) racy across the CLI, MCP server and sidecar, which all open the
+   * same DB file. IMMEDIATE takes the write lock up front.
+   */
+  runImmediate<T>(fn: () => T): T {
+    const tx = this.db.transaction(fn);
+    return tx.immediate() as T;
+  }
+
   /**
    * Resolve a plan slug to a worktree.
    * 1. Try exact match on spec_id (primary)
-   * 2. Fall back to branch name pattern matching `spec/<slug>*` if projectPath given
+   * 2. Fall back to an exact branch-name match (`<prefix><slug>` or legacy
+   *    `spec/<slug>`), scoped to `projectPath` when given — a scoped miss
+   *    returns null and never falls through to another project's worktree.
    * Returns null if no match.
    */
   resolveBySlug(slug: string, projectPath?: string): Worktree | null {
@@ -164,34 +232,40 @@ export class WorktreeStore {
     const bySpec = this.getBySpecId(slug);
     if (bySpec) return bySpec;
 
-    // Branch patterns: the configured prefix (default "sentinal/spec-") plus
+    // Branch names: the configured prefix (default "sentinal/spec-") plus
     // the legacy "spec/" prefix. Records often have spec_id=NULL because
     // linkSpec() runs after spec registration — branch matching must use the
-    // prefix worktree_create actually writes.
-    const patterns = [
-      `${DEFAULT_WORKTREE_CONFIG.branchPrefix}${slug}%`,
-      `spec/${slug}%`,
+    // prefix worktree_create actually writes. Anchored EXACT match (H4):
+    // create.ts writes exactly `${prefix}${slug}` (never suffixed — only the
+    // id and worktree PATH carry a hash), so a bare LIKE `${prefix}${slug}%`
+    // wrongly let slug `add` match branch `.../add-auth`.
+    const branches = [
+      `${DEFAULT_WORKTREE_CONFIG.branchPrefix}${slug}`,
+      `spec/${slug}`,
     ];
 
-    // Fallback: match by branch name pattern for active worktrees
+    // Fetch candidates by exact branch, then scope in TS (small table;
+    // correctness over cleverness).
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM worktrees WHERE branch_name IN (?, ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC",
+      )
+      .all(...branches) as RawWorktree[];
+
+    // ⛔ When a project scope was given, a scoped miss is FINAL — falling
+    // through to a global match would silently return another project's
+    // worktree, which worktree_sync/abandon would then merge or delete there.
+    // Scope compares CANONICAL paths: rows store getRepoRoot() output (a
+    // realpath), while callers may pass a symlinked alias (macOS /var vs
+    // /private/var) — the old global fallback papered over that mismatch.
     if (projectPath) {
-      const row = this.db
-        .prepare(
-          "SELECT * FROM worktrees WHERE project_path = ? AND (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
-        )
-        .get(projectPath, ...patterns) as RawWorktree | null;
-      if (row) return this.deserialize(row);
+      const wanted = canonicalPath(projectPath);
+      const row = rows.find((r) => canonicalPath(r.project_path) === wanted);
+      return row ? this.deserialize(row) : null;
     }
 
-    // Global fallback: match by branch name without project scope
-    const row = this.db
-      .prepare(
-        "SELECT * FROM worktrees WHERE (branch_name LIKE ? OR branch_name LIKE ?) AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
-      )
-      .get(...patterns) as RawWorktree | null;
-    if (row) return this.deserialize(row);
-
-    return null;
+    // Global fallback: exact branch match, ONLY when no scope was given.
+    return rows.length > 0 ? this.deserialize(rows[0]) : null;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────
@@ -209,6 +283,9 @@ export class WorktreeStore {
       createdAt: row.created_at,
       mergedAt: row.merged_at ?? undefined,
       mergeCommit: row.merge_commit ?? undefined,
+      // Explicit null (not undefined): "no slot assigned" is a real state that
+      // callers must render as such, not silently drop.
+      slot: row.slot ?? null,
     };
   }
 }

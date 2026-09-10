@@ -74,7 +74,7 @@ Mock at module level (where imported, not where defined). Test > 1s = likely unm
 
 ### E2E: Frontend/UI (MANDATORY for web apps)
 
-Use `playwright-cli` with session isolation (`-s="${SENTINAL_SESSION_ID:-default}"`) for all E2E verification. See `playwright-cli.md`.
+Use a browser-automation tool with instance isolation for all E2E verification — `playwright-cli` with `-s="${SENTINAL_SESSION_ID:-default}"`, or Chrome DevTools MCP against a dedicated Chrome. See `playwright-cli.md`.
 
 ### ⛔ Mock Audit on Dependency Changes
 

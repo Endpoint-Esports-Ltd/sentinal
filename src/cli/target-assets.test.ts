@@ -132,6 +132,82 @@ describe("target asset namespace parity", () => {
     });
   });
 
+  /**
+   * ⛔ A plugin-root `settings.json` is NOT a configuration channel.
+   *
+   * Claude Code reads exactly two keys out of it — `agent` and
+   * `subagentStatusLine`:
+   *
+   * > | **Settings** | `settings.json` | Default configuration applied when the
+   * > plugin is enabled. Only the `agent` and `subagentStatusLine` keys are
+   * > supported |
+   * >
+   * > — docs.claude.com/en/docs/claude-code/plugins-reference,
+   * >   *File locations reference* (re-verified 2026-08-20)
+   *
+   * Everything else in that file is **inert**: it satisfies a presence test
+   * while changing nothing at runtime. Corroborating code evidence:
+   * `configureStatusline()` (`commands/install-claude.ts`) exists precisely
+   * because the plugin file's `statusLine` key does not apply — Sentinal has
+   * to write the statusline into the user's own `~/.claude/settings.json`.
+   * That is exactly the behaviour the two-key allowlist predicts.
+   *
+   * Nothing in `src/` reads this file. The installer writes it verbatim to
+   * `<pluginDir>/settings.json` and never merges it into `~/.claude/settings.json`.
+   *
+   * This test is a **ratchet**, not an endorsement. The retained keys below
+   * are knowingly inert and kept only because removing them would silently
+   * revert in-flight work in `docs/plans/2026-04-20-claude-opencode-changelog-audit-phase-1.md`.
+   * `permissions` was REMOVED (2026-08-20): a ~45-entry `allow` list containing
+   * a bare `"Bash"` and `Bash(rm:*)` reads as a shipped security posture and
+   * is not one. Its content now lives in the README as a snippet for the
+   * user's OWN `~/.claude/settings.json`, which is where it takes effect.
+   */
+  describe("targets/claude-code/settings.json — no NEW inert keys", () => {
+    const settings = JSON.parse(
+      readFileSync(join(CLAUDE_DIR, "settings.json"), "utf-8"),
+    ) as Record<string, unknown>;
+
+    /** The only keys Claude Code actually honours in a plugin settings.json. */
+    const EFFECTIVE_KEYS = ["agent", "subagentStatusLine"];
+
+    /** Inert, knowingly retained. Do not extend this list — see the doc block. */
+    const KNOWN_INERT_KEYS = [
+      "env",
+      "plansDirectory",
+      "statusLine",
+      "alwaysThinkingEnabled",
+      "respectGitignore",
+      "spinnerTipsOverride",
+    ];
+
+    it("does not ship a `permissions` block (inert here; belongs in the user's own settings.json)", () => {
+      expect(
+        settings.permissions,
+        "targets/claude-code/settings.json declares `permissions`, but Claude " +
+          "Code ignores every key of a plugin settings.json except `agent` and " +
+          "`subagentStatusLine`. A permission allowlist here grants nothing and " +
+          "misrepresents Sentinal's security posture. Document it as a snippet " +
+          "for the user's ~/.claude/settings.json instead.",
+      ).toBeUndefined();
+    });
+
+    it("introduces no key outside the two-key allowlist beyond the known-inert set", () => {
+      const unexpected = Object.keys(settings).filter(
+        (k) => !EFFECTIVE_KEYS.includes(k) && !KNOWN_INERT_KEYS.includes(k),
+      );
+      expect(
+        unexpected,
+        `New key(s) in targets/claude-code/settings.json that Claude Code will ` +
+          `IGNORE: ${unexpected.join(", ")}. Only \`agent\` and ` +
+          `\`subagentStatusLine\` take effect from a plugin-root settings.json ` +
+          `(plugins reference, File locations reference). If you need this ` +
+          `setting to apply, write it into the user's ~/.claude/settings.json ` +
+          `the way configureStatusline() does, or document it as a snippet.`,
+      ).toEqual([]);
+    });
+  });
+
   describe("targets/claude-code/hooks/hooks.json — once:true on session-init hooks", () => {
     const hooksPath = join(CLAUDE_DIR, "hooks", "hooks.json");
     const hooks = JSON.parse(readFileSync(hooksPath, "utf-8"));
@@ -221,6 +297,116 @@ describe("target asset namespace parity", () => {
         );
       }
       expect(offenders).toEqual([]);
+    });
+  });
+
+  // ── Version identity in the OpenCode bundle (issue #9) ──────────────────
+  //
+  // The shipped plugin bundles src/sidecar/version.ts, whose FIRST resolution
+  // step is the `__SENTINAL_VERSION__` build define. `build:cli` passes it;
+  // `build:opencode` did NOT. The bundle's package.json fallback then resolves
+  // relative to ~/.config/opencode/plugins/, finds nothing, and returns
+  // "0.0.0" — producing 36 occurrences of
+  //   "client: version mismatch — sidecar is v1.36.3 but this client is v0.0.0"
+  // in a single real sidecar.log. A permanent false alarm makes a GENUINE
+  // version skew unnoticeable, which is the actual cost.
+  describe("OpenCode plugin bundle — version must be baked in", () => {
+    it("build:opencode passes --define __SENTINAL_VERSION__", () => {
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+      ) as { scripts: Record<string, string> };
+      expect(pkg.scripts["build:opencode"]).toContain("__SENTINAL_VERSION__");
+    });
+
+    it("the built bundle carries the real version, not the 0.0.0 fallback", () => {
+      const bundlePath = join(OPENCODE_DIR, "dist", "sentinal.mjs");
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+      ) as { version: string };
+      const bundle = readFileSync(bundlePath, "utf-8");
+      // The define substitutes the literal, so the real version must appear.
+      expect(bundle).toContain(pkg.version);
+    });
+  });
+
+  describe("targets/opencode/skills/ — every SKILL.md must have valid OpenCode skill frontmatter", () => {
+    // Root cause guard for the 2026-07-18 master-workflow failure: OpenCode's
+    // skill schema (@opencode-ai/sdk v2 AppSkillsResponses = { name, description,
+    // location, content }) REQUIRES `name`, and `name` must match the skill's
+    // folder name. Skills failing validation are filtered out and never shown to
+    // the model, so `Skill(skill='spec-master-plan')` silently fails to resolve.
+    // The spec-master-plan / spec-master-execute skills shipped with only
+    // `description:` + `argument-hint:` (the latter copied from a Claude Code
+    // COMMAND template — argument-hint is not a valid skill field; OpenCode's
+    // SkillTool.Parameters is Schema.Struct({ name }), so skills take no args).
+    const SKILLS_DIR = join(OPENCODE_DIR, "skills");
+
+    function parseFrontmatter(content: string): Record<string, string> {
+      const m = content.match(/^---\n([\s\S]*?)\n---/);
+      if (!m) return {};
+      const fields: Record<string, string> = {};
+      for (const line of m[1].split("\n")) {
+        const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+        if (kv) fields[kv[1]] = kv[2].trim();
+      }
+      return fields;
+    }
+
+    const skillFolders = readdirSync(SKILLS_DIR).filter((entry) =>
+      statSync(join(SKILLS_DIR, entry)).isDirectory(),
+    );
+
+    for (const folder of skillFolders) {
+      const skillPath = join(SKILLS_DIR, folder, "SKILL.md");
+      const content = readFileSync(skillPath, "utf-8");
+      const fm = parseFrontmatter(content);
+
+      it(`${folder}/SKILL.md declares a non-empty name matching its folder`, () => {
+        expect(
+          fm.name,
+          `${folder}/SKILL.md is missing 'name:' frontmatter`,
+        ).toBe(folder);
+      });
+
+      it(`${folder}/SKILL.md declares a non-empty description`, () => {
+        expect(
+          (fm.description ?? "").length,
+          `${folder}/SKILL.md has empty 'description:'`,
+        ).toBeGreaterThan(0);
+      });
+
+      it(`${folder}/SKILL.md does NOT declare 'argument-hint' (invalid on skills)`, () => {
+        expect(
+          fm["argument-hint"],
+          `${folder}/SKILL.md declares 'argument-hint' — invalid on OpenCode ` +
+            `skills (valid only on commands). OpenCode skills take no arguments.`,
+        ).toBeUndefined();
+      });
+    }
+
+    it("targets/opencode/commands/spec.md STILL declares argument-hint (valid on commands — preservation)", () => {
+      const specCmd = readFileSync(
+        join(OPENCODE_DIR, "commands", "spec.md"),
+        "utf-8",
+      );
+      expect(parseFrontmatter(specCmd)["argument-hint"]).toBeDefined();
+    });
+
+    it("embedded EMBEDDED_OC_SKILLS copy is in sync — master skills carry name (actual user delivery path)", async () => {
+      // `sentinal install` ships skills from EMBEDDED_OC_SKILLS in
+      // embedded-assets.ts, NOT the live targets/ tree. If embed-assets wasn't
+      // re-run after fixing targets/, the installed copy stays broken.
+      const { EMBEDDED_OC_SKILLS } = await import("./embedded-assets.js");
+      for (const folder of ["spec-master-plan", "spec-master-execute"]) {
+        const key = `${folder}/SKILL.md`;
+        const embedded = (EMBEDDED_OC_SKILLS as Record<string, string>)[key];
+        expect(embedded, `embedded skill missing: ${key}`).toBeDefined();
+        expect(
+          parseFrontmatter(embedded)["name"],
+          `embedded ${key} missing 'name:' — run 'bun run embed-assets' after ` +
+            `editing targets/`,
+        ).toBe(folder);
+      }
     });
   });
 

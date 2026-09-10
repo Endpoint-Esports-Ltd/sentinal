@@ -57,19 +57,14 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
   const path = url.pathname;
   const method = req.method;
 
-  // Add common headers
+  // Add common headers.
+  // Deliberately NO Access-Control-* headers: the dashboard UI is same-origin
+  // (htmx with relative URLs) and the memory DB must not be readable by
+  // arbitrary web pages in the user's browser (M12).
   const addHeaders = (res: Response): Response => {
     res.headers.set("X-Sentinal-Version", ctx.version);
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.headers.set("Access-Control-Allow-Headers", "Content-Type");
     return res;
   };
-
-  // CORS preflight
-  if (method === "OPTIONS") {
-    return addHeaders(new Response(null, { status: 204 }));
-  }
 
   try {
     let response: Response;
@@ -114,8 +109,7 @@ async function handleRequest(req: Request, ctx: ApiContext): Promise<Response> {
       const page = parseInt(url.searchParams.get("page") ?? "1", 10);
       const offset = (page - 1) * 20;
       const filterType = typeParam as
-        | import("../memory/types.js").ObservationType
-        | undefined;
+        import("../memory/types.js").ObservationType | undefined;
       const observations = q
         ? ctx.store.searchFTS(q, {
             limit: 20,

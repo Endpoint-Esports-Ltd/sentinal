@@ -5,6 +5,7 @@
  * All handlers receive a MemoryStore and return Response objects.
  */
 
+import { z } from "zod";
 import { MemoryStore } from "../../memory/store.js";
 import { SpecStore } from "../../spec/store.js";
 import {
@@ -136,27 +137,57 @@ export function settingsGetHandler(ctx: ApiContext): Response {
   return json({ modelRouting, allSettings });
 }
 
+/**
+ * Accepted POST /api/settings body. Known keys only — unknown top-level keys
+ * and unknown/non-string modelRouting values are rejected with a 400.
+ *
+ * NOTE: fields are listed explicitly (with `satisfies` drift protection
+ * against ModelRouting) instead of `ModelRoutingSchema.partial()` because
+ * that schema carries `.default()`s, and a partial parse must NOT inject
+ * defaults for fields the client did not send.
+ */
+const SettingsPostSchema = z
+  .object({
+    modelRouting: z
+      .object({
+        planning: z.string(),
+        implementation: z.string(),
+        verification: z.string(),
+        plan_reviewer: z.string(),
+        spec_reviewer: z.string(),
+      } satisfies Record<
+        keyof import("../../config/types.js").ModelRouting,
+        unknown
+      >)
+      .partial()
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export async function settingsPostHandler(
   ctx: ApiContext,
   req: Request,
 ): Promise<Response> {
+  let body: unknown;
   try {
-    const body = (await req.json()) as Record<string, unknown>;
-    if (body.modelRouting) {
-      setModelRouting(
-        ctx.store,
-        body.modelRouting as Partial<
-          import("../../config/types.js").ModelRouting
-        >,
-      );
-    }
-    return json({ success: true });
-  } catch (err) {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const parsed = SettingsPostSchema.safeParse(body);
+  if (!parsed.success) {
     return json(
-      { error: err instanceof Error ? err.message : "Invalid request" },
+      { error: `Invalid settings body: ${parsed.error.issues[0]?.message}` },
       400,
     );
   }
+
+  if (parsed.data.modelRouting) {
+    setModelRouting(ctx.store, parsed.data.modelRouting);
+  }
+  return json({ success: true });
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

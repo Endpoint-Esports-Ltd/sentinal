@@ -1,0 +1,9 @@
+@@ -82,7 +82,7 @@
+    sentinal worktree detect --json <plan_slug>
+    # If not found:
+    sentinal worktree create --json <plan_slug>
+-   # Returns: {"path": "...", "branch": "spec/<slug>", "base_branch": "main"}
++   # Returns: {"path": "/abs/path/to/worktree", "branch": "spec/<slug>", "base_branch": "main"}
+    ```
+ 
+    Capture `worktreePath` = the returned `path`. If creation fails: continue without worktree, set to `No`, use CWD as base.

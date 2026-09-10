@@ -1,0 +1,92 @@
+{
+  "pass_summary": "The isolated E2E harness is soundly built: every harness spawn threads the sandbox env and runs assertEnvContained first (structural escape proof), with a recursive content-hash backstop (assertNoRealEscape) invoked in all Layer A suites. Tests assert real observed behavior (exit codes, JSON-RPC results, on-disk assets, memory round-trip) against the real dispatcher/MCP server — not mocks. Default-suite exclusion and Layer-B green-by-skip are correctly implemented. A few should-fix gaps around CI-untested guarantees and one green-by-accident risk in the network-freeness test.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 9,
+  "truths_total": 9,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "Fault-injection cred-cleanup test never runs in CI (only under SENTINAL_E2E_REAL=1)",
+      "description": "real-binary.e2e.ts:175-202 — the 'copied credentials are removed even when the test body throws' case is wrapped in `it.skipIf(!REAL)`. It is the ONLY proof of the Task 8 DoD 'copied creds removed even when the test body throws (fault-injection case proves it)'. Because cred copy uses only pure fs ops (cpSync/rmSync — no LLM, no binary), this safety test does NOT need SENTINAL_E2E_REAL and should run unconditionally so the failure-safe cleanup guarantee is continuously verified. As written, a regression in the try/finally scrub would go undetected in CI.",
+      "suggested_fix": "Split the fault-injection case out from the SENTINAL_E2E_REAL gate: make it a plain `it(...)` (it copies creds only if they exist on the host, and the throw+finally logic is host-independent). Keep the binary-spawning cases gated. This makes the cleanup guarantee a first-class, always-run assertion."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "Network-freeness test is green-by-accident — proxy vars don't block Bun's native install path",
+      "description": "install.e2e.ts:164-190 sets HTTPS_PROXY/HTTP_PROXY/ALL_PROXY=http://127.0.0.1:1 to 'prove' the bundled install needs no network. But bundled-mode install reads embedded assets from disk and never issues an outbound fetch, so the proxy vars are inert — the test would pass identically even if a real fetch existed that ignored proxy env (e.g. a raw socket, or a fetch() that doesn't honor *_PROXY, which Bun's global fetch does not automatically). It asserts the install succeeds but does not actually PROVE no network egress occurred. The plan's own note (line 222) even flags update.ts has a live fetch() that must not be hit — this test cannot detect that.",
+      "suggested_fix": "Make network-blocking observable: either (a) run the install under a spawn that has network genuinely denied and assert success, or (b) add a fetch/DNS spy is impractical in a subprocess — instead assert a stronger positive signal (e.g. install completes within a tight wall-clock budget AND no *.download/model artifacts appear), and/or add a comment explicitly scoping the claim to 'bundled assets are read from disk' rather than 'network is blocked'. At minimum, downgrade the in-code claim so a future reader doesn't over-trust it."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "Harness self-test (sandbox.spec-e2e.ts) does not call assertNoRealEscape",
+      "description": "tests/e2e/harness/sandbox.spec-e2e.ts runs install('opencode') (line 108-115) and cleanup, but its afterEach only calls sb.cleanup() — it never snapshots/asserts the real dirs via snapshotRealDirs()/assertNoRealEscape(). The Layer A suites (install/hooks/mcp/spec-workflow/sidecar-memory) all do, so coverage exists, but the one test that most directly exercises the raw install through the harness omits the backstop.",
+      "suggested_fix": "Add a beforeAll snapshot + assertNoRealEscape() in the 'install + cleanup' describe's afterEach in sandbox.spec-e2e.ts for symmetry and defense-in-depth."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "snapshotRealDirs omits ~/.opencode/bin and the OpenCode plugins dir the installer may touch",
+      "description": "sandbox.ts:210-226 snapshots ~/.claude, ~/.config/opencode, ~/.opencode, ~/.sentinal, shell rc files, ~/.npmrc, and $CLAUDE_CONFIG_DIR. The structural env guarantee (assertEnvContained) is the real proof and is complete. But as a backstop, ~/.opencode is included as a whole tree — good — yet the plan's threat model (install.ts symlink/shell setup) is only skipped for EXPLICIT targets; the backstop set is adequate for the paths install can reach. Minor: consider also snapshotting ~/.config/opencode/plugins specifically is already covered by the ~/.config/opencode subtree. No action strictly required.",
+      "suggested_fix": "Optional: no change needed since ~/.config/opencode and ~/.opencode are hashed recursively. Documented here only to confirm the backstop set was reviewed and is sufficient."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "killSandboxProcesses backstop uses SIGKILL on all pgrep -f <home> matches without ownership recheck",
+      "description": "sandbox.ts:254-263 — the pgrep backstop kills any PID whose command line contains the sandbox HOME path. Since the sandbox HOME is a unique mkdtemp path (sentinal-e2e-<rand>), false positives are effectively impossible, so this is safe in practice. Noted only because the primary pid-file path (line 248) carefully rechecks ownership via processBelongsToSandbox while the backstop does not — the asymmetry is intentional and acceptable given the uniqueness of the temp path.",
+      "suggested_fix": "No change required. The unique mkdtemp path makes the pgrep match self-scoping. Left as a note for future maintainers."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "sandbox.ts exists and exports createSandbox + XDG_CONFIG_HOME + SENTINAL_NO_AUTO_SETUP",
+      "status": "verified",
+      "evidence": "sandbox.ts:62 exports createSandbox(); env map sets HOME, XDG_CONFIG_HOME (:67), CLAUDE_CONFIG_DIR (:68), SENTINAL_NO_AUTO_SETUP=1 (:69), CLAUDE_PLUGIN_DATA cleared (:70). Committed at base commit 6dcbe34 (Task 1), part of this feature."
+    },
+    {
+      "truth": "bun test tests/e2e/ passes Layer A with real dirs byte-unchanged; escape-assertion test present; SENTINAL_E2E absent from Layer A",
+      "status": "verified",
+      "evidence": "assertNoRealEscape(realBefore) called in afterEach of install/hooks/mcp/spec-workflow/sidecar-memory suites. sandbox.spec-e2e.ts has dedicated assertEnvContained + hashTree tamper-detection tests. SENTINAL_E2E only appears in real-binary.e2e.ts (Layer B), confirmed by grep — absent from Layer A."
+    },
+    {
+      "truth": "Install test asserts opencode.json contains plugin -> sentinal.mjs and mcp.sentinal",
+      "status": "verified",
+      "evidence": "install.e2e.ts:80-86 asserts cfg.plugin contains './plugins/sentinal.mjs' and cfg.mcp.sentinal.command is defined."
+    },
+    {
+      "truth": "Hooks test pipes HookInput JSON through the sandbox dispatcher and asserts exit code/output for spec-stop-guard, tdd-guard, file-checker",
+      "status": "verified",
+      "evidence": "hooks.e2e.ts: file-checker exit 2 + decision:block (:86-92), spec-stop-guard exit 0 + additionalContext (:147-155), tdd-guard exit 2 + permissionDecision:deny (:229-238). Uses real sb.run(['hook',...]) dispatcher with stdin JSON."
+    },
+    {
+      "truth": "MCP test JSON-RPC calls tools/list and asserts memory_search/spec_status/tdd_status present",
+      "status": "verified",
+      "evidence": "mcp.e2e.ts:56-60 listTools() asserts memory_search, spec_status, tdd_status. Uses official @modelcontextprotocol/sdk Client via McpTestClient (mcp-client.ts) — no hand-rolled framing (Pre-Mortem #2 mitigated). callTool spec_status/memory_search assert well-formed content arrays."
+    },
+    {
+      "truth": "Sidecar/memory test asserts sidecar socket under sandbox .sentinal and observation round-trips",
+      "status": "verified",
+      "evidence": "sidecar-memory.e2e.ts: asserts sidecar pid/sock/port under sb.home/.sentinal (:76-94), memory_save then memory_search then memory_get round-trip with distinctive tokens (:106-140), and no surviving process references sandbox HOME after cleanup (:164-167)."
+    },
+    {
+      "truth": "Layer B uses it.skipIf(!SENTINAL_E2E_REAL); enabled asserts a Sentinal artifact in sandbox .sentinal",
+      "status": "verified",
+      "evidence": "real-binary.e2e.ts:94,136,175 use it.skipIf(!REAL). Enabled bodies assert sentinalArtifactAppeared() (plugin.debug.log / sidecar.pid / freshly-touched .sentinal file), not just exit 0 (Pre-Mortem #3 mitigated). ALL sandbox build/cred/binary access lives inside skipped bodies — zero-cost when flag unset."
+    },
+    {
+      "truth": "package.json has an e2e script and README documents running it",
+      "status": "verified",
+      "evidence": "package.json:43 'e2e' script builds CLI then enumerates explicit e2e file paths (works around bun dir-scan token rule). :44 'e2e:real'. README diff adds a full 'End-to-End Test Harness (isolated)' section documenting Layer A/B and the credential caveat."
+    },
+    {
+      "truth": "A bare bun test runs NONE of the tests/e2e/*.e2e.ts files (suffix not .test.ts) and still exits 0",
+      "status": "verified",
+      "evidence": "All e2e files use *.e2e.ts / *.spec-e2e.ts suffixes (no '.test.'/'.spec.' dotted token), so bun's default **/*.test.ts glob AND its directory-scan token rule both skip them. package.json 'test' remains 'bun test' (unchanged). Runner enumerates explicit paths per the documented RUNNER FINDING. Structurally correct; the plan records the falsifiable check (bun test | rg -c 'tests/e2e/' == 0) was run during implementation."
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "pass_summary": "Implementation fully satisfies all 5 correctness gates and 10 Truths. Delete routes through the vector-aware service on every path, update re-indexes the vector (remove-then-index), applyFreshness is a byte-equivalent shared formula, auto-decay is throttled/off-hot-path/skips alreadyRunning, and both shipped rules + embedded assets document the new tools. Only minor doc-completeness nits found.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 10,
+  "truths_total": 10,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "CLI help omits --type and --files flags for `memory update`",
+      "description": "src/memory/cli.ts runUpdate reads args.flags.type and args.flags.files (mapped to filePaths), but the printed Options help block only lists --title, --content, and --tags. The `update <id>` usage string also only mentions --type/--tags/--content but the top-level Options section is incomplete. Users can't discover --type or --files from `memory` help.",
+      "suggested_fix": "Add `--type <t>` and `--files <a,b,c>` lines to the Options help block in the CLI usage string so the documented flags match what runUpdate actually parses."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "runUpdate with an empty patch still resets timestamp+quality",
+      "description": "src/memory/cli.ts runUpdate builds a patch only from provided flags; if the user passes just an id with no field flags, patch is {} and service.updateObservation still runs store.updateObservation which resets timestamp=now and quality_score=1.0 (a no-op field change that silently refreshes staleness). This is arguably intended (a bare 'touch' to refresh recency) but is undocumented and could surprise a user who fat-fingers the command.",
+      "suggested_fix": "Either document that `memory update <id>` with no fields intentionally refreshes staleness, or guard: if no field flags are present, return a usage hint instead of silently touching the record."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "store.updateObservation(id, patch) changes content AND sets fresh timestamp + quality_score; null on missing id.",
+      "status": "verified",
+      "evidence": "store.ts updateObservation: existence-check returns null; UPDATE sets timestamp=Date.now(), quality_score derived same as insert (confidence-in-[0,1] else 1.0); returns getObservation(id). store.test.ts covers field change, timestamp/quality reset, and null-on-missing."
+    },
+    {
+      "truth": "After update, FTS finds the NEW content and NOT the OLD unique content.",
+      "status": "verified",
+      "evidence": "store.updateObservation deliberately does NOT touch observations_fts, relying on the observations_au AFTER-UPDATE trigger. Plan and store.test.ts assert search-after-update finds new/not-old; suite reported green."
+    },
+    {
+      "truth": "service.updateObservation calls vectorStore.removeObservation(id) then indexObservation(new); deleteObservation removes the vector.",
+      "status": "verified",
+      "evidence": "service.ts:158-178 — after store update, if vectorStore.isAvailable(): removeObservation(id) THEN indexObservation(id,title,content,tags,projectPath,timestamp) (6-arg signature matches addObservation and vector-store.ts:158). deleteObservation (existing) removes vector. service.test.ts uses a removeCalls/indexCalls spy asserting order."
+    },
+    {
+      "truth": "memory_update/memory_delete are snake_case MCP tools working via service AND client; delete routes through the vector-aware service on both.",
+      "status": "verified",
+      "evidence": "mcp-tools.ts registerUpdateDeleteTools registered on both null-client and client branches. Delete: client?client.deleteObservation(id):service.deleteObservation(id). Sidecar routes.ts handleMemoryDelete calls ctx.service.deleteObservation (comment: 'removes the vector embedding, not just the FTS row'). No raw store.deleteObservation on any path."
+    },
+    {
+      "truth": "sentinal memory update <id> --content X and memory delete <id> mutate through the service.",
+      "status": "verified",
+      "evidence": "cli.ts runUpdate calls service.updateObservation; runDelete calls service.deleteObservation. Dispatch cases 'update'/'delete' wired. cli.test.ts covers these paths."
+    },
+    {
+      "truth": "sentinal-memory.md (both targets) instructs preferring memory_update over a new correction; EMBEDDED_RULES + EMBEDDED_CC_RULES reflect it.",
+      "status": "verified",
+      "evidence": "Both targets/opencode and targets/claude-code sentinal-memory.md contain memory_update/memory_delete table rows and the 'Correct in place — don't stack corrections' guidance. rules-memory-refs.test.ts asserts both shipped files AND the dynamically-imported EMBEDDED_RULES/EMBEDDED_CC_RULES contain memory_update; embed guard reported passing."
+    },
+    {
+      "truth": "Auto-decay runs when last-decay.json is missing/older-than-threshold, skips when fresh; startSidecar calls it best-effort without crashing.",
+      "status": "verified",
+      "evidence": "auto-decay.ts runAutoDecayIfStale: readLastDecay returns null on missing/corrupt (=stale=run); throttle gate now-lastDecay<thresholdMs skips; whole body in try/catch returning {ran:false} on any error. server.ts scheduleStartupDecay defers via queueMicrotask in its own try/catch. Injectable now/thresholdMs/stateFile for tests; SENTINAL_LAST_DECAY_PATH override for isolation."
+    },
+    {
+      "truth": "sentinal memory decay and maintain decay|prune|stats exist and work; maintain prune is dry-run by default, only deletes with --apply.",
+      "status": "verified",
+      "evidence": "cli.ts runDecay and runMaintain (switch decay|stats|prune). runMaintain prune: apply=args.flags.apply==='true'; without --apply it COUNTs candidates and returns a dry-run message, only calling service.prune when --apply is set. Dispatch cases 'decay'/'maintain' wired; help text documents both."
+    },
+    {
+      "truth": "Shared applyFreshness (recency-add-then-quality-multiply, now injectable) is the single formula: hybrid uses it, searchFtsOnly over-fetches+re-ranks, store.searchFTS is NOT freshness-weighted, explicit date ordering passes through.",
+      "status": "verified",
+      "evidence": "freshness.ts applyFreshness = (base + recencyBoost) * max(quality,0.1) — byte-equivalent to old hybrid math. hybrid.ts refactored to call it (inline math + local MAX_RECENCY_BOOST removed). service.searchFtsOnly: orderBy!=='relevance' passes through via ftsFetch untouched; relevance mode over-fetches max(limit*5,50) offset:0, applies applyFreshness on positional base (1-index*0.05), sorts, slices to offset+limit. Re-rank lives ONLY in service, not store.searchFTS (shared by hybrid FTSStrategy — no double-apply). service.test.ts covers the past-the-limit surfacing and date_desc passthrough."
+    },
+    {
+      "truth": "bun test green; bunx tsc --noEmit clean; check-embed-assets passes.",
+      "status": "verified",
+      "evidence": "Orchestrator reports 1751 pass / 0 fail, tsc 0 errors, embed guard passes. New test files present for store, service, mcp-tools, cli, routes, server, auto-decay, freshness, and rules-memory-refs."
+    }
+  ]
+}

@@ -25,7 +25,9 @@ import type {
   AssistantType,
 } from "./types.js";
 import { SEARCH_CONSTANTS, SearchFiltersSchema } from "./types.js";
+import type { ObservationType } from "./types.js";
 import { sanitizeObservationFields } from "./sanitize.js";
+import { applyFreshness } from "./search/freshness.js";
 
 export interface MemoryServiceOptions {
   store?: MemoryStore;
@@ -116,6 +118,66 @@ export class MemoryService {
     return deleted;
   }
 
+  /**
+   * Update an observation in place (correct/supersede it) and RESET its
+   * staleness (timestamp + quality). Keeps BOTH indexes in sync: FTS via the
+   * store's UPDATE trigger, and the VECTOR embedding by removing the old
+   * document and re-indexing the new content (there is no in-place vector
+   * update). Returns the updated observation, or null if `id` doesn't exist.
+   */
+  updateObservation(
+    id: number,
+    patch: {
+      title?: string;
+      content?: string;
+      type?: ObservationType;
+      tags?: string[];
+      filePaths?: string[];
+      metadata?: Record<string, unknown>;
+    },
+  ): Observation | null {
+    // Sanitize incoming title/content the same way addObservation does, so a
+    // correction can't reintroduce secrets/credentials.
+    let cleanPatch = patch;
+    if (patch.title !== undefined || patch.content !== undefined) {
+      const sanitized = sanitizeObservationFields({
+        title: patch.title ?? "",
+        content: patch.content ?? "",
+      });
+      if (sanitized.redactedCount > 0) {
+        cleanPatch = {
+          ...patch,
+          ...(patch.title !== undefined ? { title: sanitized.title } : {}),
+          ...(patch.content !== undefined
+            ? { content: sanitized.content }
+            : {}),
+        };
+      }
+    }
+
+    const updated = this.store.updateObservation(id, cleanPatch);
+    if (!updated) return null;
+
+    // Re-index the vector: remove the stale embedding, then add the new one.
+    if (this.vectorStore?.isAvailable()) {
+      this.vectorStore.removeObservation(id);
+      this.vectorStore
+        .indexObservation(
+          updated.id,
+          updated.title,
+          updated.content,
+          updated.tags,
+          updated.projectPath,
+          updated.timestamp,
+        )
+        .catch(() => {
+          /* Vector re-indexing failure is non-fatal */
+        });
+    }
+
+    return updated;
+  }
+
   getRecentForProject(projectPath: string, limit?: number): Observation[] {
     return this.store.getRecentForProject(projectPath, limit);
   }
@@ -151,19 +213,46 @@ export class MemoryService {
   ): SearchResult[] {
     const filters = SearchFiltersSchema.parse(rawFilters ?? {});
 
-    let observations: Observation[];
-
-    if (!query || query.trim() === "") {
-      observations = this.store.searchFilters(filters);
-    } else {
-      try {
-        observations = this.store.searchFTS(sanitizeFtsQuery(query), filters);
-      } catch {
-        observations = this.store.searchFilters(filters);
-      }
+    // Explicit chronological ordering is passed straight through — no
+    // freshness re-rank, so `date_asc`/`date_desc` are preserved exactly.
+    if (filters.orderBy !== "relevance") {
+      return this.ftsFetch(query, filters).map((obs) => toSearchResult(obs));
     }
 
-    return observations.map((obs) => toSearchResult(obs));
+    // Relevance mode: over-fetch a larger candidate set (bm25 order), then
+    // re-rank by shared freshness (recency + quality) so a fresher/higher-
+    // quality item ranked just past the caller's limit CAN surface.
+    const candidateLimit = Math.max(filters.limit * 5, 50);
+    const candidates = this.ftsFetch(query, {
+      ...filters,
+      limit: candidateLimit,
+      offset: 0,
+    });
+
+    const now = Date.now();
+    const ranked = candidates
+      .map((obs, index) => ({
+        obs,
+        // Positional base score, mirroring FTSStrategy (`1 - index*0.05`).
+        score: applyFreshness(1.0 - index * 0.05, obs, now),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    return ranked
+      .slice(filters.offset, filters.offset + filters.limit)
+      .map((r) => toSearchResult(r.obs));
+  }
+
+  /** Raw FTS/filter fetch (no freshness re-rank), honoring the given filters. */
+  private ftsFetch(query: string, filters: SearchFilters): Observation[] {
+    if (!query || query.trim() === "") {
+      return this.store.searchFilters(filters);
+    }
+    try {
+      return this.store.searchFTS(sanitizeFtsQuery(query), filters);
+    } catch {
+      return this.store.searchFilters(filters);
+    }
   }
 
   // ─── Timeline (Layer 2: context around anchor) ────────────────────────

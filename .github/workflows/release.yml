@@ -21,6 +21,9 @@ jobs:
           bun-version: latest
 
       - run: bun install
+      # Generated embedded-assets.ts is not committed — verify the generator is
+      # deterministic and produces current targets/ content before testing.
+      - run: bun scripts/check-embed-assets.mjs
       - run: bun test --timeout 30000
 
   release:

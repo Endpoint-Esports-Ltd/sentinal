@@ -1,0 +1,56 @@
+{
+  "review_summary": "Plan is well-structured, spike-gated, and honors all approved design decisions, but has three must-fix issues: (1) the soft stop-guard exit-0 additionalContext mechanism contradicts the codebase's own documented CC contract (blockExit's comment states CC only feeds context back on exit 2 + continueOnBlock), (2) background_tasks 'non-empty => don't block' is too permissive and can abandon the session's OWN in-progress spec, and (3) Task 6 treats the mandatory .mcp.json re-embed as conditional when embedded-assets.ts provably contains it.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Soft exit-0 additionalContext may be a silent no-op — contradicts codebase's own documented CC contract",
+      "description": "Task 2 and Truth #4 assert output(hint(\"Stop\", reason)) at exit 0 keeps the turn alive. But src/utils/hook-output.ts:134-139 (blockExit docstring) documents the OPPOSITE: 'Exit code 2 is required — CC only acts on { decision: block } when exit code is 2 ... Exiting 0 would silently downgrade to a no-op.' The repo's existing soft-block is continueOnBlock:true + exit 2. If wrong for Stop, the guard becomes a silent no-op, undetectable by a live-smoke that only asserts JSON is emitted.",
+      "suggested_fix": "Fold a verification step into Task 1 spike: empirically confirm on the installed CC version whether a Stop hook exiting 0 with additionalContext keeps the turn alive. If unconfirmed, use exit-2 + continueOnBlock (documented as working) or hookSpecificOutput on a blockExit-style path. Update Truth #4 + live-smoke DoD to assert OBSERVED behavior."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "background_tasks 'non-empty => don't block' too permissive — can abandon the session's OWN in-progress spec",
+      "description": "The skip is unconditional on ownership. Per ownership.ts:80-81 the strongest block is 'CURRENT session owns the active in-progress plan.' Under the proposed rule, any unrelated background task lets the session stop and abandon its own IN_PROGRESS spec.",
+      "suggested_fix": "Scope the skip so it never overrides a self-owned in-progress block: only skip when the decision would already be a WEAKER block (orphaned/adoptable), never when ownerId === currentSessionId. Add a test asserting a self-owned in-progress plan still blocks with non-empty background_tasks."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 6 re-embed of .mcp.json is mandatory, not conditional",
+      "description": "embedded-assets.ts:21607-21611 contains the mcpServers/sentinal/alwaysLoad block. Editing .mcp.json without re-embedding ships a timeout that never reaches installed users.",
+      "suggested_fix": "Make re-embed unconditional required step with a DoD checkbox + grep-in-embedded-assets Verify."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "OC session.idle only logs via client.app.log — no enforcement receives the SDK-derived decision",
+      "description": "OC session.idle (sentinal.ts:1135-1143) is advisory-only (warn log); OpenCode has no exit-2/deny equivalent. #3 improves warning accuracy, not enforcement.",
+      "suggested_fix": "Note in Task 5 + Scope #3 that OC session.idle is advisory-only; SDK active-sessions improves warning accuracy, adds no hard enforcement. Confirm matches user intent."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "MCP timeout field names are guessed, not host-verified",
+      "description": "Task 6 proposes CC timeout/request_timeout_ms and an unnamed 'OpenCode-supported timeout field'. Risk: shipping a key the host silently ignores.",
+      "suggested_fix": "Verify exact honored key per host (Context7 / changelog) and record in the spike doc. Add a runtime Verify that a slow tool is no longer killed at the old default."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 5 ownership.ts signature change must be a tested cross-wave invariant",
+      "description": "Task 5 adds livenessProbe to resolveStopDecision — the same fn the CC guard (Task 2) calls. Must be strictly backward-compatible or it breaks the landed caller.",
+      "suggested_fix": "Add invariant: livenessProbe MUST be optional; omitted => byte-identical to store.isSessionAlive. Add a test; re-run the Task 2 CC live-smoke in Task 8 after Task 5."
+    },
+    {
+      "severity": "nice_to_have",
+      "category": "definition_of_done",
+      "title": "MCP abort DoD accepts a lingering subprocess — resource-leak boundary not bounded",
+      "description": "Task 7 accepts 'returns promptly even if a subprocess lingers.' Never bounds how long an orphaned check holds a MAX_CONCURRENT slot.",
+      "suggested_fix": "Note lingering subprocesses are reaped by runWithTimeout (bounded); confirm abort path doesn't consume a NEW activeChecks slot without releasing. Optionally add /quality-check signal pass-through."
+    }
+  ]
+}

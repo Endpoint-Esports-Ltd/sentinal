@@ -1,0 +1,141 @@
+{
+  "pass_summary": "All 5 tasks are implemented as planned and the load-bearing all-or-nothing safety property holds under adversarial reading — I could not find a path where a partial or cross-metric agent map reaches scoreRisk/buildImpactOutput. Task 1a is a verified byte-faithful pure move. Findings are refinements: one inaccurate claim in the plan's own notes about where the `<= moduleCount` constraint is advertised, and three real strength gaps in the new tests (substring-based param cross-check, no pin on the emitted JSON Schema, no one-way guard from defaultMcpConfigPaths to the prose).",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 10,
+  "truths_total": 10,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "The `<= moduleCount` constraint appears in NO `.describe()` string — the plan's stated mitigation for the lost `.refine()` is inaccurate",
+      "description": "Implementation Note (plan:184) claims: \"The constraint is additionally stated in `.describe()` text, which *does* ship to the agent.\" That is false for the `<= moduleCount` constraint specifically. Checked all three describes in src/analysis/reach.ts:119-146 — `moduleCount` (:125-127) says only \"Total modules in the universe these reach numbers were measured against\"; `files` (:130-132) says only \"Repo-relative path -> modules transitively reaching it. Must cover EVERY changed .ts/.tsx/.js file\"; the top-level `.describe()` (:144-146) covers only the all-or-nothing coverage rule. The bound is stated exclusively in (a) the `.refine()` message at :142, which the agent sees only AFTER a failed call, and (b) targets/*/rules/mcp-servers.md. Since `.refine()` provably does not survive into the emitted JSON Schema, an agent driving `impact_analysis` from any MCP client that does not load Sentinal's rule files (a third-party client, or Claude Code where `mcp-servers.md` is `paths:`-scoped) has zero pre-flight signal about this constraint. The enforcement is real and correct; only the *advertisement* layer the plan credits is missing.",
+      "suggested_fix": "Append to the `files` describe in src/analysis/reach.ts:131 — e.g. \"... Must cover EVERY changed .ts/.tsx/.js file, and every value must be <= moduleCount (a larger value proves the two numbers came from different metrics).\" Then correct the Implementation Note at plan:184 so the three-layer claim matches reality."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "The param cross-check in sync-graph-tools.test.ts matches raw substrings against the whole reach.ts source, so a schema field rename would not fail it",
+      "description": "src/cli/sync-graph-tools.test.ts:206-215 and :258 both use `reachSrc.includes(param)` against the entire file text, comments and error strings included. This is the plan's named mitigation for the risk row \"Shipped rule names a param that does not exist\" (plan:104) and for Task 3 DoD \"Every param name used matches src/analysis/reach.ts\" (plan:343) — but reach.ts mentions `moduleCount`, `files`, `source` and `reach` dozens of times in doc comments and in the rejection-message builder (e.g. :252 `**Invalid \\`moduleCount\\`:**`, :284 \"Missing from \\`files\\`\", :301). If `moduleCount` were renamed to `universeSize` in the zod object, every one of those prose mentions would keep the test green while the shipped instructions became wrong. The guard therefore cannot detect the exact failure mode it exists for.",
+      "suggested_fix": "Import the schema instead of grepping the file: `import { AgentReachSchema } from \"../analysis/reach.js\"` and derive the real key set (zod 4 preserves the object class through `.refine()`, so `AgentReachSchema.def.shape` / a `safeParse` round-trip both work). Failing that, at minimum assert on the declaration form — `expect(reachSrc).toContain(`${param}: z.`)` — which no comment can satisfy."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "Nothing pins that `reach` survives into the tool's advertised inputSchema — every existing test bypasses zod",
+      "description": "The feature's entire value is that an agent can SEE and SEND `reach` over MCP. But `captureImpact` invokes the handler directly via `args[3]` (documented at plan:185), so impact.test.ts never exercises schema emission; reach.test.ts calls `AgentReachSchema.safeParse` directly, which also never touches the zod->JSON-Schema converter. Truth #1 is only `rg 'reach' src/analysis/impact.ts`. Given the plan itself records (plan:184) that `AgentReachSchema` behaves non-obviously through that converter — `.refine()` silently dropped — the one property that was observed manually and is most likely to regress on a zod or @modelcontextprotocol/sdk bump is the only one with no automated guard. A converter change that emitted `{}` or dropped the nested properties would leave all 2588 tests green and ship a param no agent can discover.",
+      "suggested_fix": "Add a registration-level assertion (src/analysis/impact.test.ts or src/mcp/server.test.ts): register the tool on a real McpServer, list tools, and assert `inputSchema.properties.reach.properties.moduleCount` and `.properties.files` exist and that the `describe` text is present. This also pins the fix for the issue above."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Shipped rule states the HIGH threshold as share-only, omitting the absolute floor",
+      "description": "targets/*/rules/mcp-servers.md, \"Same universe, full coverage\" section: \"the risk thresholds are share-based (HIGH at >=25% of the module tree)\". HIGH actually requires BOTH `reach >= HIGH_REACH_MIN (8)` AND `reach >= moduleCount * 0.25` (src/analysis/reach.ts:96-98). As written the prose tells an agent that share alone decides, which is exactly the half-truth the threshold rationale comment (reach.ts:68-85) was preserved to prevent — it records that the share alone would mark one importer in a 3-file project HIGH.",
+      "suggested_fix": "In both copies of targets/*/rules/mcp-servers.md, change to \"(HIGH at >=25% of the module tree AND at least 8 modules)\". Both files must stay byte-identical — they are now guarded by IDENTICAL_RULES."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Deleted .ts files are included in the all-or-nothing coverage requirement with no guidance on what to supply",
+      "description": "src/analysis/impact.ts:50-59 builds `allChangedRelPaths` from `git diff --name-only HEAD` plus `--cached`, which includes DELETED paths. Those are passed verbatim as `changedRelPaths` (:82) and survive `isReachRelevantPath`, so `required` contains files that no longer exist on disk and that a code-graph tool generally cannot answer for. Neither the rejection message (reach.ts:316-330) nor the shipped prose mentions this case. The failure is recoverable — the message names the missing path and the agent can supply 0 — but it costs a full round-trip on any changeset containing a TS deletion, which is a common shape and directly feeds Pre-Mortem 1 (\"all-or-nothing proves too strict in practice\").",
+      "suggested_fix": "Add one clause to the rejection text in src/analysis/reach.ts:326 and to the bullet list in targets/*/rules/mcp-servers.md: \"Deleted files still appear in `git diff --name-only`; supply 0 for them.\""
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "REQUIRED_TOKENS is a hand-copied mirror of defaultMcpConfigPaths() with no enforced direction",
+      "description": "src/cli/sync-graph-tools.test.ts:55-66 annotates the token list \"Mirrors `defaultMcpConfigPaths()` ... which is the canonical enumeration the prose must not drift from\", and install-prereqs.ts:98-100 makes the same reciprocal claim. I verified they currently agree: all 8 returned paths map onto the four table cells (.mcp.json / ~/.claude.json + ~/.claude/settings.json / opencode.json{,c} + .opencode/opencode.json / $XDG_CONFIG_HOME/opencode/opencode.json{,c}). But the coupling is one-directional in prose only — adding a ninth location to defaultMcpConfigPaths() would not fail any test, which is precisely the drift both comments warn about. `defaultMcpConfigPaths` is importable from the same package.",
+      "suggested_fix": "In src/cli/sync-graph-tools.test.ts, import `defaultMcpConfigPaths` from `./commands/install-prereqs.js`, derive the distinguishing basename/segment of each entry, and assert each appears somewhere in the Phase 7 slice. Keep the hand-written `mcpServers`/`mcp` key-shape tokens as-is."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Residual: on a changeset with no reach-relevant files, an agent's moduleCount is adopted with an entirely unmatched files map and no diagnostic",
+      "description": "I attempted to break the all-or-nothing property and found exactly one residual path. When `required` is empty (e.g. only .md/.json changed), applyAgentReach (reach.ts:245-272) computes `missing = []`, and the `unmatched`-keys diagnostic at :289-296 is deliberately gated behind `missing.length > 0`, so a `files` map whose every key matches nothing is accepted silently and `resolution.moduleCount` becomes the agent's universe scalar for the report. It is harmless today — every file has `importerCount: 0`, so `maxReach` is 0, `isHighReach(0, mc)` and `isMediumReach(0, mc)` are both false, and the Import Reach section is never emitted — so no line of the report is actually divided by the unverified scalar. Recording it because it is the single place where the agent's universe is adopted on zero validated evidence, and it would become live if a future change ever gave a non-TS file a non-zero importerCount.",
+      "suggested_fix": "Optional hardening: in applyAgentReach, when `required.length === 0` and `Object.keys(files).length > 0`, either reject with the existing unmatched-keys detail or ignore the agent object entirely and fall through to the built-in universe. No change is required for correctness today."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "1. `rg 'reach' src/analysis/impact.ts` shows a `reach` key inside the `server.tool` zod schema object.",
+      "status": "verified",
+      "evidence": "src/analysis/impact.ts:45 — `reach: AgentReachSchema.optional(),` inside the third arg to `server.tool`, destructured at :47 and consumed at :84."
+    },
+    {
+      "truth": "2. `src/analysis/reach.ts` exists and exports `resolveReach`, `HIGH_REACH_MIN`, `MEDIUM_REACH_MIN`, `isHighReach`, `isMediumReach`.",
+      "status": "verified",
+      "evidence": "reach.ts:204 resolveReach, :86 HIGH_REACH_MIN, :89 MEDIUM_REACH_MIN, :96 isHighReach, :100 isMediumReach — plus AgentReachSchema, ReachProvider, providerReach, providerModuleCount, maxReach, isReachRelevantPath, matching the Artifacts table."
+    },
+    {
+      "truth": "3. reach.test.ts covers: files without moduleCount rejected; value > moduleCount rejected; changed TS file absent from files rejected by name.",
+      "status": "verified",
+      "evidence": "reach.test.ts:52-58, :86-95 (also asserts the 'different metrics' message), :214-226 (asserts 'src/b.ts' and '1 of 2'). Coverage exceeds the plan: prototype-chain keys (:306), absolute-path keys (:254), provider-never-consulted (:193)."
+    },
+    {
+      "truth": "4. `resolveXdgConfig` used in install-prereqs.ts and defaultMcpConfigPaths() returns a cwd-rooted `opencode.json` (not `.opencode/`).",
+      "status": "verified",
+      "evidence": "install-prereqs.ts imports resolveXdgConfig from ../../utils/shell.js and calls it in defaultMcpConfigPaths(); the list adds join(process.cwd(), 'opencode.json') and 'opencode.jsonc' alongside the retained .opencode/ variant. Pinned by a real toEqual in install.test.ts plus an XDG_CONFIG_HOME override case with env save/restore."
+    },
+    {
+      "truth": "5. Both sync.md copies name `.mcp.json`, `~/.claude.json`, `opencode.json`, `mcpServers` and `mcp` within Phase 7.",
+      "status": "verified",
+      "evidence": "Phase 7 Step 7.1 table in commit 5f96257 contains all five plus `~/.claude/settings.json` and `$XDG_CONFIG_HOME`; sync-graph-tools.test.ts:57-83 asserts each token per target, and :98-106 asserts the Phase 7 slices are string-identical."
+    },
+    {
+      "truth": "6. Both mcp-servers.md copies are byte-identical and \"mcp-servers.md\" is in IDENTICAL_RULES.",
+      "status": "verified",
+      "evidence": "target-parity.test.ts:149-153 adds \"mcp-servers.md\" with a comment explaining it was byte-identical but unguarded. Byte identity confirmed by the orchestrator's cmp."
+    },
+    {
+      "truth": "7. `bun test src/cli/sync-graph-tools.test.ts` passes.",
+      "status": "verified",
+      "evidence": "Included in the orchestrator's 2588 pass / 0 fail. The file is substantive (266 lines, real content tokens, not tautological) though its param cross-check is weaker than intended — see issues."
+    },
+    {
+      "truth": "8. `spec-verify.diff` is 0 bytes.",
+      "status": "verified",
+      "evidence": "Orchestrator-verified; no spec-verify.md change appears in main..HEAD."
+    },
+    {
+      "truth": "9. `sync.diff` has exactly one `@@` hunk.",
+      "status": "verified",
+      "evidence": "Orchestrator-verified. Consistent with the commit: no `Skill(skill=\"...\")` double-quoted form was introduced in the new Phase 7/11/12 content (Gotcha 8 respected)."
+    },
+    {
+      "truth": "10. `bun test` passes with 0 failures; `bunx tsc --noEmit` clean.",
+      "status": "verified",
+      "evidence": "Orchestrator: 2588 pass / 0 fail, tsc clean after `bun run embed-assets`."
+    },
+    {
+      "truth": "Central design claim: the `reach` param is all-or-nothing, so agent-supplied and built-in reach can never be scored against one mismatched universe.",
+      "status": "verified",
+      "evidence": "Adversarially traced. (a) `required` in resolveReach (reach.ts:214) is derived from the SAME changedRelPaths array impact.ts iterates (impact.ts:82 vs :91), so the coverage set and the scoring set cannot diverge. (b) On the Tier-1 accept path `overrides` is total over `required` (reach.ts:266), so the only mixing site — `resolution.overrides.get(relPath) ?? countImporters(...)` at impact.ts:106-107 — is unreachable for every reach-relevant file; `??` (not `||`) also preserves a legitimate 0. (c) `undefined`/non-finite/negative/over-moduleCount values are all caught by the `invalid` filter (reach.ts:257-259) BEFORE the override map is built, closing the only way `.get()` could return undefined. (d) `Object.hasOwn` (:256) blocks prototype-chain false coverage, and this is tested. (e) Non-TS exclusion uses the shared `isReachRelevantPath`, the literal function extracted from impact.ts's old inline `isTsFile` check — no extension-set drift, so the short-circuit and the coverage rule provably cannot separate. (f) Tier 2/3 per-file mixing remains safe because providerModuleCount falls back to the built-in universe. The plan-reviewer's hole is closed. Only residual is the empty-`required` case recorded as a suggestion."
+    },
+    {
+      "truth": "Task 1a was genuinely behaviour-preserving (pure move, impact.test.ts byte-unchanged).",
+      "status": "verified",
+      "evidence": "Diff of 10d458a: 2 files, impact.ts -100/reach.ts +101, impact.test.ts absent from the stat. All four constants moved with identical values (HIGH_REACH_MIN 8, HIGH_REACH_SHARE 0.25, MEDIUM_REACH_MIN 4, MEDIUM_REACH_SHARE 0.1); the p50/p75 threshold rationale comment and the `importerCount > 3` note moved byte-verbatim; maxReach/isHighReach/isMediumReach/providerReach/providerModuleCount/ReachProvider bodies unchanged. The only delta is `export` added to providerReach/providerModuleCount, which the plan pre-authorised as a necessary widening."
+    },
+    {
+      "truth": "The Phase 7 config-location table matches defaultMcpConfigPaths().",
+      "status": "verified",
+      "evidence": "All 8 returned paths map onto the four table cells: .mcp.json (CC project); ~/.claude.json + ~/.claude/settings.json (CC user); opencode.json{,c} + .opencode/opencode.json (OC project); $XDG_CONFIG_HOME/opencode/opencode.json{,c} (OC user, 'defaults to ~/.config' stated). No path is missing and none is invented. The mirror is enforced only by comment, not by test — see suggestion."
+    },
+    {
+      "truth": "An agent following the shipped wiring-block prose literally would succeed, not hit the all-or-nothing rejection.",
+      "status": "verified",
+      "evidence": "The example `impact_analysis(project=\"<repo>\", reach={\"moduleCount\": <total>, \"files\": {\"src/a.ts\": <n>, ...}, \"source\": \"<server> <tool>\"})` uses exactly the four names in AgentReachSchema with matching types. The block instructs 'collect reach for **every** changed `.ts`/`.tsx`/`.js` file' — the precise set isReachRelevantPath requires — and 'omit the block if moduleCount is unobtainable', which correctly steers toward the built-in fail-safe. mcp-servers.md adds repo-relative keys, non-TS exclusion, and the > moduleCount rule. Two gaps recorded as suggestions: the share-only threshold wording, and no guidance for deleted paths."
+    },
+    {
+      "truth": "The defensive re-check in applyAgentReach is correct and reachable.",
+      "status": "verified",
+      "evidence": "Correct: it re-checks moduleCount finite/>0 (reach.ts:250) and every files value finite/>=0/<=moduleCount (:257-259) — a faithful superset of what `.refine()` and the field validators enforce, run before any override is constructed. Reachable: resolveReach is exported and called by impact.ts with an already-parsed object, and any in-process or test caller (captureImpact via args[3]) reaches it without zod. Six reach.test.ts cases (:271-316) exercise it directly. In the production MCP path zod fires first, so it is defence-in-depth rather than the primary gate — which the code comment at :240-243 states honestly."
+    },
+    {
+      "truth": "All Artifacts exist, are substantive, and are wired.",
+      "status": "verified",
+      "evidence": "reach.ts (331 lines) imported by impact.ts:25-33; reach.test.ts 355 lines/34 cases; impact.ts modified and under 400 (283); install-prereqs.ts 219 with resolveXdgConfig wired; sync-graph-tools.test.ts 266 lines of real content assertions; both mcp-servers.md copies extended identically and newly guarded by IDENTICAL_RULES; both sync.md copies carry Phase 7/11/12; sync.diff regenerated to one hunk. No stubs, no placeholder returns, no unwired exports."
+    }
+  ]
+}

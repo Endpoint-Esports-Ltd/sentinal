@@ -1,0 +1,9 @@
+@@ -65,7 +65,7 @@
+ 
+    **Preferred:** Use `worktree_detect` / `worktree_create` MCP tools.
+ 
+-   Same pattern as spec-plan Step 1.1. Capture `worktreePath` = the returned `path`. If creation fails, continue without worktree.
++   Same pattern as spec-plan Step 1.1. Capture `worktreePath` = the returned `path`. If creation fails: continue without worktree, set to `No`, use CWD as base.
+ 
+ 3. **Generate filename — ALWAYS use the worktree path as base when a worktree exists:**
+    - Worktree (`Worktree: Yes`): `<worktreePath>/docs/plans/YYYY-MM-DD-<bug-slug>.md`

@@ -1,0 +1,104 @@
+{
+  "pass_summary": "All 7 tasks are implemented and the high-risk items hold up: `lsof`/`ps aux` are genuinely DELETED (zero occurrences anywhere under targets/), D10 rule 1 is stated correctly and NOT inverted, the CC-settings-is-inert finding is correct and pinned with the reason inline, and the hand-rolled LCS diff is the right call. Two substantive gaps remain: the shipped `permission.bash` shape was never empirically resolved (the spike measured a different config), and `rules/testing.md` — edited by this phase in both targets — is left outside the parity guard.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "partial",
+  "truths_verified": 5,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "The shipped `permission.bash` shape was never empirically verified — only a different shape was",
+      "description": "`targets/opencode/opencode.json` now declares `permission.bash` as an object containing ONLY `pkill*` and `killall*`, with no `\"*\"` entry. The spike's empirical `GET /agent` run (docs/plans/2026-08-07-worktree-runtime-isolation-phase-1-spike.md:33) used `\"bash\": { \"*\": \"allow\", \"pkill*\": \"ask\", \"killall*\": \"ask\" }` — i.e. WITH the broad allow. The claim that the shipped no-`*` shape is safe rests entirely on the parenthetical inference at spike:69 ('the built-in {permission:*, pattern:*, action:allow} already sits at position 0'), which was not re-measured against the config that actually ships. `Agent.permission.bash` is documented as non-optional in the resolved type (spike:77), so OpenCode always synthesises a policy — if the synthesised default for an object-form bash map with no wildcard were `ask` rather than `allow`, EVERY bash command would prompt for every OpenCode user on upgrade. That is the worst blast radius in this phase and nothing in `src/cli/permission-defaults.test.ts` or `tests/e2e/permission-defaults.e2e.ts` pins it — the e2e only asserts the two guarded keys are present.",
+      "suggested_fix": "Add one assertion to `tests/e2e/permission-defaults.e2e.ts` (or re-run the spike's `GET /agent` against the shipped config and paste the resolved list into the spike doc): after a fresh install, resolve the `build` agent's bash policy and assert a benign command (e.g. `ls -la`) still resolves to `allow`. Alternatively, ship `\"*\": \"allow\"` as the FIRST key in `permission.bash` — which the spike's own 'Consequence for Task 6' at :69 originally recommended — making the outcome independent of OpenCode's synthesised default."
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "`rules/testing.md` was edited in both targets by Task 7 but is not covered by the parity guard",
+      "description": "Task 7's consistency sweep changed `targets/claude-code/rules/testing.md` and `targets/opencode/rules/testing.md` identically (both now read 'Use a browser-automation tool with instance isolation...'). Verified byte-identical across targets. But `IDENTICAL_RULES` in `src/cli/target-parity.test.ts:73` lists only `verification.md` and `playwright-cli.md`, so a future one-sided edit to `testing.md` ships a silent behavioural split — exactly the failure R6 and Task 1 exist to prevent, in a file this phase just touched. The plan's Task 1 notes only specified the two files because Task 7's sweep had not happened yet; the guard should follow the edit.",
+      "suggested_fix": "Add `\"testing.md\"` to `IDENTICAL_RULES` in `src/cli/target-parity.test.ts:73`. Consider generalising to a readdir over `targets/claude-code/rules/` so every shipped rule with a counterpart is guarded by default rather than by an allowlist that has to be remembered."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "A deleted baseline file passes both the parity assertion and the must-stay-empty guard",
+      "description": "`readBaseline()` (`src/cli/target-parity.test.ts:219-222`) returns `\"\"` when the file does not exist. For the three empty pairs (`spec-verify`, `spec-bugfix-verify`, `spec-master-plan`) the baseline files are genuinely 0 bytes today (verified), and the guard at :260-264 asserts `readBaseline(pair) === \"\"` — but that assertion is equally satisfied by the file being MISSING. So `rm src/cli/__fixtures__/target-parity/spec-verify.diff` is a no-op for the suite. The existence of the file is what makes the empty baseline a deliberate, reviewable artefact rather than an accident.",
+      "suggested_fix": "In the parity `it()`, assert `existsSync(baselinePath(pair))` is true (skipping when `UPDATE` is set), so a missing baseline is a hard failure rather than an implicit empty one."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "`declaredInMcpConfig` reads `~/.claude.json` in full and misses project-local MCP configs",
+      "description": "`src/cli/commands/install-prereqs.ts:41-47,124-132` substring-scans `~/.claude.json`, which for active Claude Code users routinely reaches tens of megabytes (it stores per-project session state). `readFileSync(path, 'utf-8')` loads the whole thing synchronously during install just to look for one marker. Separately the path list omits `<project>/.opencode/opencode.json`, `<project>/.mcp.json` and `~/.claude/settings.json`, so a user who configured Chrome DevTools MCP project-locally still gets the 'not configured' hint. Neither is harmful — the function only decides `[OK]` vs a hint and never writes — but both are cheap to improve.",
+      "suggested_fix": "Guard the read with a size check (e.g. skip files over ~2MB, or read only the first N KB) and add `join(process.cwd(), '.opencode', 'opencode.json')`, `join(process.cwd(), '.mcp.json')` and `join(homedir(), '.claude', 'settings.json')` to `defaultMcpConfigPaths()`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "The D10 'determine what this run shares' step is present in only 4 of the 8 rewritten files",
+      "description": "The full 4-point block (including point 2's 'Otherwise determine what this run shares … state plainly what is shared and proceed') is present in `spec-verify` (both targets) and `rules/verification.md` (both targets). The condensed variants in `spec-bugfix-verify` (both) and `spec-implement` (both) keep the `.env` clause, the PID rule and the port rule but drop the shared-state determination step entirely. This is not an inversion — nothing anywhere tells the agent to prompt on every run, so the highest-risk failure mode is cleanly avoided — but an agent reading only `spec-implement` never gets the 'reason about what you share' framing that is the whole point of the phase. All three plan DoD items are still satisfied in 8/8 files.",
+      "suggested_fix": "Add one bullet to the condensed blocks in `targets/*/commands+skills/spec-bugfix-verify` and `spec-implement`: '**State plainly what this run shares and proceed** — do not stop to ask on every run.' Apply identically to both targets and re-run `src/cli/target-parity.test.ts`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "`install.ts` grew by 16 lines despite the split-out being justified by its length",
+      "description": "Task 5's stated deviation rationale is that `install.ts` is 1052 lines, past Sentinal's 600-line block threshold and not in `PATH_EXEMPTIONS`, so the logic went into `install-prereqs.ts`. That is the right call and the split is clean (single import at :48, two call sites at :325/:620, both correctly placed beside `checkPlaywrightCli`). But the change still adds a 6-line JSDoc + re-export block (`install.ts:124-130`) purely so `install.test.ts` can import from `install.js` — which moves the file further past the threshold for a test-ergonomics reason.",
+      "suggested_fix": "Have `src/cli/commands/install.test.ts` import `checkChromeDevToolsMcp` directly from `./install-prereqs.js` and drop the re-export block from `install.ts`. The `import` at :48 is still needed for the two call sites, so the wiring claim in the plan remains true."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "No `lsof` occurrence in any of the four verify/implement files across both targets (8 files)",
+      "status": "verified",
+      "evidence": "Grep for `lsof|ps aux` across the whole of `targets/` returns zero matches. The diff shows genuine DELETION, not contradiction: `spec-verify.md:236` / `SKILL.md:234` had the `lsof` line REPLACED by the 4-point block, `spec-implement.md:193` / `SKILL.md:189` had 'Check port: `lsof -i :<port>`' replaced in place, and `spec-verify` 3.6b's `ps aux | grep <service>` was replaced by service-manager guidance. R15's deletion requirement is met."
+    },
+    {
+      "truth": "All four verify/implement files (both targets) contain `never terminate by name or pattern`",
+      "status": "verified",
+      "evidence": "Present in the diff for all 8 files: spec-verify (CC+OC, point 3), spec-bugfix-verify (CC+OC, bullet 3), spec-implement (CC+OC, step 8), rules/verification.md (CC+OC, point 3). Each names `pkill -f` and `killall` explicitly."
+    },
+    {
+      "truth": "All four verify/implement files (both targets) contain a `.env` clause forbidding copying the repo-root `.env`",
+      "status": "verified",
+      "evidence": "'Do not copy the repo-root `.env` into the worktree' appears in all 8 files in the diff. `verification.md` additionally explains why (git worktrees correctly do not inherit gitignored files)."
+    },
+    {
+      "truth": "`targets/*/rules/playwright-cli.md` contains no occurrence of 'Chrome is not installed on this machine'",
+      "status": "verified",
+      "evidence": "Diff removes the line from both targets, replacing it with a runnable `command -v` capability check. Both files received the identical hunk and remain byte-identical (guarded by `IDENTICAL_RULES` in target-parity.test.ts:73)."
+    },
+    {
+      "truth": "`targets/*/rules/playwright-cli.md` mentions Chrome DevTools MCP as a viable alternative",
+      "status": "verified",
+      "evidence": "Both files gain a tool-selection table, a 'Browser Instance Isolation' table with a Chrome DevTools MCP row describing the attach-to-live-Chrome hazard, and an explicit 'Sentinal detects it, never installs or configures it' note. Step 3.9a retitled 'Select Browser Tool and Isolate the Instance' in both targets."
+    },
+    {
+      "truth": "`bun test src/cli/` passes, including the new parity test",
+      "status": "uncertain",
+      "evidence": "Cannot execute in this review. Static evidence is strong: the 3 empty baselines are genuinely 0 bytes, `spec-implement.diff` records exactly the intended divergence (Agent(isolation=\"worktree\") vs Task(subagent_type=\"general\"), the OpenCode-only shared-working-directory safety paragraph, and LSP/lsp casing), and the LCS diff is pure JS so it is byte-stable across BSD/GNU platforms — the stated reason for not shelling to diff(1) holds and the implementation is correct. `permission-defaults.test.ts`'s wording assertions match the shipped `verification.md` text exactly ('Do not delete the line', 'Change the value to `\"allow\"`', '\"Bash(pkill:*)\"'). `install.test.ts`'s console.log spy is valid — `ok()`/`info()` both use console.log (src/utils/shell.ts:31-36)."
+    },
+    {
+      "truth": "`bun scripts/check-embed-assets.mjs` exits 0 and its content check now covers `spec-verify`",
+      "status": "uncertain",
+      "evidence": "The code change is correct and complete: `SPOT_CHECKED_SKILLS` now includes `spec-verify` and `spec-bugfix-verify` alongside the two master skills, and the success log lists them. Exit status not executable here. Note the guard only proves the skill's `name:` frontmatter reached the generated output — it does not prove the BODY is fresh, which the plan's Task 3 DoD correction already records honestly."
+    },
+    {
+      "truth": "Artifact: `src/cli/target-parity.test.ts` provides a working cross-target parity guard that catches a one-sided edit",
+      "status": "verified",
+      "evidence": "Non-stub, 290 lines. A one-sided edit changes one side's normalised body, changes the computed unified diff, and fails the baseline equality with a rendered delta (:242-256). Normalisation is correctly scoped to the only two permitted divergences (frontmatter, and both `subagent_type=\"sentinal:` and `Skill(skill='sentinal:` forms). Baseline regeneration is gated behind an explicit env var and the three empty baselines have a second, independent must-stay-empty assertion."
+    },
+    {
+      "truth": "Artifact: the Claude Code permission default is deliberately absent, with the reason pinned inline",
+      "status": "verified",
+      "evidence": "`src/cli/permission-defaults.test.ts:106-129` asserts `settings.permissions?.ask` is undefined and `permissions.deny` is still `[]`, with a JSDoc stating the reason (Claude Code reads only `agent`/`subagentStatusLine` from a plugin-root settings.json, so the entry would be inert — green on a presence test, dead at runtime) and the condition for deleting the test. The finding is correct and independently corroborated in the spike (:123-133) by the existence of `configureStatusline()`, which exists precisely because the plugin settings.json's `statusLine` key does not apply. Master DoD item 9 was genuinely amended (2026-08-07-worktree-runtime-isolation.md:375) rather than silently diverged from."
+    },
+    {
+      "truth": "Artifact: `install-prereqs.ts` split is clean and both call sites plus the re-export work",
+      "status": "verified",
+      "evidence": "133 lines, no writes of any kind, never calls process.exit. Import at install.ts:48, re-export at :124-130 (legal alongside the import — `export … from` creates no conflicting local binding), call sites added at :325 (Claude Code) and :620 (OpenCode) directly after `checkPlaywrightCli()`. The two-part predicate is implemented as specified: no Chrome ⇒ total silence (return at :97), Chrome + MCP ⇒ `[OK]`, Chrome without MCP ⇒ hint only. Nine tests cover every branch including a byte-compare of the config file before/after to pin the detect-only scope guard, and an explicit process.exit spy."
+    }
+  ]
+}
