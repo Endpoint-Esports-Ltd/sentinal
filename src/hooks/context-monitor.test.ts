@@ -65,30 +65,25 @@ describe("formatContextBar", () => {
 });
 
 describe("getContextWarning", () => {
-  it("should return null below 80%", () => {
+  it("should return null well below compaction", () => {
     expect(getContextWarning(usage(70))).toBeNull();
-  });
-
-  it("should return null at exactly 79%", () => {
     expect(getContextWarning(usage(79))).toBeNull();
   });
 
-  it("should warn at 80% with bar", () => {
-    const r = getContextWarning(usage(80, 133000));
-    expect(r).not.toBeNull();
-    expect(r).toContain("80%");
-    expect(r).toContain("▓");
-    expect(r).toContain("░");
-    expect(r).toContain("~133k tokens");
-    expect(r).toContain("Work normally");
+  it("should stay silent at 80% — not yet close to compaction", () => {
+    expect(getContextWarning(usage(80, 133000))).toBeNull();
   });
 
-  it("should strongly warn at 90% with bar", () => {
+  it("should stay silent at 89%", () => {
+    expect(getContextWarning(usage(89, 148000))).toBeNull();
+  });
+
+  it("should warn at 90% that compaction is approaching, with bar", () => {
     const r = getContextWarning(usage(90, 150000));
     expect(r).not.toBeNull();
     expect(r).toContain("90%");
     expect(r).toContain("▓");
-    expect(r).toContain("don't start complex");
+    expect(r!.toLowerCase()).toContain("approaching");
   });
 
   it("should urge completion at 95%+ with bar", () => {
@@ -107,7 +102,7 @@ describe("getContextWarning", () => {
   });
 
   it("should include bar as first line", () => {
-    const r = getContextWarning(usage(85, 142000));
+    const r = getContextWarning(usage(92, 142000));
     expect(r).not.toBeNull();
     const lines = r!.split("\n");
     expect(lines.length).toBe(2);
