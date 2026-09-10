@@ -447,8 +447,16 @@ export class SidecarClient {
 
   // ─── Specs ─────────────────────────────────────────────────────────────
 
-  async syncSpec(planPath: string, projectPath: string, sessionId?: string): Promise<void> {
-    await this.post("/spec/sync", { planPath, projectPath, sessionId: sessionId ?? null });
+  async syncSpec(
+    planPath: string,
+    projectPath: string,
+    sessionId?: string,
+  ): Promise<void> {
+    await this.post("/spec/sync", {
+      planPath,
+      projectPath,
+      sessionId: sessionId ?? null,
+    });
   }
 
   /**
