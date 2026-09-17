@@ -56,7 +56,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
 - **Persistent Semantic Memory** — Vector-based knowledge storage with automatic capture/restore and hybrid keyword+semantic search
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (36 tools across 7 domains)
+- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (37 tools across 7 domains)
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 - **Long-Running Sidecar** — Background process holding a warm DB + embeddings; hooks connect via Unix socket for sub-15ms response times
 
@@ -685,12 +685,12 @@ These are preferred over built-in web tools. In Claude Code, the `tool-redirect`
 
 ### Sentinal MCP Tool Catalog
 
-The `sentinal` MCP server exposes **36 tools across 7 domains**:
+The `sentinal` MCP server exposes **37 tools across 7 domains**:
 
 | Domain       | Count | Tools                                                                                      |
 | ------------ | ----- | ------------------------------------------------------------------------------------------ |
 | **Memory**   | 9     | `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_update`, `memory_delete`, `memory_share`, `memory_maintain`, `memory_stats` |
-| **Spec**     | 9     | `spec_init`, `spec_status`, `spec_register`, `spec_plan_parse`, `spec_config`, `spec_events`, `spec_metrics`, `spec_notify`, `spec_wait_file` |
+| **Spec**     | 10    | `spec_init`, `spec_status`, `spec_register`, `spec_plan_parse`, `spec_config`, `spec_events`, `spec_metrics`, `spec_notify`, `spec_wait_file`, `spec_master_audit` |
 | **Worktree** | 6     | `worktree_detect`, `worktree_create`, `worktree_diff`, `worktree_sync`, `worktree_abandon`, `worktree_cleanup` |
 | **TDD**      | 3     | `tdd_status`, `tdd_set_state`, `tdd_clear`                                                |
 | **Analysis** | 4     | `check_diagnostics`, `impact_analysis`, `plan_impact`, `quality_report`                    |

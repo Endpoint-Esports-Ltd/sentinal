@@ -9,10 +9,11 @@
  *   - spec_plan_parse: Parse plan file metadata
  *   - spec_wait_file:  Wait for file to appear on disk
  *
- * The other six live in siblings, because all nine in one file put this module
- * at 681 lines — past the 600-line hard block, which made it uneditable:
- *   - ./status-mcp-tools.ts: spec_config, spec_status, spec_init
- *   - ./events-mcp-tools.ts: spec_notify, spec_events, spec_metrics
+ * The other seven live in siblings, because all of them in one file put this
+ * module past the 600-line hard block, which made it uneditable:
+ *   - ./status-mcp-tools.ts:       spec_config, spec_status, spec_init
+ *   - ./events-mcp-tools.ts:       spec_notify, spec_events, spec_metrics
+ *   - ./master-audit-mcp-tools.ts: spec_master_audit
  *
  * Those are called from `registerSpecTools` below, following the precedent set
  * by `src/runtime/mcp-tools.ts` → `src/runtime/lifecycle-mcp-tools.ts`: the
@@ -31,6 +32,7 @@ import { SPEC_STATUSES, type SpecStatus } from "./types.js";
 import { SpecStore } from "./store.js";
 import { registerSpecStatusTools } from "./status-mcp-tools.js";
 import { registerSpecEventsTools } from "./events-mcp-tools.js";
+import { registerSpecMasterAuditTool } from "./master-audit-mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
 
 // --- Public API ---
@@ -66,6 +68,8 @@ export function registerSpecTools(
   // Delegating keeps `src/mcp/server.ts` unchanged.
   registerSpecStatusTools(server, client, specStore);
   registerSpecEventsTools(server, client, effectiveStore, specStore);
+  // Direct-fs; takes no deps on purpose — see ./master-audit-mcp-tools.ts.
+  registerSpecMasterAuditTool(server);
 }
 
 // --- spec_register ---

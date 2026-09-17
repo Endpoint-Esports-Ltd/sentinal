@@ -40,6 +40,61 @@ Reference this value in Steps 3.1, 3.4, and 3.5.
 
 ---
 
+## Step 0b: Master Plan Branch
+
+**⛔ Run immediately after Step 0, before `The Process`.** Read the plan's `Type:` field.
+
+If `Type:` is **not** `Master`, skip this step entirely and continue as normal.
+
+If `Type: Master`, this is a **parent plan whose work lives in child plans**. Its own task list is
+usually empty, so the checks below replace the per-task audit rather than supplement it.
+
+### 0b.1 — Every child plan must be VERIFIED
+
+`spec-master-execute` states that this skill performs this check. Run it with the `spec_master_audit`
+MCP tool:
+
+```
+spec_master_audit({ plan_path: "<absolute/path/to/master-plan.md>" })
+```
+
+The tool resolves children by their `Parent:` back-link — **not** by globbing filenames — and returns
+`PASS`/`FAIL`, a `N/M VERIFIED` count, a child/checkbox table, and a `must_fix` list.
+
+⛔ **Only `VERIFIED` passes.** `COMPLETE` means _implemented, awaiting verification_ and routes back
+into this skill, so a `COMPLETE` child is a FAILURE, as are `FAILED`, `IN_PROGRESS`, `PENDING`,
+`APPROVED`, `DRAFT`, `PLANNING`, `IMPLEMENTING` and `VERIFYING`. `CANCELLED` children are reported as
+an explicit exclusion and are not counted as verified.
+
+⛔ **A disagreement between a child and the master's checkbox is itself the finding**, in either
+direction, because the two records are written by different mechanisms and nothing else reconciles them:
+
+- a child's `Status:` is set only by **this skill** running on that child;
+- the master's checkbox is set by **`spec-master-execute` Step 4**.
+
+So "master says VERIFIED, child says PENDING" means the child never ran through verification. And
+"child says VERIFIED, master checkbox still `[ ]`" means the master's record was never updated — which
+is the direction that a check looking only for lagging children cannot see.
+
+Do **not** set the master to `VERIFIED` while any `must_fix` stands.
+
+### 0b.2 — No regression between phases
+
+Run the full test suite once over the merged result. Per-phase runs cannot see a later phase breaking
+an earlier one. **A nonzero failure count is a regression until proven otherwise** — do not record it
+as pre-existing without measuring the base branch in the same environment.
+
+### 0b.3 — Overall goal achieved
+
+Audit the master's own `## Definition of Done` against the tree, not against the child reports.
+
+### 0b.4 — Report
+
+Reproduce the tool's table and `must_fix` list verbatim in the verification report. Every `must_fix`
+blocks `VERIFIED`.
+
+---
+
 ## The Process
 
 ```

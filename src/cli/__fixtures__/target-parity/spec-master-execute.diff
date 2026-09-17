@@ -23,7 +23,7 @@
  
  ### Failure Handling
  
-@@ -167,7 +166,7 @@
+@@ -177,7 +176,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  

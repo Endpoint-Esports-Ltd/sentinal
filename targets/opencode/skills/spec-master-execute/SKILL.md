@@ -132,10 +132,19 @@ If a child plan fails (verification rejects, or subagent reports errors):
 After each wave completes, update the master plan:
 
 1. Read current master plan content
-2. Update `## Progress Tracking` checkboxes:
-   - `- [x] Phase N: Title (Wave M) — VERIFIED` for completed phases
-   - `- [ ] Phase N: Title (Wave M) — IN_PROGRESS` for active phases
-3. Update counts: `**Total Phases:** N | **Completed:** K | **Remaining:** N-K`
+2. **Read each child plan's `Status:` field from the child FILE.**
+   ⛔ Never set a checkbox from what a subagent reported. The report is prose; the child file is the
+   record `spec-verify` actually writes. Setting `— VERIFIED` from a report is how a master comes to
+   claim phases that were never verified, and Step 3.1 then selects the next wave from those same
+   checkboxes, so one bad report also corrupts resumption.
+3. Update `## Progress Tracking` checkboxes **to match the child files**:
+   - `- [x] Phase N: Title (Wave M) — VERIFIED` — only when that child's file reads `Status: VERIFIED`
+   - `- [ ] Phase N: Title (Wave M) — <STATUS>` — for every other status, including `COMPLETE`, which
+     means implemented and awaiting verification
+4. Update counts: `**Total Phases:** N | **Completed:** K | **Remaining:** N-K`
+5. **Confirm the result reconciles** with `spec_master_audit({ plan_path: "<master-plan-path>" })`. Any
+   `must_fix` it reports is a disagreement you just wrote, or one you failed to clear — resolve it
+   before starting the next wave.
 
 ---
 
@@ -147,11 +156,12 @@ When ALL waves are complete (all child plans VERIFIED):
 2. Use `spec_register` MCP tool with `status: "COMPLETE"`
 3. **Chain to verification:** Load `Skill(skill='spec-verify', args='<master-plan-path>')`
 
-The verification phase for master plans checks:
+The verification phase for master plans checks, in `spec-verify` **Step 0b**:
 
-- All child plans are VERIFIED
-- No regression between phases (integration check)
-- Overall goal is achieved
+- All child plans are VERIFIED — via `spec_master_audit`, which resolves children by their `Parent:`
+  back-link and treats a child/checkbox disagreement in either direction as a finding
+- No regression between phases (one full-suite run over the merged result)
+- Overall goal is achieved (the master's own `## Definition of Done`, audited against the tree)
 
 ---
 

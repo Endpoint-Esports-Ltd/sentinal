@@ -1,6 +1,6 @@
 # Sentinal MCP Server (Self-Hosted)
 
-The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **36 tools across 7 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
+The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **37 tools across 7 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
 > ⚠️ This count was previously stated as "28 tools across 6 domains" and was already wrong before the runtime domain existed — the real pre-Phase-3 figure was **31 across 6** (the Memory table below was missing `memory_update`, `memory_delete` and `memory_share`). `src/mcp/server.test.ts` now asserts registration, so a domain that is never wired in is caught; the COUNT is still hand-maintained.
 
@@ -38,19 +38,29 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 | `memory_maintain` | Maintenance ops (prune, reindex)                            |
 | `memory_stats`    | Database statistics (observation counts, project breakdown) |
 
-### Spec Workflow Domain (`src/spec/mcp-tools.ts`) — 9 tools
+### Spec Workflow Domain (`src/spec/mcp-tools.ts`) — 10 tools
 
-| Tool              | Purpose                                        |
-| ----------------- | ---------------------------------------------- |
-| `spec_init`       | Get all workflow context in one call           |
-| `spec_status`     | Current active plan, progress, remaining tasks |
-| `spec_register`   | Register/update a plan in the SQLite index     |
-| `spec_plan_parse` | Parse a plan .md file into structured metadata |
-| `spec_config`     | Read `SENTINAL_*` env config snapshot          |
-| `spec_events`     | Recent lifecycle events for a spec             |
-| `spec_metrics`    | Per-task timing + plan duration                |
-| `spec_notify`     | Create a dashboard notification                |
-| `spec_wait_file`  | Block until a reviewer-output file appears     |
+| Tool                | Purpose                                                     |
+| ------------------- | ----------------------------------------------------------- |
+| `spec_init`         | Get all workflow context in one call                        |
+| `spec_status`       | Current active plan, progress, remaining tasks              |
+| `spec_register`     | Register/update a plan in the SQLite index                  |
+| `spec_plan_parse`   | Parse a plan .md file into structured metadata              |
+| `spec_config`       | Read `SENTINAL_*` env config snapshot                       |
+| `spec_events`       | Recent lifecycle events for a spec                          |
+| `spec_metrics`      | Per-task timing + plan duration                             |
+| `spec_notify`       | Create a dashboard notification                             |
+| `spec_wait_file`    | Block until a reviewer-output file appears                  |
+| `spec_master_audit` | Reconcile a master plan against its child plans (read-only) |
+
+⛔ `spec_master_audit` is **direct-fs and takes no deps**, unlike every other tool in
+this domain. It resolves a master's children by their `Parent:` back-link — never by
+globbing `<master-slug>-phase-*.md`, which false-positives on spike files and misses
+off-convention children. Only `VERIFIED` passes: `COMPLETE` means *implemented,
+awaiting verification*, so a fail-list naming only `PENDING`/`IN_PROGRESS`/`DRAFT`
+would let the very drift this tool exists to catch through. Do **not** give it a
+sidecar route or a `store` dependency — `store` is `null` in production whenever the
+sidecar runs, which would make it pass every test and do nothing in the field.
 
 ### TDD Domain (`src/tdd/mcp-tools.ts`) — 3 tools
 

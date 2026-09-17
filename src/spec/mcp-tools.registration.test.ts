@@ -32,6 +32,7 @@ const SPEC_TOOLS = [
   "spec_status",
   "spec_init",
   "spec_metrics",
+  "spec_master_audit",
 ] as const;
 
 /**
@@ -64,7 +65,7 @@ async function advertisedToolNames(): Promise<string[]> {
 }
 
 describe("registerSpecTools registration surface", () => {
-  it("advertises all nine spec_* tools", async () => {
+  it("advertises all ten spec_* tools", async () => {
     const names = await advertisedToolNames();
 
     for (const tool of SPEC_TOOLS) {
@@ -75,7 +76,7 @@ describe("registerSpecTools registration surface", () => {
     }
   });
 
-  it("advertises exactly those nine and nothing else", async () => {
+  it("advertises exactly those ten and nothing else", async () => {
     const names = await advertisedToolNames();
 
     expect(names.filter((n) => n.startsWith("spec_")).sort()).toEqual(

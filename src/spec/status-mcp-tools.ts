@@ -20,6 +20,54 @@ import { findActivePlan } from "./detect.js";
 import type { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import type { SpecTask } from "./types.js";
+import { auditMasterPlan } from "./master-audit.js";
+
+// --- Master child aggregate ---
+
+/**
+ * Render the child aggregate for a master plan, or `[]` for anything else.
+ *
+ * A master's own task list is empty and `detect.ts:44` makes an active master
+ * short-circuit `findActivePlan`, so both tools used to report
+ * `0/0 tasks (0%)` and MASK every child's progress. That blind spot is what let
+ * master↔child drift sit unobserved between runs, so the aggregate is surfaced
+ * continuously rather than only at final verification.
+ *
+ * Best-effort: a master whose children cannot be read must never break
+ * `spec_status`/`spec_init`, which are called at the top of every workflow.
+ */
+function masterChildLines(
+  type: string | undefined,
+  planFile: string | undefined,
+): string[] {
+  if (type !== "master" || !planFile) return [];
+
+  try {
+    const r = auditMasterPlan(planFile);
+    const lines = [
+      "### Child Plans",
+      "",
+      `- **VERIFIED:** ${r.verifiedCount}/${r.totalCount}`,
+    ];
+    if (r.excluded.length > 0) {
+      lines.push(
+        `- **Excluded (CANCELLED):** ${r.excluded.map((c) => c.slug).join(", ")}`,
+      );
+    }
+    if (!r.ok) {
+      lines.push(
+        `- ⛔ **DRIFT — ${r.findings.length} finding(s).** Run \`spec_master_audit\` for detail.`,
+      );
+      for (const f of r.findings) {
+        lines.push(`  - [${f.kind}] ${f.slug}`);
+      }
+    }
+    lines.push("");
+    return lines;
+  } catch {
+    return [];
+  }
+}
 
 // --- Public API ---
 
@@ -135,6 +183,9 @@ function registerSpecStatusTool(
         );
       }
 
+      const childLines = masterChildLines(spec.type, spec.planFile);
+      if (childLines.length > 0) lines.push("", ...childLines);
+
       return mcpText(lines.join("\n"));
     },
   );
@@ -198,6 +249,8 @@ function registerSpecInitTool(
         `- **Plan File:** ${filePath}`,
         "",
       );
+
+      lines.push(...masterChildLines(spec.type, filePath));
 
       // --- Current Task ---
       const currentTask =
