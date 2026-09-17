@@ -38,6 +38,68 @@ Reference this value in Steps 3.1, 3.4, and 3.5.
 
 ---
 
+## Step 0b: Master Plan Branch
+
+**⛔ Run immediately after Step 0, before `The Process`.** Read the plan's `Type:` field.
+
+If `Type:` is **not** `Master`, skip this step entirely and continue as normal.
+
+If `Type: Master`, this is a **parent plan whose work lives in child plans**. Its own tasks are
+usually empty, so the checks below replace the per-task audit rather than supplement it.
+
+### 0b.1 — Every child plan must be VERIFIED
+
+`spec-master-execute` states that this skill performs this check. Derive the children from the
+master's slug rather than trusting the master's own checkboxes — those are written by the
+orchestrator from subagent reports and can disagree with the child files:
+
+```bash
+MASTER="<path/to/master-plan.md>"
+SLUG="$(basename "$MASTER" .md)"
+DIR="$(dirname "$MASTER")"
+
+for child in "$DIR/$SLUG"-phase-*.md; do
+  [ -e "$child" ] || continue
+  printf '%-60s %s\n' "$(basename "$child")" \
+    "$(grep -m1 '^Status:' "$child" | sed 's/Status: //')"
+done
+```
+
+⛔ **A child reading `PENDING`, `IN_PROGRESS` or `DRAFT` is a verification FAILURE**, even when
+the master's Progress Tracking shows `[x] … — VERIFIED`. The two are written by different
+mechanisms and nothing else reconciles them:
+
+- a child's `Status:` is set only by **this skill** running on that child;
+- the master's checkbox is set by **`spec-master-execute` Step 4** from what a subagent reported.
+
+So "master says verified, child says pending" means the child never ran through verification —
+report it as such and do not mark the master `VERIFIED`.
+
+### 0b.2 — No regression between phases
+
+Run the full test suite once over the merged result. Per-phase runs cannot see a later phase
+breaking an earlier one.
+
+### 0b.3 — Overall goal achieved
+
+Audit the master's own `## Definition of Done` against the tree, not against the child reports.
+
+### 0b.4 — Report
+
+```
+### Child Plans: N/M VERIFIED
+| Child | Status | Master checkbox |
+|---|---|---|
+| …-phase-0.md | VERIFIED | [x] |
+| …-phase-1.md | ⛔ PENDING | [x] — DISAGREES |
+```
+
+Any row where the two disagree is a **must_fix**, and the disagreement itself is the finding:
+it means the checkbox was written without the child being verified.
+
+
+---
+
 ## The Process
 
 ```
