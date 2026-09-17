@@ -1,3 +1,10 @@
+# [1.37.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.5...v1.37.0) (2026-09-17)
+
+
+### Features
+
+* **spec:** reconcile master plans against their children with spec_master_audit ([188ee42](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/188ee42bb5091434aeb193fabf608bbcf1ec2715)), closes [#11](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/11)
+
 ## [1.36.5](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.4...v1.36.5) (2026-09-10)
 
 
