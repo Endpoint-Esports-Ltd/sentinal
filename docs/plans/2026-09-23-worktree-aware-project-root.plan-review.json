@@ -1,0 +1,84 @@
+{
+  "review_summary": "Scope A+B+C is fully covered and the identity/workspace split is well-reasoned, but the plan's central spec-store claim is factually wrong: `specs.project_path` is NOT in the `ON CONFLICT(id) DO UPDATE SET` list, so it never flips and never self-heals — which invalidates Assumption 3, Task 8's rationale, and its DoD. Task 11 additionally re-keys the slot pool (`worktrees.project_path`) while leaving live rows un-migrated, silently defeating the V12 partial unique index rather than violating it.",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "`specs.project_path` is not in the ON CONFLICT UPDATE set — the plan's central claim is false",
+      "description": "Assumptions line 78 and Task 8 both state that `project_path` is \"written by the `ON CONFLICT(id) DO UPDATE` at :130\" and therefore \"stops flipping between worktrees\". Verified at `src/spec/store.ts:127-145`: the UPDATE set is `title, type, status, approved, plan_file, task_count, tasks_done, updated_at, session_id, metadata, parent, wave, started_at, completed_at`. `project_path` is absent. It is written ONLY on the initial INSERT and is sticky forever after. Consequences: (a) the diagnosed mechanism (\"flipping\") never happened — the real divergence is a read-side mismatch, meaning Task 9, not Task 8, is what actually fixes `spec_status`; (b) Task 8's note \"Existing rows self-heal on the next `spec_register` for that plan\" is FALSE, so the reported bug on the CURRENT plan row is not fixed by this plan at all; (c) any spec row first registered from a now-deleted worktree is permanently keyed to a dead path with no recovery path, since migration is out of scope.",
+      "suggested_fix": "Add `project_path = excluded.project_path` to the `ON CONFLICT(id) DO UPDATE SET` list in `src/spec/store.ts:130` as part of Task 8 — this is the one-line change that actually delivers the claimed self-heal without a schema migration. Rewrite Assumption 3 and Task 8's 'Key Decisions' to state the true mechanism (sticky column, now made self-healing). Add a DoD item: 'A spec row pre-existing with a worktree `project_path` is re-keyed to canonical on the next `spec_register` (test writes a row with a stale path first, then re-registers).'"
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 10's `AND project_path = ?` will block every Stop in a worktree unless the caller passes identity, not `searchDir`",
+      "description": "`resolveStopDecision` operates on a worktree-local `searchDir` (`targets/opencode/plugins/sentinal.ts:1190` uses `process.cwd()`; Task 7 keeps this worktree-local, correctly). Task 10 adds `AND project_path = ?` to `getSpecOwner` (`src/spec/ownership.ts:137-148`) but never states WHICH path is bound. If the worktree-local `searchDir` is bound while rows are keyed canonically (Task 8), the lookup returns no row → `!ownerId` → `{ block: true, ownership: \"orphaned\" }` (`ownership.ts:104-105`). The fail-safe posture converts an identity mismatch into a spurious hard block on every Stop from a worktree — a user-visible regression worse than the bug being fixed, and Task 10's DoD does not test it.",
+      "suggested_fix": "In Task 10, state explicitly: the project argument to `getSpecOwner` MUST be `resolveProjectIdentity(searchDir)`, never `searchDir` itself; plan discovery stays worktree-local but the DB lookup is canonical. Add a DoD item: 'Invoked from a linked worktree with a canonically-keyed spec row, the owner is still resolved (decision is NOT `orphaned`).'"
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Task 11 silently disables the V12 unique index instead of violating it — duplicate live slots across the same repo",
+      "description": "Verified: the slot/live queries are scoped by `project_path` (`src/worktree/store.ts:95`, `:156` `countActive`, `:186` the live-slot query), and `idx_wt_slot_live` is `UNIQUE(project_path, slot) WHERE status IN ('active','ready-to-merge')` (`src/memory/migrations.ts:97-101`). Task 11 changes the create path to key new rows by the MAIN checkout while explicitly leaving existing live rows under their old worktree-local `project_path`. Those rows are then invisible to `countActive`/the live-slot query, so the allocator believes their slots are free and hands the same slot out again. The unique index cannot catch this because the two rows differ in `project_path`. Answering review question 5 precisely: the un-migrated rows do not VIOLATE the index — they escape it, which is worse than stale, because a duplicate live slot is exactly the port-collision class that workstream B exists to close. The risk table rates this Medium/High but its mitigation ('Task 11 is last and touches only the create path') does not address it — 'only the create path' IS the allocation path.",
+      "suggested_fix": "Either (a) drop Task 11 from this plan (see the YAGNI issue below), or (b) add a bounded, idempotent re-key step to Task 11: for `worktrees` rows whose `worktree_path` is still on disk and whose `project_path` resolves via `resolveProjectIdentity` to the new canonical root, UPDATE `project_path` in a single transaction BEFORE any new allocation, catching `SQLITE_CONSTRAINT_UNIQUE` and demoting the loser rather than crashing. Add a DoD item: 'A live worktree row carrying the pre-change `project_path` does not allow its slot to be re-allocated.'"
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "`resolveWithReconcile` self-heal claim is unverified and contradicted by path-keyed lookup",
+      "description": "Assumption 4 and Task 11 both rest on 'worktree rows self-heal through `resolveWithReconcile`'. But worktree resolution itself matches on the project path — `src/worktree/store.ts:263` filters `rows.find(r => canonicalPath(r.project_path) === wanted)`, and `:95` is `SELECT * FROM worktrees WHERE project_path = ?`. A row stored under the OLD worktree-local path is therefore not found when resolving from the new canonical root, so reconcile does not update it — it registers an additional row for the same physical worktree. That is duplication, not self-healing. No part of the plan verifies that reconcile ever UPDATEs `project_path` on an existing row.",
+      "suggested_fix": "Before relying on this, read `src/worktree/reconcile.ts:83-144` and confirm whether its re-registration path performs an UPDATE of `project_path` on the matched row or an INSERT of a new one. If it is an INSERT (likely, given the path-keyed lookup), replace Assumption 4 with the explicit re-key step above and add a test asserting exactly one live row exists per `worktree_path` after reconcile."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "`sessions` is named in scope but no task wires its write path",
+      "description": "Scope (line 24) says 'Memory (`observations`, `sessions`) keyed by canonical identity on write and normalized on read.' Tasks 5, 6 and 7 wire the observation write path only — Task 6 is explicitly scoped to `routes.ts:258-284` (the `/observation` route). The sidecar `/session` route (`POST /session`, visible in `src/sidecar/server.test.ts:114-139` which round-trips `projectPath`) accepts and stores a project path with no task covering it. Sessions keyed by raw worktree cwd keep fragmenting, which affects `isSessionAlive`/ownership liveness and the dashboard.",
+      "suggested_fix": "Extend Task 6 to cover the `/session` (and `/session/:id/end`) route in `src/sidecar/routes.ts` alongside `/observation`, applying the same normalize-from-supplied-path-only rule, and add a DoD item: 'A session created from a linked worktree is listed when querying sessions for the main checkout.' Add the corresponding Goal Verification truth."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "The injected `ownerLookup` callback bypasses Task 10's project filter entirely",
+      "description": "`src/spec/ownership.ts:99-101` prefers an injected `ownerLookup(active.spec.id)` over `getSpecOwner`, and the callback signature carries only the spec id. The OpenCode plugin supplies its own lookup. Task 10 modifies `getSpecOwner` only, so on the OpenCode target the ownership query stays unscoped — a dual-target drift of exactly the kind `sentinal-dual-target.md` warns about. Task 10's file list names only `src/spec/ownership.ts`.",
+      "suggested_fix": "In Task 10, widen the `ownerLookup` signature to `(specId: string, projectPath: string) => string | null` and update the OpenCode plugin's implementation in `targets/opencode/plugins/sentinal.ts` to bind the canonical path. Add `targets/opencode/plugins/sentinal.ts` to Task 10's Files list, and check for a same-wave file overlap with Task 7 (Wave 3 already modifies that file) before scheduling."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Read-side normalization misses `src/session/conflict.ts` and an existing `workspace-adaptor` resolver",
+      "description": "Answering review question 4: two project-path consumers are absent from the plan. (1) `src/session/conflict.ts:66-89` filters `WHERE o.project_path = ?` with exact equality on a caller-supplied path — the same class of bug Task 9 fixes at the `memory_search` boundary, but Task 9's Files list covers only `src/memory/mcp-tools.ts` and `src/spec/status-mcp-tools.ts`. Cross-session edit-conflict detection will silently return nothing from a worktree. (2) `src/opencode/workspace-adaptor.ts` already exists and already reasons about a `MAIN_ROOT` concept (`src/opencode/workspace-adaptor.test.ts:305-368`); the plan's inventory of 'three independent root resolvers' (lines 45-51) does not mention it, so the new module may be a fourth overlapping resolver rather than the single shared one the Architecture promises.",
+      "suggested_fix": "Add `src/session/conflict.ts` to Task 9 (normalize `projectPath` at the entry of `findConflictingEdits`/`getRecentSessionActivity`) with a DoD item. Add a first step to Task 3: read `src/opencode/workspace-adaptor.ts` and either delegate it to `resolveProjectIdentity`/`resolveWorkspaceRoot` or document in the module docblock why it is a distinct concern — and correct the resolver inventory table in 'Context for Implementer'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Composite-key avoidance is justified, but the residual cross-project collision is left undocumented and makes Task 10's DoD unachievable as written",
+      "description": "Answering review question 1's second half: avoiding a composite key IS justified — five FKs reference `specs(id)` and SQLite would require rebuilding all five dependent tables. But the consequence is understated. `specs.id` is the bare plan filename with the path discarded (`src/spec/parser.ts:74`), so two projects holding a same-named plan share ONE row, and because `project_path` is not in the UPDATE set (see the first issue), project B's register silently overwrites project A's `title`/`status`/`plan_file` while retaining project A's `project_path`. Task 10's DoD 'Same-named plans in two distinct projects do not cross-resolve ownership' will then pass only because the filter matches nothing — converting cross-resolution into a spurious `orphaned` block, not into correctness. Note this interacts with the first issue's suggested fix: adding `project_path = excluded.project_path` makes the row's ownership ping-pong between projects, so the limitation must be recorded either way.",
+      "suggested_fix": "Add an explicit 'Known limitation' subsection under Scope/Out of Scope: `specs.id` is not project-qualified, so two projects with an identically-named plan file share a row; the composite key is deferred on FK-rebuild grounds and tracked as follow-up work. Reword Task 10's DoD to the achievable claim: 'A same-named plan in project B does not return project A's `session_id`; the resulting decision is the documented fail-safe (`orphaned`), asserted explicitly.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "scope_alignment",
+      "title": "Task 11 (`worktree_create` un-nesting) is outside the user's A+B+C scope and carries the plan's highest risk",
+      "description": "The user chose three workstreams: (A) canonical memory identity, (B) the `runtime_up` slot-token gate, (C) spec project scoping. Task 11 changes where new worktrees are created and re-keys the slot pool — it belongs to none of the three, and per the plan's own `plan_impact` run `src/worktree/create.ts` sits in the top quartile of the import graph (106/404). It is also the source of the two slot/reconcile must_fix findings above. Shipping A+B+C without it loses nothing the user asked for; shipping it adds the plan's only data-corruption-class risk.",
+      "suggested_fix": "Split Task 11 (and its cleanup-Guard-2 test) into a separate follow-up plan, reducing this plan to 11 tasks. If the user wants it retained, surface the slot re-pooling hazard to them explicitly first — it changes the risk profile of an otherwise additive change."
+    },
+    {
+      "severity": "consider",
+      "category": "hidden_dependency",
+      "title": "`GitWorktreeEntry.branch` becoming nullable is a public-API type change",
+      "description": "Answering review question 2: the plan's consumer list is correct and complete for `src/` — grep confirms exactly `src/worktree/reconcile.ts:84` and `src/worktree/cleanup.ts:221` (plus `disk-scan.test.ts`), and both match on branch, so an explicit null skip is sufficient to preserve behaviour. What the plan does not address is that `listGitWorktrees`/`GitWorktreeEntry` may be exported from the barrel (`src/index.ts`) as part of the `@endpoint/sentinal` public API, in which case widening `branch` to `string | null` is a breaking type change for downstream consumers and for anything in `targets/` importing from the barrel.",
+      "suggested_fix": "Add to Task 1: grep `src/index.ts` and `targets/` for `listGitWorktrees|GitWorktreeEntry`. If exported, prefer adding a separate `listAllGitWorktrees()` (branchless-inclusive) and leave the existing filtered export's type untouched — `getMainWorktreeRoot` is the only new consumer that needs branchless entries. Note that `disk-scan.test.ts:60` currently asserts a branchless entry is NOT returned; that assertion must be consciously inverted or moved, not silently deleted."
+    },
+    {
+      "severity": "consider",
+      "category": "risk_quality",
+      "title": "Pre-Mortem 2 predicts the exact user-visible failure the no-migration decision guarantees",
+      "description": "Pre-Mortem 2 already names the outcome ('my observations from last week vanished' for rows written from a previous worktree session), and Assumptions line 79 quantifies it: 110 + 81 orphaned rows under `.sentinal/worktrees/spec-*` paths. The plan treats this as acceptable but ships no user-facing signal, so the first symptom will be a bug report rather than a known limitation.",
+      "suggested_fix": "Add to Task 12: a one-line note in `.sentinal/rules/sentinal-project.md` recording that pre-change observations keyed to deleted worktree paths remain queryable only by passing that literal path to `memory_search`, plus the `memory_stats`-style query to list distinct orphaned `project_path` values. Cheap, and it converts a bug report into a documented limitation."
+    }
+  ]
+}

@@ -16,14 +16,23 @@ import {
   output,
   type HookInput,
 } from "../utils/hook-output.js";
-import { findGitRoot } from "../utils/git.js";
+import { resolveWorkspaceRoot } from "../project/identity.js";
 
 export async function processPostCompactRestore(
   input: HookInput,
 ): Promise<void> {
-  const gitRoot = await findGitRoot(input.cwd);
+  // ⛔ WORKSPACE, never identity. `compact-state.json` is
+  // per-session-per-checkout: resolving it through `resolveProjectIdentity`
+  // would point every linked worktree at the MAIN checkout's file and leak one
+  // worktree's active plan into another.
+  //
+  // This replaces `findGitRoot(cwd) ?? input.cwd`, which was already
+  // worktree-scoped by accident (`--show-toplevel` answers "the worktree I am
+  // standing in"). The resolver states the intent, and additionally guarantees
+  // a non-empty absolute root for degenerate input, which `?? input.cwd` did
+  // not.
   const stateFile = join(
-    gitRoot ?? input.cwd,
+    resolveWorkspaceRoot(input.cwd),
     ".sentinal",
     "compact-state.json",
   );

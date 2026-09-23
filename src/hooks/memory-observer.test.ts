@@ -27,6 +27,8 @@ import {
   type ToolEvent,
 } from "../memory/capture.js";
 import { processMemoryObserver } from "./memory-observer.js";
+import { SidecarClient } from "../sidecar/client.js";
+import { resolveRealPath } from "../worktree/disk-scan.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -389,4 +391,130 @@ describe("capture-to-storage pipeline", () => {
       expect(retrieved!.content).not.toContain("mysecretpass123");
     }
   });
+});
+
+// ─── Project Identity Keying ─────────────────────────────────────────────────
+
+/**
+ * The hook's `projectPath` is a STORAGE KEY. It must be the canonical main
+ * checkout so that an observation recorded from a linked worktree is visible
+ * from the main checkout (and vice versa) — see src/project/identity.ts.
+ */
+describe("observation projectPath keying", () => {
+  const tmpDirs: string[] = [];
+  let origConnect: typeof SidecarClient.connect;
+
+  function git(args: string[], cwd: string): void {
+    const r = Bun.spawnSync(["git", ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (r.exitCode !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} failed: ${r.stderr?.toString() ?? ""}`,
+      );
+    }
+  }
+
+  /** Real repo + real linked worktree. The assertion depends on both. */
+  function makeRepoWithWorktree(): { mainDir: string; worktreeDir: string } {
+    const parent = makeTmpDir("sentinal-obs-identity");
+    tmpDirs.push(parent);
+    const mainDir = join(parent, "main");
+    mkdirSync(mainDir, { recursive: true });
+
+    git(["init", "-b", "main"], mainDir);
+    git(["config", "user.email", "test@example.com"], mainDir);
+    git(["config", "user.name", "Test"], mainDir);
+    writeFileSync(join(mainDir, "README.md"), "# test\n");
+    git(["add", "."], mainDir);
+    git(["commit", "-m", "init"], mainDir);
+
+    const worktreeDir = join(parent, "wt");
+    git(["worktree", "add", "-b", "feature", worktreeDir], mainDir);
+
+    return { mainDir, worktreeDir };
+  }
+
+  /** Prime the buffer with an error so the next Edit triggers a capture. */
+  function primeBuffer(cwd: string): void {
+    const sentinalDir = join(cwd, ".sentinal");
+    mkdirSync(sentinalDir, { recursive: true });
+    const primeEvents: ToolEvent[] = [
+      {
+        toolName: "Bash",
+        success: false,
+        output: "error TS1234: Type mismatch",
+        filePath: "src/foo.ts",
+        timestamp: Date.now() - 5000,
+      },
+    ];
+    writeFileSync(
+      join(sentinalDir, "event-buffer.json"),
+      JSON.stringify(primeEvents),
+    );
+  }
+
+  /**
+   * Run the hook with a stubbed sidecar and return the payload it sent.
+   * Stubbing `connect` also keeps the test off any real running sidecar.
+   */
+  async function captureObservation(
+    cwd: string,
+  ): Promise<Record<string, unknown>> {
+    primeBuffer(cwd);
+    const sent: Record<string, unknown>[] = [];
+    SidecarClient.connect = (async () => ({
+      addObservation: async (obs: Record<string, unknown>) => {
+        sent.push(obs);
+        return { id: 1 };
+      },
+    })) as unknown as typeof SidecarClient.connect;
+
+    await processMemoryObserver({
+      session_id: "identity-session",
+      transcript_path: "",
+      cwd,
+      permission_mode: "auto",
+      hook_event_name: "PostToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: "src/foo.ts" },
+    } as never);
+
+    expect(sent).toHaveLength(1);
+    return sent[0];
+  }
+
+  beforeEach(() => {
+    origConnect = SidecarClient.connect;
+  });
+
+  afterEach(() => {
+    SidecarClient.connect = origConnect;
+    for (const dir of tmpDirs.splice(0)) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  it("keys an observation made inside a linked worktree to the main checkout", async () => {
+    const { mainDir, worktreeDir } = makeRepoWithWorktree();
+
+    const obs = await captureObservation(worktreeDir);
+
+    expect(obs.projectPath).toBe(resolveRealPath(mainDir));
+    expect(obs.projectPath).not.toBe(worktreeDir);
+  }, 30_000);
+
+  it("still produces a non-empty projectPath outside a git repository", async () => {
+    const dir = makeTmpDir("sentinal-obs-nongit");
+    tmpDirs.push(dir);
+
+    const obs = await captureObservation(dir);
+
+    expect(obs.projectPath).toBeTruthy();
+    expect(obs.projectPath).toBe(resolveRealPath(dir));
+  }, 30_000);
 });

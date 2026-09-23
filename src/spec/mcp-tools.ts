@@ -27,6 +27,7 @@ import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { SPEC_STATUSES, type SpecStatus } from "./types.js";
 import { SpecStore } from "./store.js";
@@ -135,7 +136,12 @@ function registerSpecRegisterTool(
     },
     async ({ plan_path, project, status }) => {
       try {
-        const projectPath = project ?? process.cwd();
+        // `process.cwd()` stays a legitimate DEFAULT — the MCP server runs in
+        // the agent's cwd — but it must never be STORED raw, and neither must
+        // a caller-supplied `project`. Both are normalized to the canonical
+        // main-checkout path so every worktree of a repo keys the same row.
+        // (Storage key only; `plan_path` is left worktree-local.)
+        const projectPath = resolveProjectIdentity(project ?? process.cwd());
 
         // If status override requested, validate transition and update file
         if (status) {

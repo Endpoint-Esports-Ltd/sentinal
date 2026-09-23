@@ -6,6 +6,7 @@
  */
 
 import { WorktreeError } from "../worktree/types.js";
+import { resolveRealPath } from "../worktree/disk-scan.js";
 
 // ─── Git Command Execution ──────────────────────────────────────────────────
 
@@ -94,6 +95,38 @@ export function getRepoRoot(cwd: string): string {
     throw new WorktreeError("Not a git repository", "NOT_A_REPO");
   }
   return result.stdout;
+}
+
+/**
+ * Get the path of the **main** worktree — the original checkout — no matter
+ * which linked worktree (or subdirectory of one) `cwd` sits in.
+ *
+ * `getRepoRoot` answers "the worktree I'm standing in"; this answers "the one
+ * the repo was cloned into". `git worktree list --porcelain` always lists the
+ * main worktree FIRST, which is what makes taking the first entry correct.
+ *
+ * ⛔ Do NOT reimplement via `git rev-parse --git-common-dir`: with
+ * `--separate-git-dir` that returns the *separate* gitdir, whose dirname is a
+ * completely unrelated directory, and it is wrong for bare repos too.
+ *
+ * Porcelain paths are not guaranteed canonical (unlike `--show-toplevel`), so
+ * the result is realpath'd — load-bearing on macOS, where `/var` is a symlink
+ * to `/private/var`.
+ *
+ * @throws {WorktreeError} code `NOT_A_REPO` when `cwd` is outside a repository.
+ */
+export function getMainWorktreeRoot(cwd: string): string {
+  const result = gitExec(["worktree", "list", "--porcelain"], cwd);
+  if (result.exitCode !== 0) {
+    throw new WorktreeError("Not a git repository", "NOT_A_REPO");
+  }
+  const first = result.stdout
+    .split("\n")
+    .find((line) => line.startsWith("worktree "));
+  if (!first) {
+    throw new WorktreeError("Not a git repository", "NOT_A_REPO");
+  }
+  return resolveRealPath(first.slice("worktree ".length));
 }
 
 /** Get the current HEAD commit hash. */

@@ -133,6 +133,29 @@ describe("sidecar server", () => {
     expect(r.data[0].id).toBe("s1");
   });
 
+  it('should reject a session with an empty projectPath (never store "")', async () => {
+    const r = await post(base, "/session", {
+      id: "empty-project",
+      projectPath: "",
+      assistant: "opencode",
+    });
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/projectPath/i);
+    expect(store.getActiveSessions()).toEqual([]);
+  });
+
+  it('should reject an observation with an empty projectPath (never store "")', async () => {
+    const r = await post(base, "/observation", {
+      sessionId: "s",
+      projectPath: "",
+      type: "discovery",
+      title: "no project",
+      content: "x",
+    });
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/projectPath/i);
+  });
+
   it("should end a session", async () => {
     await post(base, "/session", {
       id: "s2",

@@ -9,6 +9,7 @@ import {
   branchExists,
   detectBaseBranch,
   getRepoRoot,
+  getMainWorktreeRoot,
   getCurrentCommit,
   getGitVersion,
   checkGitVersion,
@@ -130,6 +131,64 @@ describe("git utils", () => {
     it("should throw for non-git directory", () => {
       expect(() => getRepoRoot(tmpDir)).toThrow(WorktreeError);
     });
+  });
+
+  describe("getMainWorktreeRoot", () => {
+    it("should return the main checkout when called from a linked worktree", () => {
+      const repoDir = join(tmpDir, "repo");
+      mkdirSync(repoDir, { recursive: true });
+      initRepo(repoDir);
+
+      const wtPath = join(tmpDir, "wt-a");
+      Bun.spawnSync(["git", "worktree", "add", wtPath, "-b", "feature"], {
+        cwd: repoDir,
+      });
+
+      // getRepoRoot answers "the worktree I'm standing in" — the whole point
+      // of getMainWorktreeRoot is that it answers the MAIN checkout instead.
+      expect(getRepoRoot(wtPath)).toBe(wtPath);
+      expect(getMainWorktreeRoot(wtPath)).toBe(repoDir);
+    }, 15_000);
+
+    it("should return the main checkout from a subdirectory of a linked worktree", () => {
+      const repoDir = join(tmpDir, "repo");
+      mkdirSync(repoDir, { recursive: true });
+      initRepo(repoDir);
+
+      const wtPath = join(tmpDir, "wt-b");
+      Bun.spawnSync(["git", "worktree", "add", wtPath, "-b", "feature-b"], {
+        cwd: repoDir,
+      });
+      const subDir = join(wtPath, "src", "deep");
+      mkdirSync(subDir, { recursive: true });
+
+      expect(getMainWorktreeRoot(subDir)).toBe(repoDir);
+    }, 15_000);
+
+    it("should return the main checkout when it is in detached HEAD state", () => {
+      const repoDir = join(tmpDir, "repo");
+      mkdirSync(repoDir, { recursive: true });
+      initRepo(repoDir);
+      Bun.spawnSync(["git", "checkout", "--detach"], { cwd: repoDir });
+
+      expect(getMainWorktreeRoot(repoDir)).toBe(repoDir);
+    }, 15_000);
+
+    it("should return the repo root from the main checkout itself", () => {
+      initRepo(tmpDir);
+      const subDir = join(tmpDir, "src", "deep");
+      mkdirSync(subDir, { recursive: true });
+      expect(getMainWorktreeRoot(subDir)).toBe(tmpDir);
+    }, 15_000);
+
+    it("should throw NOT_A_REPO for a non-git directory", () => {
+      expect(() => getMainWorktreeRoot(tmpDir)).toThrow(WorktreeError);
+      try {
+        getMainWorktreeRoot(tmpDir);
+      } catch (e) {
+        expect((e as WorktreeError).code).toBe("NOT_A_REPO");
+      }
+    }, 15_000);
   });
 
   describe("getCurrentCommit", () => {

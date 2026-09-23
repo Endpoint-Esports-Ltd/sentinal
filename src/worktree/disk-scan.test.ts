@@ -52,15 +52,43 @@ describe("disk-scan", () => {
       expect(entry!.head).toMatch(/^[a-f0-9]{40}$/);
     });
 
-    it("skips detached entries that have no branch line", () => {
+    // NOTE: this assertion was deliberately INVERTED (was: "skips detached
+    // entries that have no branch line"). Dropping branchless entries made the
+    // first porcelain entry untrustworthy as "the main worktree", because a
+    // detached or bare main checkout vanished from the list entirely.
+    it("retains a detached entry, with a null branch", () => {
       const wtPath = join(tmpDir, "wt-detached");
       Bun.spawnSync(["git", "worktree", "add", "--detach", wtPath], {
         cwd: repoDir,
       });
-      expect(listGitWorktrees(repoDir).map((e) => e.path)).not.toContain(
-        wtPath,
-      );
-    });
+
+      const entries = listGitWorktrees(repoDir);
+      expect(entries.map((e) => e.path)).toContain(wtPath);
+
+      const entry = entries.find((e) => e.path === wtPath);
+      expect(entry!.branch).toBeNull();
+      expect(entry!.head).toMatch(/^[a-f0-9]{40}$/);
+    }, 15_000);
+
+    it("retains a bare repo entry, with a null branch", () => {
+      const bareDir = join(tmpDir, "bare.git");
+      Bun.spawnSync(["git", "init", "--bare", "-b", "main", bareDir], {
+        cwd: tmpDir,
+      });
+
+      const entries = listGitWorktrees(bareDir);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].path).toBe(bareDir);
+      expect(entries[0].branch).toBeNull();
+    }, 15_000);
+
+    it("still reports the main checkout first", () => {
+      const wtPath = join(tmpDir, "wt-detached-first");
+      Bun.spawnSync(["git", "worktree", "add", "--detach", wtPath], {
+        cwd: repoDir,
+      });
+      expect(listGitWorktrees(wtPath)[0].path).toBe(repoDir);
+    }, 15_000);
 
     it("returns an empty list outside a git repo instead of throwing", () => {
       const notARepo = join(tmpDir, "plain");

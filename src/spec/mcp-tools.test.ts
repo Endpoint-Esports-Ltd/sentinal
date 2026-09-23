@@ -12,7 +12,13 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  realpathSync,
+} from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
 import { registerSpecTools } from "./mcp-tools.js";
@@ -226,6 +232,83 @@ describe("spec_register MCP tool", () => {
     expect(result.content[0].text).toContain("Registered:");
     expect(result.content[0].text).toContain("2026-01-01-default-project");
   });
+});
+
+// --- spec_register project identity (worktree-aware) ---
+
+/** Create a temp git repo with an initial commit. */
+function initRepo(dir: string): void {
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial"], { cwd: dir });
+}
+
+describe("spec_register project identity", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let tools: Map<string, ToolHandler>;
+  let repoDir: string;
+  let wtPath: string;
+
+  beforeEach(() => {
+    // realpathSync pre-applied: /var is a symlink to /private/var on macOS and
+    // resolveProjectIdentity canonicalizes, so raw tmp paths never compare equal.
+    tmpDir = realpathSync(makeTmpDir());
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    tools = captureTools(registerSpecTools, store);
+
+    repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+    wtPath = join(tmpDir, "wt-feature");
+    Bun.spawnSync(["git", "worktree", "add", wtPath, "-b", "feature"], {
+      cwd: repoDir,
+    });
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("stores the MAIN CHECKOUT as project_path when registering from a linked worktree", async () => {
+    const planFile = makePlanFile(wtPath, "2026-09-23-wt-plan", "IN_PROGRESS");
+    const handler = tools.get("spec_register")!;
+
+    await handler({ plan_path: planFile, project: wtPath });
+
+    const row = store
+      .getRawDb()
+      .prepare("SELECT project_path, plan_file FROM specs WHERE id = ?")
+      .get("2026-09-23-wt-plan") as {
+      project_path: string;
+      plan_file: string;
+    };
+
+    expect(row.project_path).toBe(repoDir);
+    // plan_file stays worktree-local — it names a real file in THIS checkout.
+    expect(row.plan_file).toBe(planFile);
+
+    const specStore = new SpecStore(store);
+    expect(specStore.getCurrentSpec(repoDir)?.id).toBe("2026-09-23-wt-plan");
+  }, 20_000);
+
+  it("re-keys a row previously registered under a worktree path", async () => {
+    const planFile = makePlanFile(wtPath, "2026-09-23-rekey", "IN_PROGRESS");
+    const specStore = new SpecStore(store);
+    // Pre-existing stale row, keyed to the worktree (pre-change behaviour).
+    specStore.syncFromPlanFile(planFile, wtPath);
+    expect(specStore.getCurrentSpec(wtPath)?.id).toBe("2026-09-23-rekey");
+
+    const handler = tools.get("spec_register")!;
+    await handler({ plan_path: planFile, project: wtPath });
+
+    expect(specStore.getCurrentSpec(repoDir)?.id).toBe("2026-09-23-rekey");
+    expect(specStore.getCurrentSpec(wtPath)).toBeNull();
+  }, 20_000);
 });
 
 // --- M9b: spec_register status enum (transport-level) ---

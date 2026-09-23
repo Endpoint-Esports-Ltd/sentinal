@@ -123,11 +123,24 @@ export class SpecStore {
       completedAt = now;
     }
 
-    // Use ON CONFLICT to preserve timing columns and created_at
+    // Use ON CONFLICT to preserve timing columns and created_at.
+    //
+    // ⛔ `project_path` IS in the UPDATE set, deliberately. It used to be
+    // INSERT-only and therefore sticky forever: a row first written from a
+    // linked worktree kept that worktree's path as its key for the rest of
+    // time, so the same plan re-registered from the main checkout stayed
+    // invisible to `getCurrentSpec(canonicalRoot)`. Callers now pass the
+    // CANONICAL identity (see `resolveProjectIdentity`), and writing it on
+    // conflict is what lets pre-existing stale rows self-heal on the next
+    // `spec_register` — no schema migration, no `SCHEMA_VERSION` bump.
+    //
+    // `plan_file` stays worktree-LOCAL on purpose: it names a real file in the
+    // registering checkout, and every worktree has its own `docs/plans/`.
     const upsertSpec = this.db.prepare(
       `INSERT INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at, session_id, metadata, parent, wave, started_at, completed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
+         project_path = excluded.project_path,
          title = excluded.title,
          type = excluded.type,
          status = excluded.status,

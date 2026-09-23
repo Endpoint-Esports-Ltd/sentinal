@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { isIgnored } from "../worktree/git-exclude.js";
 import { readSlotFromWorktree } from "../worktree/slots.js";
 import { stripJsonComments } from "./jsonc.js";
-import { interpolateStrict } from "./interpolate.js";
+import { interpolateStrict, sentinalTokenNames } from "./interpolate.js";
 import {
   RESOURCE_CLASSES,
   RUNTIME_CONFIG_RELATIVE_PATH,
@@ -67,6 +67,24 @@ export interface LoadedRuntimeConfig {
   unknownResources: ResourceClass[];
   /** Non-fatal. Safe to show; never a reason to stop. */
   warnings: string[];
+  /**
+   * ⛔ The MACHINE-READABLE half of the slotless condition: the NAMES (no
+   * braces, de-duplicated) of `${SENTINAL_*}` tokens that survived
+   * interpolation in `up`, `down` or `readiness.target`. Empty when clean, and
+   * empty — never `undefined` — when there is no file, no config, or an error.
+   *
+   * It exists because a surviving token is NOT cosmetic. `interpolateStrict`
+   * leaves the literal text in place when there is no slot, and the spawn path
+   * deletes the corresponding env var, so `sh -c` expands the unset token to
+   * the EMPTY STRING: `./stack up ${SENTINAL_WORKTREE_SLOT}` runs as
+   * `./stack up `, silently targeting the main checkout's resources.
+   *
+   * A caller that needs to REFUSE cannot substring-match {@link warnings} —
+   * that field is documented above as never a reason to stop, and its prose is
+   * written for a human. Both surfaces report one condition: the prose is what
+   * is READ, this is what is BRANCHED on. Neither replaces the other.
+   */
+  unsubstitutedTokens: string[];
   /** Fatal for THIS file: it exists but could not be used. `null` otherwise. */
   error: string | null;
 }
@@ -81,6 +99,7 @@ function notConfigured(path: string): LoadedRuntimeConfig {
     sharedResources: [],
     unknownResources: [],
     warnings: [],
+    unsubstitutedTokens: [],
     error: null,
   };
 }
@@ -180,7 +199,9 @@ export function loadRuntimeConfig(projectPath: string): LoadedRuntimeConfig {
   const before = [config.up, config.down, config.readiness?.target];
 
   config.up = config.up ? interpolateStrict(config.up, slot) : config.up;
-  config.down = config.down ? interpolateStrict(config.down, slot) : config.down;
+  config.down = config.down
+    ? interpolateStrict(config.down, slot)
+    : config.down;
   if (config.readiness) {
     config.readiness.target = interpolateStrict(config.readiness.target, slot);
   }
@@ -191,15 +212,25 @@ export function loadRuntimeConfig(projectPath: string): LoadedRuntimeConfig {
     slot === null &&
     before.some((v) => v?.includes("${SENTINAL_WORKTREE_SLOT}"))
   ) {
-    warnings.push(
-      slotlessWarning(RUNTIME_CONFIG_RELATIVE_PATH, projectPath),
-    );
+    warnings.push(slotlessWarning(RUNTIME_CONFIG_RELATIVE_PATH, projectPath));
   }
+
+  // The same condition as the warning above, as data. Scanned AFTER
+  // substitution and over exactly the INTERPOLATED_FIELDS that substitution
+  // covers, so "still present" means "was not replaced" and nothing else.
+  const unsubstitutedTokens = [
+    ...new Set(
+      [config.up, config.down, config.readiness?.target].flatMap((v) =>
+        v ? sentinalTokenNames(v) : [],
+      ),
+    ),
+  ];
 
   return {
     ...base,
     config,
     slot,
+    unsubstitutedTokens,
     sharedResources: sharedResourceNames(config),
     unknownResources: RESOURCE_CLASSES.filter(
       (c) => config.isolation?.[c] === undefined,

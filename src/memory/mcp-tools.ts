@@ -32,6 +32,7 @@ import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { mcpText } from "../mcp/helpers.js";
 import { registerSharedTools } from "./shared.js";
 import {
@@ -46,6 +47,26 @@ export { formatMemoryStats } from "./stats-mcp-tools.js";
 export interface MemoryToolsDeps {
   client?: SidecarClient | null;
   store?: MemoryStore | null;
+}
+
+/**
+ * Canonicalize a caller-supplied `project` filter — the MCP tool boundary is
+ * the ONE place this happens for the read layers.
+ *
+ * `observations.project_path` is compared with exact equality in THREE
+ * independent places (`store-observations.ts` FTS, `vector-store.ts` JS
+ * post-filter, and the `search/strategies/hybrid.ts` fan-out), and the sidecar
+ * route `/memory/search` passes `body.project` straight through. Normalizing
+ * here covers all four with one call and leaves the query layer free to keep
+ * accepting arbitrary non-repo keys (`/test/project`, raw tmpdirs) verbatim.
+ *
+ * `undefined` means "no filter" and MUST stay `undefined`:
+ * `resolveProjectIdentity("")` substitutes `process.cwd()`, which would turn an
+ * unfiltered search into a silently project-scoped one.
+ */
+function normalizeProjectFilter(project?: string): string | undefined {
+  if (project === undefined || project.trim() === "") return project;
+  return resolveProjectIdentity(project);
 }
 
 // --- Public API ---
@@ -110,7 +131,8 @@ function registerSearchTool(
         .optional()
         .describe("Max results (default 20)"),
     },
-    async ({ query, project, type, limit }, extra) => {
+    async ({ query, project: rawProject, type, limit }, extra) => {
+      const project = normalizeProjectFilter(rawProject);
       const progressExtra = extra as ProgressExtra | undefined;
       // Embedding cold-start can be slow; emit an initial progress ping and
       // honor client cancellation via extra.signal.
@@ -179,7 +201,8 @@ function registerTimelineTool(
         .describe("How many observations before/after (default 5)"),
       project: z.string().optional().describe("Filter by project path"),
     },
-    async ({ anchor, depth, project }) => {
+    async ({ anchor, depth, project: rawProject }) => {
+      const project = normalizeProjectFilter(rawProject);
       const d = depth ?? 5;
       const result = client
         ? await client.memoryTimeline({ anchor, depth: d, project })

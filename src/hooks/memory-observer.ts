@@ -15,6 +15,7 @@ import {
 } from "../memory/capture.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type { HookInput } from "../utils/hook-output.js";
 
 function extractFilePath(
@@ -72,7 +73,11 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
 
   const obsPayload = {
     sessionId: input.session_id,
-    projectPath: input.cwd,
+    // STORAGE KEY — must be the canonical main checkout, not the agent's raw
+    // cwd, or observations fragment across worktrees/subdirectories. The
+    // resolver never throws and never returns "", so no guard is needed here;
+    // wrapping it would reintroduce the empty-key rows it exists to prevent.
+    projectPath: resolveProjectIdentity(input.cwd),
     type: decision.type,
     title: decision.title,
     content: decision.content,

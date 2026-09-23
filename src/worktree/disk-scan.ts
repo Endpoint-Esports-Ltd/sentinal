@@ -14,12 +14,21 @@ import { gitExec } from "../git/utils.js";
 export interface GitWorktreeEntry {
   path: string;
   head: string;
-  branch: string;
+  /**
+   * Short branch name, or `null` for a **branchless** entry — a detached-HEAD
+   * worktree (porcelain emits `detached`) or a bare repo (emits `bare`).
+   * Callers that match on branch MUST skip null explicitly.
+   */
+  branch: string | null;
 }
 
 /**
  * Parse `git worktree list --porcelain` into entries.
- * Skips detached/bare entries (no branch line) and returns `[]` outside a repo.
+ *
+ * Every block carrying a `worktree ` line is retained, including branchless
+ * detached/bare entries — dropping those made the FIRST entry untrustworthy as
+ * "the main worktree", which is the whole point of the porcelain ordering.
+ * Returns `[]` outside a repo.
  */
 export function listGitWorktrees(repoRoot: string): GitWorktreeEntry[] {
   const result = gitExec(["worktree", "list", "--porcelain"], repoRoot);
@@ -29,14 +38,14 @@ export function listGitWorktrees(repoRoot: string): GitWorktreeEntry[] {
   for (const block of result.stdout.split("\n\n")) {
     let path = "";
     let head = "";
-    let branch = "";
+    let branch: string | null = null;
     for (const line of block.split("\n")) {
       if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
       else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
       else if (line.startsWith("branch "))
         branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
     }
-    if (path && branch) entries.push({ path, head, branch });
+    if (path) entries.push({ path, head, branch });
   }
   return entries;
 }

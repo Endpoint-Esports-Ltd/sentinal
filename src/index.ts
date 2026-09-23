@@ -209,6 +209,7 @@ export {
   detectBaseBranch,
   branchExists,
   getRepoRoot,
+  getMainWorktreeRoot,
   getCurrentCommit,
   getGitVersion,
   checkGitVersion,
@@ -371,6 +372,13 @@ export {
 export type { RuntimeUpResult, RuntimeUpDeps } from "./runtime/lifecycle.js";
 export { registerRuntimeLifecycleTools } from "./runtime/lifecycle-mcp-tools.js";
 export { runtimeWorktreeConfig } from "./runtime/worktree-deps.js";
+
+// ─── Project Identity ────────────────────────────────────────────────────────
+// identity → storage keys ONLY; workspace → filesystem writes ONLY.
+export {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "./project/identity.js";
 
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
 export {

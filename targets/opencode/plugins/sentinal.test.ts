@@ -9,7 +9,15 @@ import { SentinalPlugin } from "./sentinal.ts";
 import { ensureDashboard } from "../../../src/opencode/dashboard-ensure.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
 import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { resolvePluginRoots } from "./sentinal-helpers.js";
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -466,5 +474,194 @@ describe("tool.execute hooks (SDK-true shapes)", () => {
 
     expect(await until(() => calls.observations.length > 0)).toBe(true);
     expect(calls.observations[0]!.title).toBe("Build/lint issue resolved");
+  }, 30_000);
+});
+
+// ─── Worktree-aware project roots ─────────────────────────────────────────────
+//
+// The plugin has to answer TWO different questions and must never conflate them:
+//
+//   • identity  → the CANONICAL project key (main checkout), used for every
+//     sidecar storage key. `projectRoot ?? ""` previously wrote 14 empty-key
+//     rows into the live DB, and a linked worktree keyed its observations under
+//     its own path — invisible from the main checkout.
+//   • workspace → the LOCAL checkout root, used for filesystem reads and for
+//     plan discovery. The session.idle stop-guard is DELIBERATELY worktree-local
+//     (docs/plans/2026-06-10-multi-plan-session-tracking.md:60-66) so two
+//     sessions in two worktrees don't block on each other's plans.
+//
+// The fixture below builds a real git repo + linked worktree so identity and
+// workspace provably DIFFER; asserting against the sentinal checkout itself
+// would silently degenerate to a tautology on a plain clone (e.g. CI).
+describe("worktree-aware project roots", () => {
+  let fixtureRoot: string;
+  let mainRoot: string;
+  let linkedRoot: string;
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+
+  const IN_PROGRESS_PLAN = [
+    "# Fixture Plan",
+    "",
+    "**Status:** IN_PROGRESS",
+    "**Type:** feature",
+    "",
+  ].join("\n");
+
+  /** Remove every plan dir, then plant one IN_PROGRESS plan under `root`. */
+  function onlyPlanIn(root: string): void {
+    for (const r of [mainRoot, linkedRoot]) {
+      rmSync(join(r, "docs"), { recursive: true, force: true });
+    }
+    mkdirSync(join(root, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      join(root, "docs", "plans", "2026-09-23-fixture.md"),
+      IN_PROGRESS_PLAN,
+    );
+  }
+
+  beforeAll(() => {
+    fixtureRoot = realpathSync(
+      mkdtempSync(join(tmpdir(), "sentinal-roots-fixture-")),
+    );
+    mainRoot = join(fixtureRoot, "main");
+    linkedRoot = join(fixtureRoot, "linked");
+    mkdirSync(mainRoot, { recursive: true });
+
+    git(mainRoot, "init", "-q", "-b", "main");
+    git(mainRoot, "config", "user.email", "fixture@example.com");
+    git(mainRoot, "config", "user.name", "Fixture");
+    writeFileSync(join(mainRoot, "README.md"), "fixture\n");
+    git(mainRoot, "add", ".");
+    git(mainRoot, "commit", "-q", "-m", "init");
+    git(mainRoot, "worktree", "add", "-q", "-b", "feature", linkedRoot);
+  });
+
+  afterAll(() => {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  // ── helper contract ────────────────────────────────────────────────────────
+
+  it("resolves identity to the MAIN checkout and workspace to the LINKED worktree", () => {
+    const roots = resolvePluginRoots(linkedRoot, linkedRoot);
+    expect(roots.identity).toBe(mainRoot);
+    expect(roots.workspace).toBe(linkedRoot);
+    expect(roots.identity).not.toBe(roots.workspace);
+    // The validated writable root is still the local checkout.
+    expect(roots.root).toBe(linkedRoot);
+  });
+
+  it("never yields an empty project key, even when no writable root is found", () => {
+    const roots = resolvePluginRoots("/", "/", {
+      cwd: () => "/",
+      exists: () => false,
+      isWritable: () => false,
+    });
+    expect(roots.root).toBeNull();
+    expect(roots.reason).toBeTruthy();
+    expect(roots.identity).not.toBe("");
+    expect(roots.identity.length).toBeGreaterThan(0);
+    expect(roots.workspace).not.toBe("");
+    expect(roots.workspace.length).toBeGreaterThan(0);
+  });
+
+  // ── plugin wiring ──────────────────────────────────────────────────────────
+
+  interface RootsFake {
+    fake: SidecarClient;
+    createdProjectPaths: string[];
+    currentSpecProjects: string[];
+  }
+
+  function makeRootsFake(): RootsFake {
+    const createdProjectPaths: string[] = [];
+    const currentSpecProjects: string[] = [];
+    const fake = {
+      createSession: async (s: { projectPath: string }) => {
+        createdProjectPaths.push(s.projectPath);
+      },
+      endSession: async () => {},
+      touchSession: async () => {},
+      getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
+      setTddState: async () => {},
+      tddTransition: async () => ({ count: 0 }),
+      addObservation: async () => {},
+      memorySearch: async () => [],
+      getActiveSessions: async () => [],
+      restoreContext: async () => ({ hasMemory: false, markdown: "" }),
+      getCurrentSpec: async (project: string) => {
+        currentSpecProjects.push(project);
+        return null;
+      },
+      isSessionAlive: async () => false,
+    };
+    return {
+      fake: fake as unknown as SidecarClient,
+      createdProjectPaths,
+      currentSpecProjects,
+    };
+  }
+
+  async function initAt(
+    root: string,
+    fake: SidecarClient,
+    logs: string[],
+  ): Promise<Record<string, (...a: never[]) => Promise<unknown>>> {
+    const spy = spyOn(SidecarClient, "connectWithRetry").mockResolvedValue(
+      fake,
+    );
+    try {
+      return (await SentinalPlugin({
+        project: { id: "fixture", worktree: root },
+        client: {
+          app: {
+            log: async (opts: { body: { message: string } }) => {
+              logs.push(opts.body.message);
+            },
+          },
+          session: { messages: async () => ({ data: [] }) },
+        },
+        $: () => Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+        directory: root,
+        worktree: root,
+      } as never)) as never;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("keys sidecar sessions by the CANONICAL root, never by the worktree path or ''", async () => {
+    const { fake, createdProjectPaths } = makeRootsFake();
+    await initAt(linkedRoot, fake, []);
+
+    expect(createdProjectPaths.length).toBeGreaterThan(0);
+    for (const p of createdProjectPaths) {
+      expect(p).toBe(mainRoot);
+      expect(p).not.toBe("");
+    }
+  }, 30_000);
+
+  it("session.idle stop-guard stays WORKTREE-LOCAL (main-checkout plan is ignored)", async () => {
+    onlyPlanIn(mainRoot); // plan exists ONLY in the main checkout
+    const { fake } = makeRootsFake();
+    const logs: string[] = [];
+    const hooks = await initAt(linkedRoot, fake, logs);
+
+    await hooks.event!({ event: { type: "session.idle" } } as never);
+
+    expect(logs.some((m) => m.includes("IN_PROGRESS"))).toBe(false);
+  }, 30_000);
+
+  it("session.idle stop-guard fires on the LOCAL worktree's own plan", async () => {
+    onlyPlanIn(linkedRoot);
+    const { fake } = makeRootsFake();
+    const logs: string[] = [];
+    const hooks = await initAt(linkedRoot, fake, logs);
+
+    await hooks.event!({ event: { type: "session.idle" } } as never);
+
+    expect(logs.some((m) => m.includes("IN_PROGRESS"))).toBe(true);
   }, 30_000);
 });

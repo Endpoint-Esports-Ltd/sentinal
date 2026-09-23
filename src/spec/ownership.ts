@@ -21,6 +21,7 @@
  */
 
 import { findActivePlan, shouldBlockStop } from "./detect.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type { MemoryStore } from "../memory/store.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -52,12 +53,20 @@ export interface StopDecisionInput {
    */
   livenessProbe?: LivenessProbe;
   /**
-   * Optional owner lookup (spec id → owning session id, or null if unowned).
-   * Lets a caller resolve ownership WITHOUT a MemoryStore (e.g. the OpenCode
-   * plugin via the sidecar, avoiding a `bun:sqlite` import in the plugin bundle).
-   * When omitted, ownership is read from `store`.
+   * Optional owner lookup (spec id + canonical project path → owning session
+   * id, or null if unowned). Lets a caller resolve ownership WITHOUT a
+   * MemoryStore (e.g. the OpenCode plugin via the sidecar, avoiding a
+   * `bun:sqlite` import in the plugin bundle). When omitted, ownership is read
+   * from `store`.
+   *
+   * ⛔ `projectPath` is NOT optional to honour. This callback is PREFERRED over
+   * the SQL path, so an implementation that ignores it leaves OpenCode entirely
+   * unscoped while the store-backed path is scoped — exactly the dual-target
+   * drift `.sentinal/rules/sentinal-dual-target.md` warns about. It is the
+   * CANONICAL identity of `searchDir`, i.e. the key `specs.project_path` rows
+   * are written under; compare against it, don't re-derive it.
    */
-  ownerLookup?: (specId: string) => string | null;
+  ownerLookup?: (specId: string, projectPath: string) => string | null;
 }
 
 export interface StopDecision {
@@ -96,9 +105,18 @@ export function resolveStopDecision(input: StopDecisionInput): StopDecision {
 
   // 4. Try to resolve ownership; on any error → fail-safe: block
   try {
+    // ⛔ The ownership lookup is keyed by the CANONICAL project identity, NEVER
+    // by `searchDir`. `searchDir` is worktree-LOCAL on purpose (plan discovery
+    // must stay in the checkout the session is standing in), but `specs` rows
+    // are keyed canonically, so binding `searchDir` would match no row for any
+    // session in a linked worktree → `!ownerId` → a spurious permanent
+    // `orphaned` BLOCK. Resolved lazily: only reached once a blocking plan
+    // exists, so the no-plan path still costs zero git spawns.
+    const projectPath = resolveProjectIdentity(searchDir);
+
     const ownerId = ownerLookup
-      ? ownerLookup(active.spec.id)
-      : getSpecOwner(store!, active.spec.id);
+      ? ownerLookup(active.spec.id, projectPath)
+      : getSpecOwner(store!, active.spec.id, projectPath);
 
     // 4a. Plan has no owner (unowned/orphaned) → block (claimable by this session)
     if (!ownerId) {
@@ -132,14 +150,26 @@ export function resolveStopDecision(input: StopDecisionInput): StopDecision {
 
 /**
  * Look up the session_id for a spec from the SQLite store.
- * Returns null when the spec is not in the DB (unregistered) or has no owner.
+ * Returns null when the spec is not in the DB (unregistered), belongs to a
+ * DIFFERENT project, or has no owner.
+ *
+ * ⛔ The `project_path` predicate is load-bearing. `specs.id` is the bare plan
+ * FILENAME with the directory discarded (`src/spec/parser.ts`) and is the table's
+ * PRIMARY KEY, so two unrelated projects that name a plan the same way share one
+ * row. Without the predicate, project B's stop-guard reads project A's owner —
+ * and if A's session is alive that resolves to ALLOW, silently disabling the
+ * guard. `projectPath` MUST be the canonical identity (see the caller).
  */
-function getSpecOwner(store: MemoryStore, specId: string): string | null {
+function getSpecOwner(
+  store: MemoryStore,
+  specId: string,
+  projectPath: string,
+): string | null {
   try {
     const db = store.getRawDb();
     const row = db
-      .prepare("SELECT session_id FROM specs WHERE id = ?")
-      .get(specId) as { session_id: string | null } | null;
+      .prepare("SELECT session_id FROM specs WHERE id = ? AND project_path = ?")
+      .get(specId, projectPath) as { session_id: string | null } | null;
     if (!row) return null;
     return row.session_id || null; // treat empty string as null
   } catch {

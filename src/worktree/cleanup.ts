@@ -219,6 +219,9 @@ function forceCleanupOrphans(
   const removed: RemovedWorktree[] = [];
 
   for (const gwt of listGitWorktrees(repoRoot)) {
+    // Guard 0: branchless (detached / bare) entries are retained by the parser
+    // but carry no sentinal slug, so there is nothing here to own or reclaim.
+    if (gwt.branch === null) continue;
     // Guard 1: only sentinal-owned branches.
     if (!gwt.branch.startsWith(prefix)) continue;
     // Guard 2: only worktrees inside the target project.

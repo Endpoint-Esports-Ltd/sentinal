@@ -12,11 +12,9 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { SpecStore } from "./store.js";
-import {
-  resolveStopDecision,
-  type StopDecisionInput,
-} from "./ownership.js";
+import { resolveStopDecision, type StopDecisionInput } from "./ownership.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,10 +27,21 @@ function writePlan(dir: string, filename: string, extraHeaders = ""): void {
   );
 }
 
-function registerPlan(store: MemoryStore, dir: string, filename: string, sessionId?: string): void {
+/**
+ * Register a plan the way production does: keyed by the CANONICAL project
+ * identity, never by the raw `dir`. Every real caller (spec_register, the
+ * hooks, the plugin) canonicalizes before writing, so a test that wrote the
+ * raw path would be testing a row shape that cannot exist in the field.
+ */
+function registerPlan(
+  store: MemoryStore,
+  dir: string,
+  filename: string,
+  sessionId?: string,
+): void {
   const planFile = join(dir, "docs", "plans", filename);
   const specStore = new SpecStore(store);
-  specStore.syncFromPlanFile(planFile, dir, sessionId);
+  specStore.syncFromPlanFile(planFile, resolveProjectIdentity(dir), sessionId);
 }
 
 function makeSession(
@@ -387,4 +396,206 @@ describe("resolveStopDecision — injected ownerLookup (no store needed)", () =>
     expect(r.block).toBe(true);
     expect(r.ownership).toBe("orphaned");
   });
+});
+
+// ─── Project scoping of the ownership query ──────────────────────────────────
+//
+// `specs.id` is the BARE plan filename (src/spec/parser.ts) — the directory is
+// discarded. An unscoped `SELECT ... WHERE id = ?` therefore hands project B's
+// stop-guard project A's owner whenever the two happen to name a plan the same
+// way, and a LIVE owner there means ALLOW: the guard silently switches off.
+//
+// The fix binds `resolveProjectIdentity(searchDir)` — the CANONICAL key rows
+// are written under — and NOT `searchDir`. Binding `searchDir` would match no
+// row for any session running in a linked worktree, and `!ownerId` is the
+// fail-safe `orphaned` BLOCK: a user-visible permanent stop-block on every
+// worktree. The first test below is that regression guard.
+describe("resolveStopDecision — project-scoped ownership", () => {
+  let fixtureRoot: string;
+  let mainRoot: string;
+  let linkedRoot: string;
+  let otherRepo: string;
+  let store: MemoryStore;
+
+  const PLAN = "2026-09-23-scoped-plan.md";
+  const PLAN_ID = "2026-09-23-scoped-plan";
+
+  function git(cwd: string, ...args: string[]): void {
+    const r = Bun.spawnSync(["git", ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (r.exitCode !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${r.stderr.toString()}`);
+    }
+  }
+
+  function initRepo(dir: string): void {
+    mkdirSync(dir, { recursive: true });
+    git(dir, "init", "-q", "-b", "main");
+    git(dir, "config", "user.email", "fixture@example.com");
+    git(dir, "config", "user.name", "Fixture");
+    writeFileSync(join(dir, "README.md"), "fixture\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-q", "-m", "init");
+  }
+
+  beforeEach(() => {
+    fixtureRoot = makeTmpDir("sentinal-ownership-scope");
+    mainRoot = join(fixtureRoot, "main");
+    linkedRoot = join(fixtureRoot, "linked");
+    otherRepo = join(fixtureRoot, "other");
+
+    initRepo(mainRoot);
+    git(mainRoot, "worktree", "add", "-q", "-b", "feature", linkedRoot);
+    initRepo(otherRepo);
+
+    store = new MemoryStore(":memory:");
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    } catch {}
+  });
+
+  // ── REGRESSION GUARD ──────────────────────────────────────────────────────
+  // The whole risk of project-scoping lives here. Bind `searchDir` instead of
+  // `resolveProjectIdentity(searchDir)` and this test fails with "orphaned".
+
+  it("resolves the owner from a LINKED WORKTREE against a canonically-keyed row", () => {
+    // Plan lives in the linked worktree; the row is keyed to the MAIN checkout
+    // (what Task 8 made spec_register write).
+    writePlan(linkedRoot, PLAN);
+    registerPlan(store, linkedRoot, PLAN);
+    makeSession(store, "session-A", resolveProjectIdentity(linkedRoot), {
+      alive: true,
+    });
+    store.stampPlanOwner(PLAN_ID, "session-A");
+
+    // Sanity: the row really IS keyed canonically, not by the worktree path.
+    const row = store
+      .getRawDb()
+      .prepare("SELECT project_path FROM specs WHERE id = ?")
+      .get(PLAN_ID) as { project_path: string };
+    expect(row.project_path).toBe(resolveProjectIdentity(mainRoot));
+    expect(row.project_path).not.toBe(linkedRoot);
+
+    const r = resolveStopDecision({
+      searchDir: linkedRoot,
+      currentSessionId: "session-A",
+      store,
+    });
+
+    // The owner WAS resolved: self-owned, NOT a spurious orphan block.
+    expect(r.ownership).not.toBe("orphaned");
+    expect(r.ownership).toBe("self");
+    expect(r.block).toBe(true);
+  }, 30_000);
+
+  it("ALLOWS from a linked worktree when a DIFFERENT LIVE session owns the canonical row", () => {
+    writePlan(linkedRoot, PLAN);
+    registerPlan(store, linkedRoot, PLAN);
+    makeSession(store, "session-A", resolveProjectIdentity(linkedRoot), {
+      alive: true,
+    });
+    store.stampPlanOwner(PLAN_ID, "session-A");
+
+    const r = resolveStopDecision({
+      searchDir: linkedRoot,
+      currentSessionId: "session-B",
+      store,
+    });
+    // Only reachable if the owner resolved — an orphan would BLOCK.
+    expect(r.block).toBe(false);
+  }, 30_000);
+
+  // ── The bug being fixed ───────────────────────────────────────────────────
+
+  it("does NOT return project A's owner for a same-named plan in project B", () => {
+    // Project A: plan registered + owned by a LIVE session.
+    writePlan(mainRoot, PLAN);
+    registerPlan(store, mainRoot, PLAN);
+    makeSession(store, "session-A", resolveProjectIdentity(mainRoot), {
+      alive: true,
+    });
+    store.stampPlanOwner(PLAN_ID, "session-A");
+
+    // Project B: an unrelated repo that happens to name its plan identically.
+    // (`specs.id` is the PRIMARY KEY, so B cannot hold a second row for the
+    // same filename — which is precisely why an unscoped lookup leaks A's.)
+    writePlan(otherRepo, PLAN);
+
+    const r = resolveStopDecision({
+      searchDir: otherRepo,
+      currentSessionId: "session-B",
+      store,
+    });
+
+    // Unscoped: finds A's row, owner is alive → block:false (guard disabled).
+    // Scoped: no row for B → documented fail-safe.
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  }, 30_000);
+
+  it("still reports 'orphaned' for a genuinely absent row", () => {
+    writePlan(mainRoot, PLAN); // never registered — no row at all
+    const r = resolveStopDecision({
+      searchDir: mainRoot,
+      currentSessionId: "session-A",
+      store,
+    });
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  }, 30_000);
+
+  // ── Dual-target: the injected ownerLookup must be scoped too ──────────────
+  // `resolveStopDecision` PREFERS `ownerLookup` over the SQL path, so fixing
+  // the SQL alone would leave OpenCode completely unscoped.
+
+  it("passes the CANONICAL project path (not searchDir) to ownerLookup", () => {
+    writePlan(linkedRoot, PLAN);
+    const seen: Array<[string, string]> = [];
+
+    const r = resolveStopDecision({
+      searchDir: linkedRoot,
+      currentSessionId: "session-B",
+      store: null,
+      ownerLookup: (specId, projectPath) => {
+        seen.push([specId, projectPath]);
+        return "owner-live";
+      },
+      livenessProbe: () => true,
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe(PLAN_ID);
+    expect(seen[0]![1]).toBe(resolveProjectIdentity(mainRoot));
+    expect(seen[0]![1]).not.toBe(linkedRoot);
+    expect(r.block).toBe(false);
+  }, 30_000);
+
+  it("blocks 'orphaned' when a project-scoped ownerLookup declines the project (OpenCode shape)", () => {
+    writePlan(otherRepo, PLAN);
+    // The plugin's lambda only vouches for an owner when the project key the
+    // decision resolved matches the project it prefetched the spec for.
+    const prefetchedProject = resolveProjectIdentity(mainRoot);
+    const ownerLookup = (specId: string, projectPath: string) =>
+      specId === PLAN_ID && projectPath === prefetchedProject
+        ? "owner-live"
+        : null;
+
+    const r = resolveStopDecision({
+      searchDir: otherRepo,
+      currentSessionId: "session-B",
+      store: null,
+      ownerLookup,
+      livenessProbe: () => true,
+    });
+
+    expect(r.block).toBe(true);
+    expect(r.ownership).toBe("orphaned");
+  }, 30_000);
 });

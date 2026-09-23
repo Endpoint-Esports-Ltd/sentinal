@@ -598,6 +598,62 @@ Type: Feature
     });
   });
 
+  describe("project_path re-keying (worktree identity)", () => {
+    const PLAN = `# Re-key Plan
+
+Status: IN_PROGRESS
+Type: Feature
+
+## Progress Tracking
+
+- [ ] Task 1: Setup
+`;
+
+    it("re-keys a stale worktree project_path to the canonical root on re-registration", () => {
+      // A row that already exists keyed to a LINKED WORKTREE — the state every
+      // pre-existing database is in before this change.
+      const stalePlan = writePlan(tmpDir, "2026-09-23-rekey.md", PLAN);
+      const staleRoot = join(tmpDir, "worktrees", "feature-x");
+      specStore.syncFromPlanFile(stalePlan, staleRoot);
+
+      const before = memoryStore
+        .getRawDb()
+        .prepare("SELECT project_path FROM specs WHERE id = ?")
+        .get("2026-09-23-rekey") as { project_path: string };
+      expect(before.project_path).toBe(staleRoot);
+
+      // Re-register the same plan under the canonical (main checkout) root.
+      const canonicalRoot = join(tmpDir, "main-checkout");
+      specStore.syncFromPlanFile(stalePlan, canonicalRoot);
+
+      const after = memoryStore
+        .getRawDb()
+        .prepare("SELECT project_path FROM specs WHERE id = ?")
+        .get("2026-09-23-rekey") as { project_path: string };
+      expect(after.project_path).toBe(canonicalRoot);
+
+      // And the re-key is visible through both read paths.
+      expect(specStore.listSpecs(canonicalRoot)).toHaveLength(1);
+      expect(specStore.listSpecs(staleRoot)).toHaveLength(0);
+      expect(specStore.getCurrentSpec(canonicalRoot)?.id).toBe(
+        "2026-09-23-rekey",
+      );
+      expect(specStore.getCurrentSpec(staleRoot)).toBeNull();
+    });
+
+    it("keeps plan_file pointing at the registering worktree's own copy", () => {
+      const planFile = writePlan(tmpDir, "2026-09-23-planfile.md", PLAN);
+      specStore.syncFromPlanFile(planFile, join(tmpDir, "main-checkout"));
+
+      const row = memoryStore
+        .getRawDb()
+        .prepare("SELECT plan_file FROM specs WHERE id = ?")
+        .get("2026-09-23-planfile") as { plan_file: string };
+      expect(row.plan_file).toBe(planFile);
+      expect(specStore.getSpec("2026-09-23-planfile")!.planFile).toBe(planFile);
+    });
+  });
+
   describe("V5 migration — worktrees table", () => {
     it("should have worktrees table available", () => {
       const db = memoryStore.getRawDb();

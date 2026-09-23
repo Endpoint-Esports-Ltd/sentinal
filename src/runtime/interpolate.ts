@@ -79,6 +79,22 @@ export function unknownSentinalTokens(text: string): string[] {
   return out;
 }
 
+/**
+ * Every `${SENTINAL_*}` token NAME in `text`, de-duplicated and **without**
+ * braces.
+ *
+ * Deliberately distinct from {@link unknownSentinalTokens}, which returns the
+ * *braced* form of *unrecognised* tokens so an error message is
+ * copy-pasteable. This answers the opposite question — "what is STILL here?" —
+ * which is only meaningful *after* {@link interpolateStrict} has run, where a
+ * surviving token means a substitution did not HAPPEN rather than a name was
+ * mistyped. It shares the one regex so the two can never disagree about what
+ * counts as a token.
+ */
+export function sentinalTokenNames(text: string): string[] {
+  return [...new Set([...text.matchAll(SENTINAL_TOKEN_RE)].map((m) => m[1]!))];
+}
+
 /** The one message shape, so every surface says the same thing. */
 export function unknownTokenMessage(tokens: string[], field: string): string {
   return (

@@ -171,7 +171,7 @@ import {
   getPreEditGuide,
   checkSessionConflict,
   transitionTddState,
-  resolveProjectRoot,
+  resolvePluginRoots,
 } from "./sentinal-helpers.js";
 
 interface CompactState {
@@ -330,12 +330,17 @@ export const SentinalPlugin: Plugin = async ({
   worktree,
   experimental_workspace,
 }) => {
-  const { root: projectRoot, reason: projectRootReason } = resolveProjectRoot(
-    worktree,
-    directory,
-  );
-  // projectRootForSidecar: sidecar tolerates "" as "session-scoped, no persistence"
-  const projectRootForSidecar = projectRoot ?? "";
+  // Three distinct answers, deliberately not interchangeable:
+  //   projectRoot      — validated writable local root, or null → skip .sentinal writes
+  //   projectIdentity  — CANONICAL storage key, stable across worktrees, never ""
+  //   projectWorkspace — LOCAL checkout root for filesystem reads + plan discovery
+  // The old `projectRoot ?? ""` collapsed all three and wrote empty-key rows.
+  const {
+    root: projectRoot,
+    reason: projectRootReason,
+    identity: projectIdentity,
+    workspace: projectWorkspace,
+  } = resolvePluginRoots(worktree, directory);
 
   const eventBuffer = new EventBuffer(20);
   let sidecar: SidecarClient | null = null;
@@ -427,7 +432,7 @@ export const SentinalPlugin: Plugin = async ({
     if (sidecar) {
       await sidecar.createSession({
         id: sessionId,
-        projectPath: projectRootForSidecar,
+        projectPath: projectIdentity,
         assistant: "opencode",
       });
       log(`Eager session created: ${sessionId} (sidecar)`);
@@ -471,7 +476,7 @@ export const SentinalPlugin: Plugin = async ({
           sidecar,
           tool,
           filePath,
-          projectRootForSidecar,
+          projectIdentity,
         );
         if (guardMsg) throw new Error(guardMsg);
       }
@@ -492,11 +497,7 @@ export const SentinalPlugin: Plugin = async ({
 
       // Pre-edit guidance: inject file-specific observations
       if (sidecar && typeof filePath === "string") {
-        const guide = await getPreEditGuide(
-          sidecar,
-          filePath,
-          projectRootForSidecar,
-        );
+        const guide = await getPreEditGuide(sidecar, filePath, projectIdentity);
         if (guide)
           await client.app.log({
             body: { service: "sentinal", level: "info", message: guide },
@@ -548,7 +549,8 @@ export const SentinalPlugin: Plugin = async ({
               if (r.severity === "error") shouldBlock = true;
             }
 
-            const frameworks = detectFramework(projectRootForSidecar);
+            // Filesystem probe (package.json) — must read the LOCAL checkout.
+            const frameworks = detectFramework(projectWorkspace);
             if (frameworks.includes("angular") && isAngularFile(filePath)) {
               if (
                 content.includes("@Component") &&
@@ -707,7 +709,7 @@ export const SentinalPlugin: Plugin = async ({
             ) {
               const obsPayload = {
                 sessionId,
-                projectPath: projectRootForSidecar,
+                projectPath: projectIdentity,
                 type: decision.type,
                 title: decision.title,
                 content: decision.content,
@@ -739,24 +741,23 @@ export const SentinalPlugin: Plugin = async ({
     },
 
     "experimental.session.compacting": async (input, output) => {
-      const active = findActivePlan(projectRootForSidecar);
+      // Plan discovery is worktree-local by design; the sidecar calls below
+      // are keyed by the canonical identity.
+      const active = findActivePlan(projectWorkspace);
       const activePlan = active?.filePath ?? null;
       const planStatus = active?.spec.status ?? null;
 
       let memoryContext: string | null = null;
-      const sq = buildSemanticQuery(projectRootForSidecar);
+      const sq = buildSemanticQuery(projectWorkspace);
       try {
         if (sidecar) {
           if (active)
             await sidecar.syncSpec(
               active.filePath,
-              projectRootForSidecar,
+              projectIdentity,
               sessionId ?? undefined,
             );
-          const restored = await sidecar.restoreContext(
-            projectRootForSidecar,
-            sq,
-          );
+          const restored = await sidecar.restoreContext(projectIdentity, sq);
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
       } catch (e) {
@@ -831,7 +832,8 @@ export const SentinalPlugin: Plugin = async ({
       let reserved = 10000;
       if (sidecar) {
         try {
-          reserved = (await sidecar.getCompactionConfig(projectRootForSidecar))
+          // Reads <root>/opencode.json off disk — local checkout, not identity.
+          reserved = (await sidecar.getCompactionConfig(projectWorkspace))
             .reserved;
         } catch {
           // Non-fatal — use default
@@ -861,8 +863,8 @@ export const SentinalPlugin: Plugin = async ({
           return;
         }
 
-        // Inject active spec context
-        const active = findActivePlan(projectRootForSidecar);
+        // Inject active spec context (plan discovery — worktree-local)
+        const active = findActivePlan(projectWorkspace);
         if (active) {
           const { spec, filePath } = active;
           const total = spec.tasks.length;
@@ -929,7 +931,7 @@ export const SentinalPlugin: Plugin = async ({
             }
             await sidecar.createSession({
               id: sessionId,
-              projectPath: projectRootForSidecar,
+              projectPath: projectIdentity,
               assistant: "opencode",
             });
           }
@@ -961,9 +963,7 @@ export const SentinalPlugin: Plugin = async ({
         // if the first compaction happens before the sidecar is fully ready.
         try {
           if (sidecar) {
-            const restored = await sidecar.restoreContext(
-              projectRootForSidecar,
-            );
+            const restored = await sidecar.restoreContext(projectIdentity);
             if (restored.hasMemory && restored.markdown) {
               await client.app.log({
                 body: {
@@ -976,7 +976,7 @@ export const SentinalPlugin: Plugin = async ({
               if (projectRoot) {
                 const stDir = join(projectRoot, ".sentinal");
                 mkdirSync(stDir, { recursive: true });
-                const activePlanInfo = findActivePlan(projectRootForSidecar);
+                const activePlanInfo = findActivePlan(projectWorkspace);
                 const compactState: CompactState = {
                   activePlan: activePlanInfo?.filePath ?? null,
                   memoryContext: restored.markdown,
@@ -999,7 +999,7 @@ export const SentinalPlugin: Plugin = async ({
           const conflictMsg = await checkSessionConflict(
             sidecar,
             sessionId,
-            projectRootForSidecar,
+            projectIdentity,
           );
           if (conflictMsg)
             await client.app.log({
@@ -1012,18 +1012,16 @@ export const SentinalPlugin: Plugin = async ({
         }
 
         // OC parity: InstructionsLoaded — record CLAUDE.md / AGENTS.md if they exist
-        const instructionsFile = existsSync(
-          join(projectRootForSidecar, "CLAUDE.md"),
-        )
-          ? join(projectRootForSidecar, "CLAUDE.md")
-          : existsSync(join(projectRootForSidecar, "AGENTS.md"))
-            ? join(projectRootForSidecar, "AGENTS.md")
+        const instructionsFile = existsSync(join(projectWorkspace, "CLAUDE.md"))
+          ? join(projectWorkspace, "CLAUDE.md")
+          : existsSync(join(projectWorkspace, "AGENTS.md"))
+            ? join(projectWorkspace, "AGENTS.md")
             : null;
         if (instructionsFile) {
           void processInstructionsLoaded({
             session_id: sessionId,
             transcript_path: "",
-            cwd: projectRootForSidecar,
+            cwd: projectWorkspace,
             permission_mode: "default",
             hook_event_name: "InstructionsLoaded",
             file_path: instructionsFile,
@@ -1040,7 +1038,7 @@ export const SentinalPlugin: Plugin = async ({
           void processTaskCreated({
             session_id: sessionId,
             transcript_path: "",
-            cwd: projectRootForSidecar,
+            cwd: projectWorkspace,
             permission_mode: "default",
             hook_event_name: "TaskCreated",
             task_id: sessionId,
@@ -1099,7 +1097,7 @@ export const SentinalPlugin: Plugin = async ({
             try {
               await sidecar.createSession({
                 id: sessionId,
-                projectPath: projectRootForSidecar,
+                projectPath: projectIdentity,
                 assistant: "opencode",
               });
             } catch (e) {
@@ -1163,19 +1161,31 @@ export const SentinalPlugin: Plugin = async ({
         }
 
         // Ownership: read the current spec's owner from the sidecar (store-free).
-        let ownerLookup: ((specId: string) => string | null) | undefined;
+        let ownerLookup:
+          ((specId: string, projectPath: string) => string | null) | undefined;
         const aliveCache = new Map<string, boolean>();
         try {
           if (sidecar) {
-            const current = await sidecar.getCurrentSpec(projectRootForSidecar);
+            const current = await sidecar.getCurrentSpec(projectIdentity);
             const ownerId = current?.sessionId ?? null;
             const currentSpecId = current?.id ?? null;
-            // Only vouch for ownerId when the sidecar's current spec matches the
-            // spec resolveStopDecision actually resolved (findActivePlan). If they
-            // diverge (multiple plans / post-switch race), return null → orphaned
-            // → fail-safe block, never a wrong-owner ALLOW.
-            ownerLookup = (specId: string) =>
-              specId === currentSpecId ? ownerId : null;
+            // Only vouch for ownerId when BOTH match the spec resolveStopDecision
+            // actually resolved:
+            //   • specId    — the sidecar's current spec vs findActivePlan's. If
+            //     they diverge (multiple plans / post-switch race) → null.
+            //   • projectPath — the CANONICAL project key the decision resolved
+            //     vs the one this owner was prefetched for. `specs.id` is the
+            //     bare plan filename, so without this a same-named plan in
+            //     another project would be vouched for by THIS project's owner.
+            //     ⛔ Must not be dropped: resolveStopDecision PREFERS this
+            //     callback over its own project-scoped SQL, so for OpenCode the
+            //     scoping exists ONLY here.
+            // Either mismatch → null → orphaned → fail-safe block, never a
+            // wrong-owner ALLOW.
+            ownerLookup = (specId: string, projectPath: string) =>
+              specId === currentSpecId && projectPath === projectIdentity
+                ? ownerId
+                : null;
             // When no SDK probe, prime a sidecar-backed liveness fallback.
             if (!livenessProbe && ownerId) {
               aliveCache.set(ownerId, await sidecar.isSessionAlive(ownerId));
@@ -1186,8 +1196,12 @@ export const SentinalPlugin: Plugin = async ({
           /* ownerLookup stays undefined → resolveStopDecision fail-safe blocks */
         }
 
+        // ⛔ WORKTREE-LOCAL ON PURPOSE. Plan discovery must stay scoped to the
+        // checkout this session is standing in — using the canonical identity
+        // here would make two sessions in two worktrees block on each other's
+        // plans (docs/plans/2026-06-10-multi-plan-session-tracking.md:60-66).
         const decision = resolveStopDecision({
-          searchDir: projectRootForSidecar || process.cwd(),
+          searchDir: projectWorkspace,
           currentSessionId: sessionId ?? "",
           store: null,
           ownerLookup,
@@ -1208,11 +1222,17 @@ export const SentinalPlugin: Plugin = async ({
     // ─── compaction.autocontinue ───────────────────────────────────────────
     // Fires after compaction completes. Pause if TDD is RED; inject spec
     // resume directive if a spec is active. Experimental — wrap in try/catch.
+    //
+    // ⚠️ handleCompactionAutocontinue takes ONE path and uses it for BOTH a
+    // storage lookup (getCurrentSpec) and an on-disk prefix filter
+    // (cycle.filePath.startsWith). Identity is correct for the lookup; in a
+    // linked worktree the prefix filter under-matches, so the RED-state pause
+    // degrades to "continue". Splitting that signature is out of scope here.
     "compaction.autocontinue": async (_input, output) => {
       try {
         const result = await handleCompactionAutocontinue(
           sidecar,
-          projectRootForSidecar,
+          projectIdentity,
         );
         if (!result.shouldContinue) output.continue = false;
         result.context.forEach((c) => output.context.push(c));

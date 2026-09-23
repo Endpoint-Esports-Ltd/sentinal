@@ -6,6 +6,10 @@
  */
 
 import { existsSync, accessSync, constants } from "node:fs";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../../../src/project/identity.js";
 
 // ─── Project Root Resolution ──────────────────────────────────────────────────
 
@@ -79,6 +83,53 @@ export function resolveProjectRoot(
       candidates.length === 0
         ? "No project root candidates provided (worktree, directory, and cwd all empty)"
         : `No writable project root found. Tried: ${candidates.join(", ")}`,
+  };
+}
+
+export interface PluginRoots extends ResolveProjectRootResult {
+  /**
+   * The CANONICAL project key — identical for every worktree of a repository.
+   * ⛔ STORAGE KEYS ONLY (sidecar session/observation/spec project paths).
+   * Guaranteed non-empty: `projectRoot ?? ""` is what wrote empty-key rows
+   * into the live database.
+   */
+  identity: string;
+  /**
+   * The LOCAL checkout root — the worktree the user is actually editing.
+   * ⛔ FILESYSTEM READS/WRITES AND PLAN DISCOVERY ONLY. The stop-guard is
+   * deliberately worktree-local; using `identity` there would break the
+   * intentional multi-session isolation.
+   */
+  workspace: string;
+}
+
+/**
+ * Resolve the plugin's two project roots in one pass.
+ *
+ * `resolveProjectRoot`'s validity checks (not the filesystem root, exists,
+ * writable) still decide whether per-project `.sentinal/` state is usable —
+ * that answer stays on `root` and may be `null`. `identity` and `workspace`
+ * are derived from it (falling back to the process cwd when it is `null`) and
+ * are NEVER empty, so no sidecar call can be keyed by `""`.
+ */
+export function resolvePluginRoots(
+  worktree: string | undefined,
+  directory: string | undefined,
+  opts?: {
+    cwd?: () => string;
+    exists?: (p: string) => boolean;
+    isWritable?: (p: string) => boolean;
+  },
+): PluginRoots {
+  const base = resolveProjectRoot(worktree, directory, opts);
+  const getCwd = opts?.cwd ?? (() => process.cwd());
+  // A null root means "no writable per-project state", NOT "no repository" —
+  // the cwd still identifies the project for storage purposes.
+  const start = base.root ?? getCwd();
+  return {
+    ...base,
+    identity: resolveProjectIdentity(start),
+    workspace: resolveWorkspaceRoot(start),
   };
 }
 

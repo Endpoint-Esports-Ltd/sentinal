@@ -7,12 +7,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import { decayQualityScores } from "./maintenance.js";
 import { formatMemoryStats, registerMemoryTools } from "./mcp-tools.js";
-import { captureTools } from "../test-helpers.js";
+import { captureTools, makeTmpDir } from "../test-helpers.js";
 import type { CreateObservation, MemoryStats } from "./types.js";
 
 function makeTmpDb(): string {
@@ -312,4 +312,116 @@ describe("memory_update / memory_delete MCP tools", () => {
     const result = await tools.get("memory_update")!({ id: 999, content: "x" });
     expect(result.content[0].text.toLowerCase()).toContain("not found");
   });
+});
+
+// --- Worktree-aware project filters (read side) ---
+
+/**
+ * `memory_search`'s `project` filter is exact equality in THREE places —
+ * `store-observations.ts` (FTS), `vector-store.ts` (JS post-filter) and the
+ * hybrid fan-out in `search/strategies/hybrid.ts`. Wave 3 made every WRITE
+ * canonical, so calling from a linked worktree matched nothing at all: the
+ * originally-reported bug (0 results from this checkout, 235 rows under the
+ * main checkout's key).
+ *
+ * Normalizing ONCE at the MCP tool boundary covers all three, and also covers
+ * the sidecar path — `/memory/search` (`src/sidecar/routes.ts:375`) passes
+ * `body.project` straight through without normalizing.
+ *
+ * Fixtures are REAL git repos with REAL linked worktrees; a fake path proves
+ * nothing because `resolveProjectIdentity("/test")` returns `/test` unchanged.
+ */
+function initRepoForIdentity(dir: string): void {
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial"], { cwd: dir });
+}
+
+describe("memory read-tool project identity", () => {
+  let tmpDir: string;
+  let repoDir: string;
+  let wtPath: string;
+  let store: MemoryStore;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    // realpathSync pre-applied: /var symlinks to /private/var on macOS and
+    // resolveProjectIdentity canonicalizes, so raw tmp paths never compare equal.
+    tmpDir = realpathSync(makeTmpDir());
+    repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepoForIdentity(repoDir);
+    wtPath = join(tmpDir, "wt-feature");
+    Bun.spawnSync(["git", "worktree", "add", wtPath, "-b", "feature"], {
+      cwd: repoDir,
+    });
+
+    store = new MemoryStore(join(tmpDir, "identity.db"));
+    service = new MemoryService(store);
+  });
+
+  afterEach(() => {
+    service.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("memory_search with a worktree path finds observations stored under the canonical path", async () => {
+    service.addObservation(
+      makeObservation({
+        projectPath: repoDir, // canonical key, as Wave 3 writes it
+        title: "Sidecar socket retry",
+        content: "The sidecar retries the unix socket before HTTP.",
+      }),
+    );
+
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_search")!({
+      query: "sidecar socket retry",
+      project: wtPath, // caller stands in the linked worktree
+    });
+
+    expect(result.content[0].text).toContain("Sidecar socket retry");
+  }, 30_000);
+
+  it("memory_search still excludes observations from an UNRELATED project", async () => {
+    service.addObservation(
+      makeObservation({
+        projectPath: "/some/other/project",
+        title: "Unrelated socket retry",
+        content: "The sidecar retries the unix socket before HTTP.",
+      }),
+    );
+
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_search")!({
+      query: "sidecar socket retry",
+      project: wtPath,
+    });
+
+    expect(result.content[0].text).not.toContain("Unrelated socket retry");
+  }, 30_000);
+
+  it("memory_timeline with a worktree path finds canonically-keyed neighbours", async () => {
+    const anchor = service.addObservation(
+      makeObservation({ projectPath: repoDir, title: "Anchor obs" }),
+    );
+    service.addObservation(
+      makeObservation({
+        projectPath: repoDir,
+        title: "Neighbour obs",
+        timestamp: Date.now() + 1000,
+      }),
+    );
+
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_timeline")!({
+      anchor: anchor.id,
+      project: wtPath,
+    });
+
+    expect(result.content[0].text).toContain("Neighbour obs");
+  }, 30_000);
 });

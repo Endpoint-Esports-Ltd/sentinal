@@ -30,7 +30,10 @@ const writeConfig = (content: string) =>
   writeFileSync(join(root, ".sentinal", "runtime.json"), content);
 
 const writeSlot = (slot: number) =>
-  writeFileSync(join(root, SLOT_ENV_RELATIVE_PATH), `${SLOT_ENV_VAR}=${slot}\n`);
+  writeFileSync(
+    join(root, SLOT_ENV_RELATIVE_PATH),
+    `${SLOT_ENV_VAR}=${slot}\n`,
+  );
 
 // ─── Backward compatibility ─────────────────────────────────────────────────
 
@@ -137,6 +140,111 @@ describe("a slotless worktree degrades with a warning", () => {
     writeConfig(JSON.stringify({ up: "npm start", readiness: "http://x" }));
     const r = loadRuntimeConfig(root);
     expect(r.warnings.filter((w) => w.includes("slot"))).toEqual([]);
+  });
+});
+
+// ─── Structured unsubstituted-token signal ──────────────────────────────────
+
+/**
+ * The prose in `warnings[]` is what a HUMAN reads; it is documented as
+ * "never a reason to stop" and must stay that way. A caller that needs to
+ * REFUSE to spawn cannot substring-match a paragraph, so the same condition is
+ * also published as data. Both surfaces, one condition.
+ */
+describe("unsubstitutedTokens — the machine-readable half of the warning", () => {
+  it("is an empty array, not undefined, when there is no file at all", () => {
+    const r = loadRuntimeConfig(root);
+    expect(r.unsubstitutedTokens).toEqual([]);
+  });
+
+  it("is empty for a config whose tokens were all substituted", () => {
+    writeSlot(4);
+    writeConfig(
+      JSON.stringify({
+        up: "./stack up ${SENTINAL_WORKTREE_SLOT}",
+        down: "./stack down ${SENTINAL_WORKTREE_SLOT}",
+        readiness: "http://localhost:30${SENTINAL_WORKTREE_SLOT}0/health",
+      }),
+    );
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([]);
+  });
+
+  it("is empty for a config that carries no Sentinal token at all", () => {
+    writeConfig(JSON.stringify({ up: "npm start", readiness: "http://x" }));
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([]);
+  });
+
+  it("NAMES the surviving token when the worktree has no slot", () => {
+    writeConfig(
+      JSON.stringify({
+        up: "./stack up ${SENTINAL_WORKTREE_SLOT}",
+        readiness: "http://localhost:3000",
+      }),
+    );
+    const r = loadRuntimeConfig(root);
+
+    // Bare NAME, no `${}` — this is a key a caller branches on, not prose.
+    expect(r.unsubstitutedTokens).toEqual(["SENTINAL_WORKTREE_SLOT"]);
+  });
+
+  it("scans down and readiness.target too, deduplicated", () => {
+    writeConfig(
+      JSON.stringify({
+        up: "./stack up ${SENTINAL_WORKTREE_SLOT}",
+        down: "./stack down ${SENTINAL_WORKTREE_SLOT}",
+        readiness: "http://localhost:30${SENTINAL_WORKTREE_SLOT}0/health",
+      }),
+    );
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([
+      "SENTINAL_WORKTREE_SLOT",
+    ]);
+  });
+
+  it("finds a token that survives ONLY in readiness.target", () => {
+    writeConfig(
+      JSON.stringify({
+        readiness: "http://localhost:30${SENTINAL_WORKTREE_SLOT}0/health",
+      }),
+    );
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([
+      "SENTINAL_WORKTREE_SLOT",
+    ]);
+  });
+
+  it("finds a token that survives ONLY in down", () => {
+    writeConfig(
+      JSON.stringify({
+        down: "./stack down ${SENTINAL_WORKTREE_SLOT}",
+      }),
+    );
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([
+      "SENTINAL_WORKTREE_SLOT",
+    ]);
+  });
+
+  it("stays empty — never undefined — on a config that failed to parse", () => {
+    writeConfig("{ not json");
+    expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([]);
+  });
+
+  it("stays empty — never undefined — on a config that failed validation", () => {
+    writeConfig(JSON.stringify({ up: "npm start" })); // no readiness
+    const r = loadRuntimeConfig(root);
+    expect(r.error).not.toBeNull();
+    expect(r.unsubstitutedTokens).toEqual([]);
+  });
+
+  it("accompanies the human warning rather than replacing it", () => {
+    writeConfig(
+      JSON.stringify({
+        up: "./stack up ${SENTINAL_WORKTREE_SLOT}",
+        readiness: "http://localhost:3000",
+      }),
+    );
+    const r = loadRuntimeConfig(root);
+
+    expect(r.unsubstitutedTokens).toEqual(["SENTINAL_WORKTREE_SLOT"]);
+    expect(r.warnings.join("\n")).toContain("LEFT IN PLACE");
   });
 });
 

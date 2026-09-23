@@ -40,6 +40,7 @@
  * The `reused` flag exists so the caller cannot accidentally do it.
  */
 
+import { SLOT_ENV_RELATIVE_PATH } from "../worktree/slots.js";
 import { loadRuntimeConfig, type LoadedRuntimeConfig } from "./loader.js";
 import { writePidfile, markPidfileReady, removePidfile } from "./pidfile.js";
 import { claimPidfile, claimEntry } from "./pidfile-claim.js";
@@ -131,6 +132,20 @@ function fail(
   };
 }
 
+/**
+ * ⛔ Every surviving-`${SENTINAL_*}`-token refusal carries this verbatim.
+ *
+ * Reporting the fact is not the same as forbidding the fix-up. An agent told
+ * only "the slot is missing" supplies one — and an invented slot aims the run at
+ * resources that are not this worktree's: the same error class as re-porting.
+ */
+export const UNSUBSTITUTED_TOKEN_RULE =
+  "⛔ Do NOT substitute a value yourself, and do NOT edit the contract to hard-code one. An unset ${SENTINAL_*} " +
+  "token is expanded by `sh -c` to the EMPTY STRING, so the command would run against the slotless — i.e. the " +
+  "main checkout's — resources, silently operating on a different stack than the one under test. Remedy: give " +
+  `this worktree a slot (free one with worktree_cleanup, then re-run detection) so ${SLOT_ENV_RELATIVE_PATH} ` +
+  "exists, or run from the main checkout with a contract that declares no per-slot token.";
+
 // ─── up ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -180,6 +195,24 @@ export async function runtimeUp(
     return fail(loaded.error ?? "the runtime contract could not be parsed", {
       warnings: loaded.warnings,
     });
+  }
+
+  // ⛔ Before the claim, before the spawn. A surviving token is not cosmetic:
+  // `interpolateStrict` leaves the literal text in place when there is no slot
+  // and `spawnDetached` DELETES the matching env var, so `sh -c` expands it to
+  // the empty string and `./stack up ${SENTINAL_WORKTREE_SLOT}` runs as
+  // `./stack up `. The occupied-port guard cannot catch it: a token inside
+  // `readiness.target` makes `new URL()` throw, `readinessEndpoint` is null, and
+  // the port check goes INERT exactly when it is needed. Keyed on the SURVIVING
+  // TOKEN, never on `loaded.slot === null` — a main checkout legitimately has none.
+  if (loaded.unsubstitutedTokens.length > 0) {
+    const names = loaded.unsubstitutedTokens.map((t) => `\${${t}}`).join(", ");
+    return fail(
+      `${loaded.relPath} still contains ${names} after interpolation — there was no value to substitute, and ` +
+        `${SLOT_ENV_RELATIVE_PATH} ${loaded.slot === null ? `does not exist for ${projectPath}` : `did not supply every token`}. ` +
+        `Nothing was started. ${UNSUBSTITUTED_TOKEN_RULE}`,
+      { warnings: loaded.warnings },
+    );
   }
 
   const config = loaded.config;

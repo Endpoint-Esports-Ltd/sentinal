@@ -7,6 +7,7 @@
 
 import type { MemoryStore } from "../memory/store.js";
 import type { Session } from "../memory/types.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type { Database } from "bun:sqlite";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,6 +28,13 @@ export interface FileConflict {
 /**
  * Check for active sessions on the same project (excluding the current one).
  * Returns conflict info with a warning message, or null if no conflicts.
+ *
+ * `projectPath` is a STORAGE KEY and is canonicalized here, at the entry point.
+ * Callers hand it a hook's raw `cwd` (`src/hooks/session-start.ts:42`), which
+ * from a linked worktree is the worktree path, while `sessions.project_path`
+ * holds the canonical main-checkout key. `listSessions` filters with exact
+ * equality, so without this the detector reported "no conflict" unconditionally
+ * from every worktree.
  */
 export function detectSessionConflict(
   store: MemoryStore,
@@ -34,7 +42,7 @@ export function detectSessionConflict(
   currentSessionId: string,
 ): SessionConflict | null {
   const activeSessions = store.listSessions({
-    project: projectPath,
+    project: resolveProjectIdentity(projectPath),
     active: true,
   });
 
@@ -59,6 +67,15 @@ const RECENCY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
  * Check if another active session recently edited the same file.
  * Uses a direct SQL query on observations + sessions for performance.
  * Returns conflict info or null if no file conflicts.
+ *
+ * ⛔ The two path parameters are DIFFERENT KINDS and are treated differently:
+ *   - `projectPath` is a STORAGE KEY (`o.project_path = ?`, exact equality) and
+ *     is canonicalized, for the same reason as `detectSessionConflict` above.
+ *     Its caller (`src/cli/commands/hook.ts:200`) passes the hook's raw `cwd`.
+ *   - `filePath` is a FILE path matched with `LIKE '%…%'` against
+ *     `o.file_paths`. It is deliberately left RAW — canonicalizing it would
+ *     resolve a relative path against the wrong root, and a repo-root result
+ *     would make the LIKE match every observation in the project.
  */
 export function detectFileConflict(
   store: MemoryStore,
@@ -69,6 +86,7 @@ export function detectFileConflict(
   const db = store.getRawDb();
   const cutoff = Date.now() - RECENCY_WINDOW_MS;
   const filePattern = `%${filePath}%`;
+  const projectKey = resolveProjectIdentity(projectPath);
 
   // Find observations from other active sessions that mention this file
   const row = db
@@ -86,7 +104,7 @@ export function detectFileConflict(
     LIMIT 1
   `,
     )
-    .get(projectPath, filePattern, currentSessionId, cutoff) as {
+    .get(projectKey, filePattern, currentSessionId, cutoff) as {
     session_id: string;
     timestamp: number;
   } | null;

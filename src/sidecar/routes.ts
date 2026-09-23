@@ -13,6 +13,7 @@ import {
   notifyVectorUnavailableOnce,
 } from "./vector-stats.js";
 import { restoreContext } from "../memory/restore.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type {
   AssistantType,
   NotificationType,
@@ -137,6 +138,37 @@ export async function handleSidecarRequest(
   }
 }
 
+// ─── Project key normalization ───────────────────────────────────────────
+
+/**
+ * Canonicalize a caller-supplied `projectPath` for use as a STORAGE KEY.
+ *
+ * Every linked worktree of a repository must collapse to the SAME key as its
+ * main checkout, or observations recorded from a worktree are invisible from
+ * the main checkout and sessions fragment per-worktree (breaking
+ * `isSessionAlive` liveness and the dashboard's per-project grouping).
+ *
+ * ⛔ The sidecar's own `process.cwd()` is MEANINGLESS here. This is a detached,
+ * long-lived process whose cwd is unrelated to any caller — the same
+ * prohibition documented at `src/sidecar/worktree-routes.ts` and
+ * `src/worktree/cleanup.ts`. So a blank/absent value returns `null` and the
+ * caller MUST reject: `resolveProjectIdentity("")` would substitute
+ * `process.cwd()`, which here means "some arbitrary directory the sidecar
+ * happened to be spawned in" and would silently misfile the row.
+ *
+ * Storing `""` is equally forbidden — an empty key matches nothing and groups
+ * everything (14 such rows already exist in the live database).
+ */
+function normalizeProjectKey(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  const resolved = resolveProjectIdentity(raw);
+  return resolved && resolved.trim() !== "" ? resolved : null;
+}
+
+const MISSING_PROJECT_PATH =
+  "Missing or empty 'projectPath' — the sidecar cannot infer it from its own " +
+  "cwd, and refuses to store an empty project key";
+
 // ─── Handlers ────────────────────────────────────────────────────────────
 
 async function handleCreateSession(
@@ -150,12 +182,15 @@ async function handleCreateSession(
     transcriptPath?: string | null;
   }>(req);
 
+  const projectPath = normalizeProjectKey(body.projectPath);
+  if (!projectPath) return fail(MISSING_PROJECT_PATH);
+
   try {
     const session = ctx.store.insertSession({
       id: body.id,
       startTime: Date.now(),
       endTime: null,
-      projectPath: body.projectPath,
+      projectPath,
       assistant: body.assistant as AssistantType,
       summary: null,
       transcriptPath: body.transcriptPath ?? null,
@@ -270,9 +305,12 @@ async function handleAddObservation(
     metadata?: Record<string, unknown>;
   }>(req);
 
+  const projectPath = normalizeProjectKey(body.projectPath);
+  if (!projectPath) return fail(MISSING_PROJECT_PATH);
+
   const obs = ctx.service.addObservation({
     sessionId: body.sessionId,
-    projectPath: body.projectPath,
+    projectPath,
     timestamp: Date.now(),
     type: body.type as any,
     title: body.title,

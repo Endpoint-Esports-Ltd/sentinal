@@ -13,7 +13,7 @@
 
 import { existsSync } from "node:fs";
 import { WorktreeStore } from "./store.js";
-import { listGitWorktrees } from "./disk-scan.js";
+import { listGitWorktrees, type GitWorktreeEntry } from "./disk-scan.js";
 import {
   gitExec,
   getRepoRoot,
@@ -81,8 +81,12 @@ export function resolveWithReconcile(
   // misses, while it DOES adopt a different slug's worktree whenever the
   // wanted slug is a strict prefix of it (`add` vs `add-auth`).
   const wanted = `${config.branchPrefix}${slugify(slug)}`;
+  // `branch` is nullable since the parser retains detached/bare entries. Those
+  // are skipped EXPLICITLY here: `=== wanted` would already exclude them, but
+  // stating it keeps the non-null narrowing below checked rather than assumed.
   const onDisk = listGitWorktrees(repoRoot).find(
-    (w) => w.branch === wanted && existsSync(w.path),
+    (w): w is GitWorktreeEntry & { branch: string } =>
+      w.branch !== null && w.branch === wanted && existsSync(w.path),
   );
   if (!onDisk) return null;
 

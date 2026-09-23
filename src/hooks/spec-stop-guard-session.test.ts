@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { SpecStore } from "../spec/store.js";
 import { resolveStopDecision } from "../spec/ownership.js";
 
@@ -24,6 +25,19 @@ function writePlan(dir: string, filename: string): void {
   writeFileSync(
     join(plansDir, filename),
     `# Test Plan\nStatus: IN_PROGRESS\nType: Feature\nApproved: Yes\n`,
+  );
+}
+
+/**
+ * Register a plan the way production does — keyed by the CANONICAL project
+ * identity. The ownership query is project-scoped, so a row written under a
+ * raw (non-canonical) path is a row shape no real caller can produce, and
+ * would read back as `orphaned`.
+ */
+function registerPlan(store: MemoryStore, dir: string, filename: string): void {
+  new SpecStore(store).syncFromPlanFile(
+    join(dir, "docs", "plans", filename),
+    resolveProjectIdentity(dir),
   );
 }
 
@@ -48,11 +62,7 @@ describe("spec-stop-guard — session-aware stop decisions", () => {
 
   it("should NOT block when a different LIVE session owns the plan (the reported bug)", () => {
     // Register the plan in the DB first (creates the spec row)
-    const specStore = new SpecStore(store);
-    specStore.syncFromPlanFile(
-      join(tmpDir, "docs", "plans", "2026-06-10-test-plan.md"),
-      tmpDir,
-    );
+    registerPlan(store, tmpDir, "2026-06-10-test-plan.md");
 
     // Session A owns the plan and is alive
     store.insertSession({
@@ -77,11 +87,7 @@ describe("spec-stop-guard — session-aware stop decisions", () => {
   });
 
   it("should BLOCK when the current session owns the plan", () => {
-    const specStore2 = new SpecStore(store);
-    specStore2.syncFromPlanFile(
-      join(tmpDir, "docs", "plans", "2026-06-10-test-plan.md"),
-      tmpDir,
-    );
+    registerPlan(store, tmpDir, "2026-06-10-test-plan.md");
     store.insertSession({
       id: "session-current",
       startTime: Date.now() - 10_000,
@@ -101,6 +107,9 @@ describe("spec-stop-guard — session-aware stop decisions", () => {
     });
     expect(result.block).toBe(true);
     expect(result.reason).toContain("IN_PROGRESS");
+    // Pin the REASON for the block: a project-scoping regression would still
+    // block here, but as "orphaned" (row invisible) rather than "self".
+    expect(result.ownership).toBe("self");
   });
 
   it("should BLOCK (fail-safe) when store is null (sidecar+store unavailable)", () => {

@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SETUP_HINT } from "../memory/native-deps.js";
@@ -188,5 +188,152 @@ describe("/memory/update and /memory/delete routes", () => {
     const body = (await res!.json()) as { ok: boolean; data: any };
     expect(body.ok).toBe(true);
     expect(store.getObservation(id)).toBeNull();
+  });
+});
+
+// ─── Project key normalization on the sidecar write paths ─────────────────
+//
+// Observations and sessions are keyed by projectPath. A linked worktree must
+// map to the SAME key as its main checkout, or memory recorded from a worktree
+// is invisible from the main checkout (and `isSessionAlive` / the dashboard
+// fragment per-worktree).
+//
+// ⛔ The sidecar's own process.cwd() is MEANINGLESS here — it is a detached,
+// long-lived process. These tests deliberately use temp repos that have nothing
+// to do with the sidecar's cwd, so a cwd fallback would be visible as a wrong
+// answer rather than an accidentally-correct one.
+
+function initRepo(dir: string): void {
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial commit"], { cwd: dir });
+}
+
+async function call(
+  ctx: SidecarContext,
+  path: string,
+  body: unknown,
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const res = await handleSidecarRequest(
+    new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    ctx,
+  );
+  return (await res.json()) as { ok: boolean; data?: any; error?: string };
+}
+
+describe("projectPath normalization on /observation and /session", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+  let mainRoot: string;
+  let worktreePath: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = {
+      store,
+      service: new MemoryService(store),
+      specStore: new SpecStore(store),
+      wtStore: new WorktreeStore(store),
+    };
+
+    const repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+    worktreePath = join(tmpDir, "wt-feature");
+    Bun.spawnSync(
+      ["git", "worktree", "add", "-b", "feature", worktreePath, "main"],
+      { cwd: repoDir },
+    );
+    mainRoot = realpathSync(repoDir);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("stores an observation posted from a linked worktree under the main checkout key", async () => {
+    // Sanity: the fixture really is a distinct linked worktree.
+    expect(realpathSync(worktreePath)).not.toBe(mainRoot);
+
+    const r = await call(ctx, "/observation", {
+      sessionId: "s-wt",
+      projectPath: worktreePath,
+      type: "discovery",
+      title: "From a worktree",
+      content: "recorded while standing in a linked worktree",
+    });
+
+    expect(r.ok).toBe(true);
+    expect(r.data.projectPath).toBe(mainRoot);
+    expect(store.getObservation(r.data.id)!.projectPath).toBe(mainRoot);
+  }, 30_000);
+
+  it("stores a session created from a linked worktree under the main checkout key", async () => {
+    const r = await call(ctx, "/session", {
+      id: "sess-wt",
+      projectPath: worktreePath,
+      assistant: "opencode",
+    });
+
+    expect(r.ok).toBe(true);
+    expect(r.data.projectPath).toBe(mainRoot);
+
+    // Querying for the main checkout must find the worktree-born session.
+    const active = ctx.store.getActiveSessions();
+    expect(active.map((s) => s.projectPath)).toEqual([mainRoot]);
+  }, 30_000);
+
+  it('rejects an empty projectPath on /observation instead of storing ""', async () => {
+    const r = await call(ctx, "/observation", {
+      sessionId: "s-empty",
+      projectPath: "",
+      type: "discovery",
+      title: "No project",
+      content: "should not be stored",
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/projectPath/i);
+    expect(store.getStats().totalObservations).toBe(0);
+  });
+
+  it('rejects a missing projectPath on /observation instead of storing ""', async () => {
+    const r = await call(ctx, "/observation", {
+      sessionId: "s-missing",
+      type: "discovery",
+      title: "No project",
+      content: "should not be stored",
+    });
+
+    expect(r.ok).toBe(false);
+    expect(store.getStats().totalObservations).toBe(0);
+  });
+
+  it("rejects an empty or missing projectPath on /session", async () => {
+    const empty = await call(ctx, "/session", {
+      id: "sess-empty",
+      projectPath: "   ",
+      assistant: "opencode",
+    });
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toMatch(/projectPath/i);
+
+    const missing = await call(ctx, "/session", {
+      id: "sess-missing",
+      assistant: "opencode",
+    });
+    expect(missing.ok).toBe(false);
+
+    expect(ctx.store.getActiveSessions()).toEqual([]);
   });
 });

@@ -49,6 +49,7 @@ function loaded(config: RuntimeConfig | null, over = {}): LoadedRuntimeConfig {
     sharedResources: [],
     unknownResources: [],
     warnings: [],
+    unsubstitutedTokens: [],
     error: null,
     ...over,
   };
@@ -155,6 +156,101 @@ describe("runtimeUp", () => {
     expect(r.ok).toBe(true);
     expect(r.started).toBe(false);
     expect(spawn.calls).toHaveLength(0);
+  });
+
+  // ── Surviving-token refusal ──────────────────────────────────────────────
+
+  /**
+   * ⛔ `interpolateStrict` LEAVES the literal `${SENTINAL_WORKTREE_SLOT}` in
+   * place when there is no slot, and `spawn.ts` DELETES the env var — so
+   * `sh -c` expands the unset token to the EMPTY STRING and
+   * `./scripts/stack up ${SENTINAL_WORKTREE_SLOT}` runs as
+   * `./scripts/stack up `, silently targeting the main checkout's resources.
+   *
+   * The occupied-port guard cannot catch it either: with the token in the
+   * readiness target `new URL()` throws, `readinessEndpoint` returns null, and
+   * `bound()` is hard-coded false — so the one check that would have noticed
+   * the collision is INERT exactly when it is needed.
+   */
+  it("⛔ REFUSES to spawn when a ${SENTINAL_WORKTREE_SLOT} token survived interpolation", async () => {
+    const spawn = fakeSpawn();
+    const r = await runtimeUp(wt, {
+      loadConfig: () =>
+        loaded(
+          cfg({
+            up: "./scripts/stack up ${SENTINAL_WORKTREE_SLOT}",
+            readiness: {
+              type: "http",
+              target: "http://127.0.0.1:459${SENTINAL_WORKTREE_SLOT}9/health",
+              startupTimeoutMs: 500,
+              pollIntervalMs: 50,
+            },
+          }),
+          { slot: null, unsubstitutedTokens: ["SENTINAL_WORKTREE_SLOT"] },
+        ),
+      spawn: spawn.fn,
+      isPortBound: async () => false,
+      awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
+    });
+
+    expect(r.ok).toBe(false);
+    // ⛔ Nothing may be started — the return value alone would pass even if the
+    // group were already detached and orphaned.
+    expect(spawn.calls).toHaveLength(0);
+    expect(r.started).toBe(false);
+    // The message names the token and where the slot should have come from.
+    expect(r.reason).toContain("SENTINAL_WORKTREE_SLOT");
+    expect(r.reason).toContain(".sentinal/worktree.env");
+    // ⛔ And it forbids the improvisation rather than merely omitting it, the
+    // same way OCCUPIED_PORT_RULE does.
+    expect(r.reason!.toLowerCase()).toContain("not");
+    // ⛔ No pidfile and no claim file left behind: a refusal that wedges the
+    // worktree behind a claim guarding nothing is a worse failure than the bug.
+    expect(existsSync(runtimePidfilePath(wt))).toBe(false);
+  });
+
+  it("⛔ refuses on a token surviving in `down` alone — nothing is spawned", async () => {
+    const spawn = fakeSpawn();
+    const r = await runtimeUp(wt, {
+      loadConfig: () =>
+        loaded(
+          cfg({ down: "./scripts/stack down ${SENTINAL_WORKTREE_SLOT}" }),
+          {
+            slot: null,
+            unsubstitutedTokens: ["SENTINAL_WORKTREE_SLOT"],
+          },
+        ),
+      spawn: spawn.fn,
+      isPortBound: async () => false,
+      awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
+    });
+
+    // A stack we can start but cannot stop is the orphan D5 exists to prevent.
+    expect(r.ok).toBe(false);
+    expect(spawn.calls).toHaveLength(0);
+    expect(existsSync(runtimePidfilePath(wt))).toBe(false);
+  });
+
+  /**
+   * ⛔ The regression that matters most. A plain main checkout has NO slot
+   * (`MAIN_CHECKOUT_SLOT = 0` is never written to `worktree.env`), so keying
+   * the refusal on `slot === null` instead of on a surviving token would break
+   * every `runtime_up` that works today.
+   */
+  it("starts normally with NO slot and NO tokens — a plain main checkout", async () => {
+    const spawn = fakeSpawn();
+    const r = await runtimeUp(wt, {
+      loadConfig: () => loaded(cfg(), { slot: null, unsubstitutedTokens: [] }),
+      spawn: spawn.fn,
+      isPortBound: async () => false,
+      awaitReady: async () => ({ ready: true, attempts: 1, elapsedMs: 1 }),
+    });
+
+    expect(r.ok).toBe(true);
+    expect(r.started).toBe(true);
+    expect(spawn.calls).toHaveLength(1);
+    // The slot is passed through as-is; spawn.ts deletes the env var for null.
+    expect(spawn.calls[0]!.slot).toBeNull();
   });
 
   // ── Preflight row: pidfile ready + owned → REUSE ─────────────────────────

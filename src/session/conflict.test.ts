@@ -3,8 +3,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
+import { makeTmpDir } from "../test-helpers.js";
 import { detectSessionConflict, detectFileConflict } from "./conflict.js";
 
 describe("detectSessionConflict", () => {
@@ -299,4 +302,143 @@ describe("detectFileConflict", () => {
     );
     expect(result).toBeNull();
   });
+});
+
+// ─── Worktree-aware project keys ──────────────────────────────────────────────
+
+/**
+ * Both detectors filter on `project_path` with EXACT equality, against a path
+ * the caller hands them straight from a hook's `cwd` (`src/hooks/session-start.ts:42`,
+ * `src/cli/commands/hook.ts:200`). From a linked worktree that cwd is the
+ * worktree path, while every row is written under the CANONICAL main-checkout
+ * key (Wave 3), so both detectors silently returned "no conflict" forever.
+ *
+ * Fixtures are REAL git repos with REAL linked worktrees: a fake path proves
+ * nothing, because `resolveProjectIdentity("/test")` returns `/test` unchanged.
+ */
+function initRepo(dir: string): void {
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial"], { cwd: dir });
+}
+
+describe("conflict detection project identity", () => {
+  let tmpDir: string;
+  let repoDir: string;
+  let wtPath: string;
+  let store: MemoryStore;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    // realpathSync pre-applied: /var is a symlink to /private/var on macOS and
+    // resolveProjectIdentity canonicalizes, so raw tmp paths never compare equal.
+    tmpDir = realpathSync(makeTmpDir());
+    repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    initRepo(repoDir);
+    wtPath = join(tmpDir, "wt-feature");
+    Bun.spawnSync(["git", "worktree", "add", wtPath, "-b", "feature"], {
+      cwd: repoDir,
+    });
+
+    store = new MemoryStore(":memory:");
+    service = new MemoryService(store);
+  });
+
+  afterEach(() => {
+    service.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detectSessionConflict finds a canonically-keyed session when called with a worktree path", () => {
+    store.insertSession({
+      id: "session-main",
+      startTime: Date.now() - 60000,
+      endTime: null,
+      projectPath: repoDir, // canonical key, as Wave 3 writes it
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+    // Caller stands in the linked worktree and passes ITS cwd.
+    const result = detectSessionConflict(store, wtPath, "session-worktree");
+
+    expect(result).not.toBeNull();
+    expect(result!.conflictingSessions.map((s) => s.id)).toEqual([
+      "session-main",
+    ]);
+  }, 20_000);
+
+  it("detectFileConflict finds a canonically-keyed observation when called with a worktree path", () => {
+    store.insertSession({
+      id: "session-main",
+      startTime: Date.now() - 300000,
+      endTime: null,
+      projectPath: repoDir,
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+    service.addObservation({
+      sessionId: "session-main",
+      projectPath: repoDir, // canonical key
+      timestamp: Date.now() - 60000,
+      type: "discovery",
+      title: "Edited app.ts",
+      content: "Made changes",
+      filePaths: ["src/app.ts"],
+      tags: [],
+      metadata: {},
+    });
+
+    const result = detectFileConflict(
+      store,
+      "src/app.ts",
+      wtPath, // worktree cwd
+      "session-worktree",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe("session-main");
+  }, 20_000);
+
+  it("detectFileConflict still matches file_paths, not the project key, on the LIKE clause", () => {
+    store.insertSession({
+      id: "session-main",
+      startTime: Date.now() - 300000,
+      endTime: null,
+      projectPath: repoDir,
+      assistant: "opencode",
+      summary: null,
+      transcriptPath: null,
+    });
+    service.addObservation({
+      sessionId: "session-main",
+      projectPath: repoDir,
+      timestamp: Date.now() - 60000,
+      type: "discovery",
+      title: "Edited app.ts",
+      content: "Made changes",
+      filePaths: ["src/app.ts"],
+      tags: [],
+      metadata: {},
+    });
+
+    // A DIFFERENT file in the same (canonical) project must not match. This
+    // pins that normalization was applied to the project key only — if the
+    // file path were canonicalized too it would resolve to the repo root and
+    // match everything.
+    const result = detectFileConflict(
+      store,
+      "src/other.ts",
+      wtPath,
+      "session-worktree",
+    );
+
+    expect(result).toBeNull();
+  }, 20_000);
 });

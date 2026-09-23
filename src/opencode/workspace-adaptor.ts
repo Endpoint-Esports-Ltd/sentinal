@@ -8,6 +8,22 @@
  * Types are inlined (not imported from @opencode-ai/plugin) because that package
  * lives in OpenCode's own node_modules, not sentinal's. The shapes match the
  * WorkspaceAdaptor API from @opencode-ai/plugin v1.4.4+.
+ *
+ * ⛔ This is NOT a fourth root resolver, and it must not be "unified" with
+ * `src/project/identity.ts`. It never derives a root from a cwd: OpenCode hands
+ * it a `WorkspaceInfo.directory` and `target()` either passes that through or
+ * substitutes a worktree path the SIDECAR resolved from a plan slug. There is
+ * no `git rev-parse` and no `git worktree list` anywhere in this file.
+ *
+ * It is also strictly a WORKSPACE concern in identity.ts's vocabulary — it
+ * decides which checkout OpenCode's file tools WRITE to, and answering the main
+ * checkout while a spec worktree is active is precisely the edit-leak bug
+ * (2026-07-24) that the TIMEOUT sentinel below exists to prevent. Calling
+ * `resolveProjectIdentity` here would reintroduce that bug by construction.
+ *
+ * (The `MAIN_ROOT` identifier attributed to this module lives only in its test
+ * file, where it is a literal fixture string — `"/test/project"` — not a
+ * resolved root.)
  */
 
 import { existsSync, readFileSync } from "node:fs";

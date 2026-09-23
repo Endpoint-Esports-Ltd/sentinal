@@ -16,6 +16,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { mcpText } from "../mcp/helpers.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { findActivePlan } from "./detect.js";
 import type { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
@@ -133,7 +134,13 @@ function registerSpecStatusTool(
     {
       project: z.string().describe("Project path to check for active specs"),
     },
-    async ({ project }) => {
+    async ({ project: rawProject }) => {
+      // STORAGE KEY. `getCurrentSpec` filters `specs.project_path` with exact
+      // SQL equality, and the sidecar's `/spec/current` route passes the query
+      // param straight through, so the canonicalization has to happen here.
+      // `SpecStore` itself deliberately does NOT normalize — it must keep
+      // accepting non-repo keys like `/test/project` and raw tmpdirs.
+      const project = resolveProjectIdentity(rawProject);
       const spec = client
         ? await client.getCurrentSpec(project)
         : specStore!.getCurrentSpec(project);
@@ -225,6 +232,13 @@ function registerSpecInitTool(
       lines.push("");
 
       // --- Active Plan ---
+      // ⛔ `project` is a FILESYSTEM SEARCH ROOT here, NOT a storage key, and is
+      // deliberately NOT canonicalized — despite sharing a parameter name with
+      // `spec_status` above, which IS a storage key. `findActivePlan` scans
+      // `<project>/docs/plans/`, and that worktree-locality is a design
+      // decision (docs/plans/2026-06-10-multi-plan-session-tracking.md:60-66):
+      // a worktree must resolve ITS OWN plans, not the main checkout's.
+      // Pinned by src/spec/ownership.test.ts and status-mcp-tools.test.ts.
       const active = findActivePlan(project);
       if (!active) {
         lines.push("### Active Plan", "", "No active plan found.", "");
