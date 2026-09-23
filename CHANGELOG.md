@@ -1,3 +1,10 @@
+## [1.37.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.37.0...v1.37.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **project:** resolve a canonical project identity inside linked worktrees ([be053fc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/be053fc5f874a50598123ff97a96db3e376c69e7))
+
 # [1.37.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.36.5...v1.37.0) (2026-09-17)
 
 
