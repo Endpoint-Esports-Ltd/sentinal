@@ -274,12 +274,19 @@ async function sidecarTddGuard(
   }
 }
 
-/** TDD tracker via sidecar: fire-and-forget state updates. */
+/**
+ * TDD tracker via sidecar: fire-and-forget state updates.
+ *
+ * `projectPath` is the canonical project IDENTITY (a storage key). It scopes
+ * the written row and both bulk transitions — the transition route rejects an
+ * unscoped request, so omitting it would silently break TDD tracking.
+ */
 async function sidecarTddTrack(
   sidecar: SidecarClient,
   toolName: string,
   filePath: string | undefined,
   bashOutput: string | undefined,
+  projectPath: string,
 ): Promise<void> {
   try {
     const isEdit = ["write", "edit", "multiedit", "patch"].includes(
@@ -293,6 +300,7 @@ async function sidecarTddTrack(
         filePath: implPath,
         state: "TEST_WRITTEN",
         testFilePath: filePath,
+        projectPath,
       });
       return;
     }
@@ -303,7 +311,7 @@ async function sidecarTddTrack(
       bashOutput &&
       TEST_FAIL_INDICATORS.some((r) => r.test(bashOutput))
     ) {
-      await transitionTddState(sidecar, "confirm_red");
+      await transitionTddState(sidecar, "confirm_red", projectPath);
       return;
     }
 
@@ -313,10 +321,13 @@ async function sidecarTddTrack(
       bashOutput &&
       TEST_PASS_INDICATORS.some((r) => r.test(bashOutput))
     ) {
-      await transitionTddState(sidecar, "confirm_green");
+      await transitionTddState(sidecar, "confirm_green", projectPath);
     }
-  } catch {
-    /* non-fatal */
+  } catch (e) {
+    // Non-fatal — never throw into OpenCode — but never silent either.
+    log(
+      `tdd-track failed (tool=${toolName}, projectPath=${projectPath}): ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 }
 
@@ -661,6 +672,7 @@ export const SentinalPlugin: Plugin = async ({
               input.tool,
               trackerFilePath,
               bashOutput,
+              projectIdentity,
             );
           }
 

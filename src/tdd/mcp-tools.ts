@@ -3,7 +3,8 @@
  *
  * Registers TDD guard management tools on an MCP server.
  * Provides:
- *   - tdd_status: Get current TDD cycle state for a file or list all active states
+ *   - tdd_status: Get current TDD cycle state for a file or list all active
+ *     states in the current project (optional `project`, default cwd)
  *   - tdd_set_state: Set TDD cycle state for a file (e.g., bypass guard with RED_CONFIRMED)
  *   - tdd_clear: Clear TDD state for a file or all files in a spec
  */
@@ -13,6 +14,8 @@ import { z } from "zod";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { TDD_CYCLE_STATES } from "../memory/types.js";
+import { scopeCyclesToProject } from "../opencode/native-tdd-status.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { requiredEnum } from "../utils/schema.js";
 
@@ -41,22 +44,28 @@ function registerTddStatusTool(
 ): void {
   server.tool(
     "tdd_status",
-    "Get TDD guard state for a specific file, or list all active TDD cycle states. Use to check if a file is blocked by the TDD guard.",
+    "Get TDD guard state for a specific file, or list all active TDD cycle states in the current project (other projects' cycles are excluded). Use to check if a file is blocked by the TDD guard.",
     {
       file_path: z
         .string()
         .optional()
         .describe(
-          "File path to check (returns single state). Omit to list all active states.",
+          "File path to check (returns single state). Omit to list all active states in the current project.",
         ),
       spec_id: z
         .string()
         .optional()
         .describe(
-          "Filter active states by spec ID (only used when file_path is omitted)",
+          "Filter active states by spec ID (only used when file_path is omitted). Combined with the project scope, not a replacement for it.",
+        ),
+      project: z
+        .string()
+        .optional()
+        .describe(
+          "Project path that scopes the list (only used when file_path is omitted). Defaults to the current working directory; a worktree or subdirectory resolves to its main checkout.",
         ),
     },
-    async ({ file_path, spec_id }) => {
+    async ({ file_path, spec_id, project }) => {
       try {
         // Single file lookup
         if (file_path) {
@@ -71,10 +80,16 @@ function registerTddStatusTool(
           return mcpText(`**${file_path}:** ${state}`);
         }
 
-        // List all active states
+        // List active states in this project. Scoped on BOTH paths: the store
+        // filters in SQL; the sidecar route cannot take a project yet, so the
+        // client path filters the fetched rows (see scopeCyclesToProject).
+        const identity = resolveProjectIdentity(project ?? process.cwd());
         const states = client
-          ? await client.listActiveTddStates(spec_id ?? null)
-          : store!.listActiveTddStates(spec_id ?? null);
+          ? scopeCyclesToProject(
+              await client.listActiveTddStates(spec_id ?? null),
+              identity,
+            )
+          : store!.listActiveTddStates(spec_id ?? null, identity);
 
         if (states.length === 0) {
           return mcpText("No active TDD states.");
@@ -118,14 +133,24 @@ function registerTddSetStateTool(
         .string()
         .optional()
         .describe("Path to the corresponding test file"),
+      project: z
+        .string()
+        .optional()
+        .describe(
+          "Project the file belongs to. Defaults to the current working directory; a worktree or subdirectory resolves to its main checkout.",
+        ),
     },
-    async ({ file_path, state, spec_id, test_file_path }) => {
+    async ({ file_path, state, spec_id, test_file_path, project }) => {
       try {
+        // Always recorded, on BOTH paths: a NULL-project RED row is never
+        // cleared by the project-scoped confirm_green, so it would leave the
+        // file in the guard's bypass state indefinitely.
         const opts = {
           filePath: file_path,
           state,
           specId: spec_id,
           testFilePath: test_file_path,
+          projectPath: resolveProjectIdentity(project ?? process.cwd()),
         };
 
         if (client) {

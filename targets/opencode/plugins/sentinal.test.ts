@@ -10,6 +10,8 @@ import { ensureDashboard } from "../../../src/opencode/dashboard-ensure.js";
 import { SidecarClient } from "../../../src/sidecar/client.js";
 import { ObservationQueue } from "../../../src/sidecar/observation-queue.js";
 import { resolvePluginRoots } from "./sentinal-helpers.js";
+import * as fileLogModule from "../../../src/utils/file-log.js";
+import { PLUGIN_LOG_FILE, readLastLines } from "../../../src/utils/file-log.js";
 import {
   mkdtempSync,
   mkdirSync,
@@ -573,15 +575,22 @@ describe("worktree-aware project roots", () => {
     fake: SidecarClient;
     createdProjectPaths: string[];
     currentSpecProjects: string[];
+    setTddStates: Array<Record<string, unknown>>;
+    tddTransitions: unknown[][];
     /** Rows returned by listActiveTddStates (compaction's disk filter input). */
     activeCycles: Array<{ filePath: string; state: string }>;
+    /** When set, setTddState rejects with this error. */
+    setTddStateError: Error | null;
   }
 
   function makeRootsFake(): RootsFake {
     const createdProjectPaths: string[] = [];
     const currentSpecProjects: string[] = [];
     const rf = {
+      setTddStates: [] as Array<Record<string, unknown>>,
+      tddTransitions: [] as unknown[][],
       activeCycles: [] as Array<{ filePath: string; state: string }>,
+      setTddStateError: null as Error | null,
     };
     const fake = {
       createSession: async (s: { projectPath: string }) => {
@@ -590,8 +599,14 @@ describe("worktree-aware project roots", () => {
       endSession: async () => {},
       touchSession: async () => {},
       getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
-      setTddState: async () => {},
-      tddTransition: async () => ({ count: 0 }),
+      setTddState: async (s: Record<string, unknown>) => {
+        if (rf.setTddStateError) throw rf.setTddStateError;
+        rf.setTddStates.push(s);
+      },
+      tddTransition: async (...args: unknown[]) => {
+        rf.tddTransitions.push(args);
+        return { count: 0 };
+      },
       listActiveTddStates: async () => rf.activeCycles,
       addObservation: async () => {},
       memorySearch: async () => [],
@@ -608,11 +623,23 @@ describe("worktree-aware project roots", () => {
       fake: fake as unknown as SidecarClient,
       createdProjectPaths,
       currentSpecProjects,
+      get setTddStates() {
+        return rf.setTddStates;
+      },
+      get tddTransitions() {
+        return rf.tddTransitions;
+      },
       get activeCycles() {
         return rf.activeCycles;
       },
       set activeCycles(v) {
         rf.activeCycles = v;
+      },
+      get setTddStateError() {
+        return rf.setTddStateError;
+      },
+      set setTddStateError(v) {
+        rf.setTddStateError = v;
       },
     };
   }
@@ -716,5 +743,94 @@ describe("worktree-aware project roots", () => {
 
     expect(out.continue).toBe(true);
     expect(rf.currentSpecProjects).toEqual([mainRoot]);
+  }, 30_000);
+
+  // ── TDD tracking carries the canonical IDENTITY through every hop ──────────
+
+  const afterOut = (output: string, exit: number) => ({
+    title: "bun test",
+    output,
+    metadata: { exit },
+  });
+
+  it("TDD tracking: a test-file write records the canonical project on setTddState", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    const testFile = join(linkedRoot, "src", "foo.test.ts");
+
+    await hooks["tool.execute.after"]!(
+      {
+        tool: "write",
+        sessionID: "s1",
+        callID: "c1",
+        args: { filePath: testFile },
+      } as never,
+      { title: "", output: "", metadata: {} } as never,
+    );
+
+    const written = rf.setTddStates.find((s) => s.testFilePath === testFile);
+    expect(written).toBeDefined();
+    expect(written!.projectPath).toBe(mainRoot);
+  }, 30_000);
+
+  it("TDD tracking: failing and passing test runs forward the IDENTITY to tddTransition", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    const after = hooks["tool.execute.after"]!;
+
+    await after(
+      {
+        tool: "bash",
+        sessionID: "s1",
+        callID: "c1",
+        args: { command: "bun test" },
+      } as never,
+      afterOut("1 tests failed\nexpect(received).toBe(expected)", 1) as never,
+    );
+    await after(
+      {
+        tool: "bash",
+        sessionID: "s1",
+        callID: "c2",
+        args: { command: "bun test" },
+      } as never,
+      afterOut("All 12 tests passed", 0) as never,
+    );
+
+    expect(rf.tddTransitions).toEqual([
+      ["confirm_red", undefined, mainRoot],
+      ["confirm_green", undefined, mainRoot],
+    ]);
+  }, 30_000);
+
+  it("TDD tracking: a sidecar failure is written to the plugin debug log, never thrown", async () => {
+    const logDir = realpathSync(
+      mkdtempSync(join(tmpdir(), "sentinal-plugin-log-")),
+    );
+    const logDirSpy = spyOn(fileLogModule, "getLogDir").mockReturnValue(logDir);
+    try {
+      const rf = makeRootsFake();
+      rf.setTddStateError = new Error("sidecar exploded");
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+
+      await hooks["tool.execute.after"]!(
+        {
+          tool: "write",
+          sessionID: "s1",
+          callID: "c1",
+          args: { filePath: join(linkedRoot, "src", "bar.test.ts") },
+        } as never,
+        { title: "", output: "", metadata: {} } as never,
+      );
+
+      const logged = readLastLines(join(logDir, PLUGIN_LOG_FILE), 200).join(
+        "\n",
+      );
+      expect(logged).toContain("tdd-track");
+      expect(logged).toContain("sidecar exploded");
+    } finally {
+      logDirSpy.mockRestore();
+      rmSync(logDir, { recursive: true, force: true });
+    }
   }, 30_000);
 });

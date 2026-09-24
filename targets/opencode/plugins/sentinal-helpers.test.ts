@@ -2,13 +2,21 @@
  * Sentinal Plugin Helpers Tests
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import {
   getGrepHint,
   getFetchHint,
   transitionTddState,
   resolveProjectRoot,
 } from "./sentinal-helpers.js";
+import { MemoryStore } from "../../../src/memory/store.js";
+import { SidecarClient } from "../../../src/sidecar/client.js";
+import { startSidecar, stopSidecar } from "../../../src/sidecar/server.js";
+import { makeTmpDir } from "../../../src/test-helpers.js";
+import * as fileLogModule from "../../../src/utils/file-log.js";
+import { PLUGIN_LOG_FILE, readLastLines } from "../../../src/utils/file-log.js";
 
 describe("getGrepHint", () => {
   it("should return hint for vague grep patterns", () => {
@@ -30,34 +38,173 @@ describe("getFetchHint", () => {
 });
 
 describe("transitionTddState", () => {
-  it("should call sidecar tddTransition with correct action", async () => {
-    let calledWith: { action: string; specId?: string } | null = null;
+  let logDir: string;
+  let logDirSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    logDir = makeTmpDir();
+    // Plugin debug log → tmp dir; never the real ~/.sentinal/plugin.debug.log.
+    logDirSpy = spyOn(fileLogModule, "getLogDir").mockReturnValue(logDir);
+  });
+
+  afterEach(() => {
+    logDirSpy.mockRestore();
+    rmSync(logDir, { recursive: true, force: true });
+  });
+
+  const pluginLog = () =>
+    readLastLines(join(logDir, PLUGIN_LOG_FILE), 50).join("\n");
+
+  it("forwards action, specId AND the project to the sidecar (wire contract)", async () => {
+    let calledWith: unknown[] | null = null;
     const mockSidecar = {
       tddTransition: async (
         action: "confirm_red" | "confirm_green",
-        specId?: string,
+        specId: string | undefined,
+        projectPath: string,
       ) => {
-        calledWith = { action, specId };
+        calledWith = [action, specId, projectPath];
         return { count: 2 };
       },
     };
 
-    await transitionTddState(mockSidecar, "confirm_red", "spec-1");
+    const result = await transitionTddState(
+      mockSidecar,
+      "confirm_red",
+      "/proj-a",
+      "spec-1",
+    );
 
-    expect(calledWith).not.toBeNull();
-    expect(calledWith!.action).toBe("confirm_red");
-    expect(calledWith!.specId).toBe("spec-1");
+    expect(calledWith!).toEqual(["confirm_red", "spec-1", "/proj-a"]);
+    expect(result).toEqual({ count: 2 });
   });
 
-  it("should not throw on sidecar error", async () => {
+  it("sends specId positionally as undefined when none is given", async () => {
+    let calledWith: unknown[] | null = null;
+    const mockSidecar = {
+      tddTransition: async (...args: unknown[]) => {
+        calledWith = args;
+        return { count: 0 };
+      },
+    };
+
+    await transitionTddState(mockSidecar, "confirm_green", "/proj-a");
+
+    expect(calledWith!).toEqual(["confirm_green", undefined, "/proj-a"]);
+  });
+
+  it("does not throw on sidecar error, returns null, and LOGS it to the plugin debug log", async () => {
     const failingSidecar = {
       tddTransition: async () => {
         throw new Error("connection failed");
       },
     };
 
-    // Should not throw
-    await transitionTddState(failingSidecar, "confirm_green");
+    const result = await transitionTddState(
+      failingSidecar,
+      "confirm_green",
+      "/proj-a",
+    );
+
+    expect(result).toBeNull();
+    const logged = pluginLog();
+    expect(logged).toContain("tdd-transition");
+    expect(logged).toContain("confirm_green");
+    expect(logged).toContain("/proj-a");
+    expect(logged).toContain("connection failed");
+  });
+
+  // ── Integration: the REAL helper against the REAL /tdd-state/transition route ──
+  describe("against a real sidecar route", () => {
+    const PROJECT_A = "/proj-a";
+    const PROJECT_B = "/proj-b";
+    let tmpDir: string;
+    let store: MemoryStore;
+    let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+    let client: SidecarClient;
+
+    beforeEach(async () => {
+      tmpDir = makeTmpDir();
+      store = new MemoryStore(join(tmpDir, "test.db"));
+      sidecar = await startSidecar({
+        store,
+        httpOnly: true,
+        port: 0,
+        enableVectorSearch: false,
+      });
+      const port = (sidecar.server as unknown as { port: number }).port;
+      client = SidecarClient.buildForTest(`http://127.0.0.1:${port}`);
+
+      // tdd_cycles.spec_id is a REAL FK to specs(id) — seed the spec first.
+      store.getRawDb().run(
+        `INSERT OR IGNORE INTO specs (id, project_path, title, slug, type, status, approved, plan_file, task_count, tasks_done, created_at, updated_at)
+           VALUES ('spec-1', '/test', 'Test', 'spec-1', 'feature', 'IN_PROGRESS', 1, '/test.md', 1, 0, ?, ?)`,
+        [Date.now(), Date.now()],
+      );
+      for (const project of [PROJECT_A, PROJECT_B]) {
+        store.setTddState({
+          filePath: `${project}/src/red.ts`,
+          state: "RED_CONFIRMED",
+          projectPath: project,
+        });
+        store.setTddState({
+          filePath: `${project}/src/written.ts`,
+          state: "TEST_WRITTEN",
+          projectPath: project,
+          specId: "spec-1",
+        });
+      }
+    });
+
+    afterEach(() => {
+      stopSidecar(sidecar.server, sidecar.ctx);
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("confirm_green returns a count and leaves ANOTHER project's RED row intact", async () => {
+      const result = await transitionTddState(
+        client,
+        "confirm_green",
+        PROJECT_A,
+      );
+
+      expect(result).toEqual({ count: 1 });
+      expect(store.getTddState(`${PROJECT_A}/src/red.ts`)).toBeNull();
+      expect(store.getTddState(`${PROJECT_B}/src/red.ts`)?.state).toBe(
+        "RED_CONFIRMED",
+      );
+      expect(pluginLog()).toBe("");
+    });
+
+    it("confirm_red with a specId transitions only this project's rows", async () => {
+      const result = await transitionTddState(
+        client,
+        "confirm_red",
+        PROJECT_A,
+        "spec-1",
+      );
+
+      expect(result).toEqual({ count: 1 });
+      expect(store.getTddState(`${PROJECT_A}/src/written.ts`)?.state).toBe(
+        "RED_CONFIRMED",
+      );
+      expect(store.getTddState(`${PROJECT_B}/src/written.ts`)?.state).toBe(
+        "TEST_WRITTEN",
+      );
+    });
+
+    it("a route rejection (blank project) is logged, not swallowed, and nothing is swept", async () => {
+      const result = await transitionTddState(client, "confirm_green", "   ");
+
+      expect(result).toBeNull();
+      expect(pluginLog()).toContain("tdd-transition");
+      expect(pluginLog()).toMatch(/projectPath/);
+      for (const project of [PROJECT_A, PROJECT_B]) {
+        expect(store.getTddState(`${project}/src/red.ts`)?.state).toBe(
+          "RED_CONFIRMED",
+        );
+      }
+    });
   });
 });
 

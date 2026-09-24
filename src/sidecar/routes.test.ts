@@ -336,4 +336,72 @@ describe("projectPath normalization on /observation and /session", () => {
 
     expect(ctx.store.getActiveSessions()).toEqual([]);
   });
+
+  // ─── POST /tdd-state (Task 9, Pre-Mortem 3) ──────────────────────────────
+  //
+  // tdd_cycles.project_path (V13) is the only thing that stops one project's
+  // bulk transition from sweeping another's RED rows. A row written without a
+  // project is invisible to every project-scoped read and bulk transition.
+
+  function nullProjectRows(): number {
+    return (
+      store
+        .getRawDb()
+        .prepare("SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL")
+        .get() as { n: number }
+    ).n;
+  }
+
+  it("records a canonical (main checkout) project for a cycle posted from a linked worktree", async () => {
+    expect(realpathSync(worktreePath)).not.toBe(mainRoot);
+    const file = join(worktreePath, "src", "foo.ts");
+
+    const r = await call(ctx, "/tdd-state", {
+      action: "set",
+      filePath: file,
+      state: "TEST_WRITTEN",
+      projectPath: worktreePath,
+    });
+
+    expect(r.ok).toBe(true);
+    expect(store.getTddState(file)!.projectPath).toBe(mainRoot);
+    expect(nullProjectRows()).toBe(0);
+  }, 30_000);
+
+  it("rejects a present-but-blank projectPath on /tdd-state instead of storing an unscoped row", async () => {
+    const r = await call(ctx, "/tdd-state", {
+      action: "set",
+      filePath: "/abs/blank.ts",
+      state: "RED_CONFIRMED",
+      projectPath: "   ",
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/projectPath/i);
+    expect(store.getTddState("/abs/blank.ts")).toBeNull();
+  });
+
+  it("accepts an absent projectPath (back-compat) without un-scoping an already-scoped row", async () => {
+    const file = join(worktreePath, "src", "bar.ts");
+    await call(ctx, "/tdd-state", {
+      action: "set",
+      filePath: file,
+      state: "TEST_WRITTEN",
+      projectPath: worktreePath,
+    });
+
+    // A project-less caller (today: the OpenCode plugin and tdd_set_state)
+    // must still be able to transition the row, and COALESCE keeps its key.
+    const r = await call(ctx, "/tdd-state", {
+      action: "set",
+      filePath: file,
+      state: "RED_CONFIRMED",
+    });
+
+    expect(r.ok).toBe(true);
+    const row = store.getTddState(file)!;
+    expect(row.state).toBe("RED_CONFIRMED");
+    expect(row.projectPath).toBe(mainRoot);
+    expect(nullProjectRows()).toBe(0);
+  }, 30_000);
 });

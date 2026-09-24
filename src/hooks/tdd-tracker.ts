@@ -17,6 +17,7 @@ import { readStdin } from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { isTestFile, getImplPathForTest } from "../utils/tdd.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import {
   TEST_FAIL_INDICATORS,
   TEST_PASS_INDICATORS,
@@ -58,6 +59,10 @@ export async function processTddTracking(
 ): Promise<void> {
   const { toolName, filePath, bashOutput, sessionId, cwd } = input;
 
+  // Storage key: the canonical identity (main checkout), so a cycle written
+  // from a linked worktree is visible to — and only to — its own project.
+  const project = resolveProjectIdentity(cwd);
+
   const store = new MemoryStore();
   try {
     const specStore = new SpecStore(store);
@@ -74,6 +79,7 @@ export async function processTddTracking(
         specId: spec?.id ?? null,
         taskPosition: task?.position ?? null,
         testFilePath: filePath,
+        projectPath: project,
       });
 
       if (spec) {
@@ -93,8 +99,10 @@ export async function processTddTracking(
     }
 
     // Case 2: Bash output shows test failure — transition TEST_WRITTEN → RED_CONFIRMED
+    // ⛔ Both bulk cases read project-scoped: an unscoped read would transition
+    // (and, via the project on the write, re-key) or delete OTHER projects' rows.
     if (toolName === "Bash" && bashOutput && hasTestFailure(bashOutput)) {
-      const states = store.listActiveTddStates(spec?.id ?? null);
+      const states = store.listActiveTddStates(spec?.id ?? null, project);
       let transitioned = false;
 
       for (const cycle of states) {
@@ -103,6 +111,7 @@ export async function processTddTracking(
             filePath: cycle.filePath,
             state: "RED_CONFIRMED",
             lastFailOutput: bashOutput.slice(0, 2000),
+            projectPath: project,
           });
           transitioned = true;
         }
@@ -121,7 +130,7 @@ export async function processTddTracking(
 
     // Case 3: Bash output shows test pass — cycle complete, reset to IDLE
     if (toolName === "Bash" && bashOutput && hasTestPass(bashOutput)) {
-      const states = store.listActiveTddStates(spec?.id ?? null);
+      const states = store.listActiveTddStates(spec?.id ?? null, project);
       let completed = false;
 
       for (const cycle of states) {

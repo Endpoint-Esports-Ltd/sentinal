@@ -117,6 +117,18 @@ describe("SidecarClient", () => {
     expect(state.state).toBe("RED_CONFIRMED");
   });
 
+  it("setTddState carries projectPath through to the stored row", async () => {
+    await client.setTddState({
+      filePath: "/src/scoped.ts",
+      state: "RED_CONFIRMED",
+      projectPath: tmpDir,
+    });
+    const { resolveProjectIdentity } = await import("../project/identity.js");
+    expect(store.getTddState("/src/scoped.ts")!.projectPath).toBe(
+      resolveProjectIdentity(tmpDir),
+    );
+  });
+
   it("should clear TDD state", async () => {
     await client.setTddState({
       filePath: "/src/foo.ts",
@@ -125,6 +137,47 @@ describe("SidecarClient", () => {
     await client.clearTddState("/src/foo.ts");
     const state = await client.getTddState("/src/foo.ts");
     expect(state.state).toBe("IDLE");
+  });
+
+  // ─── TDD Bulk Transition (project-scoped, D6) ────────────────────────────
+
+  it("tddTransition(action, specId, projectPath) sends the project and scopes the sweep", async () => {
+    for (const p of ["/proj-a", "/proj-b"]) {
+      store.setTddState({
+        filePath: `${p}/x.ts`,
+        state: "TEST_WRITTEN",
+        projectPath: p,
+      });
+      store.setTddState({
+        filePath: `${p}/y.ts`,
+        state: "RED_CONFIRMED",
+        projectPath: p,
+      });
+    }
+
+    const red = await client.tddTransition("confirm_red", undefined, "/proj-a");
+    expect(red.count).toBe(1);
+    const green = await client.tddTransition(
+      "confirm_green",
+      undefined,
+      "/proj-a",
+    );
+    expect(green.count).toBe(2); // a/x (just confirmed) + a/y
+
+    expect(store.getTddState("/proj-b/x.ts")!.state).toBe("TEST_WRITTEN");
+    expect(store.getTddState("/proj-b/y.ts")!.state).toBe("RED_CONFIRMED");
+  });
+
+  it("tddTransition with a blank project is rejected by the sidecar, not swept", async () => {
+    store.setTddState({
+      filePath: "/proj-b/y.ts",
+      state: "RED_CONFIRMED",
+      projectPath: "/proj-b",
+    });
+    await expect(
+      client.tddTransition("confirm_green", undefined, ""),
+    ).rejects.toThrow(/projectPath/);
+    expect(store.getTddState("/proj-b/y.ts")!.state).toBe("RED_CONFIRMED");
   });
 
   // ─── Observations ────────────────────────────────────────────────────────

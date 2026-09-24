@@ -143,6 +143,10 @@ const MUST_STAY_BYTE_EQUAL = new Set<string>([
  * membership keeps each entry a measured claim.
  */
 const IDENTICAL_RULES: string[] = [
+  // Added when the `tdd_status` row was edited in both copies identically
+  // (list-all became "list all in the current project" — the tool is now
+  // project-scoped). Byte-identical before and after that edit, but UNGUARDED.
+  "cli-tools.md",
   "verification.md",
   "playwright-cli.md",
   // Added by the Phase 1 consistency sweep (Task 7), which edited both copies

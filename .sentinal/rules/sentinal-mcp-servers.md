@@ -64,11 +64,26 @@ sidecar runs, which would make it pass every test and do nothing in the field.
 
 ### TDD Domain (`src/tdd/mcp-tools.ts`) — 3 tools
 
-| Tool            | Purpose                                       |
-| --------------- | --------------------------------------------- |
-| `tdd_status`    | Read TDD cycle state (per file or all active) |
-| `tdd_set_state` | Transition state: IDLE/TEST_WRITTEN/RED/GREEN |
-| `tdd_clear`     | Clear state for a file or entire spec         |
+| Tool            | Purpose                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `tdd_status`    | Read TDD cycle state (per file, or all active **in the current project** — optional `project`) |
+| `tdd_set_state` | Transition state: IDLE/TEST_WRITTEN/RED/GREEN                                                  |
+| `tdd_clear`     | Clear state for a file or entire spec                                                          |
+
+⛔ **`tdd_status`'s list mode is project-scoped, and fails OPEN (D6 of
+`docs/plans/2026-09-23-signals-that-reach-nobody.md`).** `project` is optional and
+defaults to `process.cwd()`; it is normalized with `resolveProjectIdentity`, so a
+worktree or subdirectory lists its main checkout's cycles. It is scoped on **both**
+paths: the store path filters in SQL (`listActiveTddStates(specId, projectPath)`,
+which excludes NULL-project rows), while the sidecar path — the one production
+actually takes, since `store` is `null` whenever the sidecar runs — filters the
+fetched rows client-side with `scopeCyclesToProject`
+(`src/opencode/native-tdd-status.ts`), because `/tdd-state/list` takes no project.
+That helper drops `projectPath: null` like the store does, but **keeps** a row whose
+`projectPath` key is absent entirely (a pre-V13 sidecar cannot say), so an old
+sidecar over-reports rather than going silently empty. The OpenCode native
+`sentinal_tdd_status` tool scopes the same way from `context.directory`. Do not
+make `project` required — that is the write-side rule (`bulkTddTransition`), not this one.
 
 ### Worktree Domain (`src/worktree/mcp-tools.ts`) — 6 tools
 

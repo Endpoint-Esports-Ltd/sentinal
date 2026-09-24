@@ -105,6 +105,11 @@ export abstract class SidecarRoutes {
     taskPosition?: number;
     testFilePath?: string;
     lastFailOutput?: string;
+    /**
+     * Owning project. Normalized sidecar-side. Omitting it writes a
+     * NULL-project row that the project-scoped confirm_green never clears.
+     */
+    projectPath?: string;
   }): Promise<void> {
     await this.post("/tdd-state", { action: "set", ...opts });
   }
@@ -126,11 +131,17 @@ export abstract class SidecarRoutes {
 
   // ─── TDD Bulk Transition ────────────────────────────────────────────────
 
+  /**
+   * Bulk TDD transition, scoped to ONE project. `projectPath` is REQUIRED:
+   * the sidecar answers a missing/blank project with a 400 rather than
+   * sweeping every project's rows (D6 — destructive writes fail closed).
+   */
   async tddTransition(
     action: "confirm_red" | "confirm_green",
-    specId?: string,
+    specId: string | undefined,
+    projectPath: string,
   ): Promise<{ count: number }> {
-    return this.post("/tdd-state/transition", { action, specId });
+    return this.post("/tdd-state/transition", { action, specId, projectPath });
   }
 
   // ─── Memory ────────────────────────────────────────────────────────────

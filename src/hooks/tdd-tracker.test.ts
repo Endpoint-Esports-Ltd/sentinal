@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
@@ -230,4 +230,112 @@ describe("processTddTracking", () => {
       store.close();
     });
   });
+});
+
+// ─── Task 9: every tracker write records a canonical project ──────────────────
+//
+// Drives the REAL processTddTracking (which opens `new MemoryStore()` →
+// $SENTINAL_HOME/memory.db) from inside a linked git worktree, so identity
+// (main checkout) and workspace (the worktree) genuinely differ.
+
+describe("processTddTracking records the project (Pre-Mortem 3)", () => {
+  let tmpDir: string;
+  let savedHome: string | undefined;
+  let mainRoot: string;
+  let worktreePath: string;
+  const OTHER = "/other/project";
+
+  function git(args: string[], cwd: string): void {
+    Bun.spawnSync(["git", ...args], { cwd });
+  }
+
+  function openStore(): MemoryStore {
+    return new MemoryStore(join(tmpDir, "home", "memory.db"));
+  }
+
+  function nullProjectRows(store: MemoryStore): number {
+    return (
+      store
+        .getRawDb()
+        .prepare("SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL")
+        .get() as { n: number }
+    ).n;
+  }
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    mkdirSync(join(tmpDir, "home"), { recursive: true });
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = join(tmpDir, "home");
+
+    const repo = join(tmpDir, "repo");
+    mkdirSync(repo, { recursive: true });
+    git(["init", "-b", "main"], repo);
+    git(["config", "user.email", "t@t.com"], repo);
+    git(["config", "user.name", "T"], repo);
+    writeFileSync(join(repo, "README.md"), "# t\n");
+    git(["add", "."], repo);
+    git(["commit", "-m", "init"], repo);
+    worktreePath = join(tmpDir, "wt");
+    git(["worktree", "add", "-b", "feature", worktreePath, "main"], repo);
+    mainRoot = realpathSync(repo);
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("TEST_WRITTEN write records the main-checkout identity, not the worktree", async () => {
+    expect(worktreePath).not.toBe(mainRoot);
+    const testFile = join(worktreePath, "src", "foo.test.ts");
+
+    await processTddTracking({ toolName: "Write", filePath: testFile, cwd: worktreePath });
+
+    const store = openStore();
+    const row = store.getTddState(join(worktreePath, "src", "foo.ts"))!;
+    expect(row.state).toBe("TEST_WRITTEN");
+    expect(row.projectPath).toBe(mainRoot);
+    expect(nullProjectRows(store)).toBe(0);
+    store.close();
+  }, 30_000);
+
+  it("RED transition touches only this project's rows and keeps them scoped", async () => {
+    const own = join(worktreePath, "src", "own.ts");
+    const theirs = "/other/project/src/theirs.ts";
+    let store = openStore();
+    store.setTddState({ filePath: own, state: "TEST_WRITTEN", projectPath: mainRoot });
+    store.setTddState({ filePath: theirs, state: "TEST_WRITTEN", projectPath: OTHER });
+    store.close();
+
+    await processTddTracking({ toolName: "Bash", bashOutput: FAIL_OUTPUT, cwd: worktreePath });
+
+    store = openStore();
+    expect(store.getTddState(own)!.state).toBe("RED_CONFIRMED");
+    expect(store.getTddState(own)!.projectPath).toBe(mainRoot);
+    // The other project's row is neither transitioned nor re-keyed.
+    expect(store.getTddState(theirs)!.state).toBe("TEST_WRITTEN");
+    expect(store.getTddState(theirs)!.projectPath).toBe(OTHER);
+    expect(nullProjectRows(store)).toBe(0);
+    store.close();
+  }, 30_000);
+
+  it("GREEN clears only this project's RED rows", async () => {
+    const own = join(worktreePath, "src", "own.ts");
+    const theirs = "/other/project/src/theirs.ts";
+    let store = openStore();
+    store.setTddState({ filePath: own, state: "RED_CONFIRMED", projectPath: mainRoot });
+    store.setTddState({ filePath: theirs, state: "RED_CONFIRMED", projectPath: OTHER });
+    store.close();
+
+    // Not PASS_OUTPUT: its "0 fail" matches TEST_FAIL_INDICATORS (/\d+\s+fail/),
+    // so the real tracker routes it to the RED branch (pre-existing quirk).
+    await processTddTracking({ toolName: "Bash", bashOutput: "5 pass\nAll tests passed", cwd: worktreePath });
+
+    store = openStore();
+    expect(store.getTddState(own)).toBeNull();
+    expect(store.getTddState(theirs)!.state).toBe("RED_CONFIRMED");
+    store.close();
+  }, 30_000);
 });

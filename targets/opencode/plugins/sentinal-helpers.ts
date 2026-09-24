@@ -10,6 +10,7 @@ import {
   resolveProjectIdentity,
   resolveWorkspaceRoot,
 } from "../../../src/project/identity.js";
+import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
 
 // ─── Project Root Resolution ──────────────────────────────────────────────────
 
@@ -245,25 +246,42 @@ export async function checkSessionConflict(
 
 // ─── TDD Bulk Transition ──────────────────────────────────────────────────────
 
+/**
+ * Mirrors `SidecarRoutes.tddTransition` (`src/sidecar/client-routes.ts`).
+ * ⛔ Declared locally, so neither tsc nor a mocked test notices when the
+ * client's signature changes — keep the two in step by hand.
+ */
 interface TddTransitionSidecar {
   tddTransition(
     action: "confirm_red" | "confirm_green",
-    specId?: string,
+    specId: string | undefined,
+    projectPath: string,
   ): Promise<{ count: number }>;
 }
 
 /**
- * Trigger bulk TDD state transitions via sidecar.
- * Fire-and-forget — errors are silently swallowed.
+ * Trigger a bulk TDD state transition via the sidecar, scoped to ONE project.
+ *
+ * `projectPath` must be the canonical project IDENTITY: the route rejects a
+ * missing project (400) rather than sweeping every project on the machine.
+ * Never throws into OpenCode — but a failure (including that 400) is written
+ * to the plugin debug log instead of being swallowed, so a plumbing miss is
+ * visible. Returns the route's `{ count }`, or `null` on failure.
  */
 export async function transitionTddState(
   sidecar: TddTransitionSidecar,
   action: "confirm_red" | "confirm_green",
+  projectPath: string,
   specId?: string,
-): Promise<void> {
+): Promise<{ count: number } | null> {
   try {
-    await sidecar.tddTransition(action, specId);
-  } catch {
-    /* non-fatal */
+    return await sidecar.tddTransition(action, specId, projectPath);
+  } catch (e) {
+    logToFile(
+      PLUGIN_LOG_FILE,
+      `tdd-transition failed (action=${action}, projectPath=${projectPath}, ` +
+        `specId=${specId ?? "none"}): ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return null;
   }
 }

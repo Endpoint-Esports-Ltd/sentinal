@@ -14,6 +14,7 @@ import {
 } from "./vector-stats.js";
 import { restoreContext } from "../memory/restore.js";
 import { resolveProjectIdentity } from "../project/identity.js";
+import { logSidecar } from "../utils/file-log.js";
 import type {
   AssistantType,
   NotificationType,
@@ -258,7 +259,22 @@ async function handleSetTddState(
     taskPosition?: number;
     testFilePath?: string;
     lastFailOutput?: string;
+    projectPath?: string;
   }>(req);
+
+  // Project on a `set`: present → normalized (blank/garbage is a 400, never an
+  // unscoped row); ABSENT → accepted for back-compat, because today's callers
+  // (OpenCode plugin, `tdd_set_state`) cannot yet send one. COALESCE keeps an
+  // already-scoped row's key; a brand-new row stays NULL and is logged so the
+  // gap is visible (Pre-Mortem 3). Flip to required once every caller sends it.
+  const hasProject = body.projectPath !== undefined;
+  const projectPath = hasProject ? normalizeProjectKey(body.projectPath) : null;
+  if (body.action === "set" && hasProject && !projectPath) {
+    return fail(MISSING_PROJECT_PATH);
+  }
+  if (body.action === "set" && !hasProject) {
+    logSidecar(`tdd-state: set without projectPath for ${body.filePath}`);
+  }
 
   if (body.action === "clear" && body.filePath) {
     ctx.store.clearTddState(body.filePath);
@@ -273,6 +289,7 @@ async function handleSetTddState(
         taskPosition: body.taskPosition,
         testFilePath: body.testFilePath,
         lastFailOutput: body.lastFailOutput,
+        projectPath,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
