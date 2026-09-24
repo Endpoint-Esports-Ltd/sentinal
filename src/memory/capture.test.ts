@@ -7,8 +7,44 @@ import {
   analyzeEvent,
   EventBuffer,
   MIN_CAPTURE_CONFIDENCE,
+  TEST_FAIL_INDICATORS,
+  TEST_PASS_INDICATORS,
   type ToolEvent,
 } from "./capture.js";
+
+// Real runner summaries. A PASSING bun run always prints " 0 fail", and a
+// failing one can print " 0 pass" — a count of zero is not evidence of either.
+const BUN_PASS =
+  "bun test v1.3.10\n\n 12 pass\n 0 fail\n 30 expect() calls\nRan 12 tests across 3 files. [120.00ms]\n";
+const BUN_FAIL =
+  "bun test v1.3.10\n\n(fail) math > adds [0.10ms]\n 11 pass\n 1 fail\n 30 expect() calls\nRan 12 tests across 3 files.\n";
+const BUN_ALL_FAIL =
+  "bun test v1.3.10\n\n 0 pass\n 3 fail\nRan 3 tests across 1 file.\n";
+
+const matchesFail = (s: string) => TEST_FAIL_INDICATORS.some((r) => r.test(s));
+const matchesPass = (s: string) => TEST_PASS_INDICATORS.some((r) => r.test(s));
+
+describe("test outcome indicators", () => {
+  it("does NOT read a passing bun run's ' 0 fail' as a failure", () => {
+    expect(matchesFail(BUN_PASS)).toBe(false);
+    expect(matchesPass(BUN_PASS)).toBe(true);
+  });
+
+  it("reads a bun run with failures as a failure", () => {
+    expect(matchesFail(BUN_FAIL)).toBe(true);
+  });
+
+  it("does NOT read an all-failing bun run's ' 0 pass' as a pass", () => {
+    expect(matchesFail(BUN_ALL_FAIL)).toBe(true);
+    expect(matchesPass(BUN_ALL_FAIL)).toBe(false);
+  });
+
+  it("still recognises other runners' summaries", () => {
+    expect(matchesFail("Tests: 2 failed, 10 passed, 12 total")).toBe(true);
+    expect(matchesPass("Tests:       12 passed, 12 total")).toBe(true);
+    expect(matchesFail("10 passed, 2 failed in 1.2s")).toBe(true);
+  });
+});
 
 function makeEvent(overrides: Partial<ToolEvent> = {}): ToolEvent {
   return {

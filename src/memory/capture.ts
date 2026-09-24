@@ -100,8 +100,11 @@ const FIX_INDICATORS = [
   /\bpatch\b/i,
 ];
 
+// A count of ZERO is not evidence: every passing bun run prints " 0 fail" and an
+// all-failing one prints " 0 pass". Matching `\d+` read every passing bun run
+// as a failure, so the TDD tracker (both targets) never reached GREEN.
 export const TEST_FAIL_INDICATORS = [
-  /\d+\s+fail/i,
+  /\b[1-9]\d*\s+fail/i,
   /FAIL\s/,
   /tests?\s+failed/i,
   /\bAssertionError\b/,
@@ -110,7 +113,7 @@ export const TEST_FAIL_INDICATORS = [
 ];
 
 export const TEST_PASS_INDICATORS = [
-  /\d+\s+pass/i,
+  /\b[1-9]\d*\s+pass/i,
   /tests?\s+passed/i,
   /\ball\s+tests?\s+pass/i,
   /PASS\s/,
