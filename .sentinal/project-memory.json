@@ -73,6 +73,50 @@
       ],
       "createdAt": "2026-08-20",
       "author": "Evan Tiley"
+    },
+    {
+      "type": "decision",
+      "title": "SHIPPED v1.38.0: signals-that-reach-nobody (6 logical commits) + how to split interleaved changes into commits safely",
+      "content": "SHIPPED v1.38.0 on 2026-09-24. Six commits fast-forwarded to main (35dd8f4..c65276d), release commit 82cf929. CI Release workflow succeeded; GitHub release has all 4 platform binaries + checksums; npm registry (npm.cloud.endpoint.gg) reports 1.38.0. Post-merge on main: tsc clean, 3481 pass / 0 fail.\n\nCommits (dependency order; each verified standalone):\nc4ace02 fix(opencode) compaction pause in worktrees — 3306/0\n91a28e5 feat(memory) schema V13 project_path on tdd_cycles + notifications — 3327/0\n9ebf2aa fix(tdd) project-scoped TDD cycles — 3378/0\nbd39274 feat(sidecar) stale sidecar retires when idle — 3436/0\n69a6118 feat(notifications) surface to agent at session start — 3481/0\nc65276d docs(plan)\n\n⛔ TECHNIQUE — splitting interleaved working-tree changes into logical commits without touching the worktree:\n1. Never use `git add -p` (interactive). Stage into the INDEX only: `git apply --cached --unidiff-zero` for hunk selection, or `git hash-object -w --stdin` + `git update-index --add --cacheinfo 100644,<sha>,<path>` for a constructed file version. The working tree keeps the verified final state throughout; a clean tree at the end proves HEAD == verified tree.\n2. ⛔ Hunk selection with -U0 is UNSAFE when a skipped hunk precedes a kept PURE-ADDITION hunk: zero-context additions have nothing to anchor to and got placed at END OF FILE (store-sessions.ts → TS1109 syntax error). Hunks containing '-' lines are content-anchored and safe. Default to building intermediate versions as content blobs (final file minus later-commit regions, each cut asserted to match exactly once).\n3. Verify each commit STANDALONE by exporting the index (`git checkout-index -a --prefix=<dir>/`), symlinking node_modules, then — required, or you get false failures — `git init` in the export (git-dependent tests: findGitRoot, isInsideGitRepo, .sentinal/.gitignore R9) and `bun run embed-assets` (NOT the raw scripts/embed-assets.mjs: the package script runs build:opencode first; without it tsc reports TS2307 on embedded-assets.js). Also type-check targets/ with a separate tsconfig (root tsconfig excludes it).\n4. Cross-check constructed blobs against line counts the implementing tasks reported at that stage — three matched exactly, an independent correctness signal.\n\nOperational: after updating to 1.38.0 the already-running sidecar still needs `sentinal sidecar restart` (the new retire mechanism only helps from the NEXT upgrade — D5). First SessionStart on 1.38.0 runs migration V13, which deletes pre-existing tdd_cycles rows by design.",
+      "tags": [
+        "shipped",
+        "v1.38.0",
+        "git",
+        "logical-commits",
+        "release",
+        "verification"
+      ],
+      "filePaths": [
+        "docs/plans/2026-09-23-signals-that-reach-nobody.md"
+      ],
+      "createdAt": "2026-09-24"
+    },
+    {
+      "type": "decision",
+      "title": "VERIFIED: orca-support follow-ups — CC TDD tracker never reached RED/GREEN (two bugs), tool-failure capture both targets, worktree un-nesting, release plugin version, data repair",
+      "content": "VERIFIED 2026-09-24, uncommitted on orca-support (base 82cf929 = v1.38.0). Plan docs/plans/2026-09-24-orca-support-followups.md. 3481 → 3721 pass / 0 fail; tsc + plugin-graph tsc clean; live-smoked through the real CLI/dispatcher in an isolated SENTINAL_HOME.\n\nTWO STACKED BUGS meant the TDD tracker never auto-confirmed on Claude Code and never reached GREEN on either target:\n1. CC hooks read `tool_response.output`; real Bash tool_response is {stdout, stderr, interrupted, isImage, noOutputExpected}. Non-zero exits fire PostToolUseFailure (unregistered). Fixed: bashOutputOf(input) in src/utils/hook-output.ts; trackerInputFromHook in tdd-tracker.ts; PostToolUseFailure registered for tdd-tracker (Bash) and tool-failure-observer.\n2. TEST_FAIL_INDICATORS[0] was /\\d+\\s+fail/i — every PASSING bun run prints \" 0 fail\", so the tracker (which checks failure first) routed every pass to RED. Same in the OpenCode plugin (shared constant). Fixed to /\\b[1-9]\\d*\\s+fail/i and likewise for pass. The previous plan's review had \"retired\" this pre-mortem because the pattern matched \" 1 fail\" — true and incomplete: always test the NEGATIVE case (a passing run) for an outcome detector.\n\nFailure capture: classifyToolFailure (src/memory/tool-failure.ts, bundle-safe, node:crypto only; exclusions interrupted/[Sentinal/no-match exits/empty output/assertion-only test failures of KNOWN runners; tool name lowercased so CC Bash and OC bash share signatures); dedupe via metadata.signature + dedicated json_set counter (recordErrorRepeat) — never updateObservation (re-embeds every call). CC: hooks.json matcher must be ANCHORED `^(…)$` because regex-path matchers are unanchored (else NotebookEdit/BashOutput fire). ⛔ Redact BEFORE classifying — classifier truncates titles and a truncated secret slips under the redactor's minimum token length. OpenCode 1.18.32 (spiked for real): thrown tool failures skip tool.execute.after and arrive only as message.part.updated with part.state.status \"error\"; properties is {sessionID, part, time}; dedupe on part.id never callID; exclude permission decisions and interrupts.\n\nWorktree un-nesting: resolveSlotScope (ONE git call BEFORE BEGIN IMMEDIATE), store.unifyLiveKeys (NULL losers first, then re-key — else isSlotRace loops forever), loser re-slotted via tryAssignFreeSlot + worktree.env; inMainCheckout(row) derives the main checkout from the worktree dir so legacy rows merge correctly; BASE_CHECKED_OUT refused up front.\n\nRelease: .releaserc runs exec (release-build) before npm bump → plugin bakes previous version since b0a907c. scripts/build-opencode.mjs <version>; release-build asserts BOTH dist bundle and src/cli/embedded-assets.ts. npm tarball was already correct (prepack runs after the bump).\n\nsidecar restart now background + detached (Bun.spawn detached:true works on 1.3.10) + waits for old PID; looksLikeSidecarArgv accepts `sidecar restart`.\n\nTest isolation: leak source was memory-observer.test.ts:305 (real observer → live sidecar/default DB), already fixed by e3f9194 but that guard froze DEPS_DIR (import order), never cleaned up (495 temp homes ≈1 GB), and broke the E2E harness. Now: set SENTINAL_HOME before dynamic import, shared model cache, afterAll cleanup (process.on('exit') never fires under bun test), 24h sweep.\n\nData repair (one-off, live, backed up to ~/.sentinal/memory.db.pre-rekey-20260924-155532): 97 obs + 391 vectors + 18 sessions + 1 spec re-keyed; 205 test-leaked obs + 820 vector chunks deleted.\n\nDEFERRED: auto-captured `fix` observations are near-duplicates with identical embeddings (crowd KNN with ties); update.ts at 597/600 lines must be split; mergeSharedObservations; specs.id; /tdd-state requiring project; migration ladder MAX(version).",
+      "tags": [
+        "verified",
+        "tdd-tracker",
+        "claude-code-hooks",
+        "PostToolUseFailure",
+        "test-indicators",
+        "tool-failure",
+        "opencode",
+        "worktree",
+        "release",
+        "test-isolation"
+      ],
+      "filePaths": [
+        "docs/plans/2026-09-24-orca-support-followups.md",
+        "src/memory/capture.ts",
+        "src/utils/hook-output.ts",
+        "src/hooks/tool-failure-observer.ts",
+        "src/memory/tool-failure.ts",
+        "src/worktree/slots.ts",
+        "scripts/build-opencode.mjs"
+      ],
+      "createdAt": "2026-09-24"
     }
   ]
 }
