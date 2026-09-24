@@ -1,3 +1,18 @@
+# [1.38.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.37.1...v1.38.0) (2026-09-24)
+
+
+### Bug Fixes
+
+* **opencode:** make the compaction RED-state pause fire in linked worktrees ([c4ace02](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/c4ace029d8ce42a4c202a14a07c7cee705770df6))
+* **tdd:** scope TDD cycles by project so one project cannot clear another's RED state ([9ebf2aa](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/9ebf2aa8653094520cbe1e2060caf1882535e0d1))
+
+
+### Features
+
+* **memory:** project-scope tdd_cycles and notifications (schema V13) ([91a28e5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/91a28e5d8587f3d2b3de16953c9da0b31fa29f31))
+* **notifications:** surface unread notifications to the agent at session start ([69a6118](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/69a611859206f9188665cb09c2bc4379a61f9ac7))
+* **sidecar:** retire a stale sidecar once it is idle ([bd39274](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/bd3927464618521ac2b6725c4a3e1fdd79fd1dee))
+
 ## [1.37.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.37.0...v1.37.1) (2026-09-23)
 
 
