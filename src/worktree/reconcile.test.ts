@@ -265,4 +265,136 @@ describe("resolveWithReconcile", () => {
       expect(seen).toEqual([wt.worktreePath]);
     });
   });
+
+  // ── Task 13: reconcile uses the canonical project ─────────────────────────
+  describe("from a linked worktree (Task 13)", () => {
+    let linked: string;
+
+    function git(args: string[], cwd: string): string {
+      const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe" });
+      return (r.stdout?.toString() ?? "").trim();
+    }
+
+    function rowsForBranch(branch: string) {
+      return wtStore.listAll().filter((w) => w.branchName === branch);
+    }
+
+    beforeEach(() => {
+      linked = join(tmpDir, "linked");
+      git(["worktree", "add", "-b", "orca-support", linked], repoDir);
+    });
+
+    it("finds the existing canonical row — no duplicate is registered", () => {
+      const wt = manager.create("2026-09-24-rec", repoDir);
+
+      const resolved = resolveWithReconcile(
+        wtStore,
+        testConfig,
+        "2026-09-24-rec",
+        linked,
+      );
+      expect(resolved!.id).toBe(wt.id);
+      expect(rowsForBranch(wt.branchName)).toHaveLength(1);
+    }, 15_000);
+
+    it("re-registers a lost row under the CANONICAL key, seeded from the main checkout", () => {
+      const wt = manager.create("2026-09-24-rereg", linked);
+      wtStore.delete(wt.id);
+      rmSync(join(wt.worktreePath, ".env"), { force: true });
+      // Seed source present ONLY in the main checkout (untracked).
+      writeFileSync(join(repoDir, ".env.example"), "PORT=3000\n");
+
+      const warnings: string[] = [];
+      const resolved = resolveWithReconcile(
+        wtStore,
+        testConfig,
+        "2026-09-24-rereg",
+        linked,
+        warnings,
+      );
+      expect(resolved!.worktreePath).toBe(wt.worktreePath);
+      expect(resolved!.projectPath).toBe(repoDir);
+      expect(rowsForBranch(wt.branchName)).toHaveLength(1);
+      expect(warnings.some((w) => w.includes("No .env.example found"))).toBe(
+        false,
+      );
+    }, 15_000);
+
+    it("finds a LEGACY row keyed by the linked checkout from the main checkout", () => {
+      const nested = join(linked, ".sentinal", "worktrees", "spec-legacy-abcd");
+      git(["worktree", "add", "-b", "sentinal/spec-legacy", nested], linked);
+      wtStore.insert({
+        id: "legacy-abcd",
+        specId: undefined,
+        projectPath: linked,
+        worktreePath: nested,
+        branchName: "sentinal/spec-legacy",
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"], repoDir),
+        status: "active",
+        createdAt: Date.now(),
+        slot: 1,
+      });
+
+      const resolved = resolveWithReconcile(
+        wtStore,
+        testConfig,
+        "legacy",
+        repoDir,
+      );
+      expect(resolved!.id).toBe("legacy-abcd");
+      expect(rowsForBranch("sentinal/spec-legacy")).toHaveLength(1);
+    }, 15_000);
+
+    it("ensureSlot forwards D4 re-key notices into its warnings", () => {
+      const base = git(["rev-parse", "main"], repoDir);
+      const row = (
+        id: string,
+        projectPath: string,
+        slot: number | null,
+        at: number,
+      ) =>
+        wtStore.insert({
+          id,
+          specId: undefined,
+          projectPath,
+          worktreePath: join(tmpDir, "gone", id),
+          branchName: `sentinal/spec-${id}`,
+          baseBranch: "main",
+          baseCommit: base,
+          status: "active",
+          createdAt: at,
+          slot,
+        });
+      // Two live rows of ONE repo, under two legacy keys, holding the SAME
+      // slot — legal while their keys differ; the re-key reveals it (D4).
+      row("older", repoDir, 1, Date.now() - 2000);
+      const loser = row("newer", linked, 1, Date.now() - 1000);
+      const bare = row("bare", repoDir, null, Date.now());
+
+      const warnings: string[] = [];
+      const healed = ensureSlot(wtStore, testConfig, bare, warnings);
+      expect(healed.slot).not.toBeNull();
+      expect(warnings.some((w) => w.includes(loser.worktreePath))).toBe(true);
+    }, 15_000);
+
+    it("ensureSlot returns (and seeds from) the re-keyed canonical project", () => {
+      const legacy = wtStore.insert({
+        id: "legacy-null",
+        specId: undefined,
+        projectPath: linked,
+        worktreePath: join(tmpDir, "gone", "legacy-null"),
+        branchName: "sentinal/spec-legacy-null",
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"], repoDir),
+        status: "active",
+        createdAt: Date.now(),
+        slot: null,
+      });
+      const healed = ensureSlot(wtStore, testConfig, legacy, []);
+      expect(healed.slot).not.toBeNull();
+      expect(healed.projectPath).toBe(repoDir);
+      expect(wtStore.get(legacy.id)!.projectPath).toBe(repoDir);
+    }, 15_000);
+  });
 });

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
@@ -446,4 +452,137 @@ describe("WorktreeStore", () => {
       expect(result!.id).toBe("wt-specid");
     });
   });
+});
+
+// ─── Task 12: canonical scope on real linked worktrees ──────────────────────
+
+function initRepo(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial"], { cwd: dir });
+}
+
+function linkedRepo(root: string, name = "repo") {
+  const main = join(root, name);
+  initRepo(main);
+  const w1 = join(root, `${name}-wt-1`);
+  Bun.spawnSync(["git", "worktree", "add", w1, "-b", `${name}-b1`], {
+    cwd: main,
+  });
+  return { main, w1 };
+}
+
+describe("WorktreeStore — canonical scope (Task 12)", () => {
+  let root: string;
+  let memoryStore: MemoryStore;
+  let store: WorktreeStore;
+
+  beforeEach(() => {
+    root = realpathSync(makeTmpDir());
+    memoryStore = new MemoryStore(join(root, "test.db"));
+    store = new WorktreeStore(memoryStore);
+  });
+
+  afterEach(() => {
+    memoryStore.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("resolveBySlug from a LINKED worktree finds a canonically-keyed row", () => {
+    const { main, w1 } = linkedRepo(root);
+    store.insert(
+      makeWorktree({
+        id: "wt-canon",
+        projectPath: main,
+        worktreePath: join(main, ".worktrees", "spec-x"),
+        branchName: "sentinal/spec-2026-09-24-canon",
+      }),
+    );
+    const hit = store.resolveBySlug("2026-09-24-canon", w1);
+    expect(hit).not.toBeNull();
+    expect(hit!.id).toBe("wt-canon");
+    // Also from a subdirectory of the linked worktree.
+    const sub = join(w1, "src", "deep");
+    mkdirSync(sub, { recursive: true });
+    expect(store.resolveBySlug("2026-09-24-canon", sub)?.id).toBe("wt-canon");
+  }, 15_000);
+
+  it("resolveBySlug stays scoped: another repo's caller does not see the row", () => {
+    const one = linkedRepo(root, "one");
+    const two = linkedRepo(root, "two");
+    store.insert(
+      makeWorktree({
+        id: "wt-one",
+        projectPath: one.main,
+        worktreePath: join(one.main, ".worktrees", "spec-y"),
+        branchName: "sentinal/spec-2026-09-24-scoped",
+      }),
+    );
+    expect(store.resolveBySlug("2026-09-24-scoped", two.w1)).toBeNull();
+    expect(store.resolveBySlug("2026-09-24-scoped", two.main)).toBeNull();
+  }, 15_000);
+
+  it("countActive counts the canonical set when given the repo's roots, and is unchanged without them", () => {
+    const { main, w1 } = linkedRepo(root);
+    store.insert(
+      makeWorktree({ id: "a", projectPath: main, worktreePath: w1 }),
+    );
+    // Legacy row keyed by the linked worktree it was created from.
+    store.insert(
+      makeWorktree({ id: "b", projectPath: w1, worktreePath: join(root, "b") }),
+    );
+    store.insert(
+      makeWorktree({
+        id: "c",
+        projectPath: w1,
+        worktreePath: join(root, "c"),
+        status: "merged",
+      }),
+    );
+    store.insert(
+      makeWorktree({
+        id: "z",
+        projectPath: "/other",
+        worktreePath: "/other/z",
+      }),
+    );
+
+    expect(store.countActive(main)).toBe(1); // backward-compatible
+    expect(store.countActive(main, [main, w1])).toBe(2);
+  }, 15_000);
+
+  it("unifyLiveKeys nulls losers BEFORE re-keying and returns them with their old slot", () => {
+    const { main, w1 } = linkedRepo(root);
+    store.insert(
+      makeWorktree({
+        id: "old",
+        projectPath: main,
+        worktreePath: w1,
+        slot: 1,
+        createdAt: 1,
+      }),
+    );
+    store.insert(
+      makeWorktree({
+        id: "young",
+        projectPath: w1,
+        worktreePath: join(root, "y"),
+        slot: 1,
+        createdAt: 2,
+      }),
+    );
+
+    const losers = store.runImmediate(() =>
+      store.unifyLiveKeys(main, new Set([main, w1])),
+    );
+
+    expect(losers.map((l) => [l.id, l.slot])).toEqual([["young", 1]]);
+    expect(store.get("old")!.slot).toBe(1);
+    expect(store.get("young")!.slot).toBeNull();
+    expect(store.get("young")!.projectPath).toBe(main);
+  }, 15_000);
 });

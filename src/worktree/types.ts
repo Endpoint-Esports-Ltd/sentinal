@@ -293,6 +293,13 @@ export class WorktreeError extends Error {
        */
       | "DIRTY_MAIN_CHECKOUT"
       /**
+       * `squashMerge` found the base branch checked out in ANOTHER linked
+       * worktree, so the main checkout cannot `git checkout` it (D5). Refused
+       * **before touching anything**; merge there by hand, or switch that
+       * worktree off the base branch and retry verbatim.
+       */
+      | "BASE_CHECKED_OUT"
+      /**
        * The squash merge **landed on the base branch**, but the worktree
        * directory could not be removed afterwards.
        *

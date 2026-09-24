@@ -9,6 +9,7 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { MemoryStore } from "../memory/store.js";
+import { resolveSlotScope } from "./slots.js";
 import {
   DEFAULT_WORKTREE_CONFIG,
   type Worktree,
@@ -23,6 +24,8 @@ function canonicalPath(p: string): string {
     return resolve(p);
   }
 }
+
+const LIVE = "status IN ('active', 'ready-to-merge')";
 
 // ─── Raw DB Row Type ────────────────────────────────────────────────────────
 
@@ -148,8 +151,26 @@ export class WorktreeStore {
     return true;
   }
 
-  /** Count active worktrees, optionally scoped to a project. */
-  countActive(projectPath?: string): number {
+  /**
+   * Count active worktrees, optionally scoped to a project.
+   *
+   * With `roots` (a {@link SlotScope}'s), counts the CANONICAL set — every
+   * active row whose `project_path` or `worktree_path` is a checkout of the
+   * repo, however it was keyed. Without it, the literal-key count (unchanged).
+   */
+  countActive(projectPath?: string, roots?: Iterable<string>): number {
+    if (projectPath && roots) {
+      const set = new Set(roots);
+      set.add(projectPath);
+      const rows = this.db
+        .prepare(
+          "SELECT project_path, worktree_path FROM worktrees WHERE status = 'active'",
+        )
+        .all() as Array<Pick<RawWorktree, "project_path" | "worktree_path">>;
+      return rows.filter(
+        (r) => set.has(r.project_path) || set.has(r.worktree_path),
+      ).length;
+    }
     if (projectPath) {
       const row = this.db
         .prepare(
@@ -197,13 +218,73 @@ export class WorktreeStore {
    *
    * ⚠️ This exists **only** for lazy allocation of pre-V12 rows that carry
    * `slot = NULL` (master plan assumption: "allocated lazily on next resolve").
-   * It is NOT a release mechanism — nothing in production ever writes
-   * `slot = NULL`, because that would destroy the record of which slot a
-   * merged/abandoned worktree held, which is what lets `resolveWithReconcile`
-   * recover the slot its on-disk config was written against.
+   * It is NOT a release mechanism — nothing in production writes
+   * `slot = NULL` on release, because that would destroy the record of which
+   * slot a merged/abandoned worktree held, which is what lets
+   * `resolveWithReconcile` recover the slot its on-disk config was written
+   * against.
+   *
+   * ⚠️ ONE deliberate, transient exception (D4): {@link unifyLiveKeys} nulls
+   * the LIVE loser of a slot collision revealed by a re-key, and the allocator
+   * re-slots it right after commit (`slots.ts` → `reslotLosers`). Terminal rows
+   * are never nulled.
    */
   assignSlot(id: string, slot: number): void {
     this.db.prepare("UPDATE worktrees SET slot = ? WHERE id = ?").run(slot, id);
+  }
+
+  /**
+   * Lazy re-key (D6): move every LIVE row of one repo onto the canonical `key`.
+   * SQL only — must run inside {@link runImmediate}; `roots` comes from a
+   * {@link resolveSlotScope} call made BEFORE the transaction.
+   *
+   * Rows are "of this repo" when `project_path` or `worktree_path` is in
+   * `roots`. Other repos' rows and merged/abandoned rows are never touched.
+   *
+   * ⛔ Order is load-bearing: (1) group by slot — after the re-key every row is
+   * under `key`, so these are the `(key, slot)` groups; (2) null every LOSER
+   * (all but the oldest `created_at`) FIRST; (3) only then re-key. Re-keying
+   * first raises `idx_wt_slot_live`, which `isSlotRace` misreads as a lost
+   * race — the allocator would retry and report a deterministic collision as
+   * a transient `SLOT_RACE`, forever.
+   *
+   * @returns the losers, carrying the slot they held BEFORE being nulled — the
+   *   caller must re-slot them after commit (D4).
+   */
+  unifyLiveKeys(key: string, roots: Iterable<string>): Worktree[] {
+    const inScope = new Set(roots);
+    inScope.add(key);
+    const rows = (
+      this.db
+        .prepare(
+          `SELECT * FROM worktrees WHERE ${LIVE} ORDER BY created_at ASC, id ASC`,
+        )
+        .all() as RawWorktree[]
+    ).filter(
+      (r) => inScope.has(r.project_path) || inScope.has(r.worktree_path),
+    );
+
+    const holders = new Set<number>();
+    const losers: RawWorktree[] = [];
+    for (const r of rows) {
+      if (r.slot === null) continue;
+      if (holders.has(r.slot)) losers.push(r);
+      else holders.add(r.slot);
+    }
+
+    const nullSlot = this.db.prepare(
+      "UPDATE worktrees SET slot = NULL WHERE id = ?",
+    );
+    for (const l of losers) nullSlot.run(l.id);
+
+    const rekey = this.db.prepare(
+      "UPDATE worktrees SET project_path = ? WHERE id = ?",
+    );
+    for (const r of rows) {
+      if (r.project_path !== key) rekey.run(key, r.id);
+    }
+
+    return losers.map((l) => ({ ...this.deserialize(l), projectPath: key }));
   }
 
   /**
@@ -258,9 +339,20 @@ export class WorktreeStore {
     // Scope compares CANONICAL paths: rows store getRepoRoot() output (a
     // realpath), while callers may pass a symlinked alias (macOS /var vs
     // /private/var) — the old global fallback papered over that mismatch.
+    //
+    // Task 12: the scope is the caller's REPO, not its literal checkout. From
+    // a linked worktree the caller's identity is the main checkout, where
+    // canonically-keyed rows live; legacy rows keyed by any other checkout of
+    // the same repo match too. One `git worktree list` — no transaction here.
     if (projectPath) {
-      const wanted = canonicalPath(projectPath);
-      const row = rows.find((r) => canonicalPath(r.project_path) === wanted);
+      const scope = resolveSlotScope(projectPath);
+      const wanted = new Set(scope?.roots ?? []);
+      wanted.add(canonicalPath(projectPath));
+      const row = rows.find(
+        (r) =>
+          wanted.has(canonicalPath(r.project_path)) ||
+          (scope !== null && wanted.has(canonicalPath(r.worktree_path))),
+      );
       return row ? this.deserialize(row) : null;
     }
 

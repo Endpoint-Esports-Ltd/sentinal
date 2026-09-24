@@ -14,7 +14,6 @@ import { WorktreeStore } from "./store.js";
 import {
   gitExec,
   gitExecOrThrow,
-  getCurrentCommit,
   detectBaseBranch,
   getRepoRoot,
   checkGitVersion,
@@ -22,7 +21,7 @@ import {
   randomHex,
   branchExists,
 } from "../git/utils.js";
-import { insertWithSlot } from "./slots.js";
+import { insertWithSlot, resolveSlotScope } from "./slots.js";
 import { seedWorktreeConfig } from "./worktree-config.js";
 import { WorktreeError, type Worktree, type WorktreeConfig } from "./types.js";
 
@@ -50,11 +49,21 @@ export function createWorktree(
     throw new WorktreeError(versionCheck.warning!, "GIT_TOO_OLD");
   }
 
-  // Resolve repo root
-  const repoRoot = getRepoRoot(projectPath);
+  // Task 13 — un-nesting. Resolve the repo's scope ONCE (one git call, before
+  // any transaction) and reuse it for the count, the insert and the paths.
+  // `repoRoot` is the CANONICAL project — the main checkout — even when the
+  // caller stands in a linked worktree. `getRepoRoot` is only the fallback
+  // (and the NOT_A_REPO error) when `git worktree list` yields nothing.
+  //
+  // ⛔ Deliberate, documented exception to "identity is for storage keys
+  // only": the new worktree's DIRECTORY is placed under the canonical root.
+  // Nesting it under the invoking linked checkout (the old behaviour) hid it
+  // from every other checkout and split its record across two project keys.
+  const scope = resolveSlotScope(projectPath);
+  const repoRoot = scope?.key ?? getRepoRoot(projectPath);
 
-  // Check max active limit
-  const activeCount = store.countActive(repoRoot);
+  // Check max active limit — over the canonical set, legacy keys included.
+  const activeCount = store.countActive(repoRoot, scope?.roots);
   if (activeCount >= config.maxActive) {
     throw new WorktreeError(
       `Maximum active worktrees (${config.maxActive}) reached. Merge or abandon existing worktrees first.`,
@@ -62,9 +71,10 @@ export function createWorktree(
     );
   }
 
-  // Detect base branch
+  // Detect base branch, and record the commit the worktree ACTUALLY branches
+  // from — the base's tip, not the invoking checkout's HEAD.
   const base = baseBranch ?? detectBaseBranch(repoRoot);
-  const baseCommit = getCurrentCommit(repoRoot);
+  const baseCommit = resolveBaseCommit(repoRoot, base);
 
   // Generate identifiers
   const slug = specId ? slugify(specId) : `worktree-${randomHex(4)}`;
@@ -81,9 +91,10 @@ export function createWorktree(
     );
   }
 
-  // Create the worktree
+  // Create the worktree — from the exact commit recorded as `baseCommit`, so
+  // the two can never disagree if `base` moves in between.
   gitExecOrThrow(
-    ["worktree", "add", "-b", branchName, worktreePath, base],
+    ["worktree", "add", "-b", branchName, worktreePath, baseCommit],
     repoRoot,
   );
 
@@ -115,6 +126,7 @@ export function createWorktree(
         createdAt: Date.now(),
       },
       config.maxActive,
+      { scope },
     );
 
     // Seed config INSIDE the rollback envelope (D8). The slot only exists
@@ -147,4 +159,23 @@ export function createWorktree(
     }
     throw err;
   }
+}
+
+/**
+ * The commit `base` points at, verified. Throws a `GIT_ERROR` naming the base
+ * when it does not resolve — before anything has been created.
+ */
+function resolveBaseCommit(repoRoot: string, base: string): string {
+  const r = gitExec(
+    ["rev-parse", "--verify", "--quiet", `${base}^{commit}`],
+    repoRoot,
+  );
+  if (r.exitCode !== 0 || !r.stdout) {
+    throw new WorktreeError(
+      `Base branch "${base}" does not resolve to a commit in ${repoRoot}. ` +
+        `Pass an existing branch as the base. Nothing was created.`,
+      "GIT_ERROR",
+    );
+  }
+  return r.stdout;
 }

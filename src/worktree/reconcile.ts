@@ -16,13 +16,13 @@ import { WorktreeStore } from "./store.js";
 import { listGitWorktrees, type GitWorktreeEntry } from "./disk-scan.js";
 import {
   gitExec,
-  getRepoRoot,
   detectBaseBranch,
   slugify,
   randomHex,
 } from "../git/utils.js";
 import {
   insertWithSlot,
+  resolveSlotScope,
   tryAssignFreeSlot,
   readSlotFromWorktree,
   warnIfSlotMismatch,
@@ -68,12 +68,12 @@ export function resolveWithReconcile(
 
   if (!projectPath) return null;
 
-  let repoRoot: string;
-  try {
-    repoRoot = getRepoRoot(projectPath);
-  } catch {
-    return null;
-  }
+  // Task 13: the CANONICAL project (main checkout), resolved once and reused
+  // for the disk scan, the insert (no second git call) and the seed root.
+  // `null` outside a repository — same outcome as the old `getRepoRoot` catch.
+  const scope = resolveSlotScope(projectPath);
+  if (!scope) return null;
+  const repoRoot = scope.key;
 
   // Disk scan: find a git worktree whose branch matches the slug. Exact match
   // only (D1): branches are NEVER suffixed — only the row id and the worktree
@@ -123,6 +123,7 @@ export function resolveWithReconcile(
       preferred: onDiskSlot ?? priorSlot,
       onExhausted: "null",
       warnings,
+      scope,
     },
   );
 
@@ -167,21 +168,27 @@ export function ensureSlot(
 ): Worktree {
   if (wt.slot != null) return wt;
 
-  const { slot, warning } = tryAssignFreeSlot(
+  const { slot, warning, notices } = tryAssignFreeSlot(
     store,
     wt.id,
     wt.projectPath,
     config.maxActive,
   );
+  // D4: collisions revealed by the re-key were re-slotted on OTHER rows —
+  // surface them whether or not this row got a slot.
+  if (notices) warnings?.push(...notices);
   if (slot === null) {
     if (warning) warnings?.push(warning);
     return wt;
   }
+  // The assign transaction also re-keyed the row onto the canonical project
+  // (Task 12) — re-read it so the seed root and the returned record agree.
+  const projectPath = store.get(wt.id)?.projectPath ?? wt.projectPath;
   // The directory predates slots, so it has no `.sentinal/worktree.env`.
   // Seed once, on the null → slot transition only.
   seedNonFatally(
     {
-      repoRoot: wt.projectPath,
+      repoRoot: projectPath,
       worktreePath: wt.worktreePath,
       slot,
       // R11 seed site 3 of 3 — resolved against THIS site's own path variable.
@@ -191,5 +198,5 @@ export function ensureSlot(
     },
     warnings,
   );
-  return { ...wt, slot };
+  return { ...wt, projectPath, slot };
 }

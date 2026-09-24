@@ -497,6 +497,150 @@ describe("worktree cleanup", () => {
     });
   });
 
+  // ── Task 13: cleanup from / across linked worktrees ───────────────────────
+  describe("canonical project scoping (Task 13)", () => {
+    let linked: string;
+    const force = {
+      force: true,
+      isPlanActive: () => false,
+      ownsLiveRuntime: () => ({ live: false }),
+    } satisfies CleanupOptions;
+
+    function git(args: string[], cwd: string): string {
+      const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe" });
+      return (r.stdout?.toString() ?? "").trim();
+    }
+
+    beforeEach(() => {
+      linked = join(tmpDir, "linked");
+      // The Orca-style checkout: a linked worktree on a NON-sentinal branch.
+      git(["worktree", "add", "-b", "orca-support", linked], repoDir);
+    });
+
+    it("the default pass from a linked worktree finds canonical rows", () => {
+      const wt = manager.create("2026-09-24-def", repoDir);
+      rmSync(wt.worktreePath, { recursive: true, force: true });
+
+      const { cleaned } = manager.cleanup({ projectPath: linked });
+      expect(cleaned).toBe(1);
+      expect(wtStore.get(wt.id)!.status).toBe("abandoned");
+      expect(git(["branch", "--list", wt.branchName], repoDir)).toBe("");
+    }, 15_000);
+
+    it("the default pass finds LEGACY rows keyed by a linked checkout", () => {
+      wtStore.insert({
+        id: "legacy-gone",
+        specId: undefined,
+        projectPath: linked,
+        worktreePath: join(linked, ".sentinal", "worktrees", "spec-gone"),
+        branchName: "sentinal/spec-gone",
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"], repoDir),
+        status: "active",
+        createdAt: Date.now(),
+        slot: 1,
+      });
+      const { removed } = manager.cleanup({ projectPath: repoDir });
+      expect(removed.map((r) => r.slug)).toEqual(["gone"]);
+      expect(wtStore.get("legacy-gone")!.status).toBe("abandoned");
+    }, 15_000);
+
+    it("the default pass finds a legacy row whose LINKED key no longer exists, via its worktree path", () => {
+      // An old version nested N under the linked checkout L and keyed the row
+      // by L. L is then removed (taking N's directory with it); git still
+      // lists N as prunable, which is the only link left to this repo.
+      const nested = join(linked, ".sentinal", "worktrees", "spec-orphan-1");
+      git(["worktree", "add", "-b", "sentinal/spec-orphan", nested], linked);
+      wtStore.insert({
+        id: "legacy-orphan",
+        specId: undefined,
+        projectPath: linked,
+        worktreePath: nested,
+        branchName: "sentinal/spec-orphan",
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"], repoDir),
+        status: "active",
+        createdAt: Date.now(),
+        slot: 1,
+      });
+      git(["worktree", "remove", "--force", linked], repoDir);
+      expect(existsSync(nested)).toBe(false);
+      expect(gitWorktreePaths()).toContain(nested);
+      expect(gitWorktreePaths()).not.toContain(linked);
+
+      const { removed } = manager.cleanup({ projectPath: repoDir });
+      expect(removed.map((r) => r.slug)).toEqual(["orphan"]);
+      expect(wtStore.get("legacy-orphan")!.status).toBe("abandoned");
+      expect(git(["branch", "--list", "sentinal/spec-orphan"], repoDir)).toBe(
+        "",
+      );
+    }, 15_000);
+
+    it("force from a linked worktree reclaims orphans under the MAIN checkout", () => {
+      const wt = manager.create("2026-09-24-force", repoDir);
+      const { removed } = manager.cleanup({ ...force, projectPath: linked });
+      expect(removed.map((r) => r.path)).toEqual([wt.worktreePath]);
+      expect(existsSync(wt.worktreePath)).toBe(false);
+      expect(wtStore.get(wt.id)!.status).toBe("abandoned");
+    }, 15_000);
+
+    it("force reclaims a worktree NESTED under a linked checkout by an earlier version", () => {
+      const nested = join(linked, ".sentinal", "worktrees", "spec-old-1234");
+      git(["worktree", "add", "-b", "sentinal/spec-old", nested], linked);
+      expect(existsSync(nested)).toBe(true);
+
+      const { removed } = manager.cleanup({ ...force, projectPath: repoDir });
+      expect(removed.map((r) => r.path)).toEqual([nested]);
+      expect(existsSync(nested)).toBe(false);
+      expect(gitWorktreePaths()).not.toContain(nested);
+    }, 15_000);
+
+    it("force still REFUSES a sentinal branch outside every checkout's worktree directory", () => {
+      const stray = join(linked, "elsewhere", "spec-stray");
+      git(["worktree", "add", "-b", "sentinal/spec-stray", stray], repoDir);
+      const outside = join(tmpDir, "outside-wt");
+      git(["worktree", "add", "-b", "sentinal/spec-outside", outside], repoDir);
+
+      const { removed } = manager.cleanup({ ...force, projectPath: repoDir });
+      expect(removed).toEqual([]);
+      expect(existsSync(stray)).toBe(true);
+      expect(existsSync(outside)).toBe(true);
+    }, 15_000);
+
+    it("force from a linked worktree treats the MAIN checkout as the project (not the linked one)", () => {
+      // Inside the main checkout but outside `.sentinal/worktrees` — accepted
+      // from the main checkout before, and must be from a linked one now.
+      const custom = join(repoDir, "custom", "spec-custom");
+      git(["worktree", "add", "-b", "sentinal/spec-custom", custom], repoDir);
+
+      const { removed } = manager.cleanup({ ...force, projectPath: linked });
+      expect(removed.map((r) => r.path)).toEqual([custom]);
+    }, 15_000);
+
+    it("guard 1 refuses a NON-sentinal branch even inside a Sentinal worktree directory", () => {
+      const inMain = join(repoDir, ".sentinal", "worktrees", "orca-in-main");
+      git(["worktree", "add", "-b", "orca-in-main", inMain], repoDir);
+      const inLinked = join(linked, ".sentinal", "worktrees", "orca-in-linked");
+      git(["worktree", "add", "-b", "orca-in-linked", inLinked], repoDir);
+
+      const { removed } = manager.cleanup({ ...force, projectPath: linked });
+      expect(removed).toEqual([]);
+      expect(existsSync(inMain)).toBe(true);
+      expect(existsSync(inLinked)).toBe(true);
+    }, 15_000);
+
+    it("force NEVER removes the Orca-style linked worktree (non-sentinal branch)", () => {
+      for (const projectPath of [repoDir, linked]) {
+        manager.cleanup({ ...force, projectPath });
+      }
+      expect(existsSync(linked)).toBe(true);
+      expect(gitWorktreePaths()).toContain(linked);
+      expect(git(["branch", "--list", "orca-support"], repoDir)).toContain(
+        "orca-support",
+      );
+    }, 15_000);
+  });
+
   // ── The extracted free function, called directly ──────────────────────────
   describe("cleanupWorktrees (direct)", () => {
     it("is what the manager delegates to — same result via either entry point", () => {

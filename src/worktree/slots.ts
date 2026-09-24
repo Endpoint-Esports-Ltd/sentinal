@@ -21,13 +21,27 @@
  * be actively harmful: it destroys the record of which slot a merged/abandoned
  * worktree held, which is what lets `resolveWithReconcile` hand a recovered
  * directory back the slot its own on-disk config was written against.
+ * (One transient exception, D4: the LIVE loser of a collision revealed by the
+ * canonical re-key is nulled inside the transaction and re-slotted right after
+ * commit — see {@link reslotLosers}.)
+ *
+ * **⛔ The pool is the REPO, not the checkout (Task 12).** Rows written by older
+ * versions may be keyed by whichever linked worktree they were created from.
+ * Every allocation first unifies this repo's live rows under the canonical key
+ * (`store.unifyLiveKeys`), with the repo's roots resolved by ONE
+ * `git worktree list` BEFORE the transaction — never inside it.
  *
  * Allocator state lives in SQLite only — sidecar handlers construct a fresh
  * `WorktreeManager` per request, so instance memory would be worthless.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  listGitWorktrees,
+  resolveRealPath,
+  type GitWorktreeEntry,
+} from "./disk-scan.js";
 import type { WorktreeStore } from "./store.js";
 import { WorktreeError, type Worktree } from "./types.js";
 
@@ -53,6 +67,53 @@ export const SLOT_ENV_VAR = "SENTINAL_WORKTREE_SLOT";
 
 /** Attempts for the allocate+insert transaction before surfacing SLOT_RACE. */
 const SLOT_INSERT_ATTEMPTS = 3;
+
+// ─── Repo scope (Task 12) ───────────────────────────────────────────────────
+
+/**
+ * Which rows belong to ONE repository, however they were keyed.
+ *
+ * - `key` — the canonical project key: the main checkout, realpath'd. Equal to
+ *   `resolveProjectIdentity()` / `getMainWorktreeRoot()` for the same repo.
+ * - `roots` — every checkout of the repo (main + linked worktrees), both as git
+ *   printed them and realpath'd. A row is "of this repo" when its
+ *   `project_path` OR its `worktree_path` is one of these.
+ */
+export interface SlotScope {
+  key: string;
+  roots: string[];
+}
+
+/** Injectable `git worktree list` — tests use it to prove WHEN git runs. */
+export type WorktreeLister = (repoRoot: string) => GitWorktreeEntry[];
+
+/**
+ * Resolve the {@link SlotScope} of the repo containing `projectPath` with ONE
+ * `git worktree list --porcelain`. `null` outside a repository (or when git
+ * cannot run there) — callers then fall back to the literal key.
+ *
+ * ⛔ Spawns git. Call it BEFORE `runImmediate`, never inside: the allocating
+ * transaction also runs on the read-only `worktree_detect` path, and a
+ * subprocess while holding the write lock stalls every other writer.
+ */
+export function resolveSlotScope(
+  projectPath: string,
+  lister: WorktreeLister = listGitWorktrees,
+): SlotScope | null {
+  let entries: GitWorktreeEntry[];
+  try {
+    entries = lister(projectPath);
+  } catch {
+    return null; // e.g. the directory does not exist
+  }
+  if (entries.length === 0) return null;
+  const roots = new Set<string>();
+  for (const e of entries) {
+    roots.add(e.path);
+    roots.add(resolveRealPath(e.path));
+  }
+  return { key: resolveRealPath(entries[0].path), roots: [...roots] };
+}
 
 // ─── Pure allocation ────────────────────────────────────────────────────────
 
@@ -157,6 +218,22 @@ export interface InsertWithSlotOptions {
   warnings?: string[];
   /** Testing hook: insert unslotted regardless of pool state. */
   forceNull?: boolean;
+  /**
+   * Pre-resolved repo scope. Omit to resolve it from `wt.projectPath` (one
+   * git call, before the transaction); pass `null` to force the literal key.
+   */
+  scope?: SlotScope | null;
+  /** Injectable lister for scope resolution (tests). */
+  listWorktrees?: WorktreeLister;
+}
+
+/** Scope for an allocation — resolved OUTSIDE any transaction. */
+function scopeFor(
+  projectPath: string,
+  opts: { scope?: SlotScope | null; listWorktrees?: WorktreeLister },
+): SlotScope | null {
+  if (opts.scope !== undefined) return opts.scope;
+  return resolveSlotScope(projectPath, opts.listWorktrees);
 }
 
 /**
@@ -183,12 +260,18 @@ export function insertWithSlot(
 
   if (forceNull) return store.insert({ ...wt, slot: null });
 
+  // ⛔ git runs HERE, before the write lock — never inside runImmediate.
+  const scope = scopeFor(wt.projectPath, opts);
+  const key = scope?.key ?? wt.projectPath;
+
   let lastRace: unknown;
   for (let attempt = 0; attempt < SLOT_INSERT_ATTEMPTS; attempt++) {
     let exhausted = false;
+    let losers: Worktree[] = [];
     try {
       const inserted = store.runImmediate(() => {
-        const taken = store.listLiveSlots(wt.projectPath);
+        losers = scope ? store.unifyLiveKeys(scope.key, scope.roots) : [];
+        const taken = store.listLiveSlots(key);
         const slot =
           isAllocatableSlot(preferred, maxActive) && !taken.includes(preferred)
             ? preferred
@@ -197,13 +280,16 @@ export function insertWithSlot(
         if (slot === null) {
           if (onExhausted === "throw") throw slotExhausted(maxActive);
           exhausted = true;
-          return store.insert({ ...wt, slot: null });
+          return store.insert({ ...wt, projectPath: key, slot: null });
         }
-        return store.insert({ ...wt, slot });
+        return store.insert({ ...wt, projectPath: key, slot });
       });
 
       if (exhausted) {
-        warnings?.push(noFreeSlotWarning(wt.projectPath, maxActive));
+        warnings?.push(noFreeSlotWarning(key, maxActive));
+      }
+      if (scope && losers.length > 0) {
+        warnings?.push(...reslotLosers(store, losers, scope, maxActive));
       }
       return inserted;
     } catch (err) {
@@ -214,7 +300,7 @@ export function insertWithSlot(
 
   throw new WorktreeError(
     `Lost the race for a worktree slot ${SLOT_INSERT_ATTEMPTS} times — another Sentinal process ` +
-      `is creating worktrees in ${wt.projectPath} concurrently. This is transient: retry. ` +
+      `is creating worktrees in ${key} concurrently. This is transient: retry. ` +
       `(underlying: ${lastRace instanceof Error ? lastRace.message : String(lastRace)})`,
     "SLOT_RACE",
   );
@@ -226,6 +312,17 @@ export function insertWithSlot(
 export interface AssignSlotResult {
   slot: number | null;
   warning?: string;
+  /**
+   * D4 collision warnings from re-slotting OTHER rows revealed by the re-key
+   * (independent of `slot`). Callers that surface output should forward them.
+   */
+  notices?: string[];
+}
+
+/** Options for {@link tryAssignFreeSlot} — same scope contract as inserts. */
+export interface AssignSlotOptions {
+  scope?: SlotScope | null;
+  listWorktrees?: WorktreeLister;
 }
 
 /**
@@ -245,21 +342,37 @@ export function tryAssignFreeSlot(
   id: string,
   projectPath: string,
   maxActive: number,
+  opts: AssignSlotOptions = {},
 ): AssignSlotResult {
+  // ⛔ git runs HERE, before the write lock — never inside runImmediate.
+  const scope = scopeFor(projectPath, opts);
+  const key = scope?.key ?? projectPath;
   let lastRace: unknown;
 
   for (let attempt = 0; attempt < SLOT_INSERT_ATTEMPTS; attempt++) {
+    let losers: Worktree[] = [];
     try {
       const slot = store.runImmediate(() => {
-        const free = findFreeSlot(store.listLiveSlots(projectPath), maxActive);
+        losers = scope
+          ? store
+              .unifyLiveKeys(scope.key, scope.roots)
+              .filter((l) => l.id !== id) // this row is assigned below
+          : [];
+        const free = findFreeSlot(store.listLiveSlots(key), maxActive);
         if (free === null) return null;
         store.assignSlot(id, free);
         return free;
       });
 
-      return slot === null
-        ? { slot: null, warning: noFreeSlotWarning(projectPath, maxActive) }
-        : { slot };
+      const notices =
+        scope && losers.length > 0
+          ? reslotLosers(store, losers, scope, maxActive)
+          : undefined;
+      const base: AssignSlotResult =
+        slot === null
+          ? { slot: null, warning: noFreeSlotWarning(key, maxActive) }
+          : { slot };
+      return notices ? { ...base, notices } : base;
     } catch (err) {
       // A non-race failure (I/O, corruption) is not retryable, but it is also
       // not a reason to fail a read — report it and continue unslotted.
@@ -329,6 +442,65 @@ export function warnIfSlotMismatch(
   if (onDiskSlot === null || assignedSlot == null) return;
   if (onDiskSlot === assignedSlot) return;
   warnings?.push(slotMismatchWarning(worktreePath, onDiskSlot, assignedSlot));
+}
+
+/**
+ * D4 — re-slot the losers of a collision revealed by the canonical re-key.
+ * Runs AFTER the unifying transaction commits, through the same path
+ * `ensureSlot` uses: {@link tryAssignFreeSlot}, then a `worktree.env` rewrite
+ * via `seedNonFatally` (Rule 0 still protects the loser's `.env`, which is why
+ * the {@link warnIfSlotMismatch} wording tells the user to re-seed it).
+ *
+ * Returns the warnings; never throws.
+ */
+function reslotLosers(
+  store: WorktreeStore,
+  losers: Worktree[],
+  scope: SlotScope,
+  maxActive: number,
+): string[] {
+  const out: string[] = [];
+  for (const loser of losers) {
+    const held = loser.slot ?? null;
+    const onDisk = readSlotFromWorktree(loser.worktreePath) ?? held;
+    // `scope` is passed through: no second git call, and the re-key is a no-op.
+    const r = tryAssignFreeSlot(store, loser.id, scope.key, maxActive, {
+      scope,
+    });
+    if (r.notices) out.push(...r.notices);
+    if (r.slot === null) {
+      out.push(
+        `${loser.worktreePath} held slot ${held}, which an older LIVE worktree of ${scope.key} ` +
+          `also holds (revealed when their records were unified under one project key). It could ` +
+          `not be moved: ${r.warning ?? "no free slot"}`,
+      );
+      continue;
+    }
+    if (existsSync(loser.worktreePath)) {
+      rewriteSlotEnv(scope.key, loser.worktreePath, r.slot, out);
+    }
+    warnIfSlotMismatch(out, loser.worktreePath, onDisk, r.slot);
+  }
+  return out;
+}
+
+/**
+ * Rewrite a worktree's `.sentinal/worktree.env` for a new slot via the shared
+ * seeder (the same call `ensureSlot` makes).
+ *
+ * ⛔ Loaded lazily: `worktree-config.ts` reads this module's constants at
+ * evaluation time, so a static import would close a cycle that throws a TDZ
+ * `ReferenceError` whenever this module happens to load first.
+ */
+function rewriteSlotEnv(
+  repoRoot: string,
+  worktreePath: string,
+  slot: number,
+  warnings: string[],
+): void {
+  const { seedNonFatally } =
+    require("./worktree-config.js") as typeof import("./worktree-config.js");
+  seedNonFatally({ repoRoot, worktreePath, slot }, warnings);
 }
 
 function slotMismatchWarning(

@@ -9,8 +9,10 @@
  */
 
 import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { WorktreeStore } from "./store.js";
 import { listGitWorktrees, resolveRealPath, isInside } from "./disk-scan.js";
+import { resolveSlotScope } from "./slots.js";
 import { gitExec, getRepoRoot } from "../git/utils.js";
 import type { WorktreeConfig, RuntimeLiveVerdict } from "./types.js";
 
@@ -120,25 +122,33 @@ export function cleanupWorktrees(
   // this pass runs `git branch -D` in each row's own repo — a cleanup asked
   // for project A must not delete branches in project B. An UNSCOPED call
   // keeps the historical global sweep.
-  let scope: string | null = null;
+  //
+  // Task 13: "the caller's project" is its REPO — every checkout of it — so a
+  // call from a linked worktree finds canonically-keyed rows, and a call from
+  // anywhere finds legacy rows still keyed by a linked checkout. git runs in
+  // the canonical root (the main checkout, D5).
+  let inScope: Set<string> | null = null;
+  let gitRoot: string | null = null;
   if (opts?.projectPath) {
-    try {
-      scope = getRepoRoot(opts.projectPath);
-    } catch {
-      // Not a git repo — fall back to the raw path (rows store the repo root,
-      // so a non-repo path simply matches nothing rather than everything).
-      scope = opts.projectPath;
-    }
+    const s = resolveSlotScope(opts.projectPath);
+    // Not a git repo — fall back to the raw path (rows store the repo root,
+    // so a non-repo path simply matches nothing rather than everything).
+    inScope = new Set(s ? [s.key, ...s.roots] : [opts.projectPath]);
+    gitRoot = s?.key ?? null;
   }
-  const candidates = scope
-    ? store.listForProject(scope, "active")
-    : store.listAll("active");
+  const candidates = store
+    .listAll("active")
+    .filter(
+      (wt) =>
+        !inScope || inScope.has(wt.projectPath) || inScope.has(wt.worktreePath),
+    );
   for (const wt of candidates) {
     if (existsSync(wt.worktreePath)) continue;
+    const cwd = gitRoot ?? wt.projectPath;
     // Remove git worktree reference if still tracked
-    gitExec(["worktree", "prune"], wt.projectPath);
+    gitExec(["worktree", "prune"], cwd);
     // Delete branch if it exists
-    gitExec(["branch", "-D", wt.branchName], wt.projectPath);
+    gitExec(["branch", "-D", wt.branchName], cwd);
     store.updateStatus(wt.id, "abandoned");
     removed.push({
       path: wt.worktreePath,
@@ -164,7 +174,8 @@ export function cleanupWorktrees(
  * Remove stale sentinal-owned worktrees in `projectPath` whose directory
  * still exists. Five independent safety guards prevent over-deletion:
  *   1. only branches matching the sentinal prefix (`config.branchPrefix`),
- *   2. only paths inside `projectPath`,
+ *   2. only paths inside the canonical project, or inside any checkout's
+ *      `config.directory` (worktrees nested by earlier versions),
  *   3. never the caller's `currentWorktree`,
  *   4. never a worktree whose plan is IN_PROGRESS (`isPlanActive`),
  *   5. never a worktree that still owns live processes (`ownsLiveRuntime`).
@@ -183,7 +194,15 @@ function forceCleanupOrphans(
   projectPath: string,
   opts: CleanupOptions,
 ): RemovedWorktree[] {
-  const repoRoot = getRepoRoot(projectPath);
+  // Task 13: the CANONICAL root (main checkout), from any checkout of the repo.
+  const scope = resolveSlotScope(projectPath);
+  const repoRoot = scope?.key ?? getRepoRoot(projectPath);
+  // Guard 2 also accepts `<any checkout>/<config.directory>/…`: earlier
+  // versions nested worktrees under the LINKED checkout they were created
+  // from, and those must stay reclaimable.
+  const worktreeDirs = (scope?.roots ?? [repoRoot]).map((r) =>
+    join(r, config.directory),
+  );
   const prefix = config.branchPrefix; // e.g. "sentinal/spec-"
   const current = opts.currentWorktree
     ? resolveRealPath(opts.currentWorktree)
@@ -224,8 +243,13 @@ function forceCleanupOrphans(
     if (gwt.branch === null) continue;
     // Guard 1: only sentinal-owned branches.
     if (!gwt.branch.startsWith(prefix)) continue;
-    // Guard 2: only worktrees inside the target project.
-    if (!isInside(gwt.path, repoRoot)) continue;
+    // Guard 2: only worktrees inside the target project — the main checkout,
+    // or any checkout's Sentinal worktree directory (see `worktreeDirs`).
+    if (
+      !isInside(gwt.path, repoRoot) &&
+      !worktreeDirs.some((d) => isInside(gwt.path, d))
+    )
+      continue;
     // Guard 3: never the caller's current worktree — including when the
     // caller stands in a SUBDIRECTORY of it (M3a). Exact equality alone left
     // a caller at `<worktree>/src` unprotected from `--force` deleting the

@@ -8,12 +8,8 @@
 import { existsSync, rmSync } from "node:fs";
 import { WorktreeStore } from "./store.js";
 import { parseNumstat } from "./diff-parse.js";
-import {
-  gitExec,
-  gitExecOrThrow,
-  getCurrentCommit,
-  getRepoRoot,
-} from "../git/utils.js";
+import { gitExec, gitExecOrThrow, getCurrentCommit } from "../git/utils.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { createWorktree } from "./create.js";
 import { cleanupWorktrees } from "./cleanup.js";
 import type { CleanupOptions, CleanupResult } from "./cleanup.js";
@@ -21,6 +17,8 @@ import { resolveWithReconcile } from "./reconcile.js";
 import {
   assertCleanForMerge,
   assertMainCheckoutCleanForMerge,
+  assertBaseFreeForMerge,
+  inMainCheckout,
   removeMergedWorktree,
 } from "./merge-guards.js";
 import {
@@ -29,7 +27,6 @@ import {
   type Worktree,
   type WorktreeConfig,
   type DiffSummary,
-  type DiffFileSummary,
 } from "./types.js";
 
 // `CleanupOptions` moved to `cleanup.ts` with the pass it configures. Re-export
@@ -48,11 +45,8 @@ export class WorktreeManager {
    * Create a new git worktree for a spec. Delegates to {@link createWorktree}
    * in `create.ts`, which carries the rollback envelope.
    *
-   * @param warnings - optional collector for non-fatal problems raised while
-   *   seeding config (missing `.env.example`, a non-isolated seed source, a
-   *   file that could not be hidden from git). Callers that surface output to a
-   *   human or an LLM should pass one — a silently unseeded worktree is what
-   *   sends an agent back to copying the repo-root `.env`.
+   * @param warnings - optional collector for non-fatal seeding problems; see
+   *   {@link createWorktree}. Callers surfacing output should pass one.
    */
   create(
     specId: string | undefined,
@@ -82,11 +76,10 @@ export class WorktreeManager {
     this.store.updateSpecId(worktreeId, specId);
   }
 
-  /** List worktrees, optionally filtered by project. */
+  /** List worktrees, optionally filtered by (canonical, Task 13) project. */
   list(projectPath?: string): Worktree[] {
     if (projectPath) {
-      const repoRoot = getRepoRoot(projectPath);
-      return this.store.listForProject(repoRoot);
+      return this.store.listForProject(resolveProjectIdentity(projectPath));
     }
     return this.store.listAll();
   }
@@ -222,9 +215,11 @@ export class WorktreeManager {
     message?: string,
     warnings?: string[],
   ): Promise<string> {
-    const wt = this.store.get(worktreeId);
-    if (!wt)
+    const row = this.store.get(worktreeId);
+    if (!row)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    // D5: run in the MAIN checkout, even for a legacy linked-keyed row.
+    const wt = inMainCheckout(row);
 
     if (wt.status !== "active" && wt.status !== "ready-to-merge") {
       throw new WorktreeError(
@@ -254,6 +249,8 @@ export class WorktreeManager {
     // squash commit. Refuse BEFORE anything is done. Untracked files are
     // allowed — see `assertMainCheckoutCleanForMerge`.
     assertMainCheckoutCleanForMerge(wt);
+    // D5: a base held by ANOTHER worktree cannot be checked out here.
+    assertBaseFreeForMerge(wt);
 
     const commitMsg =
       message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
@@ -324,9 +321,10 @@ export class WorktreeManager {
 
   /** Abandon a worktree — remove from disk and mark as abandoned. */
   async abandon(worktreeId: string): Promise<void> {
-    const wt = this.store.get(worktreeId);
-    if (!wt)
+    const row = this.store.get(worktreeId);
+    if (!row)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
+    const wt = inMainCheckout(row); // D5: git runs in the main checkout
 
     // ⛔ Before the directory is touched at all — including the `rmSync`
     // fallback below, which git cannot veto.

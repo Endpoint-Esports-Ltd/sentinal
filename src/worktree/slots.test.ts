@@ -6,11 +6,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { WorktreeStore } from "./store.js";
+import { listGitWorktrees } from "./disk-scan.js";
 import {
   MAIN_CHECKOUT_SLOT,
   FIRST_ALLOCATABLE_SLOT,
@@ -20,6 +21,8 @@ import {
   allocateSlot,
   tryAllocateSlot,
   insertWithSlot,
+  tryAssignFreeSlot,
+  resolveSlotScope,
   readSlotFromWorktree,
   formatSlot,
 } from "./slots.js";
@@ -427,4 +430,332 @@ describe("formatSlot", () => {
     expect(formatSlot(0)).toContain("0");
     expect(formatSlot(0)).toContain("main checkout");
   });
+});
+
+// ─── Task 12: canonical slot pool + lazy re-key ─────────────────────────────
+
+/** Create a temp git repo with an initial commit. */
+function initRepo(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  Bun.spawnSync(["git", "init", "-b", "main"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.email", "test@test.com"], { cwd: dir });
+  Bun.spawnSync(["git", "config", "user.name", "Test"], { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  Bun.spawnSync(["git", "add", "."], { cwd: dir });
+  Bun.spawnSync(["git", "commit", "-m", "initial"], { cwd: dir });
+}
+
+/** A main checkout plus two REAL linked worktrees of it. */
+function linkedRepo(root: string, name = "repo") {
+  const main = join(root, name);
+  initRepo(main);
+  const w1 = join(root, `${name}-wt-1`);
+  const w2 = join(root, `${name}-wt-2`);
+  Bun.spawnSync(["git", "worktree", "add", w1, "-b", `${name}-b1`], {
+    cwd: main,
+  });
+  Bun.spawnSync(["git", "worktree", "add", w2, "-b", `${name}-b2`], {
+    cwd: main,
+  });
+  return { main, w1, w2 };
+}
+
+function writeSlotEnv(worktreePath: string, slot: number): void {
+  mkdirSync(join(worktreePath, ".sentinal"), { recursive: true });
+  writeFileSync(
+    join(worktreePath, SLOT_ENV_RELATIVE_PATH),
+    `${SLOT_ENV_VAR}=${slot}\n`,
+  );
+}
+
+describe("Task 12 — canonical slot pool + lazy re-key", () => {
+  let root: string;
+  let memoryStore: MemoryStore;
+  let store: WorktreeStore;
+  let dbPath: string;
+
+  beforeEach(() => {
+    // realpath: macOS /var → /private/var; git and the resolvers canonicalize.
+    root = realpathSync(makeTmpDir());
+    dbPath = join(root, "test.db");
+    memoryStore = new MemoryStore(dbPath);
+    store = new WorktreeStore(memoryStore);
+  });
+
+  afterEach(() => {
+    memoryStore.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Insert a row verbatim (bypassing the allocator) — a legacy/fixture row. */
+  function seedRow(
+    projectPath: string,
+    worktreePath: string,
+    slot: number | null,
+    createdAt: number,
+    status: WorktreeStatus = "active",
+  ): Worktree {
+    return store.insert({
+      ...wtInput({ projectPath, worktreePath, status, createdAt }),
+      slot,
+    });
+  }
+
+  it("re-keys live rows stored under different legacy keys and preserves distinct slots", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const a = seedRow(main, w1, 1, 1000);
+    // Created from inside linked worktree w1 by an older version: keyed w1.
+    const b = seedRow(w1, w2, 2, 2000);
+
+    const fresh = insertWithSlot(
+      store,
+      wtInput({ projectPath: w1, worktreePath: join(root, "new-wt") }),
+      5,
+    );
+
+    expect(store.get(a.id)!.projectPath).toBe(main);
+    expect(store.get(b.id)!.projectPath).toBe(main);
+    expect(store.get(a.id)!.slot).toBe(1);
+    expect(store.get(b.id)!.slot).toBe(2);
+    // The new row lands in the canonical pool and never reuses a live slot.
+    expect(fresh.projectPath).toBe(main);
+    expect(fresh.slot).toBe(3);
+    expect(store.listLiveSlots(main)).toEqual([1, 2, 3]);
+  }, 15_000);
+
+  it("D4: a colliding pair — oldest keeps the slot, the loser is re-slotted with the mismatch warning, no SLOT_RACE (insert path)", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const winner = seedRow(main, w1, 1, 1000);
+    const loser = seedRow(w1, w2, 1, 2000); // same slot, other (legacy) pool
+    writeSlotEnv(w2, 1);
+
+    const warnings: string[] = [];
+    let caught: unknown;
+    let fresh: Worktree | undefined;
+    try {
+      fresh = insertWithSlot(
+        store,
+        wtInput({ projectPath: main, worktreePath: join(root, "new-wt") }),
+        5,
+        { warnings },
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeUndefined();
+
+    expect(store.get(winner.id)!.slot).toBe(1);
+    const reslotted = store.get(loser.id)!;
+    expect(reslotted.projectPath).toBe(main);
+    expect(reslotted.slot).not.toBeNull();
+    expect(reslotted.slot).not.toBe(1);
+    expect(reslotted.slot).not.toBe(fresh!.slot ?? null);
+    // Its sourceable env file now names the NEW slot.
+    expect(readSlotFromWorktree(w2)).toBe(reslotted.slot ?? null);
+    // The existing warnIfSlotMismatch wording names both slots.
+    const mismatch = warnings.find((w) =>
+      w.includes("has config written against slot 1"),
+    );
+    expect(mismatch).toBeDefined();
+    expect(mismatch).toContain(w2);
+    expect(mismatch).toContain(`assigned slot ${reslotted.slot}`);
+    // Every live slot in the pool is distinct.
+    expect(store.listLiveSlots(main)).toEqual(
+      [...new Set(store.listLiveSlots(main))].sort((x, y) => x - y),
+    );
+    expect(store.listLiveSlots(main)).toHaveLength(3);
+  }, 15_000);
+
+  it("D4: a colliding pair on the tryAssignFreeSlot (detect) path — no SLOT_RACE warning", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const winner = seedRow(main, w1, 1, 1000);
+    const loser = seedRow(w1, w2, 1, 2000);
+    writeSlotEnv(w2, 1);
+    // A pre-V12 row that needs a slot — this is what ensureSlot asks for.
+    const unslotted = seedRow(main, join(root, "legacy-wt"), null, 3000);
+
+    const result = tryAssignFreeSlot(store, unslotted.id, main, 5);
+
+    expect(result.warning).toBeUndefined();
+    expect(result.slot).not.toBeNull();
+    expect(store.get(winner.id)!.slot).toBe(1);
+    const reslotted = store.get(loser.id)!;
+    expect(reslotted.slot).not.toBeNull();
+    expect(new Set([1, result.slot, reslotted.slot]).size).toBe(3);
+    expect(readSlotFromWorktree(w2)).toBe(reslotted.slot ?? null);
+    expect(
+      (result.notices ?? []).some((w) =>
+        w.includes("has config written against slot 1"),
+      ),
+    ).toBe(true);
+  }, 15_000);
+
+  it("never touches another repo's rows (live or otherwise)", () => {
+    const one = linkedRepo(root, "one");
+    const two = linkedRepo(root, "two");
+    const otherLive = seedRow(two.main, two.w1, 1, 500);
+    const otherLegacy = seedRow(two.w1, two.w2, 1, 600); // collides in ITS pool
+    const unrelated = seedRow("/elsewhere/repo", "/elsewhere/wt", 1, 700);
+    seedRow(one.w1, one.w2, 1, 1000);
+
+    insertWithSlot(
+      store,
+      wtInput({ projectPath: one.main, worktreePath: join(root, "new-wt") }),
+      5,
+    );
+
+    for (const row of [otherLive, otherLegacy, unrelated]) {
+      const now = store.get(row.id)!;
+      expect(now.projectPath).toBe(row.projectPath);
+      expect(now.slot).toBe(row.slot);
+    }
+  }, 15_000);
+
+  it("never touches merged or abandoned rows of the same repo", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const merged = seedRow(w1, w2, 1, 100, "merged");
+    const abandoned = seedRow(w1, join(root, "gone"), 1, 200, "abandoned");
+
+    const fresh = insertWithSlot(
+      store,
+      wtInput({ projectPath: main, worktreePath: join(root, "new-wt") }),
+      5,
+    );
+
+    expect(fresh.slot).toBe(1); // terminal rows hold nothing
+    for (const row of [merged, abandoned]) {
+      const now = store.get(row.id)!;
+      expect(now.projectPath).toBe(w1);
+      expect(now.slot).toBe(1);
+      expect(now.status).toBe(row.status);
+    }
+  }, 15_000);
+
+  it("spawns no git subprocess inside the BEGIN IMMEDIATE transaction", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    seedRow(main, w1, 1, 1000);
+    seedRow(w1, w2, 1, 2000); // forces the re-key + loser re-slot path
+    writeSlotEnv(w2, 1);
+
+    let inTxn = false;
+    const spawnsInTxn: string[][] = [];
+    const listerCalls: boolean[] = [];
+    const realSpawnSync = Bun.spawnSync;
+    const spy = new Proxy(store, {
+      get(target, prop, recv) {
+        if (prop === "runImmediate") {
+          return <T>(fn: () => T): T => {
+            inTxn = true;
+            try {
+              return target.runImmediate(fn);
+            } finally {
+              inTxn = false;
+            }
+          };
+        }
+        return Reflect.get(target, prop, recv);
+      },
+    }) as unknown as WorktreeStore;
+
+    (Bun as { spawnSync: unknown }).spawnSync = ((...args: unknown[]) => {
+      if (inTxn) spawnsInTxn.push((args[0] as string[]) ?? []);
+      return (realSpawnSync as (...a: unknown[]) => unknown)(...args);
+    }) as typeof Bun.spawnSync;
+    try {
+      insertWithSlot(
+        spy,
+        wtInput({ projectPath: w1, worktreePath: join(root, "n1") }),
+        5,
+        {
+          listWorktrees: (p) => {
+            listerCalls.push(inTxn);
+            return listGitWorktrees(p);
+          },
+        },
+      );
+      const unslotted = seedRow(main, join(root, "n2"), null, 5000);
+      tryAssignFreeSlot(spy, unslotted.id, w1, 5, {
+        listWorktrees: (p) => {
+          listerCalls.push(inTxn);
+          return listGitWorktrees(p);
+        },
+      });
+    } finally {
+      (Bun as { spawnSync: unknown }).spawnSync = realSpawnSync;
+    }
+
+    // Exactly one scope lookup per allocation, both OUTSIDE the transaction.
+    expect(listerCalls).toEqual([false, false]);
+    expect(spawnsInTxn).toEqual([]);
+  }, 15_000);
+
+  it("a competitor committing under a DIFFERENT legacy key cannot cause a double allocation", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const other = new MemoryStore(dbPath);
+    try {
+      const otherStore = new WorktreeStore(other);
+      let raced = false;
+      const spy = new Proxy(store, {
+        get(target, prop, recv) {
+          if (prop === "runImmediate") {
+            return <T>(fn: () => T): T => {
+              if (!raced) {
+                raced = true;
+                // Another process (standing in linked worktree w1) commits slot
+                // 1 under ITS legacy key between our scope lookup and our lock.
+                otherStore.insert({
+                  ...wtInput({ projectPath: w1, worktreePath: w2 }),
+                  slot: 1,
+                });
+              }
+              return target.runImmediate(fn);
+            };
+          }
+          return Reflect.get(target, prop, recv);
+        },
+      }) as unknown as WorktreeStore;
+
+      const mine = insertWithSlot(
+        spy,
+        wtInput({ projectPath: main, worktreePath: join(root, "mine") }),
+        5,
+      );
+      expect(mine.slot).toBe(2);
+      expect(store.listLiveSlots(main)).toEqual([1, 2]);
+    } finally {
+      other.close();
+    }
+  }, 15_000);
+
+  it("allocations interleaved from every checkout of one repo never repeat a live slot", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const slots: Array<number | null | undefined> = [];
+    const froms = [main, w1, w2, w1, main];
+    froms.forEach((from, i) => {
+      slots.push(
+        insertWithSlot(
+          store,
+          wtInput({ projectPath: from, worktreePath: join(root, `x${i}`) }),
+          5,
+        ).slot,
+      );
+    });
+    expect(slots).toEqual([1, 2, 3, 4, 5]);
+    expect(() =>
+      insertWithSlot(
+        store,
+        wtInput({ projectPath: w2, worktreePath: join(root, "x9") }),
+        5,
+      ),
+    ).toThrow(WorktreeError);
+  }, 15_000);
+
+  it("resolveSlotScope names the main checkout as the key and every checkout as a root", () => {
+    const { main, w1, w2 } = linkedRepo(root);
+    const scope = resolveSlotScope(w1);
+    expect(scope).not.toBeNull();
+    expect(scope!.key).toBe(main);
+    for (const p of [main, w1, w2]) expect(scope!.roots).toContain(p);
+    expect(resolveSlotScope(join(root, "not-a-repo"))).toBeNull();
+  }, 15_000);
 });

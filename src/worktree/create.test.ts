@@ -108,7 +108,10 @@ describe("createWorktree", () => {
   describe("R11 shared-resource injection", () => {
     /** A seed source with NO slot placeholder — the only path that warns. */
     function seedSourceWithoutPlaceholder(): void {
-      writeFileSync(join(repoDir, ".env.example"), "DATABASE_URL=postgres://x\n");
+      writeFileSync(
+        join(repoDir, ".env.example"),
+        "DATABASE_URL=postgres://x\n",
+      );
       Bun.spawnSync(["git", "add", "-A"], { cwd: repoDir });
       Bun.spawnSync(["git", "commit", "-m", "seed source"], { cwd: repoDir });
     }
@@ -126,7 +129,9 @@ describe("createWorktree", () => {
       );
       const notIsolated = warnings.find((w) => w.includes("NOT isolated"));
       expect(notIsolated).toBeDefined();
-      expect(notIsolated).toContain("Shared with the main checkout: database, cache.");
+      expect(notIsolated).toContain(
+        "Shared with the main checkout: database, cache.",
+      );
     });
 
     it("is byte-identical to the Phase 2 baseline when no resolver is injected", () => {
@@ -153,9 +158,9 @@ describe("createWorktree", () => {
       );
 
       expect(empty).toEqual(baseline);
-      expect(baseline.some((w) => w.includes("Shared with the main checkout"))).toBe(
-        false,
-      );
+      expect(
+        baseline.some((w) => w.includes("Shared with the main checkout")),
+      ).toBe(false);
     });
 
     it("resolves against the WORKTREE path, not the repo root", () => {
@@ -193,5 +198,130 @@ describe("createWorktree", () => {
     expect(() => createWorktree(wtStore, cfg, "2026-08-08-b", repoDir)).toThrow(
       /Maximum active worktrees/,
     );
+  });
+
+  // ── Task 13: un-nesting ────────────────────────────────────────────────────
+  //
+  // Before, a worktree created from inside a LINKED worktree (e.g. an Orca
+  // checkout) was nested under `<linked>/.sentinal/worktrees/`, keyed by the
+  // linked path, and recorded the linked checkout's HEAD as its base commit.
+  describe("from a linked worktree (Task 13)", () => {
+    let linked: string;
+
+    function git(args: string[], cwd: string): string {
+      const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe" });
+      return (r.stdout?.toString() ?? "").trim();
+    }
+
+    beforeEach(() => {
+      linked = join(tmpDir, "linked");
+      git(["worktree", "add", "-b", "orca-support", linked], repoDir);
+      // The linked checkout moves ahead of main, so its HEAD ≠ main's commit.
+      writeFileSync(join(linked, "ahead.txt"), "ahead\n");
+      git(["add", "."], linked);
+      git(["commit", "-m", "linked ahead"], linked);
+    });
+
+    it("lands under the MAIN checkout with the canonical project key", () => {
+      const wt = createWorktree(wtStore, testConfig, "2026-09-24-un", linked);
+
+      expect(
+        wt.worktreePath.startsWith(
+          join(repoDir, ".sentinal", "worktrees") + "/",
+        ),
+      ).toBe(true);
+      expect(wt.projectPath).toBe(repoDir);
+      expect(wtStore.get(wt.id)!.projectPath).toBe(repoDir);
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      // Nothing nested under the linked checkout.
+      expect(existsSync(join(linked, ".sentinal", "worktrees"))).toBe(false);
+    }, 15_000);
+
+    it("records the BASE branch's commit, not the invoking checkout's HEAD", () => {
+      const wt = createWorktree(
+        wtStore,
+        testConfig,
+        "2026-09-24-base",
+        linked,
+        "main",
+      );
+      expect(wt.baseCommit).toBe(git(["rev-parse", "main"], repoDir));
+      expect(wt.baseCommit).not.toBe(git(["rev-parse", "HEAD"], linked));
+      // …and the worktree really branched from it.
+      expect(git(["rev-parse", "HEAD"], wt.worktreePath)).toBe(wt.baseCommit);
+    }, 15_000);
+
+    it("records the base commit from the main checkout too, when it sits on another branch", () => {
+      git(["checkout", "-b", "side"], repoDir);
+      writeFileSync(join(repoDir, "side.txt"), "side\n");
+      git(["add", "."], repoDir);
+      git(["commit", "-m", "side"], repoDir);
+
+      const wt = createWorktree(
+        wtStore,
+        testConfig,
+        "2026-09-24-side",
+        repoDir,
+        "main",
+      );
+      expect(wt.baseCommit).toBe(git(["rev-parse", "main"], repoDir));
+    }, 15_000);
+
+    it("refuses a base that does not resolve — clearly, and leaves nothing behind", () => {
+      let caught: unknown;
+      try {
+        createWorktree(
+          wtStore,
+          testConfig,
+          "2026-09-24-nobase",
+          linked,
+          "no-such-base",
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(WorktreeError);
+      expect((caught as Error).message).toContain("no-such-base");
+      expect(wtStore.listAll()).toHaveLength(0);
+      expect(
+        git(["branch", "--list", "sentinal/spec-2026-09-24-nobase"], repoDir),
+      ).toBe("");
+    }, 15_000);
+
+    it("counts legacy rows keyed by the linked checkout toward maxActive", () => {
+      wtStore.insert({
+        id: "legacy-1",
+        specId: undefined,
+        projectPath: linked, // how earlier versions keyed a create-from-linked
+        worktreePath: join(linked, ".sentinal", "worktrees", "spec-legacy-1"),
+        branchName: "sentinal/spec-legacy",
+        baseBranch: "main",
+        baseCommit: "0".repeat(40),
+        status: "active",
+        createdAt: Date.now() - 1000,
+        slot: 1,
+      });
+      const cfg: WorktreeConfig = { ...testConfig, maxActive: 1 };
+      expect(() =>
+        createWorktree(wtStore, cfg, "2026-09-24-max", repoDir),
+      ).toThrow(/Maximum active worktrees/);
+    }, 15_000);
+
+    it("seeds from the MAIN checkout, the same root the worktree lives under", () => {
+      // An untracked seed source present ONLY in the main checkout.
+      writeFileSync(join(repoDir, ".env.example"), "PORT=3000\n");
+      const warnings: string[] = [];
+      createWorktree(
+        wtStore,
+        testConfig,
+        "2026-09-24-seed",
+        linked,
+        undefined,
+        warnings,
+      );
+      expect(warnings.some((w) => w.includes("No .env.example found"))).toBe(
+        false,
+      );
+    }, 15_000);
   });
 });

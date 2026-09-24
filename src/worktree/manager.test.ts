@@ -530,6 +530,148 @@ describe("WorktreeManager", () => {
     });
   });
 
+  // ─── D5 (Task 13): merge/abandon operate in the MAIN checkout ─────────────
+  //
+  // A worktree created from a LINKED checkout (e.g. an Orca worktree on
+  // `orca-support`) is keyed by — and merged in — the main checkout. Before,
+  // the merge ran `git checkout main` in the linked checkout and failed
+  // whenever `main` was checked out in the main checkout.
+  describe("D5 — started from a linked worktree (Task 13)", () => {
+    let linked: string;
+
+    function git(args: string[], cwd: string): string {
+      const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe" });
+      return (r.stdout?.toString() ?? "").trim();
+    }
+
+    /** A row exactly as earlier versions wrote a create-from-linked. */
+    function legacyNested(slug: string) {
+      const path = join(linked, ".sentinal", "worktrees", `spec-${slug}-0000`);
+      git(
+        ["worktree", "add", "-b", `sentinal/spec-${slug}`, path, "main"],
+        linked,
+      );
+      return wtStore.insert({
+        id: `${slug}-0000`,
+        specId: undefined,
+        projectPath: linked,
+        worktreePath: path,
+        branchName: `sentinal/spec-${slug}`,
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"], repoDir),
+        status: "active",
+        createdAt: Date.now(),
+        slot: 1,
+      });
+    }
+
+    beforeEach(() => {
+      linked = join(tmpDir, "linked");
+      git(["worktree", "add", "-b", "orca-support", linked], repoDir);
+    });
+
+    it("list() from a linked worktree scopes by the canonical project", () => {
+      manager.create("2026-09-24-list", repoDir);
+      expect(manager.list(linked)).toHaveLength(1);
+    }, 15_000);
+
+    it("squash-merges in the MAIN checkout and leaves the linked checkout alone", async () => {
+      const linkedTip = git(["rev-parse", "orca-support"], repoDir);
+      const wt = manager.create("2026-09-24-d5", linked);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+
+      const mergeCommit = await manager.squashMerge(wt.id);
+
+      expect(git(["rev-parse", "main"], repoDir)).toBe(mergeCommit);
+      expect(git(["branch", "--show-current"], repoDir)).toBe("main");
+      expect(git(["branch", "--show-current"], linked)).toBe("orca-support");
+      expect(git(["rev-parse", "orca-support"], repoDir)).toBe(linkedTip);
+      expect(wtStore.get(wt.id)!.status).toBe("merged");
+    }, 15_000);
+
+    it("merges a LEGACY row keyed by the linked checkout in the main checkout too", async () => {
+      const wt = legacyNested("legacy-merge");
+      addAndCommit(wt.worktreePath, "legacy.ts", "export {};\n", "feat");
+
+      const mergeCommit = await manager.squashMerge(wt.id);
+
+      expect(git(["rev-parse", "main"], repoDir)).toBe(mergeCommit);
+      expect(git(["branch", "--show-current"], linked)).toBe("orca-support");
+      expect(existsSync(wt.worktreePath)).toBe(false);
+    }, 15_000);
+
+    it("refuses a DIRTY main checkout — even for a legacy linked-keyed row", async () => {
+      const wt = legacyNested("legacy-dirty");
+      addAndCommit(wt.worktreePath, "legacy.ts", "export {};\n", "feat");
+      writeFileSync(join(repoDir, "staged.txt"), "user work\n");
+      git(["add", "staged.txt"], repoDir);
+
+      let caught: unknown;
+      try {
+        await manager.squashMerge(wt.id);
+      } catch (e) {
+        caught = e;
+      }
+      expect((caught as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
+      expect((caught as WorktreeError).message).toContain(repoDir);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    }, 15_000);
+
+    it("RESTORES a clean main checkout that was on another branch", async () => {
+      const wt = manager.create("2026-09-24-restore", linked);
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      git(["checkout", "-b", "side"], repoDir);
+
+      const mergeCommit = await manager.squashMerge(wt.id);
+
+      expect(git(["branch", "--show-current"], repoDir)).toBe("side");
+      expect(git(["rev-parse", "main"], repoDir)).toBe(mergeCommit);
+      expect(git(["branch", "--show-current"], linked)).toBe("orca-support");
+    }, 15_000);
+
+    it("gives a clear BASE_CHECKED_OUT error when base is checked out in another linked worktree", async () => {
+      const stops: string[] = [];
+      const m = new WorktreeManager(wtStore, {
+        ...testConfig,
+        stopOwnedRuntime: async (p: string) => {
+          stops.push(p);
+          return { ok: true, stopped: false, actions: [], warnings: [] };
+        },
+      });
+      const wt = m.create("2026-09-24-busy-base", linked, "orca-support");
+      addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
+      const baseTip = git(["rev-parse", "orca-support"], repoDir);
+
+      let caught: unknown;
+      try {
+        await m.squashMerge(wt.id);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(WorktreeError);
+      expect((caught as WorktreeError).code).toBe("BASE_CHECKED_OUT");
+      const msg = (caught as WorktreeError).message;
+      expect(msg).toContain("orca-support");
+      expect(msg).toContain(linked);
+      expect(msg).toContain("Nothing has been merged");
+
+      // Refused BEFORE anything was done.
+      expect(stops).toEqual([]);
+      expect(git(["rev-parse", "orca-support"], repoDir)).toBe(baseTip);
+      expect(git(["branch", "--show-current"], repoDir)).toBe("main");
+      expect(existsSync(wt.worktreePath)).toBe(true);
+      expect(wtStore.get(wt.id)!.status).toBe("active");
+    }, 15_000);
+
+    it("abandons a LEGACY linked-keyed row from the main checkout", async () => {
+      const wt = legacyNested("legacy-abandon");
+      await manager.abandon(wt.id);
+      expect(existsSync(wt.worktreePath)).toBe(false);
+      expect(git(["branch", "--list", wt.branchName], repoDir)).toBe("");
+      expect(wtStore.get(wt.id)!.status).toBe("abandoned");
+    }, 15_000);
+  });
+
   describe("abandon", () => {
     it("should remove worktree and mark as abandoned", async () => {
       const wt = manager.create(undefined, repoDir);

@@ -49,6 +49,8 @@
 
 import { existsSync } from "node:fs";
 import { gitExec } from "../git/utils.js";
+import { resolveProjectIdentity } from "../project/identity.js";
+import { listGitWorktrees, resolveRealPath } from "./disk-scan.js";
 import { WorktreeError, type Worktree } from "./types.js";
 
 /** Enough to identify the problem without pasting a thousand-line status. */
@@ -169,6 +171,48 @@ export function assertMainCheckoutCleanForMerge(wt: Worktree): void {
       `after the merge. Untracked files are not blockers — git commit cannot commit them. ` +
       `Nothing has been merged — re-run once resolved.`,
     "DIRTY_MAIN_CHECKOUT",
+  );
+}
+
+/**
+ * D5 (Task 13): the record with `projectPath` pointed at the repo's MAIN
+ * checkout — where merge and abandon run their git commands.
+ *
+ * New rows are already keyed there, but a LEGACY row written by a
+ * create-from-linked-worktree still carries the linked checkout, and is only
+ * re-keyed lazily when an allocation runs (D6). Merging from that checkout
+ * fails outright whenever the base is checked out in the main checkout. The
+ * worktree itself knows its main checkout, so ask it (falling back to the
+ * stored path once the directory is gone). In-memory only — never persisted.
+ */
+export function inMainCheckout(wt: Worktree): Worktree {
+  const from = existsSync(wt.worktreePath) ? wt.worktreePath : wt.projectPath;
+  const main = resolveProjectIdentity(from);
+  return main === wt.projectPath ? wt : { ...wt, projectPath: main };
+}
+
+/**
+ * Refuse the merge if the base branch is checked out in ANOTHER worktree of
+ * the repo (D5). git allows a branch in one worktree at a time, so the main
+ * checkout's `git checkout <base>` would fail mid-flow with a bare git error.
+ * Throws `BASE_CHECKED_OUT`; **nothing has been done** when it does.
+ */
+export function assertBaseFreeForMerge(wt: Worktree): void {
+  const main = resolveRealPath(wt.projectPath);
+  const holder = listGitWorktrees(wt.projectPath).find(
+    (e) => e.branch === wt.baseBranch && resolveRealPath(e.path) !== main,
+  );
+  if (!holder) return;
+
+  throw new WorktreeError(
+    `Refusing to merge ${wt.branchName}: its base branch ${wt.baseBranch} is checked out ` +
+      `in another worktree at ${holder.path}. The squash merge runs in the main checkout ` +
+      `at ${wt.projectPath}, and git allows a branch to be checked out in only one ` +
+      `worktree, so it cannot check out ${wt.baseBranch} there. ` +
+      `Remedy: switch that worktree to another branch and re-run, or merge ` +
+      `${wt.branchName} into ${wt.baseBranch} by hand from inside ${holder.path}. ` +
+      `Nothing has been merged.`,
+    "BASE_CHECKED_OUT",
   );
 }
 
