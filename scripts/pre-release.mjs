@@ -23,6 +23,11 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  buildOpencode,
+  shippedPluginPaths,
+  verifyBakedVersion,
+} from "./build-opencode.mjs";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DIST = join(REPO_ROOT, "dist");
@@ -55,8 +60,15 @@ function buildCurrentPlatform() {
   const target = `bun-${process.platform}-${process.arch}`;
   console.log(`[pre-release] building ${assetName} (v${version}) as the release artifact...`);
   // Mirror release-build.mjs: embed assets + externalize native deps + inject version.
-  execSync("bun run build:opencode", { cwd: REPO_ROOT, stdio: "inherit" });
+  buildOpencode(version);
   execSync("node scripts/embed-assets.mjs", { cwd: REPO_ROOT, stdio: "inherit" });
+  const versionProblems = verifyBakedVersion(version, shippedPluginPaths());
+  if (versionProblems.length > 0) {
+    throw new Error(
+      `[pre-release] OpenCode plugin does not carry v${version}:\n  ` +
+        versionProblems.join("\n  "),
+    );
+  }
   execSync(
     `bun build --compile --target=${target} src/cli/index.ts --outfile ${outfile} ` +
       `--external @xenova/transformers --external sqlite-vec ` +

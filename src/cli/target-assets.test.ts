@@ -28,7 +28,14 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -292,7 +299,7 @@ describe("target asset namespace parity", () => {
             `cannot resolve from ~/.config/opencode/ (no Bun auto-install ` +
             `when node_modules/lockfile present):\n  ${offenders.join("\n  ")}\n` +
             `Fix: ensure these are bundled (remove from --external in ` +
-            `package.json build:opencode) or unreachable from the plugin graph, ` +
+            `scripts/build-opencode.mjs) or unreachable from the plugin graph, ` +
             `then run 'bun run embed-assets'.`,
         );
       }
@@ -310,22 +317,91 @@ describe("target asset namespace parity", () => {
   //   "client: version mismatch — sidecar is v1.36.3 but this client is v0.0.0"
   // in a single real sidecar.log. A permanent false alarm makes a GENUINE
   // version skew unnoticeable, which is the actual cost.
+  //
+  // Second failure (1.38.0 shipped a plugin reporting "1.37.1"): the define
+  // read package.json, but semantic-release runs release-build.mjs BEFORE
+  // @semantic-release/npm bumps package.json. The previous test compared the
+  // bundle against package.json — the same stale source — so it could never
+  // catch that. The version is now an explicit argument to
+  // scripts/build-opencode.mjs, and this test proves the argument (and only
+  // the argument) is what gets baked in.
   describe("OpenCode plugin bundle — version must be baked in", () => {
-    it("build:opencode passes --define __SENTINAL_VERSION__", () => {
+    const BUILD_SCRIPT = join(REPO_ROOT, "scripts", "build-opencode.mjs");
+
+    it("build:opencode routes through scripts/build-opencode.mjs with the package.json version", () => {
       const pkg = JSON.parse(
         readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
       ) as { scripts: Record<string, string> };
-      expect(pkg.scripts["build:opencode"]).toContain("__SENTINAL_VERSION__");
+      const script = pkg.scripts["build:opencode"];
+      expect(script).toContain("scripts/build-opencode.mjs");
+      expect(script).toContain("require('./package.json').version");
+      // No POSIX-only default expansion inside a package.json script.
+      expect(script).not.toContain(":-");
     });
 
-    it("the built bundle carries the real version, not the 0.0.0 fallback", () => {
-      const bundlePath = join(OPENCODE_DIR, "dist", "sentinal.mjs");
-      const pkg = JSON.parse(
-        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
-      ) as { version: string };
-      const bundle = readFileSync(bundlePath, "utf-8");
-      // The define substitutes the literal, so the real version must appear.
-      expect(bundle).toContain(pkg.version);
+    it("a build for version 9.9.9-test bakes exactly 9.9.9-test into getSentinalVersion", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "sentinal-oc-version-"));
+      try {
+        const outfile = join(dir, "sentinal.mjs");
+        const build = Bun.spawnSync(
+          [process.execPath, BUILD_SCRIPT, "9.9.9-test", outfile],
+          { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(build.stderr.toString()).not.toContain("error:");
+        expect(build.exitCode).toBe(0);
+        const bundle = readFileSync(outfile, "utf-8");
+
+        // Execute the bundle's own getSentinalVersion (not a substring match):
+        // with the define applied its first statement returns the literal.
+        const m = bundle.match(
+          /function getSentinalVersion\(\) \{[\s\S]*?\n\}/,
+        );
+        expect(m).not.toBeNull();
+        // The package.json fallback references import.meta (module-only
+        // syntax); point it at a nonexistent path so, were the define missing,
+        // it would evaluate to the "0.0.0" fallback rather than fail to parse.
+        const fn = m![0].replace(
+          /import\.meta\.url/g,
+          '"file:///nonexistent/x.js"',
+        );
+        const run = new Function(
+          "cached2",
+          "__require",
+          `${fn}\nreturn getSentinalVersion();`,
+        );
+        expect(run(null, require)).toBe("9.9.9-test");
+
+        const { readBakedVersion } = (await import(BUILD_SCRIPT)) as {
+          readBakedVersion: (text: string) => string | null;
+        };
+        expect(readBakedVersion(bundle)).toBe("9.9.9-test");
+
+        // Purity: same externals as before — no bare zod import leaks in.
+        expect(bundle).not.toMatch(/from\s+["']zod["']/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 60_000);
+
+    it("build-opencode.mjs refuses to build without an explicit version", () => {
+      const run = Bun.spawnSync([process.execPath, BUILD_SCRIPT], {
+        cwd: REPO_ROOT,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(run.exitCode).not.toBe(0);
+      expect(run.stderr.toString()).toContain("Usage");
+    });
+
+    it("release-build.mjs and pre-release.mjs build the plugin with an explicit version and verify it", () => {
+      for (const name of ["release-build.mjs", "pre-release.mjs"]) {
+        const src = readFileSync(join(REPO_ROOT, "scripts", name), "utf-8");
+        // Must not go through package.json's (possibly stale) version.
+        expect(src).not.toContain("bun run build:opencode");
+        expect(src).toContain("./build-opencode.mjs");
+        expect(src).toMatch(/buildOpencode\(\s*version/);
+        expect(src).toMatch(/verifyBakedVersion\(\s*version/);
+      }
     });
   });
 
