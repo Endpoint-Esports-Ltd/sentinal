@@ -12,7 +12,10 @@ import { logSidecar } from "../utils/file-log.js";
 import { getSentinalVersion } from "./version.js";
 import { classifySidecarFailure } from "./client-errors.js";
 import { SidecarRoutes } from "./client-routes.js";
+import { isNewerVersion } from "../utils/semver.js";
 export type { QualityCheckResult } from "./quality-routes.js";
+
+declare const __SENTINAL_VERSION__: string | undefined;
 
 // ─── Request timeouts ──────────────────────────────────────────────────────
 
@@ -41,6 +44,7 @@ export type { QualityCheckResult } from "./quality-routes.js";
 const REQUEST_TIMEOUTS: Array<[RegExp, number]> = [
   [/^\/(quality-check|worktree\/)/, 180_000],
   [/^\/(observation|context|memory\/|spec\/sync|project-context)/, 30_000],
+  [/^\/retire$/, 1_000], // flag-only route; short so a hook exits promptly
 ];
 const DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
 
@@ -90,6 +94,9 @@ export class SidecarClient extends SidecarRoutes {
   static reconnectAttempts = 10;
   /** Delay between reconnect polls in ms. */
   static reconnectDelayMs = 200;
+
+  /** Test override for the retire-on-skew compiled gate (null = auto). */
+  static retireOnSkewCompiled: boolean | null = null;
 
   private constructor(
     private baseUrl: string,
@@ -142,7 +149,7 @@ export class SidecarClient extends SidecarRoutes {
       });
       try {
         const health = await probe.health();
-        SidecarClient.noteVersionSkew(health.version);
+        SidecarClient.noteVersionSkew(probe, health.version);
 
         // Self-heal: sync the HTTP port file from the health response
         // so Node.js clients (which can't use Unix sockets) find the right port
@@ -168,7 +175,7 @@ export class SidecarClient extends SidecarRoutes {
         if (Number.isNaN(port)) return null;
         const probe = new SidecarClient(`http://127.0.0.1:${port}`, {});
         const health = await probe.health();
-        SidecarClient.noteVersionSkew(health.version);
+        SidecarClient.noteVersionSkew(probe, health.version);
         return new SidecarClient(`http://127.0.0.1:${port}`, {}, true);
       } catch {
         /* port file exists but server not responding */
@@ -183,8 +190,19 @@ export class SidecarClient extends SidecarRoutes {
    * different sentinal version than this client, but NEVER refuses the
    * connection (Assumption 4 — a hard refusal would strand users
    * mid-upgrade). Older sidecars report no version: nothing to compare.
+   *
+   * It heals instead of refusing: a NEWER, COMPILED client asks the stale
+   * sidecar to retire when safe (D3) — the connection proceeds untouched.
+   * ⛔ FIRE-AND-FORGET on the non-reconnecting probe (hot path; no respawn
+   * storm); errors incl. an old sidecar's 404 (D5) are swallowed. Older
+   * clients never ask (retiring a newer sidecar respawns the same binary —
+   * rollbacks are the sidecar's own binary check); source/dev runs never ask
+   * (repo version must not retire the user's production sidecar).
    */
-  private static noteVersionSkew(serverVersion: string | undefined): void {
+  private static noteVersionSkew(
+    probe: SidecarClient,
+    serverVersion: string | undefined,
+  ): void {
     if (!serverVersion) return;
     const own = getSentinalVersion();
     if (serverVersion === own) return;
@@ -192,6 +210,12 @@ export class SidecarClient extends SidecarRoutes {
       `client: version mismatch — sidecar is v${serverVersion} but this client is v${own}; ` +
         `connecting anyway (advisory). Run \`sentinal sidecar restart\` to align.`,
     );
+    const compiled =
+      SidecarClient.retireOnSkewCompiled ??
+      typeof __SENTINAL_VERSION__ !== "undefined";
+    if (compiled && isNewerVersion(serverVersion, own)) {
+      probe.requestRetire(serverVersion, own).catch(() => {});
+    }
   }
 
   // ─── Self-healing reconnect ──────────────────────────────────────────────

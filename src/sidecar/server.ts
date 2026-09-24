@@ -37,6 +37,15 @@ import { handleTddTransitionRequest } from "./tdd-routes.js";
 import { handleSpecMetricsRequest } from "./spec-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
+import {
+  handleRetireRequest,
+  createStalenessTick,
+  type RetireRequest,
+} from "./retire-routes.js";
+import {
+  detectBinaryStaleness,
+  type BinaryStalenessChecker,
+} from "./retire-check.js";
 import { LspClient } from "./lsp-client.js";
 import { stopServer } from "../dashboard/lifecycle.js";
 
@@ -80,6 +89,8 @@ export interface SidecarContext {
   lspClient?: LspClient;
   /** Vector search init state. Set by initVectorSearch after listen. */
   vectorState?: VectorSearchState;
+  /** Set once by POST /retire or the staleness poll; read by the shutdown loop. */
+  retire?: RetireRequest;
 }
 
 export interface SidecarServerOptions {
@@ -139,6 +150,12 @@ export interface SessionAwareShutdownOptions {
    * protects test environments from touching real PID files.
    */
   stopDashboardFn?: () => void;
+  /**
+   * Installed-binary staleness checker polled each tick. Default: a real
+   * detectBinaryStaleness() in production; NONE when onShutdown is injected
+   * (test mode), mirroring stopDashboardFn. Pass null to disable.
+   */
+  stalenessChecker?: BinaryStalenessChecker | null;
 }
 
 /**
@@ -165,6 +182,15 @@ export function enableSessionAwareShutdown(
   let sessionsEverSeen = false;
   let noSessionSince: number | null = null;
   let staleInfo: { count: number; activityAge: number } | null = null;
+  const checker =
+    opts.stalenessChecker !== undefined
+      ? opts.stalenessChecker
+      : opts.onShutdown
+        ? null
+        : detectBinaryStaleness();
+  const stalenessTick = checker
+    ? createStalenessTick(result.ctx, checker)
+    : null;
 
   const doShutdown = (reason: string) => {
     clearInterval(interval);
@@ -195,6 +221,7 @@ export function enableSessionAwareShutdown(
   };
 
   const interval = setInterval(() => {
+    stalenessTick?.(); // fire-and-forget; only ever sets ctx.retire
     const store = result.ctx.store;
     let activeSessions: unknown[];
     try {
@@ -223,7 +250,20 @@ export function enableSessionAwareShutdown(
       staleInfo = null;
     }
 
-    // No active sessions (or stale sessions only)
+    // No active sessions (or stale sessions only).
+    // Retire MUST sit here: after the active-and-fresh return above, and
+    // before the sessionsEverSeen split so a never-seen sidecar retires too.
+    // Own grace clock — never lastActivityTime, which /retire POSTs reset.
+    const retire = result.ctx.retire;
+    if (retire) {
+      if (noSessionSince === null) noSessionSince = Date.now();
+      else if (Date.now() - noSessionSince >= gracePeriodMs) {
+        doShutdown(
+          `shutting down: retiring (${retire.reason}) — no active sessions for ${gracePeriodMs}ms`,
+        );
+      }
+      return;
+    }
     if (sessionsEverSeen) {
       if (noSessionSince === null) {
         noSessionSince = Date.now();
@@ -377,6 +417,8 @@ export async function startSidecar(
 
   const fetchHandler = async (req: Request) => {
     touchActivity();
+    const retireResponse = await handleRetireRequest(req, ctx);
+    if (retireResponse) return retireResponse;
     // Quality and project-context routes are in separate handlers to keep routes.ts under 400 lines
     const qualityResponse = await handleQualityRequest(req, ctx);
     if (qualityResponse) return qualityResponse;

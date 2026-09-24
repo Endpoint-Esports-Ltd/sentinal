@@ -33,6 +33,8 @@ import {
   initVectorSearch,
 } from "./server.js";
 import * as pathsModule from "./paths.js";
+import { SidecarClient } from "./client.js";
+import type { StalenessResult } from "./retire-check.js";
 import * as fileLogModule from "../utils/file-log.js";
 import * as backfillModule from "../memory/backfill.js";
 import { MemoryStore } from "../memory/store.js";
@@ -1454,5 +1456,318 @@ describe("startSidecar throttled auto-decay", () => {
     });
     await new Promise((r) => setTimeout(r, 20));
     expect(sidecar.ctx).toBeDefined();
+  });
+});
+
+// ─── Retire (stale binary / client request) ───────────────────────────────
+
+describe("sidecar retire", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let sidecar: Awaited<ReturnType<typeof startSidecar>>;
+  let base: string;
+
+  const insertActive = (id: string) =>
+    sidecar.ctx.store.insertSession({
+      id,
+      startTime: Date.now(),
+      endTime: null,
+      projectPath: "/test",
+      assistant: "claude-code",
+      summary: null,
+      transcriptPath: null,
+    });
+
+  const skewNotes = () =>
+    sidecar.ctx.store
+      .getNotifications({ limit: 100 })
+      .filter((n) => n.source === "sidecar-retire");
+
+  /** Checker stub: returns `result` from every check, counting calls. */
+  function stubChecker(result: StalenessResult | "pending") {
+    const stub = {
+      active: true,
+      binPath: "/fake/sentinal",
+      calls: 0,
+      check(): Promise<StalenessResult> {
+        stub.calls++;
+        if (result === "pending") return new Promise(() => {});
+        return Promise.resolve(result);
+      },
+    };
+    return stub;
+  }
+
+  beforeEach(async () => {
+    tmpDir = makeTmpDir();
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "s.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(pathsModule, "getSidecarPidPath").mockReturnValue(
+      join(tmpDir, "sidecar.pid"),
+    );
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    sidecar = await startSidecar({
+      store,
+      httpOnly: true,
+      port: 0,
+      enableVectorSearch: false,
+    });
+    base = `http://127.0.0.1:${(sidecar.server as any).port}`;
+  });
+
+  afterEach(() => {
+    try {
+      stopSidecar(sidecar.server, sidecar.ctx);
+    } catch {
+      /* may already be stopped */
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  it("POST /retire is routed (not 404), sets ctx.retire and returns ok", async () => {
+    const r = await post(base, "/retire", {});
+    expect(r.ok).toBe(true);
+    expect(r.data.retiring).toBe(true);
+    expect(sidecar.ctx.retire).toBeDefined();
+  });
+
+  it("does NOT retire while sessions are active with fresh activity", async () => {
+    let reason: string | undefined;
+    insertActive("retire-active");
+    await get(base, "/ping");
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 30,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await post(base, "/retire", {});
+
+    await new Promise((r) => setTimeout(r, 150));
+    expect(reason).toBeUndefined();
+    cleanup();
+  });
+
+  it("retires once sessions end, with a distinct reason", async () => {
+    let reason: string | undefined;
+    insertActive("retire-trans");
+    await get(base, "/ping");
+
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await post(base, "/retire", {});
+    await new Promise((r) => setTimeout(r, 60));
+    expect(reason).toBeUndefined();
+
+    sidecar.ctx.store.endSession("retire-trans");
+    await new Promise((r) => setTimeout(r, 150));
+    expect(reason).toBeDefined();
+    expect(reason).toContain("shutting down:");
+    expect(reason).toContain("retir");
+    expect(reason).not.toContain("0 active sessions for");
+    cleanup();
+  });
+
+  it("retires within the grace period when no session was ever seen", async () => {
+    let reason: string | undefined;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000, // idle fallback can never fire in this test
+      staleActivityMs: 600_000,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await post(base, "/retire", {});
+    await new Promise((r) => setTimeout(r, 150));
+    expect(reason).toBeDefined();
+    expect(reason).toContain("retir");
+    cleanup();
+  });
+
+  it("repeated /retire POSTs do not defer shutdown — retires while requests still arrive", async () => {
+    let reason: string | undefined;
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    let posts = 0;
+    let postsAfterShutdown = 0;
+    const deadline = Date.now() + 600;
+    while (Date.now() < deadline) {
+      const r = await post(base, "/retire", {});
+      expect(r.ok).toBe(true);
+      posts++;
+      if (reason !== undefined && ++postsAfterShutdown >= 3) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(reason).toBeDefined();
+    expect(reason).toContain("retir");
+    // Shutdown happened mid-stream, not after the client went quiet.
+    expect(postsAfterShutdown).toBeGreaterThanOrEqual(3);
+    expect(posts).toBeGreaterThan(postsAfterShutdown);
+    cleanup();
+  });
+
+  it("repeated /retire POSTs are harmless — the first request is kept", async () => {
+    await post(base, "/retire", {});
+    const first = sidecar.ctx.retire;
+    const r = await post(base, "/retire", {});
+    expect(r.ok).toBe(true);
+    expect(r.data.alreadyRequested).toBe(true);
+    expect(sidecar.ctx.retire).toBe(first);
+  });
+
+  it("client-triggered retire notifies once (versions in body)", async () => {
+    for (let i = 0; i < 3; i++) {
+      await post(base, "/retire", {
+        runningVersion: "1.0.0",
+        installedVersion: "1.2.0",
+      });
+    }
+    expect(skewNotes()).toHaveLength(1);
+  });
+
+  it("a detected stale binary triggers the same retire path and notifies once", async () => {
+    let reason: string | undefined;
+    const checker = stubChecker({
+      stale: true,
+      runningVersion: "1.0.0",
+      installedVersion: "1.1.0",
+    });
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 40,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      stalenessChecker: checker,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(checker.calls).toBeGreaterThanOrEqual(1);
+    expect(sidecar.ctx.retire).toBeDefined();
+    expect(reason).toBeDefined();
+    expect(reason).toContain("retir");
+    expect(skewNotes()).toHaveLength(1);
+    cleanup();
+  });
+
+  it("a stale binary does not retire while sessions are active and fresh", async () => {
+    let reason: string | undefined;
+    insertActive("stale-active");
+    await get(base, "/ping");
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 30,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      stalenessChecker: stubChecker({
+        stale: true,
+        runningVersion: "1.0.0",
+        installedVersion: "1.1.0",
+      }),
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(reason).toBeUndefined();
+    cleanup();
+  });
+
+  it("a fresh binary never sets the retire flag", async () => {
+    let reason: string | undefined;
+    const checker = stubChecker({ stale: false, runningVersion: "1.0.0" });
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 30,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      stalenessChecker: checker,
+      onShutdown: (r) => {
+        reason = r;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(checker.calls).toBeGreaterThanOrEqual(2);
+    expect(sidecar.ctx.retire).toBeUndefined();
+    expect(reason).toBeUndefined();
+    cleanup();
+  });
+
+  it("does not overlap staleness checks across ticks", async () => {
+    const checker = stubChecker("pending");
+    const cleanup = enableSessionAwareShutdown(sidecar, {
+      gracePeriodMs: 60_000,
+      checkIntervalMs: 20,
+      fallbackIdleMs: 600_000,
+      staleActivityMs: 600_000,
+      stalenessChecker: checker,
+      onShutdown: () => {},
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(checker.calls).toBe(1);
+    cleanup();
+  });
+
+  it("D4: after retire a fresh SidecarClient.connect() returns null and does NOT autostart", async () => {
+    const before = await SidecarClient.connect();
+    expect(before).not.toBeNull();
+
+    let autoStarts = 0;
+    const origAutoStart = SidecarClient.autoStartFn;
+    SidecarClient.autoStartFn = () => {
+      autoStarts++;
+    };
+    try {
+      let reason: string | undefined;
+      const cleanup = enableSessionAwareShutdown(sidecar, {
+        gracePeriodMs: 40,
+        checkIntervalMs: 20,
+        fallbackIdleMs: 600_000,
+        staleActivityMs: 600_000,
+        // Mirror the production doShutdown minus process.exit.
+        onShutdown: (r) => {
+          reason = r;
+          stopSidecar(sidecar.server, sidecar.ctx, sidecar.httpServer);
+        },
+      });
+      await post(base, "/retire", {});
+      await new Promise((r) => setTimeout(r, 150));
+      expect(reason).toContain("retir");
+      expect(existsSync(join(tmpDir, "sidecar.port"))).toBe(false);
+
+      const after = await SidecarClient.connect();
+      expect(after).toBeNull();
+      expect(autoStarts).toBe(0);
+      cleanup();
+    } finally {
+      SidecarClient.autoStartFn = origAutoStart;
+    }
   });
 });

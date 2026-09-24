@@ -1137,3 +1137,174 @@ describe("SidecarClient version skew (M2c)", () => {
     expect(mismatchLogged()).toBe(false);
   });
 });
+
+// ─── Retire on skew (Task 8, D3/D5) ─────────────────────────────────────────
+//
+// A client NEWER than the sidecar asks it to retire — fire-and-forget, never
+// awaited, never refusing the connection. Gated to compiled clients so a
+// source/dev run (repo package.json version) cannot retire the user's
+// production sidecar. Tests run from source → the gate is forced via
+// SidecarClient.retireOnSkewCompiled.
+
+describe("SidecarClient retire on skew (Task 8)", () => {
+  let tmpDir: string;
+  let fake: ReturnType<typeof Bun.serve> | null = null;
+  let retireBodies: unknown[];
+  const own = (): string =>
+    (
+      JSON.parse(
+        require("node:fs").readFileSync(
+          join(import.meta.dir, "..", "..", "package.json"),
+          "utf-8",
+        ),
+      ) as { version: string }
+    ).version;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    retireBodies = [];
+    spyOn(pathsModule, "getSidecarSocketPath").mockReturnValue(
+      join(tmpDir, "none.sock"),
+    );
+    spyOn(pathsModule, "getSidecarPortPath").mockReturnValue(
+      join(tmpDir, "sidecar.port"),
+    );
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(tmpDir);
+    SidecarClient.retireOnSkewCompiled = true;
+  });
+
+  afterEach(() => {
+    SidecarClient.retireOnSkewCompiled = null;
+    if (fake) {
+      fake.stop(true);
+      fake = null;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+    mock.restore();
+  });
+
+  type RetireMode = "ok" | "404" | "hang";
+
+  /** Fake sidecar: /health reports `version`; /retire behaves per `mode`. */
+  function serve(version: string | undefined, mode: RetireMode = "ok"): void {
+    fake = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/retire") {
+          retireBodies.push(await req.json().catch(() => null));
+          if (mode === "404") {
+            return Response.json(
+              { ok: false, error: "Not found" },
+              { status: 404 },
+            );
+          }
+          if (mode === "hang") return new Promise<Response>(() => {});
+          return Response.json({ ok: true, data: { retiring: true } });
+        }
+        return Response.json({
+          ok: true,
+          data: {
+            status: "running",
+            pid: process.pid,
+            httpPort: null,
+            ...(version ? { version } : {}),
+          },
+        });
+      },
+    });
+    writeFileSync(join(tmpDir, "sidecar.port"), String(fake.port), "utf-8");
+  }
+
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it("a stale (older) sidecar gets exactly one retire request with running/installed versions", async () => {
+    serve("0.0.1");
+    const client = await SidecarClient.connect();
+    await settle();
+
+    expect(client).not.toBeNull();
+    expect(retireBodies).toHaveLength(1);
+    // SERVER is the stale running one; the CLIENT's version is the installed one.
+    expect(retireBodies[0]).toEqual({
+      runningVersion: "0.0.1",
+      installedVersion: own(),
+    });
+  });
+
+  it("still emits the existing skew log line", async () => {
+    serve("0.0.1");
+    await SidecarClient.connect();
+    const lines = fileLogModule.readLastLines(
+      join(tmpDir, fileLogModule.SIDECAR_LOG_FILE),
+      20,
+    );
+    expect(lines.some((l) => l.includes("version mismatch"))).toBe(true);
+  });
+
+  it("matching versions trigger no retire request", async () => {
+    serve(own());
+    await SidecarClient.connect();
+    await settle();
+    expect(retireBodies).toHaveLength(0);
+  });
+
+  it("a sidecar reporting no version triggers no retire request", async () => {
+    serve(undefined);
+    await SidecarClient.connect();
+    await settle();
+    expect(retireBodies).toHaveLength(0);
+  });
+
+  it("an OLDER client never retires a NEWER sidecar (would respawn the same binary)", async () => {
+    serve("999.0.0");
+    const client = await SidecarClient.connect();
+    await settle();
+    expect(client).not.toBeNull();
+    expect(retireBodies).toHaveLength(0);
+  });
+
+  it("a source/dev-run client (not compiled) never requests retire", async () => {
+    SidecarClient.retireOnSkewCompiled = false;
+    serve("0.0.1");
+    const client = await SidecarClient.connect();
+    await settle();
+    expect(client).not.toBeNull();
+    expect(retireBodies).toHaveLength(0);
+  });
+
+  it("defaults to the compiled-binary gate (off under `bun test`, a source run)", async () => {
+    SidecarClient.retireOnSkewCompiled = null;
+    serve("0.0.1");
+    await SidecarClient.connect();
+    await settle();
+    expect(retireBodies).toHaveLength(0);
+  });
+
+  it("a 404 from an old sidecar without /retire (D5) is silent and harmless", async () => {
+    serve("0.0.1", "404");
+    const client = await SidecarClient.connect();
+    await settle();
+    expect(client).not.toBeNull();
+    expect(retireBodies).toHaveLength(1);
+  });
+
+  it("a HANGING /retire never delays tryConnect (not awaited)", async () => {
+    serve("0.0.1", "hang");
+    const start = performance.now();
+    const client = await SidecarClient.connect();
+    const elapsed = performance.now() - start;
+
+    expect(client).not.toBeNull();
+    // /retire's budget is far above this; an awaited call would block ≥ it.
+    expect(elapsed).toBeLessThan(400);
+    await settle();
+    expect(retireBodies).toHaveLength(1);
+  });
+
+  it("/retire has a short request budget", async () => {
+    const { requestTimeoutMsFor } = await import("./client.js");
+    expect(requestTimeoutMsFor("/retire")).toBeLessThanOrEqual(1_000);
+  });
+});

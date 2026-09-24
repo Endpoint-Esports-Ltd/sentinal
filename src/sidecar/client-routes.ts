@@ -358,6 +358,23 @@ export abstract class SidecarRoutes {
     await this.post("/notification", notif);
   }
 
+  // ─── Retire (D3) ─────────────────────────────────────────────────────
+
+  /**
+   * Ask the sidecar to retire when safe (POST /retire). Idempotent and
+   * returns immediately — the sidecar owns the "when" (D3) and only stops;
+   * it never respawns (D4). `runningVersion` is the SIDECAR's (stale)
+   * version, `installedVersion` the newer one this caller runs; the route
+   * emits the skew notification only when both are present. A pre-Task-5
+   * sidecar has no route and answers 404 (D5) — callers must swallow.
+   */
+  async requestRetire(
+    runningVersion?: string,
+    installedVersion?: string,
+  ): Promise<void> {
+    await this.post("/retire", { runningVersion, installedVersion });
+  }
+
   // ─── Quality Checks ──────────────────────────────────────────────────
 
   async qualityCheck(opts: {
