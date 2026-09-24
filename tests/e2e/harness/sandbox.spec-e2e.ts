@@ -8,7 +8,13 @@
 // RED phase: fails until tests/e2e/harness/sandbox.ts exists.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -46,6 +52,9 @@ describe("createSandbox — env isolation", () => {
     expect(sb.env.SENTINAL_NO_AUTO_SETUP).toBe("1");
     // CLAUDE_PLUGIN_DATA is the ONE env that can relocate the memory DB — cleared.
     expect(sb.env.CLAUDE_PLUGIN_DATA ?? "").toBe("");
+    // SENTINAL_HOME relocates the whole tree — pinned inside the sandbox, never
+    // inherited from the bun test preload's per-run temp home.
+    expect(sb.env.SENTINAL_HOME).toBe(join(sb.home, ".sentinal"));
   });
 });
 
@@ -65,6 +74,12 @@ describe("assertEnvContained — primary structural escape guarantee", () => {
     sb = createSandbox();
     const leaked = { ...sb.env, CLAUDE_CONFIG_DIR: "/Users/real/.claude" };
     expect(() => assertEnvContained(leaked, sb!.home)).toThrow();
+  });
+
+  it("throws when SENTINAL_HOME points OUTSIDE the sandbox", () => {
+    sb = createSandbox();
+    const leaked = { ...sb.env, SENTINAL_HOME: "/Users/real/.sentinal" };
+    expect(() => assertEnvContained(leaked, sb!.home)).toThrow(/SENTINAL_HOME/);
   });
 
   it("throws when a required isolation var is missing", () => {
@@ -104,20 +119,16 @@ describe("createSandbox — install + cleanup", () => {
     sb = null;
   });
 
-  it(
-    "install('opencode') lands opencode.json under the sandbox .config without touching real dirs",
-    () => {
-      const realBefore = snapshotRealDirs();
-      sb = createSandbox();
-      const r = sb.install("opencode");
-      expect(r.exitCode).toBe(0);
-      const cfg = join(sb.home, ".config", "opencode", "opencode.json");
-      expect(sb.exists(cfg)).toBe(true);
-      // Also proves the backstop: a real install left the real dirs untouched.
-      assertNoRealEscape(realBefore);
-    },
-    180_000,
-  );
+  it("install('opencode') lands opencode.json under the sandbox .config without touching real dirs", () => {
+    const realBefore = snapshotRealDirs();
+    sb = createSandbox();
+    const r = sb.install("opencode");
+    expect(r.exitCode).toBe(0);
+    const cfg = join(sb.home, ".config", "opencode", "opencode.json");
+    expect(sb.exists(cfg)).toBe(true);
+    // Also proves the backstop: a real install left the real dirs untouched.
+    assertNoRealEscape(realBefore);
+  }, 180_000);
 
   it("cleanup() removes the sandbox HOME", () => {
     const local = createSandbox();
@@ -151,7 +162,10 @@ describe("createSandbox — SENTINAL_E2E_BINARY override", () => {
   });
 
   it("THROWS when SENTINAL_E2E_BINARY is set but the file does not exist (no silent dev fallback)", () => {
-    process.env.SENTINAL_E2E_BINARY = join(tmpdir(), "does-not-exist-" + Date.now());
+    process.env.SENTINAL_E2E_BINARY = join(
+      tmpdir(),
+      "does-not-exist-" + Date.now(),
+    );
     expect(() => createSandbox()).toThrow(/SENTINAL_E2E_BINARY/);
   });
 

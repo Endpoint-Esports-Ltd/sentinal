@@ -73,7 +73,10 @@ export interface Sandbox {
   /** Run the sentinal CLI with the sandbox env (binaryPath). */
   run(args: string[], opts?: { stdin?: string; cwd?: string }): SpawnResult;
   /** Install a target (opencode/claude/both) into the sandbox. */
-  install(target: "opencode" | "claude" | "both", opts?: InstallOptions): SpawnResult;
+  install(
+    target: "opencode" | "claude" | "both",
+    opts?: InstallOptions,
+  ): SpawnResult;
   /** Path existence within the sandbox. */
   exists(path: string): boolean;
   /** Tear down: kill sandbox-owned sidecar/dashboard, then remove the HOME. */
@@ -115,6 +118,10 @@ export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     SENTINAL_NO_AUTO_SETUP: "1",
     CLAUDE_PLUGIN_DATA: "", // cleared — must not relocate the memory DB outside HOME
+    // Pinned (= the unset default under HOME): the spread above would
+    // otherwise inherit the bun test preload's per-run temp SENTINAL_HOME, so
+    // every sandbox in a run would share one DB/sidecar outside its HOME.
+    SENTINAL_HOME: join(home, ".sentinal"),
   };
   if (opts.autoSetup) {
     // Must DELETE (not just skip): an inherited process.env value survives the spread.
@@ -153,7 +160,9 @@ export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
     // A release binary self-selects embedded mode regardless of --bundled.
     Bun.spawnSync(["mkdir", "-p", cwdTmp]);
     const bundled = iopts.bundled ?? true;
-    const args = bundled ? ["install", target, "--bundled"] : ["install", target];
+    const args = bundled
+      ? ["install", target, "--bundled"]
+      : ["install", target];
     return run(args);
   }
 
@@ -208,6 +217,13 @@ export function assertEnvContained(
   if (pluginData && !withSep(resolve(pluginData)).startsWith(root)) {
     throw new Error(
       `Sandbox escape guard: CLAUDE_PLUGIN_DATA=${pluginData} escapes the sandbox`,
+    );
+  }
+  // SENTINAL_HOME, if set, relocates the whole ~/.sentinal tree.
+  const sentinalHome = env.SENTINAL_HOME;
+  if (sentinalHome && !withSep(resolve(sentinalHome)).startsWith(root)) {
+    throw new Error(
+      `Sandbox escape guard: SENTINAL_HOME=${sentinalHome} escapes the sandbox`,
     );
   }
 }
@@ -299,7 +315,11 @@ function killSandboxProcesses(sandboxHome: string): void {
     const p = join(pidDir, pidFile);
     if (!existsSync(p)) continue;
     const pid = Number(safeRead(p).trim());
-    if (Number.isFinite(pid) && pid > 1 && processBelongsToSandbox(pid, sandboxHome)) {
+    if (
+      Number.isFinite(pid) &&
+      pid > 1 &&
+      processBelongsToSandbox(pid, sandboxHome)
+    ) {
       trySignal(pid, "SIGTERM");
     }
   }

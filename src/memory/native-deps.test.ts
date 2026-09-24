@@ -29,12 +29,12 @@ describe("native-deps", () => {
     });
 
     it("DEPS_DIR (deprecated load-time constant, kept for setup.ts/setup-bundle.ts)", () => {
-      // ⚠️ NOT asserted against SENTINAL_HOME: the test preload's ESM import
-      // of vector-store.js is hoisted above its `process.env.SENTINAL_HOME =`
-      // assignment and transitively evaluates this module first, so the
-      // constant is frozen to whatever the env held at load. That is WHY it
-      // is deprecated — new code must use getDepsDir() (read fresh).
+      // The test preload now sets SENTINAL_HOME BEFORE dynamically importing
+      // vector-store.js, so this load-time constant resolves under the
+      // isolated test home (it used to be frozen to the real ~/.sentinal).
+      // Still deprecated — new code must use getDepsDir() (read fresh).
       expect(DEPS_DIR.endsWith("deps")).toBe(true);
+      expect(DEPS_DIR).toBe(join(getSentinalHome(), "deps"));
     });
   });
 
