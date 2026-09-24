@@ -325,7 +325,7 @@ async function handleAddObservation(
   const projectPath = normalizeProjectKey(body.projectPath);
   if (!projectPath) return fail(MISSING_PROJECT_PATH);
 
-  const obs = ctx.service.addObservation({
+  const input = {
     sessionId: body.sessionId,
     projectPath,
     timestamp: Date.now(),
@@ -335,8 +335,14 @@ async function handleAddObservation(
     filePaths: body.filePaths ?? [],
     tags: body.tags ?? [],
     metadata: body.metadata ?? {},
-  });
-  return ok(obs);
+  };
+  // D3: signed observations go through the deduped path (the service decides
+  // eligibility); the response gains `deduplicated`. Unsigned: unchanged.
+  if (body.metadata?.signature !== undefined) {
+    const r = ctx.service.addObservationDeduped(input);
+    return ok({ ...r.observation, deduplicated: r.deduplicated });
+  }
+  return ok(ctx.service.addObservation(input));
 }
 
 async function handleRestoreContext(

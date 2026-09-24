@@ -347,7 +347,9 @@ describe("projectPath normalization on /observation and /session", () => {
     return (
       store
         .getRawDb()
-        .prepare("SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL")
+        .prepare(
+          "SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL",
+        )
         .get() as { n: number }
     ).n;
   }
@@ -404,4 +406,93 @@ describe("projectPath normalization on /observation and /session", () => {
     expect(row.projectPath).toBe(mainRoot);
     expect(nullProjectRows()).toBe(0);
   }, 30_000);
+});
+
+// ─── POST /observation signature de-duplication (Task 7, D3) ─────────────
+//
+// A signed error (`metadata.signature`) goes through the service's deduped
+// path, so every caller of the sidecar route — hooks, the OpenCode plugin and
+// its offline queue — gets one row per failure signature per 30-minute window.
+
+describe("/observation signature de-duplication", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+  let projectA: string;
+  let projectB: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = {
+      store,
+      service: new MemoryService(store),
+      specStore: new SpecStore(store),
+      wtStore: new WorktreeStore(store),
+    };
+    projectA = join(tmpDir, "proj-a");
+    projectB = join(tmpDir, "proj-b");
+    mkdirSync(projectA, { recursive: true });
+    mkdirSync(projectB, { recursive: true });
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function failure(projectPath: string, metadata: Record<string, unknown>) {
+    return {
+      sessionId: "s",
+      projectPath,
+      type: "error",
+      title: "Bash failed: Cannot find module",
+      content: "error: Cannot find module './x'",
+      metadata,
+    };
+  }
+
+  it("10 identical signed failures → 1 row with occurrences 10", async () => {
+    const results = [];
+    for (let i = 0; i < 10; i++) {
+      results.push(
+        await call(
+          ctx,
+          "/observation",
+          failure(projectA, { signature: "sig" }),
+        ),
+      );
+    }
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(store.getStats().totalObservations).toBe(1);
+    const id = results[0]!.data.id;
+    expect(results.every((r) => r.data.id === id)).toBe(true);
+    expect(results[0]!.data.deduplicated).toBe(false);
+    expect(results[9]!.data.deduplicated).toBe(true);
+    expect(store.getObservation(id)!.metadata.occurrences).toBe(10);
+  });
+
+  it("the same signature in another project is a separate row", async () => {
+    const a = await call(
+      ctx,
+      "/observation",
+      failure(projectA, { signature: "sig" }),
+    );
+    const b = await call(
+      ctx,
+      "/observation",
+      failure(projectB, { signature: "sig" }),
+    );
+    expect(b.data.id).not.toBe(a.data.id);
+    expect(b.data.deduplicated).toBe(false);
+    expect(store.getStats().totalObservations).toBe(2);
+  });
+
+  it("unsigned observations are unaffected (no dedupe, response shape unchanged)", async () => {
+    const a = await call(ctx, "/observation", failure(projectA, {}));
+    const b = await call(ctx, "/observation", failure(projectA, {}));
+    expect(b.data.id).not.toBe(a.data.id);
+    expect("deduplicated" in a.data).toBe(false);
+    expect(a.data.metadata).toEqual({});
+    expect(store.getStats().totalObservations).toBe(2);
+  });
 });

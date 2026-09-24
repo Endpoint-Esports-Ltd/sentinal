@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { MemoryService } from "./service.js";
+import { MemoryService, ERROR_DEDUP_WINDOW_MS } from "./service.js";
 import { MemoryStore } from "./store.js";
 import type { VectorStore } from "./vector-store.js";
 import type { SearchOrchestrator } from "./search/orchestrator.js";
@@ -336,6 +336,159 @@ describe("MemoryService", () => {
       expect(service.updateObservation(999, { content: "x" })).toBeNull();
       expect(removeCalls).toHaveLength(0);
       expect(indexCalls).toHaveLength(0);
+    });
+  });
+
+  describe("addObservationDeduped (Task 7, D3)", () => {
+    const T0 = 1_700_000_000_000;
+    const MIN = 60 * 1000;
+
+    function signed(
+      overrides: Partial<CreateObservation> = {},
+    ): CreateObservation {
+      return makeObservation({
+        type: "error",
+        title: "bun test: Cannot find module",
+        content: "error: Cannot find module './missing'",
+        timestamp: T0,
+        metadata: { signature: "sig-1" },
+        ...overrides,
+      });
+    }
+
+    function makeVectorSpy() {
+      const indexCalls: unknown[][] = [];
+      const removeCalls: number[] = [];
+      const vectorStore = {
+        isAvailable: () => true,
+        indexObservation: (...args: unknown[]) => {
+          indexCalls.push(args);
+          return Promise.resolve(1);
+        },
+        removeObservation: (id: number) => {
+          removeCalls.push(id);
+        },
+      } as unknown as VectorStore;
+      const orchestrator = {
+        search: () => Promise.resolve([]),
+        isVectorAvailable: () => true,
+      } as unknown as SearchOrchestrator;
+      return { vectorStore, orchestrator, indexCalls, removeCalls };
+    }
+
+    it("exposes a 30-minute window constant", () => {
+      expect(ERROR_DEDUP_WINDOW_MS).toBe(30 * MIN);
+    });
+
+    it("10 identical signed errors → 1 row with occurrences 10", () => {
+      const results = Array.from({ length: 10 }, (_, i) =>
+        service.addObservationDeduped(signed({ timestamp: T0 + i * MIN })),
+      );
+
+      expect(store.getStats().totalObservations).toBe(1);
+      const first = results[0]!;
+      expect(first.deduplicated).toBe(false);
+      expect(results.slice(1).every((r) => r.deduplicated)).toBe(true);
+      expect(
+        results.every((r) => r.observation.id === first.observation.id),
+      ).toBe(true);
+
+      const row = store.getObservation(first.observation.id)!;
+      expect(row.metadata.occurrences).toBe(10);
+      expect(row.metadata.lastSeen).toBe(T0 + 9 * MIN);
+      // The returned observation reflects the recorded repeat.
+      expect(results[9]!.observation.metadata.occurrences).toBe(10);
+    });
+
+    it("stamps occurrences: 1 on the first insert", () => {
+      const r = service.addObservationDeduped(signed());
+      expect(r.deduplicated).toBe(false);
+      expect(r.observation.metadata.occurrences).toBe(1);
+      expect(r.observation.metadata.signature).toBe("sig-1");
+    });
+
+    it("a repeat does not change the timestamp (fixed window from first sight)", () => {
+      const first = service.addObservationDeduped(signed());
+      service.addObservationDeduped(signed({ timestamp: T0 + 29 * MIN }));
+      expect(store.getObservation(first.observation.id)!.timestamp).toBe(T0);
+
+      // 31 min after FIRST sight is outside the window even though the last
+      // repeat was 2 min ago — the window does not slide.
+      const later = service.addObservationDeduped(
+        signed({ timestamp: T0 + 31 * MIN }),
+      );
+      expect(later.deduplicated).toBe(false);
+      expect(later.observation.id).not.toBe(first.observation.id);
+    });
+
+    it("a signed error outside the window inserts a new row", () => {
+      const first = service.addObservationDeduped(signed());
+      const second = service.addObservationDeduped(
+        signed({ timestamp: T0 + 30 * MIN }),
+      );
+      expect(second.deduplicated).toBe(false);
+      expect(second.observation.id).not.toBe(first.observation.id);
+      expect(second.observation.metadata.occurrences).toBe(1);
+      expect(store.getStats().totalObservations).toBe(2);
+    });
+
+    it("recording a repeat does not delete or re-embed vectors", () => {
+      const { vectorStore, orchestrator, indexCalls, removeCalls } =
+        makeVectorSpy();
+      service.setSearchBackends(vectorStore, orchestrator);
+
+      service.addObservationDeduped(signed());
+      expect(indexCalls).toHaveLength(1); // first sight is embedded once
+
+      for (let i = 1; i < 10; i++) {
+        service.addObservationDeduped(signed({ timestamp: T0 + i * MIN }));
+      }
+      expect(indexCalls).toHaveLength(1);
+      expect(removeCalls).toHaveLength(0);
+    });
+
+    it("scopes by project: the same signature elsewhere is a separate row", () => {
+      const a = service.addObservationDeduped(signed());
+      const b = service.addObservationDeduped(
+        signed({ projectPath: "/other/project", timestamp: T0 + MIN }),
+      );
+      expect(b.deduplicated).toBe(false);
+      expect(b.observation.id).not.toBe(a.observation.id);
+      expect(store.getObservation(a.observation.id)!.metadata.occurrences).toBe(
+        1,
+      );
+    });
+
+    it("unsigned observations take the normal path unchanged", () => {
+      const r1 = service.addObservationDeduped(
+        makeObservation({ type: "error", metadata: {} }),
+      );
+      const r2 = service.addObservationDeduped(
+        makeObservation({ type: "error", metadata: {} }),
+      );
+      expect(r1.deduplicated).toBe(false);
+      expect(r2.deduplicated).toBe(false);
+      expect(r2.observation.id).not.toBe(r1.observation.id);
+      expect(r1.observation.metadata).toEqual({});
+      expect(store.getStats().totalObservations).toBe(2);
+    });
+
+    it("a signed NON-error observation takes the normal path (no dedupe, no occurrences stamp)", () => {
+      const r1 = service.addObservationDeduped(signed({ type: "discovery" }));
+      const r2 = service.addObservationDeduped(
+        signed({ type: "discovery", timestamp: T0 + MIN }),
+      );
+      expect(r2.observation.id).not.toBe(r1.observation.id);
+      expect(r1.observation.metadata).toEqual({ signature: "sig-1" });
+    });
+
+    it("sanitizes title/content on first insert like addObservation", () => {
+      const r = service.addObservationDeduped(
+        signed({ content: "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789" }),
+      );
+      expect(r.observation.content).not.toContain(
+        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+      );
     });
   });
 

@@ -751,3 +751,125 @@ describe("MemoryStore", () => {
     });
   });
 });
+
+// ─── Error signature de-duplication primitives (Task 7, D3) ───────────────
+
+describe("MemoryStore — error signature dedupe", () => {
+  let store: MemoryStore;
+  const T0 = 1_700_000_000_000;
+
+  beforeEach(() => {
+    store = new MemoryStore(":memory:");
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  function signedError(
+    overrides: Partial<CreateObservation> = {},
+  ): CreateObservation {
+    return makeObservation({
+      type: "error",
+      timestamp: T0,
+      metadata: { signature: "sig-a", occurrences: 1 },
+      ...overrides,
+    });
+  }
+
+  describe("findRecentErrorBySignature", () => {
+    it("finds an error with the signature in the project after the cutoff", () => {
+      const obs = store.insertObservation(signedError());
+      const found = store.findRecentErrorBySignature(
+        "/test/project",
+        "sig-a",
+        T0 - 1,
+      );
+      expect(found?.id).toBe(obs.id);
+    });
+
+    it("excludes rows at or before the cutoff (strict >)", () => {
+      store.insertObservation(signedError());
+      expect(
+        store.findRecentErrorBySignature("/test/project", "sig-a", T0),
+      ).toBeNull();
+    });
+
+    it("excludes a different signature, a different project and a non-error type", () => {
+      store.insertObservation(
+        signedError({ metadata: { signature: "sig-b" } }),
+      );
+      store.insertObservation(signedError({ projectPath: "/other/project" }));
+      store.insertObservation(signedError({ type: "discovery" }));
+      expect(
+        store.findRecentErrorBySignature("/test/project", "sig-a", T0 - 1),
+      ).toBeNull();
+    });
+
+    it("returns the newest match first", () => {
+      store.insertObservation(signedError({ timestamp: T0 }));
+      const newer = store.insertObservation(
+        signedError({ timestamp: T0 + 1000 }),
+      );
+      store.insertObservation(signedError({ timestamp: T0 + 500 }));
+      expect(
+        store.findRecentErrorBySignature("/test/project", "sig-a", T0 - 1)?.id,
+      ).toBe(newer.id);
+    });
+  });
+
+  describe("recordErrorRepeat", () => {
+    it("increments occurrences and sets lastSeen without touching timestamp, quality or other metadata", () => {
+      const obs = store.insertObservation(
+        signedError({
+          metadata: { signature: "sig-a", occurrences: 1, confidence: 0.5 },
+        }),
+      );
+      (store as any).db.run(
+        "UPDATE observations SET quality_score = 0.3 WHERE id = ?",
+        [obs.id],
+      );
+
+      const after = store.recordErrorRepeat(obs.id, T0 + 60_000);
+      expect(after!.metadata.occurrences).toBe(2);
+      expect(after!.metadata.lastSeen).toBe(T0 + 60_000);
+      expect(after!.metadata.signature).toBe("sig-a");
+      expect(after!.metadata.confidence).toBe(0.5);
+      expect(after!.timestamp).toBe(T0);
+      expect(after!.qualityScore).toBe(0.3);
+      expect(after!.title).toBe(obs.title);
+    });
+
+    it("treats a missing occurrences as 1", () => {
+      const obs = store.insertObservation(
+        signedError({ metadata: { signature: "sig-a" } }),
+      );
+      expect(
+        store.recordErrorRepeat(obs.id, T0 + 1)!.metadata.occurrences,
+      ).toBe(2);
+    });
+
+    it("returns null for a missing id", () => {
+      expect(store.recordErrorRepeat(999, T0)).toBeNull();
+    });
+
+    it("keeps the row findable through FTS after the metadata-only update", () => {
+      const obs = store.insertObservation(
+        signedError({ title: "zebracorn failure", content: "zebracorn" }),
+      );
+      store.recordErrorRepeat(obs.id, T0 + 1);
+      store.recordErrorRepeat(obs.id, T0 + 2);
+      const hits = store.searchFTS('"zebracorn"', {
+        limit: 10,
+        offset: 0,
+        orderBy: "relevance",
+      } as any);
+      expect(hits.map((h) => h.id)).toEqual([obs.id]);
+      const ftsRows = (store as any).db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM observations_fts WHERE observations_fts MATCH 'zebracorn'",
+        )
+        .get() as { n: number };
+      expect(ftsRows.n).toBe(1);
+    });
+  });
+});

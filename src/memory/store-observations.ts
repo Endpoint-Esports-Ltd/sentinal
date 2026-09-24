@@ -148,6 +148,59 @@ export abstract class MemoryStoreObservations extends MemoryStoreSessions {
     return this.getObservation(id);
   }
 
+  // ─── Error signature de-duplication (D3) ──────────────────────────────
+
+  /**
+   * Newest `error` observation in `projectPath` whose `metadata.signature`
+   * equals `signature` and whose timestamp is STRICTLY after `sinceMs` (an
+   * absolute epoch-ms cutoff, not a duration). Null when none.
+   */
+  findRecentErrorBySignature(
+    projectPath: string,
+    signature: string,
+    sinceMs: number,
+  ): Observation | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM observations
+         WHERE type = 'error'
+           AND project_path = ?
+           AND json_extract(metadata, '$.signature') = ?
+           AND timestamp > ?
+         ORDER BY timestamp DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(projectPath, signature, sinceMs) as RawObservation | null;
+    return row ? this.deserializeObservation(row) : null;
+  }
+
+  /**
+   * Record one more sighting of an error: `metadata.occurrences += 1` (a
+   * missing count is treated as 1) and `metadata.lastSeen = lastSeen`.
+   *
+   * ⛔ Deliberately NOT `updateObservation`: that replaces metadata wholesale,
+   * resets timestamp + quality, and (via the service) deletes and re-embeds the
+   * vector. This touches ONLY `metadata`, so the timestamp stays at first sight
+   * (the dedupe window is fixed, not sliding) and vectors are untouched. The
+   * `observations_au` trigger still fires, but it only re-writes the row's
+   * unchanged title/content/tags into FTS — metadata is not indexed.
+   * Returns the updated observation, or null if `id` doesn't exist.
+   */
+  recordErrorRepeat(id: number, lastSeen: number): Observation | null {
+    this.db
+      .prepare(
+        `UPDATE observations
+         SET metadata = json_set(
+           COALESCE(metadata, '{}'),
+           '$.occurrences', COALESCE(json_extract(metadata, '$.occurrences'), 1) + 1,
+           '$.lastSeen', ?
+         )
+         WHERE id = ?`,
+      )
+      .run(lastSeen, id);
+    return this.getObservation(id);
+  }
+
   getRecentForProject(
     projectPath: string,
     limit: number = SEARCH_CONSTANTS.DEFAULT_LIMIT,

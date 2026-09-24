@@ -29,6 +29,19 @@ import type { ObservationType } from "./types.js";
 import { sanitizeObservationFields } from "./sanitize.js";
 import { applyFreshness } from "./search/freshness.js";
 
+/**
+ * D3: a signed error repeating within this window of its FIRST sighting is
+ * counted on the existing row instead of inserted. Fixed, not sliding —
+ * repeats never move the row's timestamp.
+ */
+export const ERROR_DEDUP_WINDOW_MS = 30 * 60 * 1000;
+
+export interface DedupedObservationResult {
+  observation: Observation;
+  /** true when an existing row absorbed this sighting (no insert). */
+  deduplicated: boolean;
+}
+
 export interface MemoryServiceOptions {
   store?: MemoryStore;
   vectorStore?: VectorStore;
@@ -100,6 +113,42 @@ export class MemoryService {
     }
 
     return inserted;
+  }
+
+  /**
+   * Add an observation, de-duplicating signed errors (D3).
+   *
+   * When `obs.type === "error"` and `obs.metadata.signature` is a non-empty
+   * string, an existing error with the same signature in the same project
+   * first seen within `ERROR_DEDUP_WINDOW_MS` before `obs.timestamp` has its
+   * `occurrences` bumped (no insert, no re-embed) and is returned with
+   * `deduplicated: true`. Otherwise the observation is inserted through
+   * `addObservation` — signed errors stamped with `occurrences: 1`, anything
+   * else passed through unchanged.
+   */
+  addObservationDeduped(obs: CreateObservation): DedupedObservationResult {
+    const signature = obs.metadata?.signature;
+    if (obs.type !== "error" || typeof signature !== "string" || !signature) {
+      return { observation: this.addObservation(obs), deduplicated: false };
+    }
+
+    const existing = this.store.findRecentErrorBySignature(
+      obs.projectPath,
+      signature,
+      obs.timestamp - ERROR_DEDUP_WINDOW_MS,
+    );
+    if (existing) {
+      const repeated = this.store.recordErrorRepeat(existing.id, obs.timestamp);
+      if (repeated) return { observation: repeated, deduplicated: true };
+    }
+
+    return {
+      observation: this.addObservation({
+        ...obs,
+        metadata: { ...obs.metadata, occurrences: 1 },
+      }),
+      deduplicated: false,
+    };
   }
 
   getObservation(id: number): Observation | null {
