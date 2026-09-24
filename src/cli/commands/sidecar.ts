@@ -7,7 +7,7 @@
  *   start       Start the sidecar (foreground by default, -d for background)
  *   stop        Stop the running sidecar
  *   status      Show sidecar status
- *   restart     Restart the sidecar
+ *   restart     Restart the sidecar (background by default, --foreground to block)
  *   logs        Show recent sidecar / plugin log lines
  */
 
@@ -17,8 +17,16 @@ import { buildLogsReport, type LogFileFilter } from "./sidecar-logs.js";
 import {
   assessSidecarStart,
   getSidecarStatus,
+  isProcessAlive,
+  isSidecarReachable,
+  readSidecarPid,
   stopSidecarProcess,
 } from "../../sidecar/lifecycle.js";
+import {
+  runRestart,
+  spawnDetachedSidecar,
+  waitForProcessExit,
+} from "./sidecar-restart.js";
 import {
   startSidecar,
   stopSidecar,
@@ -47,79 +55,7 @@ export function registerSidecarCommand(program: Command): void {
         httpOnly?: boolean;
         port?: string;
       }) => {
-        // M2a: REACHABILITY decides, not kill(pid,0) — a recycled PID must
-        // not block the start forever. Live-but-unreachable past the boot
-        // grace → assessSidecarStart cleans the stale files and we proceed.
-        const decision = await assessSidecarStart();
-        if (decision.action === "already-running") {
-          const status = getSidecarStatus();
-          console.log(
-            `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`,
-          );
-          process.exit(0);
-        }
-        if (decision.action === "booting") {
-          console.log(
-            "Another sidecar appears to be booting (fresh pidfile, not yet reachable) — not starting a second one.",
-          );
-          process.exit(0);
-        }
-
-        if (opts.background) {
-          await startBackground(opts.httpOnly, opts.port);
-          return;
-        }
-
-        // Foreground mode
-        const port = opts.port ? parseInt(opts.port, 10) : undefined;
-        const result = await startSidecar({ httpOnly: opts.httpOnly, port });
-
-        if (result.alreadyRunning) {
-          console.log("Sidecar already running (detected via socket probe).");
-          process.exit(0);
-        }
-
-        writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
-        const httpPort = result.httpServer
-          ? (result.httpServer as any).port
-          : (result.server as any).port;
-        const addr =
-          result.transport === "unix"
-            ? `unix socket + http://127.0.0.1:${httpPort}`
-            : `http://127.0.0.1:${httpPort}`;
-        console.log(
-          `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`,
-        );
-        console.log(`Listening on ${addr}`);
-        console.log(
-          "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
-        );
-        logSidecar(
-          `sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort}`,
-        );
-
-        // Enable session-aware shutdown — sidecar stays alive while sessions exist
-        enableSessionAwareShutdown(result);
-
-        const shutdown = () => {
-          logSidecar("sidecar: shutting down: signal");
-          console.log("\nShutting down sidecar...");
-          // Stop the dashboard alongside the sidecar on explicit signal.
-          try {
-            const activeSessions = result.ctx.store.getActiveSessions();
-            if (activeSessions.length === 0) {
-              stopServer();
-              logSidecar("sidecar: dashboard stopped");
-            }
-          } catch {
-            /* non-fatal */
-          }
-          stopSidecar(result.server, result.ctx, result.httpServer);
-          process.exit(0);
-        };
-
-        process.on("SIGTERM", shutdown);
-        process.on("SIGINT", shutdown);
+        await runStart(opts);
       },
     );
 
@@ -157,57 +93,32 @@ export function registerSidecarCommand(program: Command): void {
 
   sidecar
     .command("restart")
-    .description("Restart the sidecar server")
-    .option("-d, --background", "Restart as a background process")
+    .description(
+      "Restart the sidecar server (in the background by default; returns once it answers)",
+    )
+    .option("--foreground", "Run the restarted sidecar in this process")
+    .option("-d, --background", "Accepted for compatibility (now the default)")
     .option("--http-only", "Force HTTP-only mode")
-    .action(async (opts: { background?: boolean; httpOnly?: boolean }) => {
-      const wasStopped = stopSidecarProcess();
-      if (wasStopped) {
-        console.log("Stopped existing sidecar.");
-        // Brief pause for cleanup
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      if (opts.background) {
-        await startBackground(opts.httpOnly);
-        return;
-      }
-
-      // Delegate to foreground start logic via re-parse
-      // Simpler: just inline foreground start
-      const result = await startSidecar({ httpOnly: opts.httpOnly });
-      writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
-
-      const httpPort = result.httpServer
-        ? (result.httpServer as any).port
-        : (result.server as any).port;
-      const addr =
-        result.transport === "unix"
-          ? `unix socket + http://127.0.0.1:${httpPort}`
-          : `http://127.0.0.1:${httpPort}`;
-      console.log(
-        `Sidecar restarted (PID: ${process.pid}, transport: ${result.transport})`,
+    .action(async (opts: { foreground?: boolean; httpOnly?: boolean }) => {
+      const code = await runRestart(
+        { foreground: opts.foreground, httpOnly: opts.httpOnly },
+        {
+          readPid: readSidecarPid,
+          stop: () => stopSidecarProcess(),
+          waitForExit: (pid, timeoutMs) =>
+            waitForProcessExit(pid, timeoutMs, { isAlive: isProcessAlive }),
+          spawnBackground: ({ httpOnly }) =>
+            spawnDetachedSidecar(
+              httpOnly
+                ? ["sidecar", "start", "--http-only"]
+                : ["sidecar", "start"],
+            ),
+          waitForReady: () => waitForReachable(READY_TIMEOUT_MS),
+          startForeground: ({ httpOnly }) => runStart({ httpOnly }),
+          log: (line) => console.log(line),
+        },
       );
-      console.log(`Listening on ${addr}`);
-      console.log(
-        "Press Ctrl+C to stop (auto-shutdown when no sessions active)",
-      );
-      logSidecar(
-        `sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort}`,
-      );
-
-      // Enable session-aware shutdown
-      enableSessionAwareShutdown(result);
-
-      const shutdown = () => {
-        logSidecar("sidecar: shutting down: signal");
-        console.log("\nShutting down sidecar...");
-        stopSidecar(result.server, result.ctx, result.httpServer);
-        process.exit(0);
-      };
-
-      process.on("SIGTERM", shutdown);
-      process.on("SIGINT", shutdown);
+      if (code !== 0) process.exit(code);
     });
 
   // ─── logs ───────────────────────────────────────────────────────────────
@@ -232,33 +143,101 @@ export function registerSidecarCommand(program: Command): void {
     });
 }
 
-/**
- * Build a spawn command that works for both compiled binaries and source mode.
- * Compiled Bun binaries have argv[1] starting with `/$bunfs/` (virtual FS).
- */
-function buildSpawnCmd(subArgs: string[]): string[] {
-  const argv1 = process.argv[1] ?? "";
-  if (argv1.startsWith("/$bunfs/")) {
-    // Compiled binary — use process.execPath which is the real binary
-    return [process.execPath, ...subArgs];
+const READY_TIMEOUT_MS = 15_000;
+
+/** Poll until a sidecar answers /health, or the timeout elapses. */
+async function waitForReachable(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isSidecarReachable()) return true;
+    await new Promise((r) => setTimeout(r, 200));
   }
-  // Source mode — need bun prefix
-  return ["bun", argv1, ...subArgs];
+  return false;
 }
 
-async function startBackground(
-  httpOnly?: boolean,
-  port?: string,
-): Promise<void> {
-  const args = ["sidecar", "start"];
-  if (httpOnly) args.push("--http-only");
-  if (port) args.push("--port", port);
+/**
+ * The `start` path, shared by `sidecar start` and `sidecar restart --foreground`.
+ * Background mode spawns a detached `sidecar start` child that runs this same
+ * path in the foreground of its own process group.
+ */
+async function runStart(opts: {
+  background?: boolean;
+  httpOnly?: boolean;
+  port?: string;
+}): Promise<void> {
+  // M2a: REACHABILITY decides, not kill(pid,0) — a recycled PID must
+  // not block the start forever. Live-but-unreachable past the boot
+  // grace → assessSidecarStart cleans the stale files and we proceed.
+  const decision = await assessSidecarStart();
+  if (decision.action === "already-running") {
+    const status = getSidecarStatus();
+    console.log(
+      `Sidecar already running (PID: ${status.pid}, transport: ${status.transport})`,
+    );
+    process.exit(0);
+  }
+  if (decision.action === "booting") {
+    console.log(
+      "Another sidecar appears to be booting (fresh pidfile, not yet reachable) — not starting a second one.",
+    );
+    process.exit(0);
+  }
 
-  const proc = Bun.spawn(buildSpawnCmd(args), {
-    stdio: ["ignore", "ignore", "ignore"],
-    env: { ...process.env },
-  });
-  proc.unref();
+  if (opts.background) {
+    const args = ["sidecar", "start"];
+    if (opts.httpOnly) args.push("--http-only");
+    if (opts.port) args.push("--port", opts.port);
+    const pid = spawnDetachedSidecar(args);
+    console.log(`Sidecar started in background (PID: ${pid})`);
+    return;
+  }
 
-  console.log(`Sidecar started in background (PID: ${proc.pid})`);
+  // Foreground mode
+  const port = opts.port ? parseInt(opts.port, 10) : undefined;
+  const result = await startSidecar({ httpOnly: opts.httpOnly, port });
+
+  if (result.alreadyRunning) {
+    console.log("Sidecar already running (detected via socket probe).");
+    process.exit(0);
+  }
+
+  writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
+  const httpPort = result.httpServer
+    ? (result.httpServer as any).port
+    : (result.server as any).port;
+  const addr =
+    result.transport === "unix"
+      ? `unix socket + http://127.0.0.1:${httpPort}`
+      : `http://127.0.0.1:${httpPort}`;
+  console.log(
+    `Sidecar started (PID: ${process.pid}, transport: ${result.transport})`,
+  );
+  console.log(`Listening on ${addr}`);
+  console.log("Press Ctrl+C to stop (auto-shutdown when no sessions active)");
+  logSidecar(
+    `sidecar: started pid=${process.pid} transport=${result.transport} port=${httpPort}`,
+  );
+
+  // Enable session-aware shutdown — sidecar stays alive while sessions exist
+  enableSessionAwareShutdown(result);
+
+  const shutdown = () => {
+    logSidecar("sidecar: shutting down: signal");
+    console.log("\nShutting down sidecar...");
+    // Stop the dashboard alongside the sidecar on explicit signal.
+    try {
+      const activeSessions = result.ctx.store.getActiveSessions();
+      if (activeSessions.length === 0) {
+        stopServer();
+        logSidecar("sidecar: dashboard stopped");
+      }
+    } catch {
+      /* non-fatal */
+    }
+    stopSidecar(result.server, result.ctx, result.httpServer);
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }

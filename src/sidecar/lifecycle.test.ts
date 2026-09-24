@@ -413,6 +413,48 @@ describe("sidecar lifecycle integrity (M2)", () => {
     expect(looksLikeSidecarArgv("vim docs/sidecar-start.md")).toBe(false);
   });
 
+  it("looksLikeSidecarArgv recognises a sidecar started by `sidecar restart --foreground`", () => {
+    // `restart --foreground` (and the pre-Task-4 foreground restart) BECOMES
+    // the sidecar, so its argv carries `restart`, not `start`. Unrecognised,
+    // `sidecar stop` reported "not running", deleted the pidfile and left it
+    // alive.
+    expect(
+      looksLikeSidecarArgv(
+        "/Users/u/.sentinal/bin/sentinal sidecar restart --foreground",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeSidecarArgv("bun /repo/src/cli/index.ts sidecar restart"),
+    ).toBe(true);
+    expect(
+      looksLikeSidecarArgv("sentinal sidecar restart --foreground --http-only"),
+    ).toBe(true);
+    // Still strict: whole consecutive tokens only.
+    expect(looksLikeSidecarArgv("vim docs/sidecar-restart.md")).toBe(false);
+    expect(looksLikeSidecarArgv("sentinal sidecar restarted")).toBe(false);
+    expect(looksLikeSidecarArgv("sentinal sidecar-restart")).toBe(false);
+    expect(looksLikeSidecarArgv("sentinal sidecar stop")).toBe(false);
+    expect(looksLikeSidecarArgv("sentinal sidecar status")).toBe(false);
+    expect(looksLikeSidecarArgv("systemctl restart sidecar")).toBe(false);
+    expect(looksLikeSidecarArgv("sentinal sidecarrestart")).toBe(false);
+  });
+
+  it("stopSidecarProcess signals a verified `restart --foreground` sidecar", () => {
+    // Real child whose PID we own; identity is injected as the restart argv.
+    const child = Bun.spawn(["sleep", "30"]);
+    try {
+      writeFileSync(pidPath, String(child.pid), "utf-8");
+      const signalled = stopSidecarProcess({
+        identify: () =>
+          "/Users/u/.sentinal/bin/sentinal sidecar restart --foreground",
+      });
+      expect(signalled).toBe(true);
+      expect(existsSync(pidPath)).toBe(false);
+    } finally {
+      child.kill();
+    }
+  }, 15_000);
+
   // ─── M2d: wx start lock ────────────────────────────────────────────────
 
   it("only one concurrent starter spawns (wx start lock)", async () => {

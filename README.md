@@ -88,7 +88,7 @@ sentinal update --check      # Check for updates without installing
 sentinal sidecar start       # Start sidecar (-d for background, --http-only)
 sentinal sidecar stop        # Stop the running sidecar
 sentinal sidecar status      # Show PID, transport, port
-sentinal sidecar restart     # Restart (-d for background)
+sentinal sidecar restart     # Restart in the background (--foreground to attach)
 sentinal sidecar logs        # Tail recent log lines (-n 50 by default)
 sentinal sidecar logs --file sidecar    # sidecar.log only
 sentinal sidecar logs --file plugin     # plugin.debug.log only

@@ -199,10 +199,12 @@ export function probeProcessCommand(pid: number): string | null {
  * - autoStart:  `<sentinal|bun cli.ts> sidecar start`         (findSentinalCmd)
  * - CLI bg:     `<execPath|bun argv1> sidecar start [flags]`  (buildSpawnCmd)
  * - foreground: user-typed `sentinal sidecar start`
- * Consecutive-token match, so "bun test src/sidecar/x.test.ts" and other
- * paths merely CONTAINING "sidecar" do not match.
+ * - `sentinal sidecar restart --foreground` (and pre-Task-4 restart): that
+ *   process BECOMES the sidecar, so its argv says `restart`, not `start`.
+ * Consecutive whole-token match, so "bun test src/sidecar/x.test.ts",
+ * "sidecar-restart.md" and other paths merely CONTAINING "sidecar" do not.
  */
-const SIDECAR_ARGV_MARKER = /(^|\s)sidecar\s+start(\s|$)/;
+const SIDECAR_ARGV_MARKER = /(^|\s)sidecar\s+(re)?start(\s|$)/;
 
 /** Does this ps argv look like a sentinal sidecar process? */
 export function looksLikeSidecarArgv(command: string): boolean {
