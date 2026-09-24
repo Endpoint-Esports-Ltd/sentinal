@@ -30,6 +30,7 @@ import {
 import { installClaudeCode, installOpenCode } from "./install.js";
 import { runAutoSetup } from "./auto-setup.js";
 import { ensureSentinalGitignore } from "../../memory/shared.js";
+import { warnIfSidecarStale } from "./sidecar-staleness.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -223,7 +224,7 @@ export interface DownloadAndInstallOptions {
 
 /**
  * Download and install the latest binary for the current platform.
- * Returns true on success.
+ * Returns the installed (or already-current) version, or null on failure.
  *
  * Verification (M8): downloaded bytes must match the asset's declared size;
  * the SHA-256 is checked against the release's checksums.txt (best-effort —
@@ -234,7 +235,7 @@ export interface DownloadAndInstallOptions {
 export async function downloadAndInstall(
   currentVersion: string,
   opts: DownloadAndInstallOptions = {},
-): Promise<boolean> {
+): Promise<string | null> {
   const fetchFn = opts.fetchFn ?? fetch;
   const binDir = opts.binDir ?? BIN_DIR;
   const binPath = opts.binPath ?? BIN_PATH;
@@ -245,7 +246,7 @@ export async function downloadAndInstall(
       `Unsupported platform: ${process.platform}-${process.arch}. ` +
         `Supported: linux-x64, linux-arm64, darwin-x64, darwin-arm64`,
     );
-    return false;
+    return null;
   }
 
   console.log("Checking for updates...");
@@ -253,7 +254,7 @@ export async function downloadAndInstall(
   const release = await fetchLatestRelease(fetchFn);
   if (!release) {
     console.error("Failed to fetch release information from GitHub.");
-    return false;
+    return null;
   }
 
   const remoteParsed = parseSemver(release.tag_name);
@@ -263,7 +264,7 @@ export async function downloadAndInstall(
 
   if (!isNewerVersion(currentVersion, remoteVersion)) {
     console.log(`Already up to date (v${currentVersion}).`);
-    return true;
+    return currentVersion;
   }
 
   const asset = release.assets.find((a) => a.name === assetName);
@@ -272,7 +273,7 @@ export async function downloadAndInstall(
       `No binary found for ${assetName} in release ${release.tag_name}.\n` +
         `Available assets: ${release.assets.map((a) => a.name).join(", ") || "(none)"}`,
     );
-    return false;
+    return null;
   }
 
   console.log(
@@ -306,7 +307,7 @@ export async function downloadAndInstall(
     if ("error" in downloadResult) {
       process.stdout.write("\n");
       console.error(downloadResult.error);
-      return false;
+      return null;
     }
     process.stdout.write("\r  100% — Download complete.                    \n");
 
@@ -328,7 +329,7 @@ export async function downloadAndInstall(
             `  actual   ${downloadResult.sha256}\n` +
             `Refusing to install a corrupt binary.`,
         );
-        return false;
+        return null;
       }
       console.log("  SHA-256 checksum verified.");
     } else {
@@ -344,7 +345,7 @@ export async function downloadAndInstall(
     });
     if (!install.ok) {
       console.error(`Update failed: ${install.reason}`);
-      return false;
+      return null;
     }
 
     // Update cache
@@ -358,10 +359,10 @@ export async function downloadAndInstall(
 
     console.log(`Updated to v${remoteVersion} successfully.`);
     console.log(`Binary: ${binPath}`);
-    return true;
+    return remoteVersion;
   } catch (err) {
     console.error(`Download failed: ${(err as Error).message}`);
-    return false;
+    return null;
   }
 }
 
@@ -441,6 +442,8 @@ export interface PostUpdateReinstallOptions {
    * stdio: "inherit".
    */
   spawner?: (cmd: string[]) => number;
+  /** Version just installed — the in-process fallback's stale-sidecar check. */
+  installedVersion?: string | null;
 }
 
 /** Default spawner: run the command synchronously, inheriting stdio. */
@@ -495,6 +498,7 @@ export async function runPostUpdateReinstall(
   }
 
   await reinstallPlugins();
+  if (opts.installedVersion) await warnIfSidecarStale(opts.installedVersion);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -526,6 +530,8 @@ export function registerUpdateCommand(program: Command): void {
         // ran. This executes in the NEW binary (runPostUpdateReinstall
         // spawns `<new-binary> update --reinstall-plugins`). Non-fatal.
         await runAutoSetup("update");
+        // This binary is the NEW version; see sidecar-staleness.ts (also heals).
+        await warnIfSidecarStale(getVersionForUpdate());
         return;
       }
 
@@ -546,13 +552,13 @@ export function registerUpdateCommand(program: Command): void {
         return;
       }
 
-      const success = await downloadAndInstall(version);
-      if (!success) process.exit(1);
+      const installed = await downloadAndInstall(version);
+      if (!installed) process.exit(1);
 
       // After binary update, reinstall plugins for the same assistants.
       // Runs via the NEW binary so fresh embedded assets are deployed.
       try {
-        await runPostUpdateReinstall();
+        await runPostUpdateReinstall({ installedVersion: installed });
       } catch (e) {
         console.error(
           `\nWarning: Plugin reinstall failed: ${(e as Error).message}`,

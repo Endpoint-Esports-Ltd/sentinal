@@ -19,6 +19,8 @@ import { Command } from "commander";
 import * as uninstallModule from "./uninstall.js";
 import * as installModule from "./install.js";
 import * as autoSetupModule from "./auto-setup.js";
+import * as stalenessModule from "./sidecar-staleness.js";
+import { getSentinalVersion } from "../../sidecar/version.js";
 import { MemoryStore } from "../../memory/store.js";
 import {
   mkdtempSync,
@@ -261,24 +263,98 @@ describe("update --reinstall-plugins auto-setup wiring", () => {
       },
     );
 
+    spyOn(stalenessModule, "warnIfSidecarStale").mockImplementation(
+      async () => {
+        calls.push("stale-check");
+        return null;
+      },
+    );
+
     const program = new Command();
     registerUpdateCommand(program);
     await program.parseAsync(["update", "--reinstall-plugins"], {
       from: "user",
     });
 
-    expect(calls).toEqual(["reinstall", "setup:update"]);
+    expect(calls).toEqual(["reinstall", "setup:update", "stale-check"]);
+  });
+
+  test("checks the running sidecar against THIS (new) binary's version", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: false,
+      opencode: false,
+    });
+    spyOn(autoSetupModule, "runAutoSetup").mockImplementation(async () => {});
+    const expected: string[] = [];
+    spyOn(stalenessModule, "warnIfSidecarStale").mockImplementation(
+      async (v: string) => {
+        expected.push(v);
+        return null;
+      },
+    );
+
+    const program = new Command();
+    registerUpdateCommand(program);
+    await program.parseAsync(["update", "--reinstall-plugins"], {
+      from: "user",
+    });
+
+    expect(expected).toEqual([getSentinalVersion()]);
   });
 });
 
 describe("runPostUpdateReinstall", () => {
   let tmpDir: string;
   let fakeBin: string;
+  let staleChecks: string[];
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "sentinal-update-"));
     fakeBin = join(tmpDir, "sentinal");
     writeFileSync(fakeBin, "#!/bin/sh\nexit 0\n");
+    // Never probe the user's real sidecar from these tests.
+    staleChecks = [];
+    spyOn(stalenessModule, "warnIfSidecarStale").mockImplementation(
+      async (v: string) => {
+        staleChecks.push(v);
+        return null;
+      },
+    );
+  });
+
+  test("in-process fallback warns about a stale sidecar using the installed version", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: false,
+      opencode: false,
+    });
+
+    await runPostUpdateReinstall({
+      binPath: join(tmpDir, "missing-binary"),
+      installedVersion: "9.9.9",
+    });
+
+    expect(staleChecks).toEqual(["9.9.9"]);
+  });
+
+  test("successful subprocess reinstall leaves the stale check to the NEW binary", async () => {
+    await runPostUpdateReinstall({
+      binPath: fakeBin,
+      installedVersion: "9.9.9",
+      spawner: () => 0,
+    });
+
+    expect(staleChecks).toEqual([]);
+  });
+
+  test("fallback without a known installed version skips the stale check", async () => {
+    spyOn(uninstallModule, "detectInstalledTargets").mockReturnValue({
+      claude: false,
+      opencode: false,
+    });
+
+    await runPostUpdateReinstall({ binPath: join(tmpDir, "missing-binary") });
+
+    expect(staleChecks).toEqual([]);
   });
 
   afterEach(() => {
@@ -462,7 +538,7 @@ describe("downloadAndInstall verification (M8)", () => {
       smoke: () => ({ ok: true }),
     });
 
-    expect(ok).toBe(false);
+    expect(ok).toBeNull();
     expect(readFileSync(binPath, "utf-8")).toBe(OLD);
     expect(existsSync(`${binPath}.bak`)).toBe(false);
     expect(existsSync(`${binPath}.tmp`)).toBe(false);
@@ -482,7 +558,7 @@ describe("downloadAndInstall verification (M8)", () => {
       smoke: () => ({ ok: true }),
     });
 
-    expect(ok).toBe(false);
+    expect(ok).toBeNull();
     expect(readFileSync(binPath, "utf-8")).toBe(OLD);
     expect(existsSync(`${binPath}.bak`)).toBe(false);
   });
@@ -500,7 +576,7 @@ describe("downloadAndInstall verification (M8)", () => {
       smoke: () => ({ ok: false, detail: "exit code 1" }),
     });
 
-    expect(ok).toBe(false);
+    expect(ok).toBeNull();
     // Rollback: the OLD binary is back in place and no droppings remain.
     expect(readFileSync(binPath, "utf-8")).toBe(OLD);
     expect(existsSync(`${binPath}.bak`)).toBe(false);
@@ -520,12 +596,25 @@ describe("downloadAndInstall verification (M8)", () => {
       smoke: () => ({ ok: true }),
     });
 
-    expect(ok).toBe(true);
+    expect(ok).toBe("99.0.0");
     expect(readFileSync(binPath, "utf-8")).toBe(
       "this-is-the-new-binary-payload",
     );
     expect(existsSync(`${binPath}.bak`)).toBe(false);
     expect(existsSync(`${binPath}.tmp`)).toBe(false);
+  });
+
+  test("already up to date → returns the current version, binary untouched", async () => {
+    const { release } = makeRelease(NEW_BYTES.length, true);
+    const ok = await downloadAndInstall("99.0.0", {
+      fetchFn: makeFetch({ release, binaryBytes: NEW_BYTES }),
+      binDir,
+      binPath,
+      smoke: () => ({ ok: true }),
+    });
+
+    expect(ok).toBe("99.0.0");
+    expect(readFileSync(binPath, "utf-8")).toBe(OLD);
   });
 
   test("missing checksums.txt → best-effort: size-only verification still installs", async () => {
@@ -539,7 +628,7 @@ describe("downloadAndInstall verification (M8)", () => {
       smoke: () => ({ ok: true }),
     });
 
-    expect(ok).toBe(true);
+    expect(ok).toBe("99.0.0");
     expect(readFileSync(binPath, "utf-8")).toBe(
       "this-is-the-new-binary-payload",
     );
