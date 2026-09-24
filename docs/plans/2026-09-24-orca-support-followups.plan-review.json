@@ -1,0 +1,91 @@
+{
+  "review_summary": "The plan covers every item the user asked for, and several of its central claims check out against the code and a real transcript. The Claude Code Bash toolUseResult really is {stdout, stderr, interrupted, isImage, noOutputExpected} with no `output` field. tdd-tracker and memory-observer really are async PostToolUse hooks matching Bash (hooks.json:75,100). Three core mechanisms are wrong or unsafe as designed. (1) Task 7's dedupe cannot reuse updateObservation: it replaces metadata, resets timestamp and quality, and deletes then re-embeds the vector on every repeat. (2) Task 12's D4 'loser gets NULL + warning' is undone by reconcile's ensureSlot, and it does not stop the runtime collision, because the runtime reads the slot from .env, not the DB. Its per-row git subprocesses also run inside a BEGIN IMMEDIATE write lock. (3) Task 13 changes the stored key two waves before reconcile/resolveBySlug/list/cleanup learn it, so intermediate commits create the very mixed-key duplicates the plan exists to prevent. Task 3's in-release assertion checks the bundle file, not the embedded copy that actually ships in the binaries, and misses the `prepack` rebuild path.",
+  "alignment_score": "medium",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Task 7: updateObservation replaces metadata, resets timestamp/quality and re-embeds the vector on every repeat",
+      "description": "Plan (Task 7): 'increment metadata.occurrences … First check whether updateObservation merges or replaces metadata and whether it refreshes the timestamp'. Verified: store-observations.ts:112 `const metadata = patch.metadata ?? existing.metadata` (wholesale REPLACE); :131-133 sets `timestamp = ?, quality_score = ?` (resets staleness on every call); service.ts:161-172 does `vectorStore.removeObservation(id)` + `indexObservation(...)` on every update (a full embedding pass through @xenova/transformers, plus the FTS observations_au trigger, migrations.ts:249). Going through updateObservation makes the flood case this task guards against (a retry loop, the plan's own 10-failure test) do N embeddings instead of 0. It also resets quality to 1.0 each time, and the window never expires while the loop continues. The read-then-update is also not atomic: the sidecar route and the direct-fallback path can both miss and both insert.",
+      "suggested_fix": "Add a dedicated store method, e.g. `bumpErrorOccurrence(id, nowIso)`, that runs `UPDATE observations SET metadata = json_set(metadata, '$.occurrences', COALESCE(json_extract(metadata,'$.occurrences'),1)+1, '$.lastSeen', ?) WHERE id = ?`. It must touch no timestamp, no quality_score and no vector. Run find + bump/insert in one `BEGIN IMMEDIATE` in the store. Anchor the 30-minute window explicitly on the original `timestamp` (or on `json_extract(metadata,'$.lastSeen')`) and document which one. Add a DoD test that asserts the vector store's index method is called exactly once across the 10 repeats."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Task 12 / D4: the NULL-slot loser is automatically re-slotted by ensureSlot, and NULL never reaches the runtime anyway",
+      "description": "D4: 'the loser … gets slot = NULL and a loud warning … runtime_up already refuses a slotless worktree'. NULLs are distinct in SQLite unique indexes, so the partial index accepts them. But reconcile.ts:62 calls `ensureSlot(store, config, fromDb, warnings)` → `tryAssignFreeSlot` (reconcile.ts:162-170), which exists precisely to lazily assign a free slot to any live `slot = NULL` row. The next `worktree_detect` on the loser silently gives it a new slot, undoing the D4 decision. Separately, the plan's own fact says the runtime reads the slot from `.sentinal/worktree.env` (loader.ts:195), and seeded `.env` files are never overwritten (worktree-config.ts:304-307). The loser's `.env` therefore still carries the winner's slot number. runtime_up sees a slot, not 'slotless', and the port/DB collision D4 is meant to prevent continues. Neither the NULL write nor the later re-slot changes that.",
+      "suggested_fix": "Decide what happens after a collision and test it end to end. Option A: accept re-slotting by ensureSlot, but make ensureSlot call `warnIfSlotMismatch(warnings, path, readSlotFromWorktree(path), assigned)` so the .env mismatch is reported every time. Also make runtime_up cross-check the .env slot against the DB row and refuse on disagreement. Option B: persist a 'collision-loser' marker that ensureSlot respects. Either way, add a test: collision → detect on the loser → assert the final DB slot, the warning text, and runtime_up's behaviour against the loser's unchanged .env. Also fix the D4 text that claims runtime_up already covers this case."
+    },
+    {
+      "severity": "must_fix",
+      "category": "risk_quality",
+      "title": "Task 12: git subprocess per live row (across ALL projects) inside BEGIN IMMEDIATE",
+      "description": "Plan: 'inside the existing BEGIN IMMEDIATE: load all live rows; compute each row's canonical project with getMainWorktreeRoot(row.worktree_path)'. slots.ts:190 and :253 hold the write lock through `store.runImmediate`. getMainWorktreeRoot spawns git (identity.ts:73 → git/utils). With N live rows across every repo on the machine, the write lock is held for N×(10-50ms) of process spawns. The sidecar's observation queue, hooks and other writers on the same DB block or hit busy timeouts meanwhile. tryAssignFreeSlot also sits on the worktree_detect READ path (slots.ts:236-242), so every detect pays this cost. Loading rows of unrelated repos is also wrong in scope: only rows of the target repo can collide under K.",
+      "suggested_fix": "Compute the repo's checkout set BEFORE the transaction with one `git worktree list --porcelain` from the target: that gives every checkout root of this repo, the main one plus all linked ones. Inside the transaction do pure SQL: `SELECT … FROM worktrees WHERE status IN ('active','ready-to-merge') AND (project_path IN (<set>) OR project_path LIKE '<root>/%')`, then resolve collisions and UPDATE. No subprocess runs under the lock. Apply the same canonical set to `tryAllocateSlot` (slots.ts:112, outside any transaction) and to `countActive` (store.ts:152). Add a test asserting no git spawn happens inside runImmediate (inject the resolver)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 12: re-key UPDATE ordering turns a deterministic collision into a permanent SLOT_RACE",
+      "description": "If rows are re-keyed to K one at a time before the collision loser is nulled, the second UPDATE raises SQLITE_CONSTRAINT_UNIQUE on idx_wt_slot_live. The message contains 'slot', so `isSlotRace` (slots.ts:301-310) classifies it as a lost race. insertWithSlot retries 3× and throws SLOT_RACE ('This is transient: retry', :215-220). tryAssignFreeSlot degrades to slotRaceWarning. The failure is deterministic, so the user is told to retry forever.",
+      "suggested_fix": "In the transaction, first compute the collision groups and UPDATE every loser to `slot = NULL`, then re-key the remaining rows. Add a test: colliding pair + create() → succeeds, and no SLOT_RACE is raised on either path."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 13 (Wave 2) changes the stored key two waves before its readers (Task 15, Wave 4); intermediate commits regress",
+      "description": "Plan: Task 13 stores `resolveProjectIdentity(projectPath)` (create.ts:109). Only Task 15 teaches `resolveBySlug` (store.ts:261-264), `manager.list` (:88), the cleanup default pass (cleanup.ts:126,271) and the second writer `reconcile.ts:110` about identity. Between the two waves, a worktree_detect from a linked worktree fails to match the canonical row. reconcile then inserts a DUPLICATE row keyed by the raw path, which is exactly the mixed-key state D6 warns about. That violates the plan's own 'Each commit must pass standalone'. D5 (merge/abandon/cleanup now run in the main checkout) takes effect in Task 13, because `wt.projectPath` is the git cwd, but its tests and docs are deferred to Task 15.",
+      "suggested_fix": "Move the identity changes to reconcile.ts:110, store.ts resolveBySlug, manager.ts list and cleanup.ts scoping into Task 13, together with their tests (reconcile.test.ts, cleanup.test.ts, manager.test.ts). Add them to Task 13's Files. Keep Task 15 for docs only. Add a Task 13 test: create from a linked worktree, then worktree_detect from the same linked worktree → the same row, no duplicate."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "D5: squash-merge will `git checkout <base>` in the user's main checkout even when it is on another branch",
+      "description": "Risk table: 'Existing dirty-main-checkout guard (H3) now protects the right tree'. H3 (manager.ts:252-261, merge-guards.ts:120-173) only checks dirtiness. With D5, a clean main checkout that the user left on `feature/x` is silently switched to `main` by `git checkout base` (merge-guards.ts:125), under their editor and dev server. If `base` is checked out in another linked worktree, `git checkout` fails ('already checked out at …'). Today this path mostly failed from linked worktrees; after D5 it succeeds and moves the user's HEAD.",
+      "suggested_fix": "Add a guard next to H3: refuse (with a clear message) unless the main checkout's HEAD is already `base`, or record the original branch and restore it after the commit. Add tests: main checkout on another branch → refused or restored; base checked out in a linked worktree → clear error. Put the guard in the task that introduces D5 (Task 13 per the previous issue), not Wave 4."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Task 3: the release assertion checks the wrong artifact, and `prepack` / `embed-assets` rebuild the bundle from package.json",
+      "description": "Pre-Mortem 2 asks exactly this. Verified in package.json: `\"embed-assets\": \"bun run build:opencode && bun scripts/embed-assets.mjs\"` (:38), `\"build:cli\": \"bun run embed-assets && …\"` (:39), `\"prepack\": \"bun run embed-assets\"` (:54), and `files` includes `targets/` (:56-58), so targets/opencode/dist/sentinal.mjs ships in the npm tarball. So: (a) the binaries ship the EMBEDDED copy (src/cli/embedded-assets.ts, generated at release-build.mjs:40), not the bundle file; an assertion that reads only the bundle can pass while the embedded copy is stale (e.g. if anyone reorders :39/:40 or embed-assets gains its own build). (b) When @semantic-release/npm packs or publishes, `prepack` re-runs build:opencode + embed-assets with package.json's version. That rebuilds the bundle a second time, after the binaries were compiled, from a different code path the plan does not mention. (c) Any path that calls `bun run embed-assets` instead of `bun scripts/embed-assets.mjs` bypasses the new versioned script.",
+      "suggested_fix": "In release-build.mjs, assert the version in BOTH the bundle and src/cli/embedded-assets.ts (or better, run the freshly compiled binary's plugin extraction and grep the result). Point the `embed-assets` npm script at `scripts/build-opencode.mjs` with the package.json version, so there is a single build path. Explicitly document or test what `prepack` produces during `semantic-release` (package.json is already bumped by then). Add `prepack`/`embed-assets` to Task 3's notes."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 1: vectors are NOT keyed by observation id; several chunk rows per observation live in a vec0 auxiliary column",
+      "description": "Plan: 'delete the 205 … observations and their vectors (vectors keyed by observation id …)'. vector-store.ts:137-138,182 shows `observation_vectors(rowid, embedding, +observation_id, field_type, project, timestamp)` with an explicit rowid and `observation_id` as a vec0 AUXILIARY column (391 vectors for 97 observations confirms multiple chunks per observation). Deleting by rowid = observation id would delete unrelated vectors. Filtering an aux column in a DELETE WHERE may not be supported by vec0 or may full-scan. The plan verified only UPDATE of an aux column. No `REFERENCES observations` FK exists (grep), so nothing blocks the delete, and nothing cascades either.",
+      "suggested_fix": "On a copy of the DB, first run `SELECT rowid FROM observation_vectors WHERE observation_id IN (SELECT id FROM observations WHERE project_path LIKE '/var/folders/%sentinal-test-%')`. Record the count, then `DELETE FROM observation_vectors WHERE rowid IN (<that list>)`, and assert with COUNT(*) before and after, since changes() is unreliable. Delete vectors BEFORE observations, because the subquery needs the observation rows."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 2: a preload SENTINAL_HOME guard may not cover the most likely leak path (a test talking to the REAL sidecar)",
+      "description": "Plan: 'the test preload sets SENTINAL_HOME to a per-run temp directory … asserts getDbPath() is not under the real home'. If the 205 rows came through a test that reached the user's running sidecar (SidecarClient.connect() via ~/.sentinal/sidecar.sock), the test process's getDbPath() was irrelevant: the real sidecar wrote them. Whether the preload guard helps depends on whether src/sidecar/paths.ts derives the socket, port and pid paths from SENTINAL_HOME or from homedir(). That was not verified.",
+      "suggested_fix": "Add to the DoD: under `bun test`, getSidecarSocketPath() / getSidecarPortPath() are also under the temp home, and `SidecarClient.connect()` returns null when no test sidecar is running. Record the identified leak source before writing the guard. Add src/sidecar/paths.ts to Files if it must change."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Files lists are incomplete; re-check same-wave overlaps",
+      "description": "Omissions seen from the code: Task 3 needs package.json's `embed-assets` script (see above). Task 11's 'push a success:false event into the event buffer' names no file for the buffer (memory-observer.ts or capture.ts). Task 10's `bashOutputOf` must also expose `input.error` for Task 11's tdd-tracker routing. Task 13 needs reconcile.ts, store.ts, manager.ts and cleanup.ts (see the Task 13 issue). Task 12 needs create.ts (countActive caller, :57) if the countActive semantics change, which overlaps Task 13 in a later wave, fine, but note it. Task 2 may have to edit whichever test file leaks (possibly src/memory/service.test.ts), which would overlap Task 7's service.test.ts in Wave 1. Task 4 leaves the advice at src/sidecar/client.ts:211 and README.md:91 to Task 15. Task 7's routes.ts is already 518 lines, over the 400 warning, so logic must live in the service or store.",
+      "suggested_fix": "Add the files above to their tasks. If Task 2's leaking test is service.test.ts or store-observations tests, move Task 2 to Wave 2 or serialize it with Task 7. Re-run plan_impact after updating the Files lists."
+    },
+    {
+      "severity": "consider",
+      "category": "risk_quality",
+      "title": "Pre-Mortem 1 is largely moot; the real risk is TEST_FAIL_INDICATORS being too broad for the D2 exclusion",
+      "description": "capture.ts:103-110: `/\\d+\\s+fail/i` matches bun's ' 1 fail' summary anywhere in the text, so an 'Exit code 1\\n' prefix does not block RED detection. Middle-truncation keeps the tail, where the summary is. But the D2 exclusion ('assertion-only test failures … reuse TEST_FAIL_INDICATORS') also relies on `/FAIL\\s/` and `/\\btest\\b.*\\bfailed\\b/i`, which match many non-test errors (e.g. 'npm ERR! test failed', a script whose name contains 'test'). Those would be silently dropped as 'assertion-only'.",
+      "suggested_fix": "In classifyToolFailure, only apply the assertion-only exclusion when the command is a known test runner (bun test / jest / vitest / npm test …) AND the text has no infrastructure marker. Add a test with a non-test command whose error contains 'test failed' → captured."
+    },
+    {
+      "severity": "consider",
+      "category": "scope_alignment",
+      "title": "Minor YAGNI or loose dependencies",
+      "description": "Task 13's baseCommit fix and Task 4's old-process socket-deletion race go slightly beyond the user's four defects. Both are small and defensible. Task 10 declares dependencies on Tasks 6 and 7 but uses neither (it only widens HookInput and adds bashOutputOf), which needlessly pushes it and Task 11 a wave later.",
+      "suggested_fix": "Drop Task 10's dependency on Tasks 6/7 and move it to Wave 1 (its files do not overlap Wave 1 tasks), so Task 11 can move to Wave 2. Keep the baseCommit fix but label it as an opportunistic fix in Scope."
+    }
+  ]
+}

@@ -127,24 +127,29 @@ guarantee that `?? input.cwd` did not provide.
 
 ### Known conflation sites (follow-up needed)
 
-Two call sites genuinely use **one** parameter as both a storage key and an
-on-disk prefix. Splitting their signatures is deferred:
+One call site genuinely uses **one** parameter as both a storage key and an
+on-disk prefix. Splitting its signature is deferred:
 
-- `handleCompactionAutocontinue` (`src/opencode/compaction-autocontinue.ts:27`)
-  — key for `getCurrentSpec`, prefix for `cycle.filePath.startsWith`.
 - `mergeSharedObservations` (`src/memory/restore.ts:152-156`) — the same
   `projectPath` feeds `getRecentForProject` (key) and `readSharedMemory`
   (disk). Read-only and currently benign because `project-memory.json` is
   git-tracked and therefore identical in every checkout at the same commit.
 
+`handleCompactionAutocontinue` was the other one; since v1.38.0 it takes
+`{ identity, workspace }` and filters with `isInside()`.
+
 ### Known limitations of the identity migration
 
-1. **Orphaned pre-migration memory rows.** Observations written before this
-   change were keyed by the worktree path they were recorded in, and some of
-   those worktrees no longer exist (two known clusters of 110 and 81 rows).
-   They are NOT reachable from the canonical key — the only way to read them is
-   to pass that literal old path to `memory_search`. No backfill is performed.
-   List the orphans with:
+1. **Orphaned pre-migration rows.** Rows written before v1.37.1 were keyed by
+   the checkout they were recorded in. ⚠️ _Corrected 2026-09-24:_ the two
+   clusters previously reported here as "110 and 81 observations" were
+   **sessions**, not observations — under deleted `.sentinal/worktrees/spec-*`
+   paths there are 0 observations and ~300 ended sessions, which neither
+   conflict detection nor ownership reads. The only stranded **observations**
+   found were 97 under one Orca worktree on the maintainer's machine, repaired
+   by hand (re-keyed with their vectors; plan
+   `docs/plans/2026-09-24-orca-support-followups.md`, Task 1). No shipped
+   backfill exists. List candidates with:
 
    ```bash
    # DB lives at $SENTINAL_HOME/memory.db, defaulting to ~/.sentinal/memory.db
@@ -154,7 +159,12 @@ on-disk prefix. Splitting their signatures is deferred:
        GROUP BY project_path ORDER BY 2 DESC;"
    ```
 
-   Any `project_path` in that output that no longer exists on disk is orphaned.
+   Re-keying observations by hand must also update the vec0 auxiliary column
+   `observation_vectors.project` (sqlite-vec supports `UPDATE` of an auxiliary
+   column in place; `changes()` is unreliable on vec0 — verify with counts).
+   Vectors are several chunk rows per observation, linked by the auxiliary
+   `observation_id`, **not** by rowid. `/usr/bin/sqlite3` cannot load vec0; use
+   Homebrew SQLite with `.load node_modules/sqlite-vec-darwin-arm64/vec0`.
 
 2. **`specs.id` is not project-qualified.** The spec row id is the bare plan
    filename (`slugFromFilename`, `src/spec/parser.ts:74`), so two **different**
@@ -163,13 +173,76 @@ on-disk prefix. Splitting their signatures is deferred:
    five foreign keys reference `specs(id)` — `src/memory/migrations.ts:217`,
    `:268`, `:289`, `:305`, `:363`.
 
-3. **`worktree_create` still bases off the invoking checkout.** Un-nesting was
-   dropped from the plan, so creating a worktree from inside a worktree nests
-   it. ⛔ **Do not "fix" this by re-keying `worktrees.project_path` to the
-   canonical identity for new rows only.** The slot allocator reads live rows
-   with `WHERE project_path = ?` (`src/worktree/store.ts:95`, `:156`, `:186`);
-   if new rows carry the canonical key while live rows still carry old
-   per-worktree values, the live rows become invisible to the allocator and the
-   **same slot is handed out twice**. The `idx_wt_slot_live UNIQUE(project_path,
-slot)` index cannot catch it, because the two rows differ in `project_path`.
-   Any re-keying must migrate every existing row in the same transaction.
+### Worktree slot pool is keyed on the canonical project
+
+Since the orca-support follow-ups, `worktree_create` bases new worktrees off the
+**main checkout** (`<main>/.sentinal/worktrees/spec-…`) from any checkout, and
+every reader and writer of the slot pool uses the canonical project:
+
+- `resolveSlotScope(projectPath)` (`src/worktree/slots.ts`) runs **one**
+  `git worktree list` **before** the allocator's `BEGIN IMMEDIATE`. ⛔ Never
+  spawn git inside that transaction — it also runs on the read-only
+  `worktree_detect` path and would block every other writer, hooks included.
+- Live rows of the same repo stored under another key are re-keyed lazily,
+  inside the transaction, by `store.unifyLiveKeys`. **Losers of a slot
+  collision are set to `slot = NULL` before any re-key** — re-keying first
+  raises `idx_wt_slot_live`, which `isSlotRace` misreads as a transient race and
+  retries forever.
+- A revealed collision keeps the slot on the oldest row; the loser is re-slotted
+  after commit through the existing `tryAssignFreeSlot` + `worktree.env` path,
+  with the `warnIfSlotMismatch` warning. Its seeded `.env` still holds the old
+  slot's values until the user re-seeds it. This transient NULL is the one
+  documented exception to "nothing in production writes slot = NULL".
+- Squash-merge, abandon and cleanup run in the **main checkout**
+  (`inMainCheckout(row)`, `src/worktree/merge-guards.ts`), derived from the
+  worktree directory rather than the stored key, so legacy rows work too. H3
+  refuses a dirty main checkout and restores its original branch; a `base`
+  checked out in another linked worktree is refused up front with
+  `BASE_CHECKED_OUT`.
+- Cleanup guard 2 accepts `<any checkout of the repo>/<config.directory>`, so
+  worktrees nested by earlier versions are reclaimable; guard 1 (branch prefix
+  `sentinal/spec-`) still refuses foreign worktrees such as Orca's.
+- Writing the worktree directory under the identity root is a deliberate
+  exception to "identity → storage keys only".
+
+## ⛔ Claude Code hook payloads — verified facts
+
+- **Bash `tool_response` is `{stdout, stderr, interrupted, isImage, …}`. There
+  is no `output` field.** Read it through `bashOutputOf(input)`
+  (`src/utils/hook-output.ts`), never `tool_response.output`. Until the
+  orca-support follow-ups, three hooks read `output`, so on Claude Code the TDD
+  tracker had never auto-confirmed RED or GREEN and error→fix capture had never
+  seen a failed command.
+- **`PostToolUse` fires only on success.** A non-zero Bash exit fires
+  **`PostToolUseFailure`** with `error` (`"Exit code N\n…"`, may be
+  middle-truncated or a bare message), `is_interrupt?`, `tool_use_id`,
+  `duration_ms?`. It does not fire for validation rejections or permission
+  denials. Sentinal registers `tdd-tracker` and `tool-failure-observer` on it.
+- Test-outcome indicators must require a **non-zero** count: every passing bun
+  run prints ` 0 fail`. `/\d+\s+fail/` read every passing run as a failure, so
+  GREEN never fired on either target.
+- A `PostToolUseFailure` capture must redact **before** classifying: the
+  classifier truncates titles, and a truncated secret can slip under the
+  redactor's minimum token length.
+
+## OpenCode tool failures — verified on 1.18.32
+
+Non-zero bash exits arrive in `tool.execute.after` with `metadata.exit` and
+finish `completed`. Tools that **throw** (edit mismatch, missing file, schema
+error, permission rejection, a plugin's own `tool.execute.before` throw) skip
+`tool.execute.after` entirely and surface only on the `event` hook as
+`message.part.updated` with `part.type === "tool"` and
+`part.state.status === "error"`. The real `properties` is
+`{sessionID, part, time}`, not the SDK 1.4.7 typing. De-duplicate on `part.id`,
+never `callID` (provider-issued; it repeats across parts).
+
+## Release build
+
+`.releaserc.json` runs `@semantic-release/exec` (`release-build.mjs`) **before**
+`@semantic-release/npm` bumps `package.json`. Anything that reads the version
+from `package.json` during prepare gets the **previous** release's version —
+which is how every OpenCode plugin from `b0a907c` (2026-03-10) to v1.38.0
+shipped reporting the prior version. Build with an explicit version
+(`scripts/build-opencode.mjs <version>`); `release-build.mjs` fails the release
+unless both `targets/opencode/dist/sentinal.mjs` and `src/cli/embedded-assets.ts`
+bake it. The npm tarball is unaffected (`prepack` runs after the bump).
