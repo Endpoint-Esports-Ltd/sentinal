@@ -37,6 +37,7 @@ import { handleTddTransitionRequest } from "./tdd-routes.js";
 import { handleSpecMetricsRequest } from "./spec-routes.js";
 import { handleConfigRequest } from "./config-routes.js";
 import { handleWorktreeRequest } from "./worktree-routes.js";
+import { handleNotificationRequest } from "./notification-routes.js";
 import {
   handleRetireRequest,
   createStalenessTick,
@@ -419,6 +420,8 @@ export async function startSidecar(
     touchActivity();
     const retireResponse = await handleRetireRequest(req, ctx);
     if (retireResponse) return retireResponse;
+    const notificationResponse = await handleNotificationRequest(req, ctx);
+    if (notificationResponse) return notificationResponse;
     // Quality and project-context routes are in separate handlers to keep routes.ts under 400 lines
     const qualityResponse = await handleQualityRequest(req, ctx);
     if (qualityResponse) return qualityResponse;

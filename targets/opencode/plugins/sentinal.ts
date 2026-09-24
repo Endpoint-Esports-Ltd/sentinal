@@ -53,6 +53,7 @@ import { processInstructionsLoaded } from "../../../src/hooks/instructions-loade
 import { processPostCompact } from "../../../src/hooks/post-compact.js";
 import { processTaskCreated } from "../../../src/hooks/task-created.js";
 import { handleCompactionAutocontinue } from "../../../src/opencode/compaction-autocontinue.js";
+import { surfaceSessionNotifications } from "../../../src/hooks/session-notifications.js";
 import { buildCompactionContext } from "../../../src/opencode/compaction-context.js";
 import { disposePlugin } from "../../../src/opencode/plugin-dispose.js";
 import { buildLivenessProbe } from "../../../src/opencode/session-liveness.js";
@@ -356,6 +357,13 @@ export const SentinalPlugin: Plugin = async ({
   const eventBuffer = new EventBuffer(20);
   let sidecar: SidecarClient | null = null;
   let sessionId: string | null = null;
+  // Unread-notification digest for the CURRENT session. Surfaced (and marked
+  // read, per id) once, then re-injected on every turn: the system prompt is
+  // rebuilt each turn, so a one-shot push would vanish after turn 1.
+  let notificationDigest: {
+    sessionId: string | null;
+    text: string | null;
+  } | null = null;
   let toolCallCount = 0;
   let draining = false;
 
@@ -874,6 +882,26 @@ export const SentinalPlugin: Plugin = async ({
           );
           return;
         }
+
+        // Session notifications. ⛔ NOT via client.app.log() — that is the
+        // TUI log panel, which never reaches the model. Claimed BEFORE the
+        // await so a concurrent turn cannot read (and mark) twice; the shared
+        // helper only shows what it successfully marked read, and never throws
+        // (an old sidecar without the route simply yields nothing).
+        if (sidecar && notificationDigest?.sessionId !== sessionId) {
+          const sc = sidecar;
+          const claim = { sessionId, text: null as string | null };
+          notificationDigest = claim;
+          claim.text = await surfaceSessionNotifications(
+            {
+              listCandidates: (p, limit) =>
+                sc.listSessionNotifications(p, limit),
+              markRead: (id) => sc.markNotificationRead(id),
+            },
+            projectIdentity,
+          );
+        }
+        if (notificationDigest?.text) systemArr.push(notificationDigest.text);
 
         // Inject active spec context (plan discovery — worktree-local)
         const active = findActivePlan(projectWorkspace);

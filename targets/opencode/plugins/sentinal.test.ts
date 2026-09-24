@@ -581,6 +581,14 @@ describe("worktree-aware project roots", () => {
     activeCycles: Array<{ filePath: string; state: string }>;
     /** When set, setTddState rejects with this error. */
     setTddStateError: Error | null;
+    /** Rows returned by listSessionNotifications. */
+    sessionNotifications: Array<Record<string, unknown>>;
+    /** Every project passed to listSessionNotifications. */
+    notificationListCalls: string[];
+    /** Every id passed to markNotificationRead. */
+    markedRead: number[];
+    /** When set, listSessionNotifications rejects (e.g. an old sidecar 404). */
+    listNotificationsError: Error | null;
   }
 
   function makeRootsFake(): RootsFake {
@@ -591,6 +599,10 @@ describe("worktree-aware project roots", () => {
       tddTransitions: [] as unknown[][],
       activeCycles: [] as Array<{ filePath: string; state: string }>,
       setTddStateError: null as Error | null,
+      sessionNotifications: [] as Array<Record<string, unknown>>,
+      notificationListCalls: [] as string[],
+      markedRead: [] as number[],
+      listNotificationsError: null as Error | null,
     };
     const fake = {
       createSession: async (s: { projectPath: string }) => {
@@ -617,6 +629,21 @@ describe("worktree-aware project roots", () => {
         return null;
       },
       isSessionAlive: async () => false,
+      getModelRouting: async () => ({
+        planning: "opus",
+        implementation: "sonnet",
+        verification: "sonnet",
+        plan_reviewer: "sonnet",
+        spec_reviewer: "sonnet",
+      }),
+      listSessionNotifications: async (project: string) => {
+        rf.notificationListCalls.push(project);
+        if (rf.listNotificationsError) throw rf.listNotificationsError;
+        return rf.sessionNotifications;
+      },
+      markNotificationRead: async (id: number) => {
+        rf.markedRead.push(id);
+      },
     };
     // Getters/setters over `rf` so tests can mutate after construction.
     return {
@@ -640,6 +667,24 @@ describe("worktree-aware project roots", () => {
       },
       set setTddStateError(v) {
         rf.setTddStateError = v;
+      },
+      get sessionNotifications() {
+        return rf.sessionNotifications;
+      },
+      set sessionNotifications(v) {
+        rf.sessionNotifications = v;
+      },
+      get notificationListCalls() {
+        return rf.notificationListCalls;
+      },
+      get markedRead() {
+        return rf.markedRead;
+      },
+      get listNotificationsError() {
+        return rf.listNotificationsError;
+      },
+      set listNotificationsError(v) {
+        rf.listNotificationsError = v;
       },
     };
   }
@@ -743,6 +788,89 @@ describe("worktree-aware project roots", () => {
 
     expect(out.continue).toBe(true);
     expect(rf.currentSpecProjects).toEqual([mainRoot]);
+  }, 30_000);
+
+  // ── session notifications reach the MODEL, not the TUI log ─────────────────
+  // client.app.log() writes to OpenCode's TUI log panel, not the LLM context,
+  // so logging the digest would be a signal that reaches nobody. The
+  // system-prompt transform is the channel that reaches the model.
+
+  function notification(id: number, title: string, projectPath: string) {
+    return {
+      id,
+      type: "warning",
+      title,
+      message: `${title} details`,
+      source: "session-end",
+      specId: null,
+      sessionId: null,
+      read: false,
+      createdAt: Date.now() - id,
+      projectPath,
+    };
+  }
+
+  async function runSystemTransform(
+    hooks: Record<string, (...a: never[]) => Promise<unknown>>,
+  ): Promise<string[]> {
+    const output = { system: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!(
+      {} as never,
+      output as never,
+    );
+    return output.system;
+  }
+
+  it("surfaces unread notifications into the SYSTEM PROMPT, keyed by IDENTITY, marking each read per-id", async () => {
+    const rf = makeRootsFake();
+    rf.sessionNotifications = [
+      notification(7, "Build broke", mainRoot),
+      notification(9, "Sidecar outdated", mainRoot),
+    ];
+    const logs: string[] = [];
+    const hooks = await initAt(linkedRoot, rf.fake, logs);
+    await hooks.event!({
+      event: { type: "session.created", properties: { info: { id: "s1" } } },
+    } as never);
+
+    const system = (await runSystemTransform(hooks)).join("\n");
+
+    expect(system).toContain("Build broke");
+    expect(system).toContain("Sidecar outdated");
+    expect(rf.notificationListCalls).toEqual([mainRoot]);
+    expect([...rf.markedRead].sort()).toEqual([7, 9]);
+    // Not merely logged to the TUI panel.
+    expect(logs.join("\n")).not.toContain("Build broke");
+  }, 30_000);
+
+  it("keeps the digest for the rest of the session without re-reading or re-marking", async () => {
+    const rf = makeRootsFake();
+    rf.sessionNotifications = [notification(3, "Build broke", mainRoot)];
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks.event!({
+      event: { type: "session.created", properties: { info: { id: "s1" } } },
+    } as never);
+
+    await runSystemTransform(hooks);
+    const second = (await runSystemTransform(hooks)).join("\n");
+
+    expect(second).toContain("Build broke");
+    expect(rf.notificationListCalls.length).toBe(1);
+    expect(rf.markedRead).toEqual([3]);
+  }, 30_000);
+
+  it("an OLD sidecar without the route (404) is silent: no throw, no digest, nothing marked", async () => {
+    const rf = makeRootsFake();
+    rf.listNotificationsError = new Error("Not found");
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks.event!({
+      event: { type: "session.created", properties: { info: { id: "s1" } } },
+    } as never);
+
+    const system = (await runSystemTransform(hooks)).join("\n");
+
+    expect(system).not.toContain("Sentinal notifications");
+    expect(rf.markedRead).toEqual([]);
   }, 30_000);
 
   // ── TDD tracking carries the canonical IDENTITY through every hop ──────────

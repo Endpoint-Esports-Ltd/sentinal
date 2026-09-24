@@ -13,7 +13,7 @@
 import type { QualityCheckResult } from "./quality-routes.js";
 import type { SpecMetricsData } from "./spec-routes.js";
 import type { Spec } from "../spec/types.js";
-import type { TddCycle, SpecEvent } from "../memory/types.js";
+import type { TddCycle, SpecEvent, Notification } from "../memory/types.js";
 import type { ResolvedWorktree } from "../worktree/types.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -373,6 +373,24 @@ export abstract class SidecarRoutes {
     installedVersion?: string,
   ): Promise<void> {
     await this.post("/retire", { runningVersion, installedVersion });
+  }
+
+  /**
+   * Unread session-start candidates for `projectPath` plus global-source rows
+   * (GET /notifications/session). Side-effect free. Old sidecars 404.
+   */
+  async listSessionNotifications(
+    projectPath: string,
+    limit: number,
+  ): Promise<Notification[]> {
+    const params = new URLSearchParams({ project: projectPath });
+    params.set("limit", String(limit));
+    return this.get(`/notifications/session?${params}`);
+  }
+
+  /** Mark ONE notification read. There is deliberately no mark-all. */
+  async markNotificationRead(id: number): Promise<void> {
+    await this.post("/notifications/read", { id });
   }
 
   // ─── Quality Checks ──────────────────────────────────────────────────

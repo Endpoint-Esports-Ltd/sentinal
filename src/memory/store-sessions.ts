@@ -244,6 +244,28 @@ export abstract class MemoryStoreSessions {
     return rows.map((r) => this.deserializeNotification(r));
   }
 
+  /**
+   * Unread NULL-project rows from an explicit allow-list of GLOBAL sources
+   * (e.g. sidecar version skew, which affects every project). Newest first.
+   * `getNotifications({projectPath})` deliberately excludes NULL rows, so
+   * this is the only way a project-scoped reader sees a global signal.
+   */
+  getUnreadGlobalNotifications(
+    sources: readonly string[],
+    limit: number,
+  ): Notification[] {
+    if (sources.length === 0) return [];
+    const marks = sources.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notifications
+          WHERE read = 0 AND project_path IS NULL AND source IN (${marks})
+          ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(...sources, limit) as RawNotification[];
+    return rows.map((r) => this.deserializeNotification(r));
+  }
+
   markNotificationRead(id: number): void {
     this.db.prepare("UPDATE notifications SET read = 1 WHERE id = ?").run(id);
   }

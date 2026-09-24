@@ -55,43 +55,19 @@ async function runTddTracker(): Promise<void> {
 }
 
 async function runSessionStart(): Promise<void> {
+  // Body lives in processSessionStart (tested in session-start.test.ts):
+  // session record, then this project's unread notifications (Task 11).
   const { autoStartDashboard } = await import("../../dashboard/lifecycle.js");
-  const { detectAssistant } = await import("../../hooks/session-start.js");
+  const { processSessionStart } = await import("../../hooks/session-start.js");
   const input = await readStdin();
-  const assistant = detectAssistant();
-
-  autoStartSidecar();
   // Pass version so dashboard restarts on binary update
   const { getVersion } = await import("../index.js");
-  await autoStartDashboard(getVersion());
-
-  try {
-    const client = await SidecarClient.connect();
-    if (client) {
-      await client.createSession({
-        id: input.session_id,
-        projectPath: input.cwd,
-        assistant,
-        transcriptPath: input.transcript_path ?? null,
-      });
-      return;
-    }
-  } catch {
-    /* fall back to direct */
-  }
-
-  const { MemoryStore } = await import("../../memory/store.js");
-  const store = new MemoryStore();
-  store.insertSession({
-    id: input.session_id,
-    startTime: Date.now(),
-    endTime: null,
-    projectPath: input.cwd,
-    assistant,
-    summary: null,
-    transcriptPath: input.transcript_path ?? null,
+  await processSessionStart(input, {
+    version: getVersion(),
+    autoStartSidecar,
+    autoStartDashboard,
+    connectSidecar: () => SidecarClient.connect(),
   });
-  store.close();
 }
 
 async function runSessionEnd(): Promise<void> {

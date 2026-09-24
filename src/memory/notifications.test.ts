@@ -215,4 +215,40 @@ describe("MemoryStore — Notifications", () => {
       expect(store.getUnreadNotificationCount()).toBe(2);
     });
   });
+
+  describe("getUnreadGlobalNotifications", () => {
+    it("returns only unread NULL-project rows whose source is listed", () => {
+      store.insertNotification({ type: "warning", title: "Skew", source: "sidecar-retire" });
+      store.insertNotification({ type: "info", title: "Legacy", source: "session-end" });
+      store.insertNotification({ type: "info", title: "NoSource" });
+      store.insertNotification({
+        type: "warning",
+        title: "Scoped",
+        source: "sidecar-retire",
+        projectPath: "/proj-a",
+      });
+      const read = store.insertNotification({
+        type: "warning",
+        title: "ReadSkew",
+        source: "sidecar-retire",
+      });
+      store.markNotificationRead(read.id);
+
+      const rows = store.getUnreadGlobalNotifications(["sidecar-retire"], 10);
+      expect(rows.map((n) => n.title)).toEqual(["Skew"]);
+    });
+
+    it("returns nothing for an empty source list", () => {
+      store.insertNotification({ type: "warning", title: "Skew", source: "sidecar-retire" });
+      expect(store.getUnreadGlobalNotifications([], 10)).toEqual([]);
+    });
+
+    it("honours the limit, newest first", () => {
+      for (let i = 0; i < 4; i++) {
+        store.insertNotification({ type: "info", title: `S${i}`, source: "s" });
+      }
+      const rows = store.getUnreadGlobalNotifications(["s"], 2);
+      expect(rows).toHaveLength(2);
+    });
+  });
 });
