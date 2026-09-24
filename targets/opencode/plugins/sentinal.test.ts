@@ -412,8 +412,15 @@ describe("tool.execute hooks (SDK-true shapes)", () => {
       afterOutput({ output: "build success", metadata: { exit: 0 } }) as never,
     );
 
-    expect(await until(() => calls.observations.length > 0)).toBe(true);
-    expect(calls.observations[0]!.title).toBe("Build/lint issue resolved");
+    // The exit-1 run is ALSO captured as an `auto-capture-failure` error
+    // observation (Task 14); this test is about the heuristic capture only.
+    const heuristic = () =>
+      calls.observations.filter(
+        (o) =>
+          (o.metadata as Record<string, unknown>)?.source === "auto-capture",
+      );
+    expect(await until(() => heuristic().length > 0)).toBe(true);
+    expect(heuristic()[0]!.title).toBe("Build/lint issue resolved");
   }, 30_000);
 
   it("memory capture does NOT treat a non-zero metadata.exit as success", async () => {
@@ -444,9 +451,15 @@ describe("tool.execute hooks (SDK-true shapes)", () => {
       afterOutput({ output: "build success", metadata: { exit: 1 } }) as never,
     );
 
-    // Bounded wait: the capture must never fire when exit says failure.
+    // Bounded wait: the heuristic capture must never fire when exit says
+    // failure. (Both runs ARE failure-captured as `auto-capture-failure`.)
     await new Promise((r) => setTimeout(r, 300));
-    expect(calls.observations.length).toBe(0);
+    expect(
+      calls.observations.filter(
+        (o) =>
+          (o.metadata as Record<string, unknown>)?.source === "auto-capture",
+      ),
+    ).toHaveLength(0);
   }, 30_000);
 
   it("memory capture degrades gracefully when metadata carries no exit info", async () => {
@@ -589,6 +602,10 @@ describe("worktree-aware project roots", () => {
     markedRead: number[];
     /** When set, listSessionNotifications rejects (e.g. an old sidecar 404). */
     listNotificationsError: Error | null;
+    /** Every payload passed to addObservation. */
+    observations: Array<Record<string, unknown>>;
+    /** When set, addObservation rejects (drives the offline-queue fallback). */
+    addObservationError: Error | null;
   }
 
   function makeRootsFake(): RootsFake {
@@ -603,6 +620,8 @@ describe("worktree-aware project roots", () => {
       notificationListCalls: [] as string[],
       markedRead: [] as number[],
       listNotificationsError: null as Error | null,
+      observations: [] as Array<Record<string, unknown>>,
+      addObservationError: null as Error | null,
     };
     const fake = {
       createSession: async (s: { projectPath: string }) => {
@@ -620,7 +639,11 @@ describe("worktree-aware project roots", () => {
         return { count: 0 };
       },
       listActiveTddStates: async () => rf.activeCycles,
-      addObservation: async () => {},
+      addObservation: async (obs: Record<string, unknown>) => {
+        if (rf.addObservationError) throw rf.addObservationError;
+        rf.observations.push(obs);
+        return { id: rf.observations.length };
+      },
       memorySearch: async () => [],
       getActiveSessions: async () => [],
       restoreContext: async () => ({ hasMemory: false, markdown: "" }),
@@ -685,6 +708,15 @@ describe("worktree-aware project roots", () => {
       },
       set listNotificationsError(v) {
         rf.listNotificationsError = v;
+      },
+      get observations() {
+        return rf.observations;
+      },
+      get addObservationError() {
+        return rf.addObservationError;
+      },
+      set addObservationError(v) {
+        rf.addObservationError = v;
       },
     };
   }
@@ -961,4 +993,336 @@ describe("worktree-aware project roots", () => {
       rmSync(logDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  // ── Failure capture (Task 14) ──────────────────────────────────────────────
+  // Bash non-zero exits arrive on tool.execute.after; thrown tool failures
+  // never do — they arrive ONLY as a `message.part.updated` event whose tool
+  // part ends in `state.status === "error"` (Task 8 spike, OpenCode 1.18.32).
+  describe("failure capture → error observations", () => {
+    let pendingSpy: ReturnType<typeof spyOn>;
+    let enqueueSpy: ReturnType<typeof spyOn>;
+    const enqueued: Array<Record<string, unknown>> = [];
+
+    beforeAll(() => {
+      pendingSpy = spyOn(ObservationQueue, "pending").mockReturnValue(0);
+      enqueueSpy = spyOn(ObservationQueue, "enqueue").mockImplementation(((
+        obs: Record<string, unknown>,
+      ) => {
+        enqueued.push(obs);
+      }) as never);
+    });
+
+    afterAll(() => {
+      pendingSpy.mockRestore();
+      enqueueSpy.mockRestore();
+    });
+
+    async function until(cond: () => boolean, ms = 2000): Promise<boolean> {
+      const start = Date.now();
+      while (!cond() && Date.now() - start < ms) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return cond();
+    }
+
+    /** Let fire-and-forget work settle when asserting that NOTHING happened. */
+    const settle = () => new Promise((r) => setTimeout(r, 150));
+
+    const failures = (obs: Array<Record<string, unknown>>) =>
+      obs.filter(
+        (o) =>
+          (o.metadata as Record<string, unknown> | undefined)?.source ===
+          "auto-capture-failure",
+      );
+
+    const SECRET = "hunter2-SECRET-TOKEN-9f3a";
+
+    async function runBash(
+      hooks: Record<string, (...a: never[]) => Promise<unknown>>,
+      command: string,
+      output: string,
+      exit: number | null,
+      callID = "call_bash_1",
+    ) {
+      await hooks["tool.execute.after"]!(
+        {
+          tool: "bash",
+          sessionID: "ses_fx",
+          callID,
+          args: { command },
+        } as never,
+        { title: command, output, metadata: { exit } } as never,
+      );
+    }
+
+    // Shape captured verbatim by the Task 8 spike (ids shortened).
+    function errorPart(
+      over: {
+        id?: string;
+        callID?: string;
+        tool?: string;
+        status?: string;
+        input?: Record<string, unknown>;
+        error?: string;
+        metadata?: Record<string, unknown>;
+      } = {},
+    ) {
+      return {
+        event: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_fx",
+            part: {
+              id: over.id ?? "prt_01JFX0000000000000000EDIT",
+              sessionID: "ses_fx",
+              messageID: "msg_01JFX00000000000000000000",
+              type: "tool",
+              callID: over.callID ?? "call_edit_1",
+              tool: over.tool ?? "edit",
+              state: {
+                status: over.status ?? "error",
+                input: over.input ?? {
+                  filePath: join(linkedRoot, "src", "widget.ts"),
+                  oldString: "const a = 1;",
+                  newString: "const a = 2;",
+                },
+                error:
+                  over.error ??
+                  "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
+                ...(over.metadata ? { metadata: over.metadata } : {}),
+                time: { start: 1727180000000, end: 1727180000100 },
+              },
+            },
+            time: 1727180000100,
+          },
+        },
+      } as never;
+    }
+
+    function assertNoRawText(obs: Record<string, unknown>, raw: string) {
+      const meta = JSON.stringify(obs.metadata ?? {});
+      const tags = JSON.stringify(obs.tags ?? []);
+      expect(meta).not.toContain(raw);
+      expect(tags).not.toContain(raw);
+    }
+
+    // ── bash half ─────────────────────────────────────────────────────────
+
+    it("a non-zero bash exit → one error observation, canonical project, signature metadata", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      const out = `error: Cannot find module 'left-pad' (auth ${SECRET})`;
+
+      await runBash(hooks, "node scripts/build.mjs", out, 3);
+
+      expect(await until(() => failures(rf.observations).length > 0)).toBe(
+        true,
+      );
+      await settle();
+      const got = failures(rf.observations);
+      expect(got).toHaveLength(1);
+      const o = got[0];
+      expect(o.type).toBe("error");
+      expect(o.projectPath).toBe(mainRoot);
+      const meta = o.metadata as Record<string, unknown>;
+      expect(meta.signature).toMatch(/^[0-9a-f]{40}$/);
+      expect(meta.toolName).toBe("bash");
+      expect(meta.exitCode).toBe(3);
+      expect(String(o.content)).toContain("Cannot find module");
+      assertNoRawText(o, SECRET);
+      assertNoRawText(o, "Cannot find module");
+    }, 30_000);
+
+    it("exit 0 → no failure observation", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await runBash(hooks, "node scripts/build.mjs", "error: looks bad", 0);
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("an aborted bash (exit null + abort marker) → no failure observation", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await runBash(
+        hooks,
+        "sleep 60",
+        "partial\n\n<shell_metadata>\nUser aborted the command\n</shell_metadata>",
+        null,
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("an abort marker suppresses capture even when an exit code is present", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await runBash(
+        hooks,
+        "node scripts/build.mjs",
+        "error: boom\n\n<shell_metadata>\nUser aborted the command\n</shell_metadata>",
+        130,
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("a sidecar failure falls back to the offline queue with the same payload", async () => {
+      const rf = makeRootsFake();
+      rf.addObservationError = new Error("sidecar down");
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      enqueued.length = 0;
+
+      await runBash(hooks, "node scripts/build.mjs", "error: TS2304 boom", 2);
+
+      expect(await until(() => failures(enqueued).length > 0)).toBe(true);
+      const q = failures(enqueued)[0];
+      expect(q.type).toBe("error");
+      expect(q.projectPath).toBe(mainRoot);
+      expect((q.metadata as Record<string, unknown>).exitCode).toBe(2);
+    }, 30_000);
+
+    // ── thrown-failure half (message.part.updated) ────────────────────────
+
+    it("an error tool part → one error observation with signature metadata", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+
+      await hooks.event!(errorPart());
+
+      expect(await until(() => failures(rf.observations).length > 0)).toBe(
+        true,
+      );
+      await settle();
+      const got = failures(rf.observations);
+      expect(got).toHaveLength(1);
+      const o = got[0];
+      expect(o.type).toBe("error");
+      expect(o.projectPath).toBe(mainRoot);
+      const meta = o.metadata as Record<string, unknown>;
+      expect(meta.signature).toMatch(/^[0-9a-f]{40}$/);
+      expect(meta.toolName).toBe("edit");
+      expect("exitCode" in meta).toBe(false);
+      expect(String(o.content)).toContain("widget.ts");
+      expect(String(o.content)).toContain("Could not find oldString");
+      assertNoRawText(o, "Could not find oldString");
+    }, 30_000);
+
+    it("the same part.id delivered twice → one observation", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+
+      await hooks.event!(errorPart());
+      await hooks.event!(errorPart());
+
+      await until(() => failures(rf.observations).length > 0);
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(1);
+    }, 30_000);
+
+    it("a repeated callID on DIFFERENT parts is not deduped (callID is not unique)", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+
+      await hooks.event!(errorPart({ id: "prt_A", callID: "call_dup" }));
+      await hooks.event!(
+        errorPart({
+          id: "prt_B",
+          callID: "call_dup",
+          tool: "read",
+          input: { filePath: join(linkedRoot, "missing.ts") },
+          error: `File not found: ${join(linkedRoot, "missing.ts")}`,
+        }),
+      );
+
+      expect(await until(() => failures(rf.observations).length >= 2)).toBe(
+        true,
+      );
+    }, 30_000);
+
+    it("a [Sentinal guard error part → none", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await hooks.event!(
+        errorPart({
+          id: "prt_guard",
+          error:
+            "[Sentinal TDD Guard] Write a failing test before editing src/widget.ts",
+        }),
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("an interrupted part (metadata.interrupted) → none", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await hooks.event!(
+        errorPart({
+          id: "prt_int",
+          tool: "bash",
+          input: { command: "rm -rf build" },
+          error: "Tool execution aborted",
+          metadata: { interrupted: true },
+        }),
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("the user's own permission decisions → none", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await hooks.event!(
+        errorPart({
+          id: "prt_rej",
+          tool: "bash",
+          input: { command: "git push" },
+          error: "The user rejected permission to use this specific tool call.",
+        }),
+      );
+      await hooks.event!(
+        errorPart({
+          id: "prt_rule",
+          tool: "bash",
+          input: { command: "rm -rf /" },
+          error:
+            'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"bash","pattern":"rm *","action":"deny"}]',
+        }),
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("a completed tool part (e.g. a failed bash, which finishes `completed`) → none", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await hooks.event!(
+        errorPart({
+          id: "prt_done",
+          tool: "bash",
+          status: "completed",
+          input: { command: "exit 3" },
+          metadata: { exit: 3 },
+        }),
+      );
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+
+    it("a malformed error event never throws into OpenCode", async () => {
+      const rf = makeRootsFake();
+      const hooks = await initAt(linkedRoot, rf.fake, []);
+      await expect(
+        hooks.event!({
+          event: {
+            type: "message.part.updated",
+            properties: { part: { type: "tool", state: { status: "error" } } },
+          },
+        } as never),
+      ).resolves.toBeUndefined();
+      await settle();
+      expect(failures(rf.observations)).toHaveLength(0);
+    }, 30_000);
+  });
 });

@@ -47,6 +47,10 @@ import {
   TEST_PASS_INDICATORS,
 } from "../../../src/memory/capture.js";
 import type { ToolEvent } from "../../../src/memory/capture.js";
+import {
+  classifyToolFailure,
+  type ToolFailureInput,
+} from "../../../src/memory/tool-failure.js";
 import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
 import { resolveStopDecision } from "../../../src/spec/ownership.js";
 import { processInstructionsLoaded } from "../../../src/hooks/instructions-loaded.js";
@@ -157,11 +161,33 @@ interface PluginHooks {
           parentSessionId?: string;
           title?: string;
         };
+        // `message.part.updated` — the REAL payload observed on OpenCode
+        // 1.18.32 is `{sessionID, part, time}` (Task 8 spike). Typed locally
+        // and loosely on purpose: do not trust the SDK 1.4.7 union.
+        sessionID?: string;
+        part?: EventToolPart;
+        time?: unknown;
       };
       sessionID?: string;
     };
   }) => Promise<void>;
   tool?: Record<string, ToolDefinition>;
+}
+
+/** A message part as delivered on `message.part.updated` (tool parts only read). */
+interface EventToolPart {
+  id?: string;
+  sessionID?: string;
+  messageID?: string;
+  type?: string;
+  callID?: string;
+  tool?: string;
+  state?: {
+    status?: string;
+    input?: Record<string, unknown>;
+    error?: unknown;
+    metadata?: Record<string, unknown>;
+  };
 }
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
@@ -332,6 +358,101 @@ async function sidecarTddTrack(
   }
 }
 
+// ─── Tool-failure capture (D2/D3 of 2026-09-24-orca-support-followups) ──────
+//
+// Two sources, never overlapping (Task 8 spike, OpenCode 1.18.32):
+//   • bash non-zero exits finish `completed` and reach tool.execute.after
+//     with a numeric `metadata.exit`;
+//   • tools that THROW skip tool.execute.after entirely and surface only as a
+//     `message.part.updated` event whose tool part is `state.status: "error"`.
+// ⛔ Only title/content (redacted by the sidecar) may carry error text —
+// metadata and tags hold the signature, tool name and exit code only.
+
+const BASH_TOOLS = ["bash", "shell", "terminal"];
+
+/** OpenCode appends this block to a bash output when the user aborts it. */
+const SHELL_METADATA_RE = /\n*<shell_metadata>[\s\S]*?<\/shell_metadata>\s*$/;
+const SHELL_ABORT_RE =
+  /<shell_metadata>[\s\S]*User aborted the command[\s\S]*<\/shell_metadata>\s*$/;
+
+/**
+ * The user's own permission decisions arrive as tool errors, but they are
+ * choices, not failures — never remember them.
+ */
+const USER_PERMISSION_DECISIONS = [
+  "The user rejected permission to use this specific tool call",
+  "The user has specified a rule which prevents you from using this specific tool call",
+];
+
+/** Bound for the seen-part-id set; oldest ids are evicted first. */
+const MAX_SEEN_FAILURE_PARTS = 500;
+
+/**
+ * Map a thrown-failure tool part onto the classifier input, or null when the
+ * part is not a capturable failure (wrong shape, interrupt, permission choice).
+ * The `[Sentinal` guard prefix is left to the classifier (`sentinal-guard`).
+ */
+function failureInputFromPart(part: EventToolPart): ToolFailureInput | null {
+  const state = part.state;
+  if (part.type !== "tool" || state?.status !== "error") return null;
+  if (typeof part.tool !== "string" || part.tool === "") return null;
+  if (typeof state.error !== "string" || state.error.trim() === "") return null;
+  if (state.metadata?.interrupted === true) return null;
+  const error = state.error;
+  if (USER_PERMISSION_DECISIONS.some((p) => error.trimStart().startsWith(p)))
+    return null;
+  if (error.trimStart().startsWith("[Sentinal")) return null;
+
+  const input = state.input ?? {};
+  const pick = (...keys: string[]): string | undefined => {
+    for (const k of keys) {
+      const v = input[k];
+      if (typeof v === "string" && v.trim() !== "") return v;
+    }
+    return undefined;
+  };
+  return {
+    toolName: part.tool,
+    command: pick("command"),
+    filePath: pick("filePath", "file_path", "path"),
+    error,
+  };
+}
+
+/** Build the `error` observation payload from a capturing classification. */
+function failureObservation(
+  sessionId: string,
+  projectPath: string,
+  failure: ToolFailureInput,
+): {
+  sessionId: string;
+  projectPath: string;
+  type: string;
+  title: string;
+  content: string;
+  filePaths?: string[];
+  tags: string[];
+  metadata: Record<string, unknown>;
+} | null {
+  const c = classifyToolFailure(failure);
+  if (!c.capture) return null;
+  return {
+    sessionId,
+    projectPath,
+    type: "error",
+    title: c.title,
+    content: c.content,
+    ...(failure.filePath ? { filePaths: [failure.filePath] } : {}),
+    tags: c.tags,
+    metadata: {
+      source: "auto-capture-failure",
+      signature: c.signature,
+      toolName: failure.toolName,
+      ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}),
+    },
+  };
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 export const SentinalPlugin: Plugin = async ({
@@ -366,6 +487,43 @@ export const SentinalPlugin: Plugin = async ({
   } | null = null;
   let toolCallCount = 0;
   let draining = false;
+  // Thrown-failure parts already handled, keyed by part.id (`prt_…`).
+  // ⛔ Never key on callID: the spike saw one callID repeat across two parts.
+  const seenFailureParts = new Set<string>();
+
+  /** Send via the sidecar; fall back to the offline queue. Never throws. */
+  async function sendObservation(
+    payload: Parameters<typeof ObservationQueue.enqueue>[0],
+  ): Promise<void> {
+    if (sidecar) {
+      try {
+        await sidecar.addObservation(payload);
+        return;
+      } catch {
+        /* fall through to the queue */
+      }
+    }
+    ObservationQueue.enqueue(payload, log);
+  }
+
+  /** Capture a thrown tool failure from a `message.part.updated` event. */
+  async function captureFailedPart(part: EventToolPart): Promise<void> {
+    if (typeof part.id !== "string" || part.id === "") return;
+    if (seenFailureParts.has(part.id)) return;
+    seenFailureParts.add(part.id);
+    if (seenFailureParts.size > MAX_SEEN_FAILURE_PARTS) {
+      const oldest = seenFailureParts.values().next().value;
+      if (oldest !== undefined) seenFailureParts.delete(oldest);
+    }
+    const failure = failureInputFromPart(part);
+    if (!failure) return;
+    const payload = failureObservation(
+      sessionId ?? part.sessionID ?? `opencode-${Date.now()}`,
+      projectIdentity,
+      failure,
+    );
+    if (payload) await sendObservation(payload);
+  }
 
   // Auto-start sidecar (Node.js-compatible spawn)
   try {
@@ -704,7 +862,8 @@ export const SentinalPlugin: Plugin = async ({
             // `metadata.exit` (may be null on abort/timeout — the typeof
             // guard degrades gracefully to !asyncShouldBlock then).
             let eventSuccess = !asyncShouldBlock;
-            if (["bash", "shell", "terminal"].includes(input.tool)) {
+            let failurePayload: ReturnType<typeof failureObservation> = null;
+            if (BASH_TOOLS.includes(input.tool)) {
               const metadata = (output.metadata ?? {}) as Record<
                 string,
                 unknown
@@ -712,6 +871,36 @@ export const SentinalPlugin: Plugin = async ({
               const exitCode =
                 metadata.exit ?? metadata.exitCode ?? metadata.exit_code;
               if (typeof exitCode === "number") eventSuccess = exitCode === 0;
+
+              // Failure capture: a non-zero exit becomes a signed `error`
+              // observation (the sidecar de-duplicates by signature). An
+              // aborted command has exit null and an abort marker — skipped.
+              // Built here, SENT after the heuristic path below: awaiting
+              // before eventBuffer.push would let a later call's event
+              // overtake this one and break error→fix sequencing.
+              if (typeof exitCode === "number" && exitCode !== 0) {
+                try {
+                  const raw =
+                    typeof output.output === "string" ? output.output : "";
+                  const command = args.command;
+                  failurePayload = failureObservation(
+                    sessionId,
+                    projectIdentity,
+                    {
+                      toolName: input.tool,
+                      command:
+                        typeof command === "string" ? command : undefined,
+                      error: raw.replace(SHELL_METADATA_RE, ""),
+                      exitCode,
+                      interrupted: SHELL_ABORT_RE.test(raw),
+                    },
+                  );
+                } catch (e) {
+                  log(
+                    `bash failure capture failed: ${e instanceof Error ? e.message : e}`,
+                  );
+                }
+              }
             }
 
             const event: ToolEvent = {
@@ -741,16 +930,9 @@ export const SentinalPlugin: Plugin = async ({
                   toolName: input.tool,
                 },
               };
-              if (sidecar) {
-                try {
-                  await sidecar.addObservation(obsPayload);
-                } catch {
-                  ObservationQueue.enqueue(obsPayload, log);
-                }
-              } else {
-                ObservationQueue.enqueue(obsPayload, log);
-              }
+              await sendObservation(obsPayload);
             }
+            if (failurePayload) await sendObservation(failurePayload);
           }
         } catch (e) {
           log(
@@ -950,6 +1132,23 @@ export const SentinalPlugin: Plugin = async ({
     },
 
     event: async ({ event }) => {
+      // Thrown tool failures (edit/read/schema errors…) never reach
+      // tool.execute.after — this event is their only signal. Bash failures
+      // always finish `completed`, so they cannot be double-captured here.
+      if (event.type === "message.part.updated") {
+        const part = event.properties?.part;
+        if (part?.type === "tool" && part.state?.status === "error") {
+          try {
+            await captureFailedPart(part);
+          } catch (e) {
+            log(
+              `tool failure capture failed: ${e instanceof Error ? e.message : e}`,
+            );
+          }
+        }
+        return;
+      }
+
       if (event.type === "session.created") {
         // Real session ID lives at event.properties.info.id (OpenCode SDK structure)
         const newSessionId =
