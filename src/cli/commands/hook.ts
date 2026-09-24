@@ -35,23 +35,10 @@ async function runTddGuard(): Promise<void> {
 }
 
 async function runTddTracker(): Promise<void> {
-  const { processTddTracking } = await import("../../hooks/tdd-tracker.js");
-  const input = await readStdin();
-  const toolName = input.tool_name ?? "";
-  const toolInput = input.tool_input ?? {};
-  const bashOutput =
-    toolName === "Bash"
-      ? ((input.tool_response?.output as string) ??
-        (toolInput.output as string) ??
-        undefined)
-      : undefined;
-  await processTddTracking({
-    toolName,
-    filePath: extractFilePath(toolInput),
-    bashOutput,
-    sessionId: input.session_id,
-    cwd: input.cwd,
-  });
+  const { processTddTracking, trackerInputFromHook } =
+    await import("../../hooks/tdd-tracker.js");
+  // Bash text via bashOutputOf (stdout/stderr — CC sends no `output` field).
+  await processTddTracking(trackerInputFromHook(await readStdin()));
 }
 
 async function runSessionStart(): Promise<void> {
@@ -82,6 +69,14 @@ async function runMemoryObserver(): Promise<void> {
     await import("../../hooks/memory-observer.js");
   const input = await readStdin();
   await processMemoryObserver(input);
+}
+
+async function runToolFailureObserver(): Promise<void> {
+  // PostToolUseFailure (async): de-duplicated `error` observation + a
+  // success:false event in the error→fix buffer. Never throws.
+  const { processToolFailure } =
+    await import("../../hooks/tool-failure-observer.js");
+  await processToolFailure(await readStdin());
 }
 
 async function runMemoryRestore(): Promise<void> {
@@ -242,6 +237,7 @@ const SHARED_HOOKS: Record<string, () => Promise<void>> = {
   "session-start": runSessionStart,
   "session-end": runSessionEnd,
   "memory-observer": runMemoryObserver,
+  "tool-failure-observer": runToolFailureObserver,
   "memory-restore": runMemoryRestore,
   "spec-stop-guard": runSpecStopGuard,
   "pre-compact": runPreCompact,

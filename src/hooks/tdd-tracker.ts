@@ -10,10 +10,18 @@
  * State is persisted to SQLite so the tdd-guard PreToolUse hook can read it.
  * This hook is fire-and-forget — errors are silently swallowed.
  *
- * Triggered after: Write, Edit, MultiEdit, Bash
+ * Triggered after: Write, Edit, MultiEdit, Bash (PostToolUse), and Bash
+ * (PostToolUseFailure). On Claude Code a failing test run exits non-zero, so
+ * it arrives ONLY as PostToolUseFailure, with the output in `error`
+ * ("Exit code 1\n…") — without that registration RED could never be confirmed.
+ * The two events are mutually exclusive per call; `bashOutputOf` reads both.
  */
 
-import { readStdin } from "../utils/hook-output.js";
+import {
+  readStdin,
+  bashOutputOf,
+  type HookInput,
+} from "../utils/hook-output.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { isTestFile, getImplPathForTest } from "../utils/tdd.js";
@@ -156,9 +164,13 @@ export async function processTddTracking(
 
 // ─── Claude Code Hook Entry Point ─────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  const input = await readStdin();
-
+/**
+ * Map a Claude Code hook payload to tracker input. Shared by this entry point
+ * and `sentinal hook shared tdd-tracker` (src/cli/commands/hook.ts). Bash text
+ * comes from `bashOutputOf` — CC's Bash `tool_response` has stdout/stderr, not
+ * `output`, and a PostToolUseFailure carries it in `error`.
+ */
+export function trackerInputFromHook(input: HookInput): TddTrackerInput {
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
   const filePath =
@@ -166,23 +178,19 @@ async function main(): Promise<void> {
     (toolInput.filePath as string) ??
     (toolInput.path as string) ??
     undefined;
+  return {
+    toolName,
+    filePath,
+    bashOutput: toolName === "Bash" ? bashOutputOf(input) : undefined,
+    sessionId: input.session_id,
+    cwd: input.cwd,
+  };
+}
 
-  // Bash output is in tool_response.output
-  const bashOutput =
-    toolName === "Bash"
-      ? ((input.tool_response?.output as string) ??
-        (toolInput.output as string) ??
-        undefined)
-      : undefined;
-
+async function main(): Promise<void> {
+  const input = await readStdin();
   try {
-    await processTddTracking({
-      toolName,
-      filePath,
-      bashOutput,
-      sessionId: input.session_id,
-      cwd: input.cwd,
-    });
+    await processTddTracking(trackerInputFromHook(input));
   } catch {
     // TDD tracker failure is non-fatal
   }

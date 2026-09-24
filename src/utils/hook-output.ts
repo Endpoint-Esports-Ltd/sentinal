@@ -6,11 +6,24 @@ export interface HookInput {
   hook_event_name: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  /** PostToolUse only: the tool's output/response */
+  /**
+   * PostToolUse only: the tool's response. Its shape is tool-specific. For
+   * Bash it is `{stdout, stderr, interrupted, isImage, noOutputExpected}` —
+   * there is NO `output` field (kept only for older/synthetic payloads). Read
+   * Bash text through `bashOutputOf()`, never a field directly.
+   */
   tool_response?: {
+    stdout?: string;
+    stderr?: string;
+    interrupted?: boolean;
+    /** Legacy / non-Claude-Code payloads only. */
     output?: string;
     [key: string]: unknown;
   };
+  /** PostToolUse / PostToolUseFailure: id of the tool call */
+  tool_use_id?: string;
+  /** PostToolUseFailure: whether the failure was a user interrupt */
+  is_interrupt?: boolean;
   /** PostToolUse (CC 2.1.119+): duration of the tool call in milliseconds */
   duration_ms?: number;
 
@@ -28,8 +41,12 @@ export interface HookInput {
   /** Active session crons at stop time (CC 2.1.145+) */
   session_crons?: unknown[];
 
-  // ── StopFailure fields ────────────────────────────────────────────────────
-  /** Error type: "rate_limit" | "authentication_failed" | "billing_error" | etc. */
+  // ── StopFailure / PostToolUseFailure fields ───────────────────────────────
+  /**
+   * StopFailure: error type ("rate_limit" | "authentication_failed" | …).
+   * PostToolUseFailure: the failure text — for Bash, `Exit code N` then the
+   * interleaved stdout/stderr (possibly middle-truncated).
+   */
   error?: string;
   /** Human-readable error details, e.g. "429 Too Many Requests" */
   error_details?: string;
@@ -73,6 +90,30 @@ export interface HookInput {
   // ── Effort fields (CC 2.1.133+) ───────────────────────────────────────────
   /** Effort level for the current session: "low" | "medium" | "high" | "xhigh" */
   effort?: { level?: string };
+}
+
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * The text a Claude Code tool call produced, for hooks that inspect Bash output.
+ *
+ * In order: `tool_response.stdout` + `stderr` (the documented Bash shape,
+ * empties skipped, joined by a newline); the legacy `tool_response.output`;
+ * the top-level `error` of a tool event (a `PostToolUseFailure` payload — only
+ * when `tool_name` is set, so a StopFailure's `error: "rate_limit"` is never
+ * mistaken for output); the legacy `tool_input.output`. `undefined` if none.
+ */
+export function bashOutputOf(input: HookInput): string | undefined {
+  const response = input.tool_response;
+  const streams = [response?.stdout, response?.stderr].filter(nonEmpty);
+  if (streams.length > 0) return streams.join("\n");
+  if (nonEmpty(response?.output)) return response.output;
+  if (input.tool_name !== undefined && nonEmpty(input.error))
+    return input.error;
+  const legacyInput = input.tool_input?.output;
+  return nonEmpty(legacyInput) ? legacyInput : undefined;
 }
 
 export interface DenyOutput {

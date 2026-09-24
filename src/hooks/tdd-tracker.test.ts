@@ -13,8 +13,11 @@ import {
   hasTestFailure,
   hasTestPass,
   getImplPathForTest,
+  trackerInputFromHook,
   type TddTrackerInput,
 } from "./tdd-tracker.js";
+import type { HookInput } from "../utils/hook-output.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -257,7 +260,9 @@ describe("processTddTracking records the project (Pre-Mortem 3)", () => {
     return (
       store
         .getRawDb()
-        .prepare("SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL")
+        .prepare(
+          "SELECT COUNT(*) AS n FROM tdd_cycles WHERE project_path IS NULL",
+        )
         .get() as { n: number }
     ).n;
   }
@@ -291,7 +296,11 @@ describe("processTddTracking records the project (Pre-Mortem 3)", () => {
     expect(worktreePath).not.toBe(mainRoot);
     const testFile = join(worktreePath, "src", "foo.test.ts");
 
-    await processTddTracking({ toolName: "Write", filePath: testFile, cwd: worktreePath });
+    await processTddTracking({
+      toolName: "Write",
+      filePath: testFile,
+      cwd: worktreePath,
+    });
 
     const store = openStore();
     const row = store.getTddState(join(worktreePath, "src", "foo.ts"))!;
@@ -305,11 +314,23 @@ describe("processTddTracking records the project (Pre-Mortem 3)", () => {
     const own = join(worktreePath, "src", "own.ts");
     const theirs = "/other/project/src/theirs.ts";
     let store = openStore();
-    store.setTddState({ filePath: own, state: "TEST_WRITTEN", projectPath: mainRoot });
-    store.setTddState({ filePath: theirs, state: "TEST_WRITTEN", projectPath: OTHER });
+    store.setTddState({
+      filePath: own,
+      state: "TEST_WRITTEN",
+      projectPath: mainRoot,
+    });
+    store.setTddState({
+      filePath: theirs,
+      state: "TEST_WRITTEN",
+      projectPath: OTHER,
+    });
     store.close();
 
-    await processTddTracking({ toolName: "Bash", bashOutput: FAIL_OUTPUT, cwd: worktreePath });
+    await processTddTracking({
+      toolName: "Bash",
+      bashOutput: FAIL_OUTPUT,
+      cwd: worktreePath,
+    });
 
     store = openStore();
     expect(store.getTddState(own)!.state).toBe("RED_CONFIRMED");
@@ -325,17 +346,260 @@ describe("processTddTracking records the project (Pre-Mortem 3)", () => {
     const own = join(worktreePath, "src", "own.ts");
     const theirs = "/other/project/src/theirs.ts";
     let store = openStore();
-    store.setTddState({ filePath: own, state: "RED_CONFIRMED", projectPath: mainRoot });
-    store.setTddState({ filePath: theirs, state: "RED_CONFIRMED", projectPath: OTHER });
+    store.setTddState({
+      filePath: own,
+      state: "RED_CONFIRMED",
+      projectPath: mainRoot,
+    });
+    store.setTddState({
+      filePath: theirs,
+      state: "RED_CONFIRMED",
+      projectPath: OTHER,
+    });
     store.close();
 
     // Not PASS_OUTPUT: its "0 fail" matches TEST_FAIL_INDICATORS (/\d+\s+fail/),
     // so the real tracker routes it to the RED branch (pre-existing quirk).
-    await processTddTracking({ toolName: "Bash", bashOutput: "5 pass\nAll tests passed", cwd: worktreePath });
+    await processTddTracking({
+      toolName: "Bash",
+      bashOutput: "5 pass\nAll tests passed",
+      cwd: worktreePath,
+    });
 
     store = openStore();
     expect(store.getTddState(own)).toBeNull();
     expect(store.getTddState(theirs)!.state).toBe("RED_CONFIRMED");
     store.close();
+  }, 30_000);
+});
+
+// ─── Task 10: the hook reads Claude Code's REAL Bash payload ──────────────────
+//
+// Claude Code's Bash tool_response is {stdout, stderr, interrupted, isImage,
+// noOutputExpected}; there is no `output`. Before this, the tracker read
+// `tool_response.output`, so on Claude Code RED/GREEN never fired.
+
+describe("trackerInputFromHook + processTddTracking (real payload shapes)", () => {
+  let tmpDir: string;
+  let savedHome: string | undefined;
+  let project: string;
+  const impl = "/proj/src/widget.ts";
+
+  function openStore(): MemoryStore {
+    return new MemoryStore(join(tmpDir, "home", "memory.db"));
+  }
+
+  function hookInput(extra: Partial<HookInput>): HookInput {
+    return {
+      session_id: "s",
+      transcript_path: "",
+      cwd: tmpDir,
+      permission_mode: "default",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "bun test" },
+      ...extra,
+    };
+  }
+
+  function seed(state: "TEST_WRITTEN" | "RED_CONFIRMED"): void {
+    const store = openStore();
+    store.setTddState({ filePath: impl, state, projectPath: project });
+    store.close();
+  }
+
+  function stateOf(): string | null {
+    const store = openStore();
+    const row = store.getTddState(impl);
+    store.close();
+    return row?.state ?? null;
+  }
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    mkdirSync(join(tmpDir, "home"), { recursive: true });
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = join(tmpDir, "home");
+    project = resolveProjectIdentity(tmpDir);
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("extracts bashOutput from tool_response.stdout/stderr", () => {
+    const t = trackerInputFromHook(
+      hookInput({
+        tool_response: { stdout: "out", stderr: "err", interrupted: false },
+      }),
+    );
+    expect(t.toolName).toBe("Bash");
+    expect(t.bashOutput).toBe("out\nerr");
+    expect(t.cwd).toBe(tmpDir);
+  });
+
+  it("gives non-Bash tools no bashOutput but keeps the file path", () => {
+    const t = trackerInputFromHook(
+      hookInput({
+        tool_name: "Write",
+        tool_input: { file_path: "/proj/src/widget.test.ts" },
+        tool_response: { stdout: "ignored" },
+      }),
+    );
+    expect(t.bashOutput).toBeUndefined();
+    expect(t.filePath).toBe("/proj/src/widget.test.ts");
+  });
+
+  it("a failing run's stdout moves TEST_WRITTEN → RED_CONFIRMED", async () => {
+    seed("TEST_WRITTEN");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          tool_response: {
+            stdout:
+              "src/widget.test.ts:\n(fail) widget > renders\n\n 0 pass\n 1 fail\n 1 expect() calls\n",
+            stderr: "",
+            interrupted: false,
+            isImage: false,
+            noOutputExpected: false,
+          },
+        }),
+      ),
+    );
+    expect(stateOf()).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("a PostToolUseFailure `error` string is recognised as failing", async () => {
+    seed("TEST_WRITTEN");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          hook_event_name: "PostToolUseFailure",
+          tool_use_id: "toolu_01",
+          error:
+            "Exit code 1\nsrc/widget.test.ts:\n(fail) widget > renders\n 0 pass\n 1 fail\n",
+          is_interrupt: false,
+          duration_ms: 900,
+        }),
+      ),
+    );
+    expect(stateOf()).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("a passing run's stdout moves RED_CONFIRMED → cleared (GREEN)", async () => {
+    seed("RED_CONFIRMED");
+    // Realistic jest summary. See the it.failing below for bun's format.
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          tool_response: {
+            stdout:
+              "PASS src/widget.test.ts\nTest Suites: 1 passed, 1 total\nTests:       12 passed, 12 total\n",
+            stderr: "",
+            interrupted: false,
+          },
+        }),
+      ),
+    );
+    expect(stateOf()).toBeNull();
+  }, 30_000);
+
+  it("the legacy {output} shape still reaches the tracker", async () => {
+    seed("TEST_WRITTEN");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({ tool_response: { output: " 0 pass\n 3 fail\n" } }),
+      ),
+    );
+    expect(stateOf()).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  // Regression: a real passing `bun test` ALWAYS prints " 0 fail". The fail
+  // indicator used to be /\d+\s+fail/, so a passing bun run was routed to the
+  // RED branch and GREEN never fired on either target. capture.ts now requires
+  // a non-zero count.
+  it("a real passing bun run moves RED_CONFIRMED → cleared", async () => {
+    seed("RED_CONFIRMED");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          tool_response: {
+            stdout:
+              " 12 pass\n 0 fail\n 30 expect() calls\nRan 12 tests across 1 file. [120.00ms]\n",
+            stderr: "",
+            interrupted: false,
+          },
+        }),
+      ),
+    );
+    expect(stateOf()).toBeNull();
+  }, 30_000);
+
+  // Task 11: hooks.json routes Bash PostToolUseFailure to this tracker too.
+  // PostToolUse (success) and PostToolUseFailure (failure) are mutually
+  // exclusive per call; a TDD cycle sees one of each across its two runs.
+  it("full cycle across both events: failure → RED, then success → cleared", async () => {
+    seed("TEST_WRITTEN");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          hook_event_name: "PostToolUseFailure",
+          error:
+            "Exit code 1\nsrc/widget.test.ts:\n(fail) widget > renders [0.3ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [15.00ms]\n",
+          is_interrupt: false,
+        }),
+      ),
+    );
+    expect(stateOf()).toBe("RED_CONFIRMED");
+
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          tool_response: {
+            stdout: "",
+            stderr:
+              "src/widget.test.ts:\n(pass) widget > renders [0.2ms]\n\n 1 pass\n 0 fail\n 1 expect() calls\nRan 1 test across 1 file. [14.00ms]\n",
+            interrupted: false,
+          },
+        }),
+      ),
+    );
+    expect(stateOf()).toBeNull();
+  }, 30_000);
+
+  it("the same failing run delivered on both events confirms RED once and stays RED", async () => {
+    seed("TEST_WRITTEN");
+    const text = "(fail) widget > renders\n 0 pass\n 2 fail\n";
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({ tool_response: { stdout: text, stderr: "" } }),
+      ),
+    );
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          hook_event_name: "PostToolUseFailure",
+          error: `Exit code 1\n${text}`,
+        }),
+      ),
+    );
+    expect(stateOf()).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("a failing Edit's PostToolUseFailure never touches the cycle", async () => {
+    seed("TEST_WRITTEN");
+    await processTddTracking(
+      trackerInputFromHook(
+        hookInput({
+          hook_event_name: "PostToolUseFailure",
+          tool_name: "Edit",
+          tool_input: { file_path: "/proj/src/widget.ts" },
+          error: "String to replace not found in file. 1 fail",
+        }),
+      ),
+    );
+    expect(stateOf()).toBe("TEST_WRITTEN");
   }, 30_000);
 });

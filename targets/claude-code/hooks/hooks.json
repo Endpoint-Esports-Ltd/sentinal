@@ -121,6 +121,32 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sentinal",
+            "args": ["hook", "shared", "tdd-tracker"],
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "^(Bash|Write|Edit|MultiEdit|Read|Grep|Glob|WebFetch|mcp__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sentinal",
+            "args": ["hook", "shared", "tool-failure-observer"],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

@@ -16,7 +16,7 @@ import {
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { resolveProjectIdentity } from "../project/identity.js";
-import type { HookInput } from "../utils/hook-output.js";
+import { bashOutputOf, type HookInput } from "../utils/hook-output.js";
 
 function extractFilePath(
   toolInput: Record<string, unknown>,
@@ -35,11 +35,8 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
   const filePath = extractFilePath(toolInput);
-  // Use tool_response for actual output (esp. Bash results); fall back to tool_input
-  const rawOutput =
-    (input.tool_response?.output as string) ??
-    (toolInput.output as string) ??
-    undefined;
+  // CC's Bash tool_response is {stdout, stderr, …} — no `output` field.
+  const rawOutput = bashOutputOf(input);
   const event = {
     toolName,
     filePath,

@@ -161,57 +161,67 @@ describe("tool event construction from hook input", () => {
     expect(event.filePath).toBe("src/new-file.ts");
     expect(event.success).toBe(true);
   });
+});
 
-  it("should prefer tool_response output over tool_input output for Bash events", () => {
-    // Simulates the hook input structure from Claude Code
-    const hookInput = {
-      tool_name: "Bash",
-      tool_input: { command: "bun test", output: "bun test" },
-      tool_response: {
-        output:
-          "FAIL src/foo.test.ts\n  1 fail\n  expect(received).toBe(expected)",
-      },
-    };
+// ─── Real Claude Code Bash payloads reach the buffer ─────────────────────────
+//
+// Drives the REAL processMemoryObserver and reads back the event it persisted.
+// Claude Code's Bash tool_response is {stdout, stderr, interrupted, isImage,
+// noOutputExpected} — there is no `output` field (verified in real transcripts).
 
-    // This mirrors the event construction logic in hook.ts runMemoryObserver
-    const rawOutput =
-      (hookInput.tool_response?.output as string) ??
-      (hookInput.tool_input.output as string) ??
-      undefined;
+describe("processMemoryObserver reads Claude Code Bash output", () => {
+  let tmpDir: string;
+  let origConnect: typeof SidecarClient.connect;
 
-    const event: ToolEvent = {
-      toolName: hookInput.tool_name,
-      success: true,
-      output: rawOutput?.slice(0, 2000),
-      timestamp: Date.now(),
-    };
-
-    // Should contain the actual test output, not the command string
-    expect(event.output).toContain("FAIL");
-    expect(event.output).toContain("expect(received)");
-    expect(event.output).not.toBe("bun test");
+  beforeEach(() => {
+    tmpDir = makeTmpDir("sentinal-obs-bash");
+    origConnect = SidecarClient.connect;
+    // Keep the hook off any real sidecar; nothing here should capture anyway.
+    SidecarClient.connect = (async () => ({
+      addObservation: async () => ({ id: 1 }),
+    })) as unknown as typeof SidecarClient.connect;
   });
 
-  it("should fall back to tool_input output when tool_response is absent", () => {
-    const hookInput = {
+  afterEach(() => {
+    SidecarClient.connect = origConnect;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function lastBufferedOutput(
+    toolResponse: Record<string, unknown>,
+  ): Promise<string | undefined> {
+    await processMemoryObserver({
+      session_id: "bash-session",
+      transcript_path: "",
+      cwd: tmpDir,
+      permission_mode: "default",
+      hook_event_name: "PostToolUse",
       tool_name: "Bash",
-      tool_input: { command: "echo hello", output: "hello" },
-      // No tool_response
-    };
+      tool_input: { command: "bun test" },
+      tool_response: toolResponse,
+    });
+    const events = JSON.parse(
+      readFileSync(join(tmpDir, ".sentinal", "event-buffer.json"), "utf-8"),
+    ) as ToolEvent[];
+    return events[events.length - 1].output;
+  }
 
-    const rawOutput =
-      ((hookInput as any).tool_response?.output as string) ??
-      (hookInput.tool_input.output as string) ??
-      undefined;
+  it("captures stdout and stderr from the documented shape", async () => {
+    const output = await lastBufferedOutput({
+      stdout: "src/foo.test.ts:\n 0 pass\n 1 fail\n",
+      stderr: "error: expect(received).toBe(expected)",
+      interrupted: false,
+      isImage: false,
+      noOutputExpected: false,
+    });
+    expect(output).toContain(" 1 fail");
+    expect(output).toContain("expect(received).toBe(expected)");
+    expect(output).not.toBe("bun test");
+  });
 
-    const event: ToolEvent = {
-      toolName: hookInput.tool_name,
-      success: true,
-      output: rawOutput?.slice(0, 2000),
-      timestamp: Date.now(),
-    };
-
-    expect(event.output).toBe("hello");
+  it("still reads the legacy {output} shape", async () => {
+    const output = await lastBufferedOutput({ output: "legacy hello" });
+    expect(output).toBe("legacy hello");
   });
 });
 
@@ -302,14 +312,26 @@ describe("capture-to-storage pipeline", () => {
     expect(stats.totalObservations).toBe(0);
   });
 
+  // Historically this test called the real observer with no stub and asserted
+  // nothing — it was the source of the rows leaked into the user's live DB.
+  // Now `connect` is stubbed to capture the payload, so it never reaches any
+  // sidecar or store, and it asserts what it names.
   it("should include agent_id and duration_ms in observation metadata", async () => {
     const tmpDir = makeTmpDir();
     const sentinalDir = join(tmpDir, ".sentinal");
     mkdirSync(sentinalDir, { recursive: true });
 
-    const dbPath = join(sentinalDir, "test-obs.db");
-    const captureStore = new MemoryStore(dbPath);
-    const captureService = new MemoryService(captureStore);
+    const sent: Array<{ type: string; metadata: Record<string, unknown> }> = [];
+    const origConnect = SidecarClient.connect;
+    SidecarClient.connect = (async () => ({
+      addObservation: async (obs: {
+        type: string;
+        metadata: Record<string, unknown>;
+      }) => {
+        sent.push(obs);
+        return { id: 1 };
+      },
+    })) as unknown as typeof SidecarClient.connect;
 
     // Prime the buffer with an error so the next Edit triggers capture
     const bufferPath = join(sentinalDir, "event-buffer.json");
@@ -339,17 +361,25 @@ describe("capture-to-storage pipeline", () => {
         "I fixed the type error in foo.ts by adjusting the parameter type.",
     };
 
-    // Override MEMORY_ENABLED so processMemoryObserver runs
-    process.env.SENTINAL_MEMORY = "true";
     try {
       await processMemoryObserver(input as any);
     } finally {
-      delete process.env.SENTINAL_MEMORY;
+      SidecarClient.connect = origConnect;
+      rmSync(tmpDir, { recursive: true, force: true });
     }
 
-    // Check if an observation was stored (may or may not capture depending on analyzeEvent)
-    // The key thing is processMemoryObserver is callable and returns void
-    expect(true).toBe(true); // Function ran without throwing
+    // The primed error + this Edit form an error → fix sequence.
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("fix");
+    expect(sent[0].metadata).toMatchObject({
+      source: "auto-capture",
+      agent_id: "agent-abc-123",
+      agent_type: "Explore",
+      duration_ms: 350,
+    });
+    expect(sent[0].metadata.last_assistant_message).toBe(
+      input.last_assistant_message.slice(0, 200),
+    );
   });
 
   it("should sanitize content when storing", () => {
