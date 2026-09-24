@@ -8,9 +8,10 @@ description: |
   or RELEASE ARTIFACT before a release (`bun run pre-release`), (3) a test must
   install Sentinal / spawn opencode|claude / start the sidecar in isolation,
   (4) an E2E test unexpectedly wrote to a real config dir or leaked a process,
-  (5) real-binary Layer B skips/fails on auth ("Not logged in").
+  (5) real-binary Layer B skips/fails on auth ("Not logged in"), (6) you need to
+  observe real OpenCode plugin events or tool errors without credentials.
 author: Claude Code
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Isolated E2E Harness
@@ -29,11 +30,15 @@ A temp `HOME` + these overrides fully isolates everything. `tests/e2e/harness/sa
 already does this — **import it, don't rebuild it**:
 
 ```ts
-import { createSandbox, assertNoRealEscape, snapshotRealDirs } from "./harness/sandbox.ts";
-const sb = createSandbox();            // temp HOME + XDG_CONFIG_HOME + CLAUDE_CONFIG_DIR
-sb.install("opencode");                // sentinal install <target> --bundled, in-sandbox
-sb.run(["hook","shared","spec-stop-guard"], { stdin, cwd: sb.home });
-sb.cleanup();                          // kills sandbox procs (PID-ownership-checked) + rm -rf
+import {
+  createSandbox,
+  assertNoRealEscape,
+  snapshotRealDirs,
+} from "./harness/sandbox.ts";
+const sb = createSandbox(); // temp HOME + XDG_CONFIG_HOME + CLAUDE_CONFIG_DIR
+sb.install("opencode"); // sentinal install <target> --bundled, in-sandbox
+sb.run(["hook", "shared", "spec-stop-guard"], { stdin, cwd: sb.home });
+sb.cleanup(); // kills sandbox procs (PID-ownership-checked) + rm -rf
 ```
 
 Sandbox env (all set by `createSandbox`): `HOME`, `XDG_CONFIG_HOME=$HOME/.config`,
@@ -68,6 +73,7 @@ exit code — a full `opencode run` turn does NOT complete in a fresh sandbox HO
 even with `--pure` (OpenCode limitation, not a Sentinal bug).
 
 Auth facts (verified):
+
 - **OpenCode subscription OAuth is copyable:** `~/.local/share/opencode/auth.json`
   (XDG DATA dir — NOT `~/.config/opencode/`). Copy it into the sandbox and run
   `opencode run "msg" --model anthropic/claude-haiku-4-5` (message is POSITIONAL;
@@ -79,10 +85,41 @@ Auth facts (verified):
   does NOT help — a Linux container has no Keychain either.
 - **Copied creds must be scrubbed in a `finally`** (fault-injection test proves it).
 
+### OpenCode with NO credentials: fake model + `opencode serve`
+
+To observe real plugin behaviour (hooks, events, tool errors) without any auth,
+put a **local fake OpenAI-compatible chat server** behind a custom provider in
+the sandbox `opencode.json`, and have it reply with scripted tool calls chosen
+by a keyword in the prompt. Verified 2026-09-24 on OpenCode 1.18.32 — full turns
+DO complete this way, unlike `opencode run` against a real provider above.
+
+- Launch: `env -i HOME=<tmp> XDG_CONFIG_HOME=… XDG_DATA_HOME=… XDG_STATE_HOME=…
+XDG_CACHE_HOME=… PATH=… opencode serve --port <p>`. Drop inherited
+  `OPENCODE` / `OPENCODE_PID` — they leak from the parent OpenCode session.
+  Confirm from the server log that config loaded only from the temp home.
+- Drive over HTTP: `POST /session/:id/message` (or `prompt_async`), `/abort`,
+  `POST /permission/:id/reply` for ask/reject cases.
+- Probe plugin: `$XDG_CONFIG_HOME/opencode/plugin/<name>.ts`, appending every
+  `event`, `tool.execute.before` and `tool.execute.after` to a JSONL file.
+- The exact custom-provider config was not recorded; take its shape from the
+  installed SDK types (`sentinal-opencode-api-source` §1), not from memory.
+- Record the PIDs you start (serve + fake server) and kill only those.
+
+### Harness facts (fixed 2026-09-24)
+
+- Each sandbox sets `SENTINAL_HOME=<sandbox HOME>/.sentinal` and asserts it
+  stays inside the sandbox. Before that, sandboxes inherited the test runner's
+  temp home and all shared one DB (`spec-workflow.e2e.ts` 0/4 → 3/4).
+- `assertNoRealEscape` hashes all of `~/.sentinal`, so it trips whenever the
+  developer's live sidecar writes — unreliable on a machine with Sentinal running.
+- The TDD guard does not treat `*.spec-e2e.ts` as a test file; set
+  `RED_CONFIRMED` by hand when editing one test-first.
+
 ## Release-artifact gate
 
 `bun run pre-release` builds the current-platform `sentinal-<os>-<arch>` (as the
 release pipeline does), sets `SENTINAL_E2E_BINARY`, and runs the pinned gate.
+
 - `SENTINAL_E2E_BINARY=<path>` overrides the binary the harness runs; `sandbox.ts`
   THROWS if it's set-but-missing (no silent dev fallback). `sb.binaryPath` exposes it.
 - **Version-identity trap:** dev + local-release share `package.json` version, so

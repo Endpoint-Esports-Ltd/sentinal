@@ -8,9 +8,11 @@ description: |
   (V2 plugin, dispose, session.list, event.subscribe) actually exists in the
   installed OpenCode, (3) the self-contained bundle guard fails
   (src/cli/target-assets.test.ts: "bare imports of zod or native externals"),
-  (4) you need the OpenCode CHANGELOG (repo is anomalyco/opencode, not sst).
+  (4) you need the OpenCode CHANGELOG (repo is anomalyco/opencode, not sst),
+  (5) you changed a signature the plugin calls and `bunx tsc --noEmit` /
+  check_diagnostics report nothing, (6) handling tool FAILURES in the plugin.
 author: Claude Code
-version: 1.0.0
+version: 1.1.0
 ---
 
 # OpenCode Plugin/SDK API Sourcing & Bundle Purity
@@ -37,6 +39,7 @@ cat "$SDK/gen/types.gen.d.ts" # Session, McpLocalConfig (timeout field), etc.
 ```
 
 Key facts confirmed this way (installed OpenCode 1.18.3):
+
 - **`PluginInput.client` is the FULL SDK client** (`ReturnType<typeof createOpencodeClient>`),
   not the `app.log`+`session.messages` subset our stub declares. `client.session.list()`
   and `client.event.subscribe()` DO exist.
@@ -69,6 +72,7 @@ sqlite-vec/@xenova), which **crashes OpenCode at load** on machines with
 forbids bare `zod|bun:sqlite|sqlite-vec|@xenova/transformers` in the embedded bundle.
 
 **Gotchas:**
+
 - The guard reads the **embedded asset**, so it only catches a leak **after
   `bun run embed-assets`**. A committed embedded-asset can be STALE and hide a
   leak that a fresh build reintroduces — always re-embed + run the guard after
@@ -80,9 +84,33 @@ forbids bare `zod|bun:sqlite|sqlite-vec|@xenova/transformers` in the embedded bu
 - Keep new plugin-only logic in `src/opencode/*.ts` with imports that DON'T reach
   `src/memory/*`. Inline small constants rather than importing from `memory/types`.
 
+## 4. Type-check the plugin — the project gates can't see it
+
+The root `tsconfig.json` includes only `src/**`, so `bunx tsc --noEmit` and
+`check_diagnostics` are **silent** about `targets/`. A changed `src/` signature
+the plugin calls stays green there (it happened: `sentinal.ts:1235`). Run:
+
+```bash
+.sentinal/skills/sentinal-opencode-api-source/scripts/typecheck-plugin.sh
+```
+
+An out-of-repo tsconfig needs `typeRoots` pointed back at the repo's
+`node_modules` (else `TS2688 bun-types`) and `allowImportingTsExtensions`
+(`sentinal.test.ts` imports `./sentinal.ts`, else `TS5097`). `bun run
+build:opencode` does not type-check either.
+
+## 5. Tool failures (verified on 1.18.32)
+
+Non-zero bash exits reach `tool.execute.after` (`metadata.exit`) and finish
+`completed`. Tools that **throw** skip `tool.execute.after` and surface only as
+`event` → `message.part.updated`, `part.type === "tool"`,
+`part.state.status === "error"`. Real `properties` = `{sessionID, part, time}`
+(not the SDK union). De-duplicate on `part.id`, never `callID`.
+
 ## Verification
 
 ```bash
+.sentinal/skills/sentinal-opencode-api-source/scripts/typecheck-plugin.sh
 bun run embed-assets
 rg -c 'from "bun:sqlite"|memory/store' targets/opencode/dist/sentinal.mjs   # want 0
 bun test src/cli/target-assets.test.ts                                       # guard green

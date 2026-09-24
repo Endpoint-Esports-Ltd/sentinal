@@ -6,9 +6,11 @@ description: |
   while the live CLI dispatcher path stays old, (2) after deploying the
   OpenCode plugin or restarting a session — the plugin can fail to load
   entirely with no visible symptom, (3) a guard/feature "should" be active
-  but isn't blocking/firing, (4) after any sentinal update or install.
+  but isn't blocking/firing, (4) after any sentinal update or install,
+  (5) the user asks "is the new version running?", (6) `/health` reports an
+  older version than `sentinal --version`.
 author: Claude Code
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Live-Path Smoke Verification
@@ -57,6 +59,28 @@ Permanent coverage: `targets/opencode/plugins/sentinal.test.ts` invokes
 
 ### 3. Binary / asset staleness
 
+**"Is the new version running?"** — four parts update independently. Run:
+
+```bash
+.sentinal/skills/sentinal-live-smoke/scripts/check-versions.sh   # exit 0 = all aligned
+```
+
+It compares the binary, the sidecar's `/health`, and the version baked into
+the deployed OpenCode plugin. Known facts behind the answers:
+
+- **`sentinal update` never restarts the sidecar.** A running sidecar only
+  retires itself once no session is active, so during an open session it stays
+  on the old version. Fix: `sentinal sidecar restart` — background by default
+  since 1.39.0; on ≤1.38.0 add `-d`, or the command blocks and Ctrl+C kills
+  the sidecar.
+- **The OpenCode plugin baked the PREVIOUS release's version** in every release
+  from 2026-03-10 to 1.38.0 (release-build ordering). On those releases a
+  "stale" plugin reading is expected, not a failed deploy. Fixed in 1.39.0.
+- A running session keeps its already-loaded plugin; start a **new** session.
+- `cc plugin.json` is hard-coded `0.1.0` — informational only.
+
+Manual equivalents:
+
 ```bash
 sentinal --version                              # matches latest release?
 ls -la ~/.sentinal/bin/sentinal                 # build date sane?
@@ -86,5 +110,7 @@ was in dead `main()`. Fixed in the dispatcher the same hour.
 
 ## References
 
-- Memory #123 (dead-path wiring), #126 (plugin load failure), #124 (stale assets)
+- Memory #123 (dead-path wiring), #126 (plugin load failure), #124 (stale assets),
+  #1561/#1676 (sidecar not restarted by update; plugin version bug)
+- `scripts/check-versions.sh`
 - `src/cli/commands/hook.test.ts`, `targets/opencode/plugins/sentinal.test.ts`
