@@ -185,11 +185,13 @@ export abstract class MemoryStoreSessions {
     source?: string | null;
     specId?: string | null;
     sessionId?: string | null;
+    /** Stored verbatim — callers normalize at the boundary. */
+    projectPath?: string | null;
   }): Notification {
     const result = this.db
       .prepare(
-        `INSERT INTO notifications (type, title, message, source, spec_id, session_id, read, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+        `INSERT INTO notifications (type, title, message, source, spec_id, session_id, project_path, read, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       )
       .run(
         notif.type,
@@ -198,6 +200,7 @@ export abstract class MemoryStoreSessions {
         notif.source ?? null,
         notif.specId ?? null,
         notif.sessionId ?? null,
+        notif.projectPath ?? null,
         Date.now(),
       );
     return this.getNotification(Number(result.lastInsertRowid))!;
@@ -210,17 +213,26 @@ export abstract class MemoryStoreSessions {
     return row ? this.deserializeNotification(row) : null;
   }
 
+  /**
+   * List notifications, newest first. `projectPath` restricts to that project
+   * and excludes NULL-project (pre-V13 / unscoped) rows; omitted → all rows.
+   */
   getNotifications(
     opts: {
       unread?: boolean;
       limit?: number;
       offset?: number;
+      projectPath?: string | null;
     } = {},
   ): Notification[] {
     const clauses: string[] = [];
     const params: SQLQueryBindings[] = [];
     if (opts.unread === true) {
       clauses.push("read = 0");
+    }
+    if (opts.projectPath) {
+      clauses.push("project_path = ?");
+      params.push(opts.projectPath);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     params.push(opts.limit ?? 50, opts.offset ?? 0);
@@ -273,6 +285,7 @@ export abstract class MemoryStoreSessions {
       source: row.source,
       specId: row.spec_id,
       sessionId: row.session_id,
+      projectPath: row.project_path ?? null,
       read: row.read === 1,
       createdAt: row.created_at,
     };

@@ -139,5 +139,80 @@ describe("MemoryStore — Notifications", () => {
     expect(n.source).toBeNull();
     expect(n.specId).toBeNull();
     expect(n.sessionId).toBeNull();
+    expect(n.projectPath).toBeNull();
+  });
+
+  // Task 6 (signals-that-reach-nobody): notifications.project_path (V13).
+  describe("project scoping", () => {
+    it("records the project and returns it", () => {
+      const n = store.insertNotification({
+        type: "warning",
+        title: "Skew",
+        projectPath: "/proj-a",
+      });
+      expect(n.projectPath).toBe("/proj-a");
+    });
+
+    it("filters by project and excludes NULL-project rows", () => {
+      store.insertNotification({
+        type: "info",
+        title: "A",
+        projectPath: "/proj-a",
+      });
+      store.insertNotification({
+        type: "info",
+        title: "B",
+        projectPath: "/proj-b",
+      });
+      store.insertNotification({ type: "info", title: "Legacy" });
+
+      const a = store.getNotifications({ projectPath: "/proj-a" });
+      expect(a.map((n) => n.title)).toEqual(["A"]);
+    });
+
+    it("combines the project filter with unread", () => {
+      const read = store.insertNotification({
+        type: "info",
+        title: "A-read",
+        projectPath: "/proj-a",
+      });
+      store.insertNotification({
+        type: "info",
+        title: "A-unread",
+        projectPath: "/proj-a",
+      });
+      store.insertNotification({
+        type: "info",
+        title: "B-unread",
+        projectPath: "/proj-b",
+      });
+      store.markNotificationRead(read.id);
+
+      const rows = store.getNotifications({
+        unread: true,
+        projectPath: "/proj-a",
+      });
+      expect(rows.map((n) => n.title)).toEqual(["A-unread"]);
+    });
+
+    it("with no project filter returns every row including NULL-project (back-compat)", () => {
+      store.insertNotification({
+        type: "info",
+        title: "A",
+        projectPath: "/proj-a",
+      });
+      store.insertNotification({ type: "info", title: "Legacy" });
+      expect(store.getNotifications()).toHaveLength(2);
+    });
+
+    it("getUnreadNotificationCount stays global", () => {
+      store.insertNotification({
+        type: "info",
+        title: "A",
+        projectPath: "/proj-a",
+      });
+      store.insertNotification({ type: "info", title: "Legacy" });
+      expect(store.getUnreadNotificationCount()).toBe(2);
+    });
   });
 });

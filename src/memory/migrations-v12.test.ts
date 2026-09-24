@@ -82,13 +82,13 @@ describe("Migration V12 — worktrees.slot", () => {
     expect(slot!.type).toBe("INTEGER");
   });
 
-  it("bumps SCHEMA_VERSION to 12", () => {
+  it("records version 12 (SCHEMA_VERSION is at least 12)", () => {
     const d = freshDb();
-    const row = d
-      .prepare("SELECT MAX(version) as version FROM schema_version")
-      .get() as { version: number };
-    expect(DB_CONSTANTS.SCHEMA_VERSION).toBe(12);
-    expect(row.version).toBe(12);
+    expect(DB_CONSTANTS.SCHEMA_VERSION).toBeGreaterThanOrEqual(12);
+    expect(
+      (d.prepare("SELECT version FROM schema_version WHERE version = 12").all() as unknown[])
+        .length,
+    ).toBe(1);
   });
 
   it("is idempotent — re-running runMigrations is a no-op", () => {
@@ -100,7 +100,7 @@ describe("Migration V12 — worktrees.slot", () => {
     const row = d
       .prepare("SELECT MAX(version) as version FROM schema_version")
       .get() as { version: number };
-    expect(row.version).toBe(12);
+    expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
 
     const cols = d.prepare("PRAGMA table_info(worktrees)").all() as Array<{
       name: string;
@@ -220,11 +220,9 @@ describe("Migration V12 — worktrees.slot", () => {
 
   it("does not record version 12 unless BOTH the slot column and the index exist", () => {
     const d = freshDb();
-    const version = (
-      d
-        .prepare("SELECT MAX(version) as version FROM schema_version")
-        .get() as { version: number }
-    ).version;
+    const recorded12 =
+      (d.prepare("SELECT version FROM schema_version WHERE version = 12").all() as unknown[])
+        .length > 0;
 
     const hasCol = (
       d.prepare("PRAGMA table_info(worktrees)").all() as Array<{ name: string }>
@@ -240,11 +238,11 @@ describe("Migration V12 — worktrees.slot", () => {
 
     // If the migration ever bumps to 12 without doing the work, the DB is
     // permanently wedged: the guard skips and the version stops it re-running.
-    if (version >= 12) {
+    if (recorded12) {
       expect(hasCol).toBe(true);
       expect(hasIdx).toBe(true);
     }
-    expect(version).toBe(12);
+    expect(recorded12).toBe(true);
   });
 
   it("does not bump to 12 when the worktrees table is missing", () => {

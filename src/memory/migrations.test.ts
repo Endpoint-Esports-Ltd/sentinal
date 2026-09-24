@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
@@ -240,5 +240,156 @@ describe("runMigrations", () => {
       name: string;
     }>;
     expect(sessCols.some((c) => c.name === "last_active")).toBe(true);
+  });
+});
+
+// ─── V13: tdd_cycles.project_path + notifications.project_path ─────────────
+
+describe("migrateV13", () => {
+  let tmpDir: string;
+  let db: Database;
+  let errSpy: ReturnType<typeof spyOn> | undefined;
+
+  afterEach(() => {
+    errSpy?.mockRestore();
+    errSpy = undefined;
+    db?.close();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const colNames = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    );
+  const version = (): number =>
+    (
+      db.prepare("SELECT MAX(version) as version FROM schema_version").get() as {
+        version: number;
+      }
+    ).version;
+  const indexExists = (name: string): boolean =>
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name=?")
+      .all(name).length === 1;
+
+  /** A v12-shaped DB: V6 notifications + V7 tdd_cycles DDL, no project_path. */
+  function seedV12(opts: { withTdd?: boolean; withNotif?: boolean } = {}): string {
+    const { withTdd = true, withNotif = true } = opts;
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    db.run("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)");
+    db.run("INSERT INTO schema_version (version) VALUES (12)");
+    if (withNotif) {
+      db.run(`CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL,
+        title TEXT NOT NULL, message TEXT, source TEXT, spec_id TEXT,
+        session_id TEXT, read INTEGER DEFAULT 0, created_at INTEGER NOT NULL)`);
+      db.run(
+        "INSERT INTO notifications (type, title, created_at) VALUES ('info', 'old-1', 1), ('warning', 'old-2', 2)",
+      );
+    }
+    if (withTdd) {
+      db.run(`CREATE TABLE tdd_cycles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, file_path TEXT NOT NULL UNIQUE,
+        spec_id TEXT, task_position INTEGER, state TEXT NOT NULL DEFAULT 'IDLE',
+        test_file_path TEXT, last_fail_output TEXT, updated_at INTEGER NOT NULL)`);
+      db.run(`INSERT INTO tdd_cycles (file_path, state, updated_at) VALUES
+        ('/a/x.ts', 'RED_CONFIRMED', 1), ('/b/y.ts', 'TEST_WRITTEN', 2),
+        ('rel/z.ts', 'GREEN_CONFIRMED', 3)`);
+    }
+    return dbPath;
+  }
+
+  it("SCHEMA_VERSION is 13", () => {
+    expect(DB_CONSTANTS.SCHEMA_VERSION).toBe(13);
+  });
+
+  it("adds project_path + index to tdd_cycles and notifications on a fresh DB", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    expect(colNames("tdd_cycles")).toContain("project_path");
+    expect(colNames("notifications")).toContain("project_path");
+    expect(indexExists("idx_tdd_cycles_project")).toBe(true);
+    expect(indexExists("idx_notif_project")).toBe(true);
+    expect(version()).toBe(13);
+  });
+
+  it("migrates a v12 DB: deletes all pre-existing tdd_cycles rows and logs the count (D1)", () => {
+    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const dbPath = seedV12();
+    runMigrations(db, dbPath);
+
+    expect(version()).toBe(13);
+    expect(colNames("tdd_cycles")).toContain("project_path");
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    expect(n.n).toBe(0);
+
+    const logged = errSpy.mock.calls
+      .map((c: unknown[]) => c.join(" "))
+      .join("\n");
+    expect(logged).toContain("V13");
+    expect(logged).toMatch(/deleted 3 pre-existing tdd_cycles rows?/);
+  });
+
+  it("migrates a v12 DB: pre-existing notifications survive with NULL project_path", () => {
+    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const dbPath = seedV12();
+    runMigrations(db, dbPath);
+
+    const rows = db
+      .prepare("SELECT title, project_path FROM notifications ORDER BY id")
+      .all() as Array<{ title: string; project_path: string | null }>;
+    expect(rows).toEqual([
+      { title: "old-1", project_path: null },
+      { title: "old-2", project_path: null },
+    ]);
+  });
+
+  it("new tdd_cycles rows written after V13 are not deleted by a re-run (idempotent)", () => {
+    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const dbPath = seedV12();
+    runMigrations(db, dbPath);
+    db.run(
+      "INSERT INTO tdd_cycles (file_path, state, updated_at, project_path) VALUES ('/p/new.ts', 'RED_CONFIRMED', 9, '/p')",
+    );
+    errSpy.mockClear();
+
+    runMigrations(db, dbPath);
+
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    expect(n.n).toBe(1);
+    expect(version()).toBe(13);
+    expect(colNames("tdd_cycles").filter((c) => c === "project_path")).toHaveLength(1);
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT bump the version when tdd_cycles is missing (guard skips → retries next run)", () => {
+    const dbPath = seedV12({ withTdd: false });
+    runMigrations(db, dbPath);
+    expect(version()).toBe(12);
+    // notifications must not be half-migrated either
+    expect(colNames("notifications")).not.toContain("project_path");
+  });
+
+  it("does NOT bump the version when notifications is missing", () => {
+    const dbPath = seedV12({ withNotif: false });
+    runMigrations(db, dbPath);
+    expect(version()).toBe(12);
+    // tdd rows are untouched when the migration does not apply
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    expect(n.n).toBe(3);
+  });
+
+  it("does not log on a fresh DB (no pre-existing rows)", () => {
+    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+    expect(errSpy).not.toHaveBeenCalled();
   });
 });

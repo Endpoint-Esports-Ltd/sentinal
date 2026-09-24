@@ -178,7 +178,14 @@ export class MemoryStore extends MemoryStoreObservations {
     return row ? this.deserializeTddCycle(row) : null;
   }
 
-  /** Upsert TDD cycle state for a file path. */
+  /**
+   * Upsert TDD cycle state for a file path.
+   *
+   * `projectPath` is stored verbatim — callers normalize at the boundary. On
+   * conflict it follows the same COALESCE rule as the other columns: a supplied
+   * project overwrites (healing a NULL row), an omitted one keeps the recorded
+   * value, so a project-less writer can never un-scope an already-scoped row.
+   */
   setTddState(opts: {
     filePath: string;
     state: TddCycleState;
@@ -186,18 +193,20 @@ export class MemoryStore extends MemoryStoreObservations {
     taskPosition?: number | null;
     testFilePath?: string | null;
     lastFailOutput?: string | null;
+    projectPath?: string | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO tdd_cycles (file_path, spec_id, task_position, state, test_file_path, last_fail_output, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO tdd_cycles (file_path, spec_id, task_position, state, test_file_path, last_fail_output, updated_at, project_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(file_path) DO UPDATE SET
            state = excluded.state,
            spec_id = COALESCE(excluded.spec_id, spec_id),
            task_position = COALESCE(excluded.task_position, task_position),
            test_file_path = COALESCE(excluded.test_file_path, test_file_path),
            last_fail_output = COALESCE(excluded.last_fail_output, last_fail_output),
-           updated_at = excluded.updated_at`,
+           updated_at = excluded.updated_at,
+           project_path = COALESCE(excluded.project_path, project_path)`,
       )
       .run(
         opts.filePath,
@@ -207,6 +216,7 @@ export class MemoryStore extends MemoryStoreObservations {
         opts.testFilePath ?? null,
         opts.lastFailOutput ?? null,
         Date.now(),
+        opts.projectPath ?? null,
       );
   }
 
@@ -220,22 +230,33 @@ export class MemoryStore extends MemoryStoreObservations {
     this.db.prepare("DELETE FROM tdd_cycles WHERE spec_id = ?").run(specId);
   }
 
-  /** List all active (non-IDLE) TDD cycle states, optionally scoped to a spec. */
-  listActiveTddStates(specId?: string | null): TddCycle[] {
-    let rows: RawTddCycle[];
+  /**
+   * List all active (non-IDLE) TDD cycle states, optionally scoped to a spec
+   * and/or a project (ANDed). A project filter excludes NULL-project rows.
+   *
+   * ⛔ With no project this deliberately returns EVERY project's rows: reads
+   * fail OPEN (D6 in docs/plans/2026-09-23-signals-that-reach-nobody.md). The
+   * destructive bulk transition fails CLOSED instead — do not harmonise them.
+   */
+  listActiveTddStates(
+    specId?: string | null,
+    projectPath?: string | null,
+  ): TddCycle[] {
+    const clauses = ["state != 'IDLE'"];
+    const params: string[] = [];
     if (specId) {
-      rows = this.db
-        .prepare(
-          "SELECT * FROM tdd_cycles WHERE spec_id = ? AND state != 'IDLE' ORDER BY updated_at DESC",
-        )
-        .all(specId) as RawTddCycle[];
-    } else {
-      rows = this.db
-        .prepare(
-          "SELECT * FROM tdd_cycles WHERE state != 'IDLE' ORDER BY updated_at DESC",
-        )
-        .all() as RawTddCycle[];
+      clauses.push("spec_id = ?");
+      params.push(specId);
     }
+    if (projectPath) {
+      clauses.push("project_path = ?");
+      params.push(projectPath);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tdd_cycles WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC`,
+      )
+      .all(...params) as RawTddCycle[];
     return rows.map((r) => this.deserializeTddCycle(r));
   }
 
@@ -289,6 +310,7 @@ export class MemoryStore extends MemoryStoreObservations {
       testFilePath: row.test_file_path,
       lastFailOutput: row.last_fail_output,
       updatedAt: row.updated_at,
+      projectPath: row.project_path ?? null,
     };
   }
 

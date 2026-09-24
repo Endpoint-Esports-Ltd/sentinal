@@ -194,6 +194,12 @@ export const NotificationSchema = z.object({
   source: z.string().nullable(),
   specId: z.string().nullable(),
   sessionId: z.string().nullable(),
+  /**
+   * Project the notification belongs to (V13). NULL for pre-V13 rows and for
+   * writers that do not supply one. Optional because a notification may arrive
+   * over the sidecar wire from a pre-V13 sidecar that never sends the field.
+   */
+  projectPath: z.string().nullable().optional(),
   read: z.boolean(),
   createdAt: z.number(),
 });
@@ -208,6 +214,7 @@ export interface RawNotification {
   source: string | null;
   spec_id: string | null;
   session_id: string | null;
+  project_path: string | null;
   read: number;
   created_at: number;
 }
@@ -215,7 +222,7 @@ export interface RawNotification {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 12,
+  SCHEMA_VERSION: 13,
 } as const;
 
 // ─── TDD Cycle Types ──────────────────────────────────────────────────────────
@@ -238,6 +245,12 @@ export interface TddCycle {
   testFilePath: string | null;
   lastFailOutput: string | null;
   updatedAt: number;
+  /**
+   * Project the cycle belongs to (V13). NULL when the writer supplied none.
+   * Optional because cycles also arrive over the sidecar wire (see
+   * `SidecarRoutes.listActiveTddStates`) from a sidecar that may predate V13.
+   */
+  projectPath?: string | null;
 }
 
 export interface RawTddCycle {
@@ -249,6 +262,7 @@ export interface RawTddCycle {
   test_file_path: string | null;
   last_fail_output: string | null;
   updated_at: number;
+  project_path: string | null;
 }
 
 // ─── Spec Event Types ─────────────────────────────────────────────────────────

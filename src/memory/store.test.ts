@@ -630,4 +630,124 @@ describe("MemoryStore", () => {
       expect(setting!.updatedAt).toBeGreaterThanOrEqual(before);
     });
   });
+
+  // Task 6 (signals-that-reach-nobody): tdd_cycles.project_path (V13).
+  describe("TDD cycle project scoping", () => {
+    it("records the project on write and returns it on read", () => {
+      store.setTddState({
+        filePath: "/proj-a/src/a.ts",
+        state: "RED_CONFIRMED",
+        projectPath: "/proj-a",
+      });
+      expect(store.getTddState("/proj-a/src/a.ts")!.projectPath).toBe(
+        "/proj-a",
+      );
+    });
+
+    it("maps a write without a project to null", () => {
+      store.setTddState({ filePath: "/x/y.ts", state: "TEST_WRITTEN" });
+      expect(store.getTddState("/x/y.ts")!.projectPath).toBeNull();
+    });
+
+    it("accepts synthetic (non-existent) project paths verbatim — no normalization in the store", () => {
+      store.setTddState({
+        filePath: "/test/project/f.ts",
+        state: "TEST_WRITTEN",
+        projectPath: "/test/project/",
+      });
+      expect(store.getTddState("/test/project/f.ts")!.projectPath).toBe(
+        "/test/project/",
+      );
+    });
+
+    it("ON CONFLICT: a later write that omits the project keeps the recorded one", () => {
+      store.setTddState({
+        filePath: "/proj-a/src/a.ts",
+        state: "TEST_WRITTEN",
+        projectPath: "/proj-a",
+      });
+      store.setTddState({
+        filePath: "/proj-a/src/a.ts",
+        state: "RED_CONFIRMED",
+      });
+      const row = store.getTddState("/proj-a/src/a.ts")!;
+      expect(row.state).toBe("RED_CONFIRMED");
+      expect(row.projectPath).toBe("/proj-a");
+    });
+
+    it("ON CONFLICT: a later write that supplies a project overwrites it (heals NULL rows)", () => {
+      store.setTddState({ filePath: "/p/f.ts", state: "TEST_WRITTEN" });
+      store.setTddState({
+        filePath: "/p/f.ts",
+        state: "TEST_WRITTEN",
+        projectPath: "/p",
+      });
+      expect(store.getTddState("/p/f.ts")!.projectPath).toBe("/p");
+      store.setTddState({
+        filePath: "/p/f.ts",
+        state: "TEST_WRITTEN",
+        projectPath: "/q",
+      });
+      expect(store.getTddState("/p/f.ts")!.projectPath).toBe("/q");
+    });
+
+    describe("listActiveTddStates project filter", () => {
+      beforeEach(() => {
+        store.setTddState({
+          filePath: "/proj-a/a.ts",
+          state: "RED_CONFIRMED",
+          projectPath: "/proj-a",
+        });
+        store.setTddState({
+          filePath: "/proj-b/b.ts",
+          state: "RED_CONFIRMED",
+          projectPath: "/proj-b",
+        });
+        store.setTddState({ filePath: "/legacy/c.ts", state: "RED_CONFIRMED" });
+        store.setTddState({
+          filePath: "/proj-a/idle.ts",
+          state: "IDLE",
+          projectPath: "/proj-a",
+        });
+      });
+
+      it("with no project returns every active row, including NULL-project (fails OPEN, D6)", () => {
+        const paths = store.listActiveTddStates().map((c) => c.filePath);
+        expect(paths.sort()).toEqual(
+          ["/legacy/c.ts", "/proj-a/a.ts", "/proj-b/b.ts"].sort(),
+        );
+        expect(store.listActiveTddStates(null, null)).toHaveLength(3);
+      });
+
+      it("with a project returns only that project's rows (NULL-project excluded)", () => {
+        const rows = store.listActiveTddStates(null, "/proj-a");
+        expect(rows.map((c) => c.filePath)).toEqual(["/proj-a/a.ts"]);
+        expect(rows[0].projectPath).toBe("/proj-a");
+      });
+
+      it("combines spec and project filters with AND", () => {
+        // tdd_cycles.spec_id is an FK to specs(id).
+        store.getRawDb().run(
+          `INSERT INTO specs (id, project_path, title, slug, type, status, plan_file, created_at, updated_at)
+             VALUES ('s1', '/proj-a', 'T', 't', 'feature', 'PENDING', '/plan.md', 1, 1)`,
+        );
+        store.setTddState({
+          filePath: "/proj-a/spec.ts",
+          state: "TEST_WRITTEN",
+          specId: "s1",
+          projectPath: "/proj-a",
+        });
+        store.setTddState({
+          filePath: "/proj-b/spec.ts",
+          state: "TEST_WRITTEN",
+          specId: "s1",
+          projectPath: "/proj-b",
+        });
+        expect(
+          store.listActiveTddStates("s1", "/proj-a").map((c) => c.filePath),
+        ).toEqual(["/proj-a/spec.ts"]);
+        expect(store.listActiveTddStates("s1")).toHaveLength(2);
+      });
+    });
+  });
 });
