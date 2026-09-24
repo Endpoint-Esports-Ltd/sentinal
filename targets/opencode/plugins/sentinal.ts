@@ -1222,18 +1222,15 @@ export const SentinalPlugin: Plugin = async ({
     // ─── compaction.autocontinue ───────────────────────────────────────────
     // Fires after compaction completes. Pause if TDD is RED; inject spec
     // resume directive if a spec is active. Experimental — wrap in try/catch.
-    //
-    // ⚠️ handleCompactionAutocontinue takes ONE path and uses it for BOTH a
-    // storage lookup (getCurrentSpec) and an on-disk prefix filter
-    // (cycle.filePath.startsWith). Identity is correct for the lookup; in a
-    // linked worktree the prefix filter under-matches, so the RED-state pause
-    // degrades to "continue". Splitting that signature is out of scope here.
+    // Both roots are passed: WORKSPACE filters TDD cycles on disk (this
+    // checkout's RED files), IDENTITY keys the spec lookup. They differ in
+    // any linked worktree and must not be swapped.
     "compaction.autocontinue": async (_input, output) => {
       try {
-        const result = await handleCompactionAutocontinue(
-          sidecar,
-          projectIdentity,
-        );
+        const result = await handleCompactionAutocontinue(sidecar, {
+          identity: projectIdentity,
+          workspace: projectWorkspace,
+        });
         if (!result.shouldContinue) output.continue = false;
         result.context.forEach((c) => output.context.push(c));
       } catch (e) {

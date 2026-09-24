@@ -573,11 +573,16 @@ describe("worktree-aware project roots", () => {
     fake: SidecarClient;
     createdProjectPaths: string[];
     currentSpecProjects: string[];
+    /** Rows returned by listActiveTddStates (compaction's disk filter input). */
+    activeCycles: Array<{ filePath: string; state: string }>;
   }
 
   function makeRootsFake(): RootsFake {
     const createdProjectPaths: string[] = [];
     const currentSpecProjects: string[] = [];
+    const rf = {
+      activeCycles: [] as Array<{ filePath: string; state: string }>,
+    };
     const fake = {
       createSession: async (s: { projectPath: string }) => {
         createdProjectPaths.push(s.projectPath);
@@ -587,6 +592,7 @@ describe("worktree-aware project roots", () => {
       getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
       setTddState: async () => {},
       tddTransition: async () => ({ count: 0 }),
+      listActiveTddStates: async () => rf.activeCycles,
       addObservation: async () => {},
       memorySearch: async () => [],
       getActiveSessions: async () => [],
@@ -597,10 +603,17 @@ describe("worktree-aware project roots", () => {
       },
       isSessionAlive: async () => false,
     };
+    // Getters/setters over `rf` so tests can mutate after construction.
     return {
       fake: fake as unknown as SidecarClient,
       createdProjectPaths,
       currentSpecProjects,
+      get activeCycles() {
+        return rf.activeCycles;
+      },
+      set activeCycles(v) {
+        rf.activeCycles = v;
+      },
     };
   }
 
@@ -663,5 +676,45 @@ describe("worktree-aware project roots", () => {
     await hooks.event!({ event: { type: "session.idle" } } as never);
 
     expect(logs.some((m) => m.includes("IN_PROGRESS"))).toBe(true);
+  }, 30_000);
+
+  // ── compaction.autocontinue: workspace for the disk filter, identity for the key ──
+
+  async function runAutocontinue(
+    hooks: Record<string, (...a: never[]) => Promise<unknown>>,
+  ): Promise<{ continue: boolean; context: string[] }> {
+    const output = { continue: true, context: [] as string[] };
+    await hooks["compaction.autocontinue"]!(
+      { sessionID: "s1" } as never,
+      output as never,
+    );
+    return output;
+  }
+
+  it("compaction.autocontinue PAUSES on a RED cycle under the LOCAL worktree", async () => {
+    const rf = makeRootsFake();
+    rf.activeCycles = [
+      { filePath: join(linkedRoot, "src", "foo.ts"), state: "RED_CONFIRMED" },
+    ];
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+
+    const out = await runAutocontinue(hooks);
+
+    expect(out.continue).toBe(false);
+    expect(out.context.join("\n")).toContain("RED");
+  }, 30_000);
+
+  it("compaction.autocontinue ignores a RED cycle in ANOTHER checkout and keys the spec lookup by IDENTITY", async () => {
+    const rf = makeRootsFake();
+    rf.activeCycles = [
+      { filePath: join(mainRoot, "src", "foo.ts"), state: "RED_CONFIRMED" },
+    ];
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    rf.currentSpecProjects.length = 0;
+
+    const out = await runAutocontinue(hooks);
+
+    expect(out.continue).toBe(true);
+    expect(rf.currentSpecProjects).toEqual([mainRoot]);
   }, 30_000);
 });
