@@ -24,9 +24,10 @@ export function runMigrations(db: Database, dbPath: string): void {
   const currentVersion = row?.version ?? 0;
 
   // Backup before applying migrations (skip for fresh databases)
+  let backupPath: string | null = null;
   if (currentVersion > 0 && currentVersion < DB_CONSTANTS.SCHEMA_VERSION) {
     try {
-      backupDatabase(dbPath);
+      backupPath = backupDatabase(dbPath);
     } catch {
       // Backup failure should not block migration
     }
@@ -44,7 +45,7 @@ export function runMigrations(db: Database, dbPath: string): void {
   if (currentVersion < 10) migrateV10(db);
   if (currentVersion < 11) migrateV11(db);
   if (currentVersion < 12) migrateV12(db);
-  if (currentVersion < 13) migrateV13(db);
+  if (currentVersion < 13) migrateV13(db, backupPath);
 }
 
 // ─── V13: project_path on tdd_cycles + notifications ─────────────────────────
@@ -75,7 +76,7 @@ const hasSqliteObject = (db: Database, type: string, name: string): boolean =>
  * Follows migrateV12, NOT migrateV11: the version is recorded only once every
  * artifact verifiably exists, so a skipped guard retries on the next run.
  */
-function migrateV13(db: Database): void {
+function migrateV13(db: Database, backupPath: string | null): void {
   if (!hasSqliteObject(db, "table", "tdd_cycles")) return;
   if (!hasSqliteObject(db, "table", "notifications")) return;
 
@@ -100,7 +101,8 @@ function migrateV13(db: Database): void {
 
   if (deleted > 0) {
     console.error(
-      `[sentinal] migration V13: deleted ${deleted} pre-existing tdd_cycles row(s) with no project_path (D1)`,
+      `[sentinal] database upgraded to schema v13: cleared ${deleted} TDD cycle record(s) from before per-project tracking — TDD state restarts for those files. ` +
+        (backupPath ? `Backup: ${backupPath}` : "(backup unavailable)"),
     );
   }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import { runMigrations } from "./migrations.js";
 import { DB_CONSTANTS } from "./types.js";
@@ -258,12 +258,14 @@ describe("migrateV13", () => {
   });
 
   const colNames = (table: string): string[] =>
-    (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
-      (c) => c.name,
-    );
+    (
+      db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    ).map((c) => c.name);
   const version = (): number =>
     (
-      db.prepare("SELECT MAX(version) as version FROM schema_version").get() as {
+      db
+        .prepare("SELECT MAX(version) as version FROM schema_version")
+        .get() as {
         version: number;
       }
     ).version;
@@ -273,7 +275,9 @@ describe("migrateV13", () => {
       .all(name).length === 1;
 
   /** A v12-shaped DB: V6 notifications + V7 tdd_cycles DDL, no project_path. */
-  function seedV12(opts: { withTdd?: boolean; withNotif?: boolean } = {}): string {
+  function seedV12(
+    opts: { withTdd?: boolean; withNotif?: boolean } = {},
+  ): string {
     const { withTdd = true, withNotif = true } = opts;
     tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, "test.db");
@@ -325,14 +329,39 @@ describe("migrateV13", () => {
 
     expect(version()).toBe(13);
     expect(colNames("tdd_cycles")).toContain("project_path");
-    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as {
+      n: number;
+    };
     expect(n.n).toBe(0);
 
     const logged = errSpy.mock.calls
       .map((c: unknown[]) => c.join(" "))
       .join("\n");
-    expect(logged).toContain("V13");
-    expect(logged).toMatch(/deleted 3 pre-existing tdd_cycles rows?/);
+    expect(logged).toContain("[sentinal] database upgraded to schema v13");
+    expect(logged).toContain(
+      "cleared 3 TDD cycle record(s) from before per-project tracking",
+    );
+    expect(logged).toContain("TDD state restarts for those files");
+    // Names the backup that runMigrations took before migrating.
+    expect(logged).toContain(`Backup: ${dbPath}.bak`);
+    expect(existsSync(`${dbPath}.bak`)).toBe(true);
+    // No internal plan labels or raw column names leak to the user.
+    expect(logged).not.toContain("(D1)");
+    expect(logged).not.toContain("project_path");
+  });
+
+  it("says '(backup unavailable)' when no backup could be taken", () => {
+    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    seedV12();
+    // ":memory:" makes backupDatabase return null (nothing on disk to copy).
+    runMigrations(db, ":memory:");
+
+    const logged = errSpy.mock.calls
+      .map((c: unknown[]) => c.join(" "))
+      .join("\n");
+    expect(logged).toContain("cleared 3 TDD cycle record(s)");
+    expect(logged).toContain("(backup unavailable)");
+    expect(logged).not.toContain("Backup: ");
   });
 
   it("migrates a v12 DB: pre-existing notifications survive with NULL project_path", () => {
@@ -360,10 +389,14 @@ describe("migrateV13", () => {
 
     runMigrations(db, dbPath);
 
-    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as {
+      n: number;
+    };
     expect(n.n).toBe(1);
     expect(version()).toBe(13);
-    expect(colNames("tdd_cycles").filter((c) => c === "project_path")).toHaveLength(1);
+    expect(
+      colNames("tdd_cycles").filter((c) => c === "project_path"),
+    ).toHaveLength(1);
     expect(errSpy).not.toHaveBeenCalled();
   });
 
@@ -380,7 +413,9 @@ describe("migrateV13", () => {
     runMigrations(db, dbPath);
     expect(version()).toBe(12);
     // tdd rows are untouched when the migration does not apply
-    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as { n: number };
+    const n = db.prepare("SELECT COUNT(*) AS n FROM tdd_cycles").get() as {
+      n: number;
+    };
     expect(n.n).toBe(3);
   });
 
