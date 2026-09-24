@@ -1,3 +1,22 @@
+# [1.39.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.38.0...v1.39.0) (2026-09-24)
+
+
+### Bug Fixes
+
+* **build:** bake the release version into the OpenCode plugin ([26b97a2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/26b97a24159ca6e15dcb5f8479ac844c7007ee4e))
+* **cli:** restart the sidecar in the background, detached ([da609b4](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/da609b4ce162a900c4a3cb927c84cfd83ff9e9c5))
+* **hooks:** read Claude Code's real Bash output and capture failed tool calls ([d022e04](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d022e043d3369ed9ba43cd30ec9482c6a9780add))
+* **memory:** make the V13 migration message readable and name the backup ([7a311ea](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7a311ea15924a7604994ef3872d08e9bd377bb4f))
+* **tdd:** stop reading a passing test run's " 0 fail" as a failure ([387ee0f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/387ee0ffb406bda2378a5fb7890dbc3e99e71bf8))
+* **worktree:** create spec worktrees under the main checkout from any checkout ([d040680](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d04068005e60fe3d9fda69b32e4e7d703fb7c7d3))
+
+
+### Features
+
+* **cli:** warn after an update when the running sidecar is older ([e40bba1](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e40bba12a5c9a3afbeca36f239e4f197f75751f8))
+* **memory:** classify tool failures and de-duplicate error observations ([4ee0594](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4ee0594a96622b6157c239c5a1ef3dc238df2ab9))
+* **opencode:** capture failed tool calls as error observations ([3f96f52](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/3f96f52fbd6618a41cbd7c58537df56a24c62da3))
+
 # [1.38.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.37.1...v1.38.0) (2026-09-24)
 
 
