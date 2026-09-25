@@ -12,10 +12,12 @@ oc=$(grep -o 'return "[0-9][0-9.]*";' "$HOME/.config/opencode/plugins/sentinal.m
 ccver=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
      "$HOME/.claude/plugins/sentinal-marketplace/plugins/sentinal/.claude-plugin/plugin.json" 2>/dev/null | head -1)
 row() { printf '%-22s %-10s %s\n' "$1" "${2:-<none>}" "$3"; }
-bad=0; mark() { [ "$1" = "$want" ] && echo ok || { bad=1; echo "$2"; }; }
+# mark() runs inside $(...) — a subshell — so it cannot set `bad`; the check
+# after each row does.
+bad=0; mark() { [ "$1" = "$want" ] && echo ok || echo "$2"; }
 row "binary"          "$want" "(reference)"
-row "sidecar (pid ${spid:-?})" "$side" "$(mark "$side" '<- restart: sentinal sidecar restart')"
-row "opencode plugin" "$oc"   "$(mark "$oc" '<- redeploy: sentinal update --reinstall-plugins; then start a NEW session')"
+row "sidecar (pid ${spid:-?})" "$side" "$(mark "$side" '<- restart: sentinal sidecar restart')"; [ "$side" = "$want" ] || bad=1
+row "opencode plugin" "$oc"   "$(mark "$oc" '<- redeploy: sentinal update --reinstall-plugins; then start a NEW session')"; [ "$oc" = "$want" ] || bad=1
 row "cc plugin.json"  "$ccver" "(informational: hard-coded, not bumped per release)"
 [ "$bad" = 0 ] && echo "ALL RUNNING $want" || echo "MISMATCH — processes keep serving old code until restarted"
 exit $bad

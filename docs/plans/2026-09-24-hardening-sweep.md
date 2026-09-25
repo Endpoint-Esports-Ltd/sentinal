@@ -193,8 +193,16 @@ Type: Bugfix
 ## Verification (2026-09-25)
 
 - Full suite 3,953 pass / 0 fail; `bunx tsc --noEmit` clean; plugin graph type-checks; `bunx eslint .` 0 errors / 0 warnings; OpenCode bundle guard green; `spec-workflow.e2e.ts` + harness self-tests 40 / 0 against HEAD source (no `dist/sentinal`).
-- Truths: 1 (argv tests, Task 5) ✅ · 2 (eslint clean) ✅ · 3 (SENTINAL_HOME test) ✅ · 4 (raw-alias Stop ALLOW, unit + e2e) ✅ · 5 (two rows per same-named plan; V14 test + real-DB rehearsal) ✅ · 6 (linked-worktree `/context`) ✅ · 7 (no fix after passing run; 10 → 1 row) ✅ · 8 (splits < 400, exports unchanged) ✅ · 9 (DB cleanup) ⏳ Task 18, after deploy.
+- Truths: 1 (argv tests, Task 5) ✅ · 2 (eslint clean) ✅ · 3 (SENTINAL_HOME test) ✅ · 4 (raw-alias Stop ALLOW, unit + e2e) ✅ · 5 (two rows per same-named plan; V14 test + real-DB rehearsal) ✅ · 6 (linked-worktree `/context`) ✅ · 7 (no fix after passing run; 10 → 1 row) ✅ · 8 (splits < 400, exports unchanged) ✅ · 9 (DB cleanup) ✅ Task 18.
 - Fix/preservation pairs: every fix has its negative case (blank project = all projects; identity-only `/context` unchanged; manual observations never deduped; genuinely different content not collapsed; ambiguous slug refused; other project's same-slug row untouched; exit-0 error text not an error; old clients without new params).
+
+## Task 18 — applied 2026-09-25 (after v1.39.1 deploy + sidecar restart)
+
+- Backups: `~/.sentinal/memory.db.pre-task18-20260925-135839`, `…pre-task18-apply-20260925-143014`. Dry run and an `--apply` rehearsal on copies first; user approved the counts.
+- Deleted 240 false "Fixed issue" rows: 120 passing test runs, 111 `.md`/`docs/` "fixes", 9 empty/`(no output)`. Merged 418 exact duplicates into 139 keepers (`occurrences`, `lastSeen`, `mergedIds`, D10 `signature` on auto-captures). Observations 1,643 → 985; vectors 8,608 → 5,753; FTS 985; `quick_check` ok; re-run finds nothing.
+- Kept: 480 real-error rows, 166 with no visible error but not provably false, 14 `/test/project` rows.
+- ⚠️ The dry run found two classifier gaps, fixed with tests in `src/memory/error-classifier.ts`: a passing test summary no longer hides `error TS…` lines in the same output, and grep-numbered jest/vitest `FAIL <file>.spec.ts` lines count as errors (27 such rows had been classed "not an error" and were kept).
+- `.sentinal/skills/sentinal-live-smoke/scripts/check-versions.sh`: a mismatch set `bad` inside a `$(…)` subshell, so it always printed ALL RUNNING / exit 0. Fixed.
 
 ## Deferred Issues
 
@@ -270,9 +278,9 @@ Shared-file ownership across waves: `client-routes.ts` (T5 → T10 → T12 → T
 - [x] Task 15: Server-side dedupe for auto-captured observations (Wave 5)
 - [x] Task 16: Lint cleanup pass (Wave 6)
 - [x] Task 17: Documentation (Wave 6)
-- [ ] Task 18: One-off cleanup of the user's DB (main context)
+- [x] Task 18: One-off cleanup of the user's DB (main context)
 
-**Total Tasks:** 18 | **Completed:** 17 | **Remaining:** 1
+**Total Tasks:** 18 | **Completed:** 18 | **Remaining:** 0
 
 ## Implementation Tasks
 
