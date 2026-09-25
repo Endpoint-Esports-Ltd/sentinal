@@ -140,6 +140,32 @@ describe("isErrorOutput — real failing output is an error", () => {
   });
 });
 
+describe("isErrorOutput — combined output (found cleaning a real DB)", () => {
+  // Verbatim shape of a stored "Error" section: `bun test` passed, then `tsc`
+  // in the same command reported errors. The passing summary must not hide them.
+  const TESTS_THEN_TSC = ` 108 pass
+ 0 fail
+src/cli/commands/sidecar-restart.test.ts(79,39): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: null): void', gave the following error.
+src/memory/tool-failure.test.ts(8,8): error TS2307: Cannot find module './tool-failure.js' or `;
+
+  it("a passing test summary followed by tsc errors is an error", () => {
+    expect(isPassingTestSummary(TESTS_THEN_TSC)).toBe(false);
+    expect(isErrorOutput(TESTS_THEN_TSC)).toBe(true);
+  });
+
+  it("grep-numbered vitest FAIL lines are an error", () => {
+    const grepped =
+      "10: FAIL  src/app/app.config.spec.ts > emitPageEngagement > prefers navigator.sendBeacon\n12:  FAIL  src/b.spec.ts > x";
+    expect(isErrorOutput(grepped)).toBe(true);
+  });
+
+  it("the word FAIL in prose or a PASS line is not", () => {
+    expect(isErrorOutput("docs: explain when a check should FAIL")).toBe(false);
+    expect(isErrorOutput(" ✓ src/a.spec.ts (3 tests) 4ms")).toBe(false);
+  });
+});
+
 describe("isPassingTestSummary", () => {
   it("recognises a clean bun / jest / vitest summary", () => {
     expect(isPassingTestSummary(BUN_PASS)).toBe(true);
