@@ -14,7 +14,7 @@ import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { resolveProjectIdentity } from "../project/identity.js";
 import { SpecStore } from "./store.js";
-import { resolveStopDecision, type StopDecisionInput } from "./ownership.js";
+import { resolveStopDecision } from "./ownership.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -478,7 +478,7 @@ describe("resolveStopDecision — project-scoped ownership", () => {
     // Sanity: the row really IS keyed canonically, not by the worktree path.
     const row = store
       .getRawDb()
-      .prepare("SELECT project_path FROM specs WHERE id = ?")
+      .prepare("SELECT project_path FROM specs WHERE slug = ?")
       .get(PLAN_ID) as { project_path: string };
     expect(row.project_path).toBe(resolveProjectIdentity(mainRoot));
     expect(row.project_path).not.toBe(linkedRoot);
@@ -598,4 +598,69 @@ describe("resolveStopDecision — project-scoped ownership", () => {
     expect(r.block).toBe(true);
     expect(r.ownership).toBe("orphaned");
   }, 30_000);
+});
+
+// ─── Task 10 (#5 / #10a): raw-alias registration must not orphan the plan ───
+//
+// `register-plan` and Claude Code `pre-compact` used to store the RAW path
+// (a `/var/…` macOS tmpdir, a symlink, a subdirectory). `resolveStopDecision`
+// looks the owner up under the CANONICAL identity, so the row never matched
+// and a DIFFERENT live session's Stop was blocked as "orphaned".
+
+import { mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+describe("resolveStopDecision — raw-alias registration (Stop-guard bug)", () => {
+  const PLAN = "2026-09-25-alias-plan.md";
+  const PLAN_ID = "2026-09-25-alias-plan";
+  let rawRoot: string; // NOT realpath'd — `/var/…` on macOS
+  let canonicalRoot: string;
+  let aliasHolder: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    rawRoot = mkdtempSync(join(tmpdir(), "sentinal-alias-"));
+    const r = Bun.spawnSync(["git", "init", "-q", "-b", "main"], {
+      cwd: rawRoot,
+    });
+    if (r.exitCode !== 0) throw new Error("git init failed");
+    canonicalRoot = realpathSync(rawRoot);
+    mkdirSync(join(rawRoot, "src"));
+    aliasHolder = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-link-")));
+    symlinkSync(canonicalRoot, join(aliasHolder, "link"));
+    writePlan(rawRoot, PLAN);
+    store = new MemoryStore(":memory:");
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(rawRoot, { recursive: true, force: true });
+    rmSync(aliasHolder, { recursive: true, force: true });
+  });
+
+  function registerRaw(projectPath: string): void {
+    // Exactly what register-plan / pre-compact do: the path as received.
+    new SpecStore(store).syncFromPlanFile(
+      join(rawRoot, "docs", "plans", PLAN),
+      projectPath,
+    );
+    makeSession(store, "session-A", canonicalRoot, { alive: true });
+    store.stampPlanOwner(PLAN_ID, "session-A");
+  }
+
+  for (const [label, aliasOf] of [
+    ["the raw tmpdir path", () => rawRoot],
+    ["a symlinked subdirectory", () => join(aliasHolder, "link", "src")],
+  ] as const) {
+    it(`ALLOWS a different live session's Stop after registering under ${label}`, () => {
+      registerRaw(aliasOf());
+      const r = resolveStopDecision({
+        searchDir: canonicalRoot,
+        currentSessionId: "session-B",
+        store,
+      });
+      expect(r.ownership).not.toBe("orphaned");
+      expect(r.block).toBe(false);
+    }, 30_000);
+  }
 });

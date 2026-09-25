@@ -29,6 +29,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { SidecarClient } from "../sidecar/client.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 
 // ─── Inlined OpenCode workspace types ────────────────────────────────────────
 // Matches @opencode-ai/plugin WorkspaceAdaptor API (confirmed in SDK types).
@@ -145,10 +146,11 @@ export function createSpecWorktreeAdaptor(
       try {
         let planPath: string | null = null;
 
-        // 1. Try sidecar (fast, 1s timeout)
-        if (sidecar) {
+        // 1. Try sidecar (fast, 1s timeout). Keyed by the CANONICAL identity;
+        //    with no directory there is nothing to key — never send "".
+        if (sidecar && config.directory) {
           const spec = await Promise.race([
-            sidecar.getCurrentSpec(config.directory ?? ""),
+            sidecar.getCurrentSpec(resolveProjectIdentity(config.directory)),
             new Promise<null>((resolve) =>
               setTimeout(() => resolve(null), 1000),
             ),
@@ -313,8 +315,8 @@ export function createSpecWorktreeAdaptor(
 
 function defaultExecutor(cmd: string, args: string[]): void {
   // Use Node's execSync — safe to call from the OpenCode plugin (Node.js runtime).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { execSync } =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: child_process loaded only when the default executor actually runs
     require("node:child_process") as typeof import("node:child_process");
   execSync(`${cmd} ${args.join(" ")}`, { stdio: "ignore" });
 }

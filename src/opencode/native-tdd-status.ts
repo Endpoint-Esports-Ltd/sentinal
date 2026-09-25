@@ -83,9 +83,14 @@ export function createTddStatusTool(sidecar: SidecarClient | null): {
           },
         };
       } else {
+        const identity = resolveProjectIdentity(
+          context?.directory || process.cwd(),
+        );
+        // The project also resolves a shared spec slug to THIS project's
+        // key (D6); rows are still filtered for pre-Task-10 sidecars.
         const states = scopeCyclesToProject(
-          await sidecar.listActiveTddStates(specId ?? null),
-          resolveProjectIdentity(context?.directory || process.cwd()),
+          await sidecar.listActiveTddStates(specId ?? null, identity),
+          identity,
         );
         const content =
           states.length === 0

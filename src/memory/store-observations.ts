@@ -21,6 +21,7 @@ import type {
 } from "./types.js";
 import { SEARCH_CONSTANTS } from "./types.js";
 import { MemoryStoreSessions } from "./store-sessions.js";
+import { AUTO_CAPTURE_SOURCES } from "./dedupe-signature.js";
 
 export abstract class MemoryStoreObservations extends MemoryStoreSessions {
   // ─── Observations CRUD ────────────────────────────────────────────────
@@ -148,34 +149,83 @@ export abstract class MemoryStoreObservations extends MemoryStoreSessions {
     return this.getObservation(id);
   }
 
-  // ─── Error signature de-duplication (D3) ──────────────────────────────
+  // ─── Signature de-duplication (D3 errors, generalized by D10) ─────────
 
   /**
-   * Newest `error` observation in `projectPath` whose `metadata.signature`
+   * Newest `type` observation in `projectPath` whose `metadata.signature`
    * equals `signature` and whose timestamp is STRICTLY after `sinceMs` (an
    * absolute epoch-ms cutoff, not a duration). Null when none.
    */
-  findRecentErrorBySignature(
+  findRecentBySignature(
     projectPath: string,
+    type: ObservationType,
     signature: string,
     sinceMs: number,
   ): Observation | null {
     const row = this.db
       .prepare(
         `SELECT * FROM observations
-         WHERE type = 'error'
+         WHERE type = ?
            AND project_path = ?
            AND json_extract(metadata, '$.signature') = ?
            AND timestamp > ?
          ORDER BY timestamp DESC, id DESC
          LIMIT 1`,
       )
-      .get(projectPath, signature, sinceMs) as RawObservation | null;
+      .get(type, projectPath, signature, sinceMs) as RawObservation | null;
     return row ? this.deserializeObservation(row) : null;
   }
 
+  /** D3 alias: {@link findRecentBySignature} for `type = 'error'`. */
+  findRecentErrorBySignature(
+    projectPath: string,
+    signature: string,
+    sinceMs: number,
+  ): Observation | null {
+    return this.findRecentBySignature(projectPath, "error", signature, sinceMs);
+  }
+
   /**
-   * Record one more sighting of an error: `metadata.occurrences += 1` (a
+   * D10: newest AUTO-CAPTURED (`metadata.source` in `sources`) observation
+   * with this exact (project, type, title) after `sinceMs`. Manual rows never
+   * match, so a user's own memory is never counted as a repeat.
+   */
+  findRecentAutoCaptureByTitle(
+    projectPath: string,
+    type: ObservationType,
+    title: string,
+    sinceMs: number,
+    sources: readonly string[] = [...AUTO_CAPTURE_SOURCES],
+  ): Observation | null {
+    if (sources.length === 0) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM observations
+         WHERE type = ?
+           AND project_path = ?
+           AND title = ?
+           AND timestamp > ?
+           AND json_extract(metadata, '$.source') IN (${sources.map(() => "?").join(", ")})
+         ORDER BY timestamp DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(
+        type,
+        projectPath,
+        title,
+        sinceMs,
+        ...sources,
+      ) as RawObservation | null;
+    return row ? this.deserializeObservation(row) : null;
+  }
+
+  /** D3 alias of {@link recordRepeat}. */
+  recordErrorRepeat(id: number, lastSeen: number): Observation | null {
+    return this.recordRepeat(id, lastSeen);
+  }
+
+  /**
+   * Record one more sighting of an observation: `metadata.occurrences += 1` (a
    * missing count is treated as 1) and `metadata.lastSeen = lastSeen`.
    *
    * ⛔ Deliberately NOT `updateObservation`: that replaces metadata wholesale,
@@ -186,7 +236,7 @@ export abstract class MemoryStoreObservations extends MemoryStoreSessions {
    * unchanged title/content/tags into FTS — metadata is not indexed.
    * Returns the updated observation, or null if `id` doesn't exist.
    */
-  recordErrorRepeat(id: number, lastSeen: number): Observation | null {
+  recordRepeat(id: number, lastSeen: number): Observation | null {
     this.db
       .prepare(
         `UPDATE observations

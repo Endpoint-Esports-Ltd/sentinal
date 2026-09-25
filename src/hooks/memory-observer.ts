@@ -12,11 +12,13 @@ import {
   analyzeEvent,
   EventBuffer,
   MIN_CAPTURE_CONFIDENCE,
+  type ToolEvent,
 } from "../memory/capture.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { resolveProjectIdentity } from "../project/identity.js";
 import { bashOutputOf, type HookInput } from "../utils/hook-output.js";
+import type { CreateObservation } from "../memory/types.js";
 
 function extractFilePath(
   toolInput: Record<string, unknown>,
@@ -29,7 +31,10 @@ function extractFilePath(
   );
 }
 
-export async function processMemoryObserver(input: HookInput): Promise<void> {
+export async function processMemoryObserver(
+  input: HookInput,
+  deps: MemoryObserverDeps = {},
+): Promise<void> {
   if (!isMemoryEnabled()) return;
 
   const toolName = input.tool_name ?? "";
@@ -37,12 +42,17 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
   const filePath = extractFilePath(toolInput);
   // CC's Bash tool_response is {stdout, stderr, …} — no `output` field.
   const rawOutput = bashOutputOf(input);
-  const event = {
+  const event: ToolEvent = {
     toolName,
     filePath,
     success: true,
     output: rawOutput?.slice(0, 2000),
     timestamp: Date.now(),
+    // PostToolUse fires ONLY on success, so a Bash seen here exited 0 — which
+    // overrides error-looking text (a passing bun run prints " 0 fail").
+    // Failures reach the buffer via tool-failure-observer as success:false.
+    ...(toolName === "Bash" &&
+      input.hook_event_name === "PostToolUse" && { exitCode: 0 }),
   };
 
   // Load persisted event buffer
@@ -68,7 +78,7 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
   if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE)
     return;
 
-  const obsPayload = {
+  const obsPayload: ObserverPayload = {
     sessionId: input.session_id,
     // STORAGE KEY — must be the canonical main checkout, not the agent's raw
     // cwd, or observations fragment across worktrees/subdirectories. The
@@ -99,7 +109,8 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
   };
 
   try {
-    const client = await SidecarClient.connect();
+    const connect = deps.connect ?? (() => SidecarClient.connect());
+    const client = await connect();
     if (client) {
       await client.addObservation(obsPayload);
       return;
@@ -109,13 +120,39 @@ export async function processMemoryObserver(input: HookInput): Promise<void> {
   }
 
   try {
-    const { MemoryStore } = await import("../memory/store.js");
-    const { MemoryService } = await import("../memory/service.js");
-    const store = new MemoryStore();
-    const service = new MemoryService(store);
-    service.addObservation({ ...obsPayload, timestamp: Date.now() });
-    service.close();
+    const service = await (deps.openService ?? defaultOpenService)();
+    try {
+      // ⛔ The DEDUPED path (D10) — the sidecar route dedupes auto-captures,
+      // so the no-sidecar fallback must too, or repeats flood the store.
+      service.addObservationDeduped({ ...obsPayload, timestamp: Date.now() });
+    } finally {
+      service.close();
+    }
   } catch {
     /* non-fatal */
   }
+}
+
+/** The observation shape this hook sends (sidecar and direct). */
+type ObserverPayload = Omit<CreateObservation, "timestamp">;
+
+export interface MemoryObserverDeps {
+  /** Default: `SidecarClient.connect()` — never autostarts from a hook. */
+  connect?: () => Promise<{
+    addObservation(obs: ObserverPayload): Promise<unknown>;
+  } | null>;
+  /** Default: a `MemoryService` over the default store. */
+  openService?: () =>
+    MemoryObserverDirectSink | Promise<MemoryObserverDirectSink>;
+}
+
+export interface MemoryObserverDirectSink {
+  addObservationDeduped(obs: CreateObservation): unknown;
+  close(): void;
+}
+
+async function defaultOpenService(): Promise<MemoryObserverDirectSink> {
+  const { MemoryStore } = await import("../memory/store.js");
+  const { MemoryService } = await import("../memory/service.js");
+  return new MemoryService(new MemoryStore());
 }

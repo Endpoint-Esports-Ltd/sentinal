@@ -28,7 +28,15 @@ import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "../worktree/store.js";
 import * as fileLogModule from "../utils/file-log.js";
 import { SKEW_NOTIFICATION_SOURCE } from "./retire-notify.js";
-import { handleNotificationRequest } from "./notification-routes.js";
+import {
+  handleNotificationRequest,
+  handleInsertNotificationRoute,
+} from "./notification-routes.js";
+import {
+  listSessionNotificationCandidates,
+  surfaceSessionNotifications,
+  type SessionNotificationReader,
+} from "../hooks/session-notifications.js";
 import { startSidecar, stopSidecar } from "./server.js";
 import { SidecarClient } from "./client.js";
 import type { SidecarContext } from "./server.js";
@@ -162,6 +170,72 @@ describe("handleNotificationRequest", () => {
     );
   });
 
+  // ── POST /notification carries a project (Task 14 / D5) ──────────────────
+
+  async function insert(body: Record<string, unknown>): Promise<Response> {
+    const req = post("/notification", body);
+    const res = await handleInsertNotificationRoute(new URL(req.url), req, ctx);
+    expect(res).not.toBeNull();
+    return res!;
+  }
+
+  it("POST /notification stores a supplied projectPath as its canonical identity", async () => {
+    // Non-canonical spelling (trailing slash, un-realpath'd tmp dir).
+    const res = await insert({
+      type: "warning",
+      title: "API Error: overloaded",
+      source: "stop-failure",
+      projectPath: tmpDir + "/",
+    });
+    expect(res.status).toBe(200);
+    const [row] = store.getNotifications({ limit: 10 });
+    expect(row!.projectPath).toBe(projectA);
+    expect(row!.source).toBe("stop-failure");
+  });
+
+  it("POST /notification without projectPath (old client) still stores the row, project NULL", async () => {
+    const res = await insert({ type: "warning", title: "legacy" });
+    expect(res.status).toBe(200);
+    const [row] = store.getNotifications({ limit: 10 });
+    expect(row!.title).toBe("legacy");
+    expect(row!.projectPath).toBeNull();
+  });
+
+  it("POST /notification rejects a blank projectPath with 400 and stores nothing", async () => {
+    for (const projectPath of ["", "   "]) {
+      const res = await insert({ type: "warning", title: "x", projectPath });
+      expect(res.status).toBe(400);
+    }
+    expect(store.getNotifications({ limit: 10 })).toEqual([]);
+  });
+
+  it("a project warning inserted via the route surfaces in THAT project's session digest and not another's", async () => {
+    await insert({
+      type: "warning",
+      title: "Sentinal hooks disabled",
+      source: "config-change",
+      projectPath: projectA,
+    });
+    const reader = (): SessionNotificationReader => ({
+      listCandidates: (p, limit) =>
+        listSessionNotificationCandidates(store, p, limit),
+      markRead: (id) => store.markNotificationRead(id),
+    });
+
+    // Project B first, so A's row is still unread afterwards.
+    expect(await surfaceSessionNotifications(reader(), projectB)).toBeNull();
+    const listedB = await json<{ data: Notification[] }>(
+      await handleNotificationRequest(
+        get(`/notifications/session?project=${encodeURIComponent(projectB)}`),
+        ctx,
+      ),
+    );
+    expect(listedB.data).toEqual([]);
+
+    const digestA = await surfaceSessionNotifications(reader(), projectA);
+    expect(digestA).toContain("[warning] Sentinal hooks disabled");
+  });
+
   it("POST /notifications/read rejects a missing or non-integer id", async () => {
     seed();
     const before = store.getUnreadNotificationCount();
@@ -228,5 +302,24 @@ describe("SidecarClient notification methods (real sidecar)", () => {
     expect(
       store.getNotifications({ unread: true, limit: 10 }).map((n) => n.id),
     ).toEqual([other.id]);
+  });
+
+  it("client.insertNotification sends projectPath over the wire; omitting it still works", async () => {
+    const projectA = realpathSync(tmpDir);
+    await client.insertNotification({
+      type: "warning",
+      title: "scoped",
+      source: "spec-notify",
+      projectPath: tmpDir,
+    });
+    await client.insertNotification({ type: "warning", title: "legacy" });
+
+    const rows = store.getNotifications({ limit: 10 });
+    const byTitle = new Map(rows.map((n) => [n.title, n]));
+    expect(byTitle.get("scoped")!.projectPath).toBe(projectA);
+    expect(byTitle.get("legacy")!.projectPath).toBeNull();
+    expect(
+      (await client.listSessionNotifications(projectA, 5)).map((n) => n.title),
+    ).toEqual(["scoped"]);
   });
 });

@@ -13,14 +13,18 @@ import { resolvePluginRoots } from "./sentinal-helpers.js";
 import * as fileLogModule from "../../../src/utils/file-log.js";
 import { PLUGIN_LOG_FILE, readLastLines } from "../../../src/utils/file-log.js";
 import {
+  chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -588,6 +592,7 @@ describe("worktree-aware project roots", () => {
     fake: SidecarClient;
     createdProjectPaths: string[];
     currentSpecProjects: string[];
+    restoreCalls: unknown[][];
     setTddStates: Array<Record<string, unknown>>;
     tddTransitions: unknown[][];
     /** Rows returned by listActiveTddStates (compaction's disk filter input). */
@@ -611,6 +616,7 @@ describe("worktree-aware project roots", () => {
   function makeRootsFake(): RootsFake {
     const createdProjectPaths: string[] = [];
     const currentSpecProjects: string[] = [];
+    const restoreCalls: unknown[][] = [];
     const rf = {
       setTddStates: [] as Array<Record<string, unknown>>,
       tddTransitions: [] as unknown[][],
@@ -646,7 +652,10 @@ describe("worktree-aware project roots", () => {
       },
       memorySearch: async () => [],
       getActiveSessions: async () => [],
-      restoreContext: async () => ({ hasMemory: false, markdown: "" }),
+      restoreContext: async (...args: unknown[]) => {
+        restoreCalls.push(args);
+        return { hasMemory: false, markdown: "" };
+      },
       getCurrentSpec: async (project: string) => {
         currentSpecProjects.push(project);
         return null;
@@ -673,6 +682,7 @@ describe("worktree-aware project roots", () => {
       fake: fake as unknown as SidecarClient,
       createdProjectPaths,
       currentSpecProjects,
+      restoreCalls,
       get setTddStates() {
         return rf.setTddStates;
       },
@@ -748,6 +758,24 @@ describe("worktree-aware project roots", () => {
       spy.mockRestore();
     }
   }
+
+  it("restores memory keyed by IDENTITY with shared memory from the LOCAL worktree (D8)", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks.event!({
+      event: { type: "session.created", properties: { info: { id: "s1" } } },
+    } as never);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "s1" } as never,
+      { context: [] } as never,
+    );
+
+    expect(rf.restoreCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of rf.restoreCalls) {
+      expect(call[0]).toBe(mainRoot);
+      expect(call[2]).toBe(linkedRoot);
+    }
+  }, 30_000);
 
   it("keys sidecar sessions by the CANONICAL root, never by the worktree path or ''", async () => {
     const { fake, createdProjectPaths } = makeRootsFake();
@@ -1325,4 +1353,209 @@ describe("worktree-aware project roots", () => {
       expect(failures(rf.observations)).toHaveLength(0);
     }, 30_000);
   });
+});
+
+// ─── SENTINAL_HOME seam (hardening-sweep Task 7) ──────────────────────────────
+//
+// The plugin used to resolve `~/.sentinal` ONCE at module load via homedir(),
+// so the sidecar pid it checked, the binary it spawned and the config.json it
+// read all ignored SENTINAL_HOME — while ensureDashboard honoured it. Every
+// plugin test therefore read the REAL pid/config and could spawn the REAL
+// binary. This drives init against a throwaway tree set AFTER module load
+// (proving the paths are read fresh) and asserts nothing touched the real one.
+describe("SentinalPlugin honours SENTINAL_HOME (read fresh)", () => {
+  it("checks the pid, spawns the binary and reads config.json under SENTINAL_HOME only", async () => {
+    const realHome = join(homedir(), ".sentinal");
+    const realPid = join(realHome, "sidecar.pid");
+    const realPidMtime = existsSync(realPid) ? statSync(realPid).mtimeMs : null;
+
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-home-t7-")));
+    const record = join(home, "invocations.log");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    const stub = join(home, "bin", "sentinal");
+    writeFileSync(stub, `#!/bin/sh\necho "$*" >> "${record}"\n`);
+    chmodSync(stub, 0o755);
+    // A PID that cannot be alive (above any pid_max) → stale.
+    writeFileSync(join(home, "sidecar.pid"), "2147483646");
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ memory: { enabled: false } }),
+    );
+
+    const prev = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = home;
+    try {
+      const hooks = await SentinalPlugin({
+        project: { id: "t7", worktree: home },
+        client: {
+          app: { log: async () => {} },
+          session: { messages: async () => ({ data: [] }) },
+        },
+        $: () => Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+        directory: home,
+        worktree: home,
+      } as never);
+      expect(hooks).toBeDefined();
+
+      // The stub records its own invocation (spawned detached → poll).
+      const deadline = Date.now() + 5_000;
+      let calls = "";
+      while (Date.now() < deadline) {
+        calls = existsSync(record) ? readFileSync(record, "utf-8") : "";
+        if (calls.includes("sidecar start")) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(calls).toContain("sidecar start");
+
+      const pluginLog = readFileSync(join(home, PLUGIN_LOG_FILE), "utf-8");
+      expect(pluginLog).toContain("respawn: sidecar start (pid file stale)");
+      // config.json was read from the temp tree, not ~/.sentinal.
+      expect(pluginLog).toContain("Memory system disabled via config");
+    } finally {
+      if (prev === undefined) delete process.env.SENTINAL_HOME;
+      else process.env.SENTINAL_HOME = prev;
+      rmSync(home, { recursive: true, force: true });
+    }
+
+    // The real tree was never touched.
+    if (realPidMtime !== null) {
+      expect(statSync(realPid).mtimeMs).toBe(realPidMtime);
+    }
+  }, 30_000);
+});
+
+// ─── D9: error → fix capture on the plugin (hardening-sweep Task 11) ──────────
+//
+// The plugin keeps ONE in-memory EventBuffer per plugin instance, pushed before
+// analysis. A bash call's exit arrives as `metadata.exit` and must override
+// the text: " 0 fail" in a passing bun run is not an error. Runs under a temp
+// SENTINAL_HOME so nothing reaches the real ~/.sentinal.
+describe("memory capture: error → fix (D9)", () => {
+  let home: string;
+  let prevHome: string | undefined;
+  let queuePendingSpy: ReturnType<typeof spyOn>;
+  let queueEnqueueSpy: ReturnType<typeof spyOn>;
+
+  const BUN_PASS =
+    "bun test v1.3.10 (30e609e0)\n\n 12 pass\n 0 fail\n 30 expect() calls\nRan 12 tests across 3 files. [120.00ms]\n";
+  const BUN_FAIL =
+    "bun test v1.3.10 (30e609e0)\n\nmath.test.ts:\nerror: expect(received).toBe(expected)\n\n(fail) adds [3.15ms]\n\n 1 pass\n 1 fail\n 2 expect() calls\nRan 2 tests across 1 file. [18.00ms]\n";
+
+  beforeAll(() => {
+    prevHome = process.env.SENTINAL_HOME;
+    home = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-home-t11-")));
+    mkdirSync(join(home, "bin"), { recursive: true });
+    const stub = join(home, "bin", "sentinal");
+    writeFileSync(stub, "#!/bin/sh\nexit 0\n");
+    chmodSync(stub, 0o755);
+    process.env.SENTINAL_HOME = home;
+    queuePendingSpy = spyOn(ObservationQueue, "pending").mockReturnValue(0);
+    queueEnqueueSpy = spyOn(ObservationQueue, "enqueue").mockImplementation(
+      () => {},
+    );
+  });
+
+  afterAll(() => {
+    queuePendingSpy.mockRestore();
+    queueEnqueueSpy.mockRestore();
+    if (prevHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  async function setup() {
+    const observations: Array<Record<string, unknown>> = [];
+    const fake = {
+      createSession: async () => {},
+      endSession: async () => {},
+      getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
+      setTddState: async () => {},
+      tddTransition: async () => ({ count: 0 }),
+      addObservation: async (obs: Record<string, unknown>) => {
+        observations.push(obs);
+      },
+      memorySearch: async () => [],
+    } as unknown as SidecarClient;
+    const spy = spyOn(SidecarClient, "connectWithRetry").mockResolvedValue(
+      fake,
+    );
+    let hooks: Awaited<ReturnType<typeof SentinalPlugin>>;
+    try {
+      hooks = await SentinalPlugin({
+        project: { name: "t11", path: home },
+        client: {
+          app: { log: async () => {} },
+          session: { messages: async () => ({ data: [] }) },
+        },
+        $: () => Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+        directory: home,
+        worktree: home,
+      } as never);
+    } finally {
+      spy.mockRestore();
+    }
+    const after = hooks["tool.execute.after"]!;
+    let n = 0;
+    // The capture phase is fire-and-forget: settle between calls so events
+    // reach the buffer in call order.
+    const settle = () => new Promise((r) => setTimeout(r, 40));
+    const bash = async (output: string, exit: number) => {
+      await after(
+        {
+          tool: "bash",
+          sessionID: "s1",
+          callID: `c${++n}`,
+          args: { command: "bun test" },
+        } as never,
+        { title: "bun test", output, metadata: { exit } } as never,
+      );
+      await settle();
+    };
+    const edit = async (file: string) => {
+      await after(
+        {
+          tool: "edit",
+          sessionID: "s1",
+          callID: `c${++n}`,
+          args: { filePath: join(home, file) },
+        } as never,
+        { title: file, output: "", metadata: {} } as never,
+      );
+      await settle();
+    };
+    const fixes = () =>
+      observations.filter((o) => String(o.title).startsWith("Fixed issue"));
+    return { bash, edit, fixes };
+  }
+
+  it("a passing bun run (exit 0, ' 0 fail') + edits → no fix", async () => {
+    const { bash, edit, fixes } = await setup();
+    await bash(BUN_PASS, 0);
+    for (const f of ["a.md", "b.ts", "c.ts", "d.ts"]) await edit(f);
+    expect(fixes()).toHaveLength(0);
+  }, 30_000);
+
+  it("exit 0 with error text is not an error", async () => {
+    const { bash, edit, fixes } = await setup();
+    await bash("src/a.ts(1,7): error TS2322: Type 'string'", 0);
+    await edit("a.ts");
+    expect(fixes()).toHaveLength(0);
+  }, 30_000);
+
+  it("one real failure + 4 edits → exactly one fix", async () => {
+    const { bash, edit, fixes } = await setup();
+    await bash(BUN_FAIL, 1);
+    for (const f of ["a.ts", "b.ts", "c.ts", "d.ts"]) await edit(f);
+    expect(fixes()).toHaveLength(1);
+    expect(fixes()[0]!.title).toBe("Fixed issue in a.ts");
+  }, 30_000);
+
+  it("a .md edit after a failure is not a fix; the next code edit is", async () => {
+    const { bash, edit, fixes } = await setup();
+    await bash(BUN_FAIL, 1);
+    await edit("NOTES.md");
+    expect(fixes()).toHaveLength(0);
+    await edit("src/x.ts");
+    expect(fixes()).toHaveLength(1);
+  }, 30_000);
 });

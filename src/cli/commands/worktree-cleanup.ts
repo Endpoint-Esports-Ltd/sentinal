@@ -118,8 +118,7 @@ export function registerWorktreeCleanupCommands(wt: Command): void {
             force: opts.force === true,
             projectPath: opts.project,
             currentWorktree: opts.currentWorktree,
-            isPlanActive: (slug) =>
-              specStore.getSpec(slug)?.status === "IN_PROGRESS",
+            isPlanActive: (slug) => specStore.isSlugInProgress(slug),
             warnings,
           });
 
@@ -174,8 +173,7 @@ export function registerWorktreeCleanupCommands(wt: Command): void {
             force: true,
             projectPath: opts.project,
             currentWorktree: opts.currentWorktree,
-            isPlanActive: (s) =>
-              s !== slug || specStore.getSpec(s)?.status === "IN_PROGRESS",
+            isPlanActive: (s) => s !== slug || specStore.isSlugInProgress(s),
             warnings,
           });
 

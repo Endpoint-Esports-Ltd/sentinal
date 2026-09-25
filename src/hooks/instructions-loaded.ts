@@ -110,6 +110,10 @@ export async function processInstructionsLoaded(
       title,
       content,
       tags: ["instructions", "rules", load_reason],
+      // D10 backstop for when the H9 search misses: the sidecar collapses
+      // repeats of the same file (full path — two CLAUDE.md are distinct)
+      // within its 30-min window, whatever the load reason in `content`.
+      metadata: { source: "instructions-loaded", dedupeKey: file_path },
     });
   } catch {
     // Sidecar failure is non-fatal for async hooks

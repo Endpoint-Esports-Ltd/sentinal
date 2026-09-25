@@ -81,12 +81,13 @@ function registerTddStatusTool(
         }
 
         // List active states in this project. Scoped on BOTH paths: the store
-        // filters in SQL; the sidecar route cannot take a project yet, so the
-        // client path filters the fetched rows (see scopeCyclesToProject).
+        // filters in SQL; the client sends the project (which also resolves a
+        // shared spec slug to THIS project's key — D6) and still filters the
+        // rows, because a pre-Task-10 sidecar ignores the param.
         const identity = resolveProjectIdentity(project ?? process.cwd());
         const states = client
           ? scopeCyclesToProject(
-              await client.listActiveTddStates(spec_id ?? null),
+              await client.listActiveTddStates(spec_id ?? null, identity),
               identity,
             )
           : store!.listActiveTddStates(spec_id ?? null, identity);

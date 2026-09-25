@@ -22,6 +22,10 @@ import {
 } from "../utils/hook-output.js";
 import { isMemoryEnabled } from "../memory/config.js";
 import { SidecarClient } from "../sidecar/client.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
 
 export async function processMemoryRestore(input: HookInput): Promise<void> {
   if (!isMemoryEnabled()) return;
@@ -35,10 +39,19 @@ export async function processMemoryRestore(input: HookInput): Promise<void> {
     /* non-fatal */
   }
 
+  // D8: observations are keyed by the canonical project; shared memory
+  // (`.sentinal/project-memory.json`) is read from the local checkout.
+  const project = resolveProjectIdentity(input.cwd);
+  const workspace = resolveWorkspaceRoot(input.cwd);
+
   try {
     const client = await SidecarClient.connect();
     if (client) {
-      const result = await client.restoreContext(input.cwd, semanticQuery);
+      const result = await client.restoreContext(
+        project,
+        semanticQuery,
+        workspace,
+      );
       if (result.hasMemory && result.markdown) {
         output(hint("SessionStart", result.markdown));
       }
@@ -55,7 +68,8 @@ export async function processMemoryRestore(input: HookInput): Promise<void> {
     const store = new MemoryStore();
     const service = new MemoryService(store);
     const result = await restoreContext(service, {
-      projectPath: input.cwd,
+      projectPath: project,
+      workspacePath: workspace,
       semanticQuery,
     });
     service.close();

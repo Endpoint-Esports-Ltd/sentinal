@@ -123,6 +123,28 @@ describe("createTddStatusTool", () => {
     expect(capturedArgs[0]).toBe("my-spec-id");
   });
 
+  it("sends the project identity so a shared spec slug resolves to THIS project's key (D6)", async () => {
+    const calls: unknown[][] = [];
+    const mockSidecar = {
+      getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
+      listActiveTddStates: async (...args: unknown[]) => {
+        calls.push(args);
+        return [];
+      },
+    } as unknown as SidecarClient;
+
+    const tool = createTddStatusTool(mockSidecar);
+    await tool.execute(
+      { spec_id: "shared-slug" },
+      { directory: "/project", worktree: "/project" },
+    );
+
+    expect(calls[0]).toEqual([
+      "shared-slug",
+      resolveProjectIdentity("/project"),
+    ]);
+  });
+
   // ─── Project scoping (Task 10) ─────────────────────────────────────────
   // The sidecar route cannot be scoped from here, so the tool filters the
   // fetched rows itself. Rows are keyed by the project IDENTITY (the storage

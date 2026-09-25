@@ -13,6 +13,11 @@ import { basename } from "node:path";
 import { readFileSync } from "node:fs";
 import type { HookInput } from "../utils/hook-output.js";
 import { SidecarClient } from "../sidecar/client.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
+import { isInside } from "../worktree/disk-scan.js";
 
 /**
  * Determine whether a given file_path is a Sentinal rules file
@@ -23,6 +28,17 @@ function isRulesFile(filePath: string): boolean {
   if (filePath.includes(".sentinal/rules/")) return true;
   if (basename(filePath) === "CLAUDE.md") return true;
   return false;
+}
+
+/**
+ * D5: a file inside the checkout being worked in belongs to that project —
+ * keyed by its IDENTITY (storage key), while containment is tested against the
+ * WORKSPACE root (the checkout on disk). Anything else (e.g. the user-level
+ * `~/.claude/settings.json`) stays global: no `projectPath` at all.
+ */
+function projectScope(filePath: string, cwd: string): { projectPath?: string } {
+  if (!cwd || !isInside(filePath, resolveWorkspaceRoot(cwd))) return {};
+  return { projectPath: resolveProjectIdentity(cwd) };
 }
 
 /**
@@ -68,6 +84,8 @@ export async function processConfigChange(input: HookInput): Promise<void> {
             type: "warning",
             title: "Sentinal hooks disabled",
             message: `'disableAllHooks: true' detected in ${basename(filePath)}`,
+            source: "config-change",
+            ...projectScope(filePath, input.cwd),
           });
         }
       }

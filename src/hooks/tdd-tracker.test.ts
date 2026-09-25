@@ -14,7 +14,6 @@ import {
   hasTestPass,
   getImplPathForTest,
   trackerInputFromHook,
-  type TddTrackerInput,
 } from "./tdd-tracker.js";
 import type { HookInput } from "../utils/hook-output.js";
 import { resolveProjectIdentity } from "../project/identity.js";
@@ -40,7 +39,6 @@ Type: Feature
 `;
 
 const FAIL_OUTPUT = "3 fail\n1 pass\nAssertionError: expected 1 to be 2";
-const PASS_OUTPUT = "5 pass\n0 fail\nAll tests passed";
 
 // ─── Helper indicator tests ───────────────────────────────────────────────────
 
@@ -102,14 +100,6 @@ describe("processTddTracking", () => {
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
-
-  async function track(input: Partial<TddTrackerInput>): Promise<void> {
-    // processTddTracking opens its own MemoryStore — but it uses getDbPath()
-    // which defaults to ~/.sentinal/memory.db, not our test db.
-    // We need to test the logic directly instead of through processTddTracking
-    // which hardcodes the path. For unit tests, test via the store directly.
-    void input; // acknowledged
-  }
 
   describe("test file write transitions state to TEST_WRITTEN", () => {
     it("sets state to TEST_WRITTEN when a test file is written", async () => {
@@ -291,6 +281,40 @@ describe("processTddTracking records the project (Pre-Mortem 3)", () => {
     else process.env.SENTINAL_HOME = savedHome;
     rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it("D6: with a same-named plan in ANOTHER project, the cycle, its task and its event use THIS project's key", async () => {
+    const plan =
+      "# Twin\n\nStatus: IN_PROGRESS\nType: Feature\n\n## Progress Tracking\n\n- [x] Task 1: done\n- [ ] Task 2: next\n";
+    const mine = join(mainRoot, "docs", "plans");
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, "2026-01-01-twin.md"), plan);
+    const theirsDir = join(tmpDir, "theirs", "docs", "plans");
+    mkdirSync(theirsDir, { recursive: true });
+    writeFileSync(
+      join(theirsDir, "2026-01-01-twin.md"),
+      plan.replace("- [x]", "- [ ]"),
+    );
+    let store = openStore();
+    const ss = new SpecStore(store);
+    ss.syncFromPlanFile(join(theirsDir, "2026-01-01-twin.md"), OTHER);
+    ss.syncFromPlanFile(join(mine, "2026-01-01-twin.md"), mainRoot);
+    store.close();
+
+    await processTddTracking({
+      toolName: "Write",
+      filePath: join(worktreePath, "src", "twin.test.ts"),
+      cwd: worktreePath,
+    });
+
+    store = openStore();
+    const row = store.getTddState(join(worktreePath, "src", "twin.ts"))!;
+    expect(row.specId).toBe(`${mainRoot}::2026-01-01-twin`);
+    expect(row.taskPosition).toBe(2); // THIS project's current task, not OTHER's 1
+    const events = store.getSpecEvents(`${mainRoot}::2026-01-01-twin`);
+    expect(events.map((e) => e.eventType)).toContain("tdd_cycle");
+    expect(store.getSpecEvents(`${OTHER}::2026-01-01-twin`)).toHaveLength(0);
+    store.close();
+  }, 30_000);
 
   it("TEST_WRITTEN write records the main-checkout identity, not the worktree", async () => {
     expect(worktreePath).not.toBe(mainRoot);
@@ -601,5 +625,46 @@ describe("trackerInputFromHook + processTddTracking (real payload shapes)", () =
       ),
     );
     expect(stateOf()).toBe("TEST_WRITTEN");
+  }, 30_000);
+});
+
+// ─── Task 10: the spec lookup uses the canonical identity, not the raw cwd ───
+
+import { spyOn } from "bun:test";
+
+describe("processTddTracking — spec lookup key (Task 10)", () => {
+  let tmpDir: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir("tdd-tracker-key"); // raw `/var/…` on macOS
+    mkdirSync(join(tmpDir, "home"), { recursive: true });
+    mkdirSync(join(tmpDir, "repo", "src"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], {
+      cwd: join(tmpDir, "repo"),
+    });
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = join(tmpDir, "home");
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("calls getCurrentSpec with resolveProjectIdentity(cwd)", async () => {
+    const cwd = join(tmpDir, "repo", "src");
+    const spy = spyOn(SpecStore.prototype, "getCurrentSpec");
+    try {
+      await processTddTracking({
+        toolName: "Write",
+        filePath: join(cwd, "a.test.ts"),
+        cwd,
+      });
+      expect(spy.mock.calls[0]![0]).toBe(realpathSync(join(tmpDir, "repo")));
+    } finally {
+      spy.mockRestore();
+    }
   }, 30_000);
 });

@@ -79,7 +79,7 @@ export function registerSpecStatusTools(
 ): void {
   registerSpecConfigTool(server);
   registerSpecStatusTool(server, client, specStore);
-  registerSpecInitTool(server, client, specStore);
+  registerSpecInitTool(server);
 }
 
 // --- spec_config ---
@@ -135,11 +135,11 @@ function registerSpecStatusTool(
       project: z.string().describe("Project path to check for active specs"),
     },
     async ({ project: rawProject }) => {
-      // STORAGE KEY. `getCurrentSpec` filters `specs.project_path` with exact
-      // SQL equality, and the sidecar's `/spec/current` route passes the query
-      // param straight through, so the canonicalization has to happen here.
-      // `SpecStore` itself deliberately does NOT normalize — it must keep
-      // accepting non-repo keys like `/test/project` and raw tmpdirs.
+      // STORAGE KEY. `SpecStore` (write point AND project-keyed reads) and the
+      // sidecar's `/spec/current` route now canonicalize too (D3), so this is
+      // belt-and-braces for an older (≤1.38) sidecar that passes the param
+      // straight through. Canonicalization is idempotent, and non-existent
+      // synthetic keys like `/test/project` resolve to themselves.
       const project = resolveProjectIdentity(rawProject);
       const spec = client
         ? await client.getCurrentSpec(project)
@@ -200,11 +200,8 @@ function registerSpecStatusTool(
 
 // --- spec_init (compound workflow context) ---
 
-function registerSpecInitTool(
-  server: McpServer,
-  client: SidecarClient | null,
-  specStore: SpecStore | null,
-): void {
+// Direct-fs by design (see the `findActivePlan` note below): no client/store.
+function registerSpecInitTool(server: McpServer): void {
   server.tool(
     "spec_init",
     "Get all workflow context in a single call: active plan state, config toggles, current task, and remaining work. Use at the start of any spec workflow to avoid multiple file reads.",

@@ -8,8 +8,10 @@ import {
   spyOn,
 } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { makeTmpDir } from "../test-helpers.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
 
@@ -59,8 +61,37 @@ describe("processStopFailure", () => {
       type: "warning",
       title: "API Error: rate_limit",
       message: "429 Too Many Requests",
+      source: "stop-failure",
+      projectPath: resolveProjectIdentity("/tmp/project"),
     });
   });
+
+  it("scopes the warning to the project IDENTITY of cwd, not the raw cwd (D5)", async () => {
+    const repo = realpathSync(makeTmpDir());
+    try {
+      execFileSync("git", ["init", "-q", repo]);
+      const sub = join(repo, "packages", "app");
+      mkdirSync(sub, { recursive: true });
+
+      await processStopFailure({
+        session_id: "test-session",
+        transcript_path: "/tmp/transcript.json",
+        cwd: sub,
+        permission_mode: "default",
+        hook_event_name: "StopFailure",
+        error: "overloaded",
+      });
+
+      const notif = mockInsertNotification.mock.calls[0]![0] as {
+        projectPath?: string;
+        source?: string;
+      };
+      expect(notif.projectPath).toBe(repo);
+      expect(notif.source).toBe("stop-failure");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it("should degrade gracefully when no error field is present", async () => {
     const input: HookInput = {

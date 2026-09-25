@@ -14,6 +14,7 @@
  * changes anywhere).
  */
 
+import { resolveSpecKey, resolveSpecKeyForWrite } from "./spec-key.js";
 import { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import type {
@@ -210,7 +211,12 @@ export class MemoryStore extends MemoryStoreObservations {
       )
       .run(
         opts.filePath,
-        opts.specId ?? null,
+        // D6: a slug resolves to its key; an unresolvable value is passed
+        // through so the FK fails loudly, as before.
+        opts.specId
+          ? (resolveSpecKeyForWrite(this.db, opts.specId, opts.projectPath) ??
+              opts.specId)
+          : null,
         opts.taskPosition ?? null,
         opts.state,
         opts.testFilePath ?? null,
@@ -227,7 +233,9 @@ export class MemoryStore extends MemoryStoreObservations {
 
   /** Remove all TDD cycle states associated with a spec. */
   clearTddStatesForSpec(specId: string): void {
-    this.db.prepare("DELETE FROM tdd_cycles WHERE spec_id = ?").run(specId);
+    this.db
+      .prepare("DELETE FROM tdd_cycles WHERE spec_id = ?")
+      .run(resolveSpecKey(this.db, specId) ?? specId);
   }
 
   /**
@@ -246,7 +254,9 @@ export class MemoryStore extends MemoryStoreObservations {
     const params: string[] = [];
     if (specId) {
       clauses.push("spec_id = ?");
-      params.push(specId);
+      params.push(
+        resolveSpecKeyForWrite(this.db, specId, projectPath) ?? specId,
+      );
     }
     if (projectPath) {
       clauses.push("project_path = ?");
@@ -264,7 +274,9 @@ export class MemoryStore extends MemoryStoreObservations {
 
   /** Log a spec lifecycle event. */
   logSpecEvent(opts: {
+    /** Key, or slug (resolved within `projectPath` when given — D6). */
     specId: string;
+    projectPath?: string | null;
     sessionId?: string | null;
     eventType: SpecEventType;
     details: Record<string, unknown>;
@@ -275,7 +287,8 @@ export class MemoryStore extends MemoryStoreObservations {
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(
-        opts.specId,
+        resolveSpecKeyForWrite(this.db, opts.specId, opts.projectPath) ??
+          opts.specId,
         opts.sessionId ?? null,
         Date.now(),
         opts.eventType,
@@ -289,7 +302,7 @@ export class MemoryStore extends MemoryStoreObservations {
       .prepare(
         "SELECT * FROM spec_events WHERE spec_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
       )
-      .all(specId, limit) as RawSpecEvent[];
+      .all(resolveSpecKey(this.db, specId) ?? specId, limit) as RawSpecEvent[];
     return rows.map((r) => this.deserializeSpecEvent(r));
   }
 

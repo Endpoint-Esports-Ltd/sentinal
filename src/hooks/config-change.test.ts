@@ -12,7 +12,8 @@ import {
   spyOn,
 } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { makeTmpDir } from "../test-helpers.js";
 import { SidecarClient } from "../sidecar/client.js";
 import type { HookInput } from "../utils/hook-output.js";
@@ -110,4 +111,76 @@ describe("processConfigChange", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  // ── D5: project scoping ──────────────────────────────────────────────────
+
+  function git(cwd: string, ...args: string[]): void {
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  }
+
+  it("scopes a project-file warning to the project IDENTITY, from a linked worktree", async () => {
+    const root = realpathSync(makeTmpDir());
+    const main = join(root, "main");
+    const wt = join(root, "wt");
+    try {
+      mkdirSync(main);
+      git(main, "init", "-q");
+      git(
+        main,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "init",
+      );
+      git(main, "worktree", "add", "-q", wt);
+      mkdirSync(join(wt, ".claude"));
+      const settingsPath = join(wt, ".claude", "settings.json");
+      writeFileSync(settingsPath, JSON.stringify({ disableAllHooks: true }));
+
+      await processConfigChange(
+        makeInput({ cwd: wt, file_path: settingsPath }),
+      );
+
+      expect(mockInsertNotification).toHaveBeenCalledTimes(1);
+      const notif = mockInsertNotification.mock.calls[0]![0] as {
+        projectPath?: string;
+        source?: string;
+      };
+      // The storage key is the MAIN checkout, not the worktree.
+      expect(notif.projectPath).toBe(main);
+      expect(notif.source).toBe("config-change");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("leaves a warning about a file OUTSIDE the workspace global (no projectPath)", async () => {
+    const project = realpathSync(makeTmpDir());
+    const userHome = realpathSync(makeTmpDir());
+    try {
+      git(project, "init", "-q");
+      const settingsPath = join(userHome, "settings.json");
+      writeFileSync(settingsPath, JSON.stringify({ disableAllHooks: true }));
+
+      await processConfigChange(
+        makeInput({ cwd: project, file_path: settingsPath }),
+      );
+
+      expect(mockInsertNotification).toHaveBeenCalledTimes(1);
+      const notif = mockInsertNotification.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
+      expect("projectPath" in notif).toBe(false);
+      expect(notif.source).toBe("config-change");
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+      rmSync(userHome, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

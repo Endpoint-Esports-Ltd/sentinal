@@ -23,6 +23,7 @@ export function migrateV11(db: Database): void {
     db.run(
       "CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active)",
     );
+    // D7: record only once the column verifiably exists; otherwise retry.
+    db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (11)");
   }
-  db.run("INSERT OR REPLACE INTO schema_version (version) VALUES (11)");
 }

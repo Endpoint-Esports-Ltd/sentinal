@@ -136,14 +136,14 @@ describe("spec-routes: GET /spec/metrics", () => {
     const now = Date.now();
     store
       .getRawDb()
-      .run("UPDATE specs SET started_at = ? WHERE id = ?", [
+      .run("UPDATE specs SET started_at = ? WHERE slug = ?", [
         now - 3600000,
         slug,
       ]);
     store
       .getRawDb()
       .run(
-        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
+        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = (SELECT id FROM specs WHERE slug = ?) AND position = 1",
         [now - 900000, now - 300000, slug],
       );
 
@@ -165,6 +165,53 @@ describe("spec-routes: GET /spec/metrics", () => {
     expect(body.data.tasks[0].startedAt).toBe(now - 900000);
     expect(body.data.tasks[0].completedAt).toBe(now - 300000);
     expect(body.data.tasks[1].startedAt).toBeNull();
+  });
+});
+
+describe("spec-routes: GET /spec/metrics with a same-named plan in two projects (D6)", () => {
+  let tmpDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    store = new MemoryStore(join(tmpDir, "test.db"));
+    ctx = {
+      store,
+      service: new MemoryService(store),
+      specStore: new SpecStore(store),
+      wtStore: new WorktreeStore(store),
+    };
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("resolves the slug within the supplied project", async () => {
+    const slug = "2026-09-01-twin-metrics";
+    ctx.specStore.syncFromPlanFile(
+      makePlanFile(join(tmpDir, "a"), slug),
+      "/proj/a",
+    );
+    ctx.specStore.syncFromPlanFile(
+      makePlanFile(join(tmpDir, "b"), slug),
+      "/proj/b",
+    );
+    store
+      .getRawDb()
+      .run("UPDATE specs SET started_at = 111 WHERE project_path = '/proj/b'");
+
+    const res = await handleSpecMetricsRequest(
+      new Request(
+        `http://localhost/spec/metrics?spec_id=${slug}&project=${encodeURIComponent("/proj/b")}`,
+      ),
+      ctx,
+    );
+    const body = (await res!.json()) as { ok: boolean; data: SpecMetricsData };
+    expect(body.data.spec!.startedAt).toBe(111);
+    expect(body.data.tasks).toHaveLength(2);
   });
 });
 
@@ -206,7 +253,7 @@ describe("spec_metrics in the production (sidecar) configuration", () => {
     const now = Date.now();
     store
       .getRawDb()
-      .run("UPDATE specs SET started_at = ? WHERE id = ?", [
+      .run("UPDATE specs SET started_at = ? WHERE slug = ?", [
         now - 1800000,
         slug,
       ]);
@@ -227,14 +274,14 @@ describe("spec_metrics in the production (sidecar) configuration", () => {
     const now = Date.now();
     store
       .getRawDb()
-      .run("UPDATE specs SET started_at = ? WHERE id = ?", [
+      .run("UPDATE specs SET started_at = ? WHERE slug = ?", [
         now - 3600000,
         slug,
       ]);
     store
       .getRawDb()
       .run(
-        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
+        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = (SELECT id FROM specs WHERE slug = ?) AND position = 1",
         [now - 900000, now - 300000, slug],
       );
 
@@ -265,6 +312,88 @@ describe("spec_metrics in the production (sidecar) configuration", () => {
     } finally {
       await mcpClient.close();
       await server.close();
+    }
+  });
+});
+
+// ─── Task 10 (D3): canonical project keys on /spec/sync and /spec/current ───
+
+import { mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { handleSpecRoute } from "./spec-routes.js";
+
+describe("spec routes — canonical project keys", () => {
+  let root: string;
+  let aliasHolder: string;
+  let alias: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  async function call(
+    path: string,
+    body?: unknown,
+  ): Promise<{ ok: boolean; data?: any; error?: string; status: number }> {
+    const req = new Request(`http://localhost${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const res = (await handleSpecRoute(new URL(req.url), req, ctx))!;
+    return { ...((await res.json()) as any), status: res.status };
+  }
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "spec-routes-canon-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: root });
+    mkdirSync(join(root, "src"));
+    aliasHolder = realpathSync(mkdtempSync(join(tmpdir(), "spec-rt-alias-")));
+    symlinkSync(root, join(aliasHolder, "link"));
+    alias = join(aliasHolder, "link", "src");
+    store = new MemoryStore(":memory:");
+    ctx = makeCtx(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(aliasHolder, { recursive: true, force: true });
+  });
+
+  it("/spec/sync stores a raw alias under the canonical root", async () => {
+    const planPath = makePlanFile(root, "2026-09-25-sync-canon");
+    const r = await call("/spec/sync", { planPath, projectPath: alias });
+    expect(r.ok).toBe(true);
+    const row = store
+      .getRawDb()
+      .prepare("SELECT project_path FROM specs WHERE slug = ?")
+      .get("2026-09-25-sync-canon") as { project_path: string };
+    expect(row.project_path).toBe(root);
+  }, 30_000);
+
+  it("/spec/sync rejects a blank or missing projectPath (write variant)", async () => {
+    const planPath = makePlanFile(root, "2026-09-25-sync-blank");
+    for (const projectPath of ["", "   ", undefined]) {
+      const r = await call("/spec/sync", { planPath, projectPath });
+      expect(r.ok).toBe(false);
+      expect(r.status).toBe(400);
+      expect(r.error).toMatch(/projectPath/);
+    }
+    expect(ctx.specStore.getSpec("2026-09-25-sync-blank")).toBeNull();
+  });
+
+  it("/spec/current canonicalizes the supplied project", async () => {
+    const planPath = makePlanFile(root, "2026-09-25-current-canon");
+    ctx.specStore.syncFromPlanFile(planPath, root);
+    const r = await call(`/spec/current?project=${encodeURIComponent(alias)}`);
+    expect(r.ok).toBe(true);
+    expect(r.data?.id).toBe("2026-09-25-current-canon");
+  }, 30_000);
+
+  it("/spec/current still requires a project (blank → 400)", async () => {
+    for (const q of ["", "?project=", "?project=%20%20"]) {
+      const r = await call(`/spec/current${q}`);
+      expect(r.ok).toBe(false);
+      expect(r.status).toBe(400);
     }
   });
 });

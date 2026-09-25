@@ -12,6 +12,7 @@
  * public API surface.
  */
 
+import { resolveSpecKey, resolveSpecKeyForWrite } from "./spec-key.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type {
   Session,
@@ -162,7 +163,7 @@ export abstract class MemoryStoreSessions {
       .prepare(
         "UPDATE specs SET session_id = ? WHERE id = ? AND (session_id IS NULL OR session_id = '')",
       )
-      .run(sessionId, specId);
+      .run(sessionId, resolveSpecKey(this.db, specId) ?? specId);
   }
 
   cleanupStaleSessions(
@@ -198,7 +199,9 @@ export abstract class MemoryStoreSessions {
         notif.title,
         notif.message ?? null,
         notif.source ?? null,
-        notif.specId ?? null,
+        // D6: slug → key; unknown or ambiguous → NULL (a notification is
+        // never lost to an FK error, and never attached to a guessed spec).
+        resolveSpecKeyForWrite(this.db, notif.specId, notif.projectPath),
         notif.sessionId ?? null,
         notif.projectPath ?? null,
         Date.now(),

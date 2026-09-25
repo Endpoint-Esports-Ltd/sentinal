@@ -213,7 +213,8 @@ describe("TDD MCP tools (direct mode)", () => {
 
     const tdd = store.getTddState("/src/foo.ts");
     expect(tdd?.state).toBe("TEST_WRITTEN");
-    expect(tdd?.specId).toBe("my-spec");
+    // D6: the stored FK is the project-qualified key the slug resolved to.
+    expect(tdd?.specId).toEndWith("::my-spec");
     expect(tdd?.testFilePath).toBe("/src/foo.test.ts");
   });
 
@@ -303,7 +304,7 @@ describe("TDD MCP tools (direct mode)", () => {
 describe("TDD MCP tools (sidecar mode)", () => {
   it("tdd_status should delegate to client.getTddState for single file", async () => {
     const mockClient = {
-      getTddState: async (filePath: string) => ({
+      getTddState: async (_filePath: string) => ({
         state: "RED_CONFIRMED",
         hasActiveSpec: true,
       }),
@@ -331,6 +332,24 @@ describe("TDD MCP tools (sidecar mode)", () => {
     const handler = tools.get("tdd_status")!;
     const result = await handler({});
     expect(result.content[0].text).toContain("2 active");
+  });
+
+  it("tdd_status sends the project identity with spec_id (D6)", async () => {
+    const calls: unknown[][] = [];
+    const mockClient = {
+      listActiveTddStates: async (...args: unknown[]) => {
+        calls.push(args);
+        return [];
+      },
+    } as unknown as SidecarClient;
+    const dir = makeTmpDir();
+    try {
+      const tools = captureTools(registerTddTools, { client: mockClient });
+      await tools.get("tdd_status")!({ spec_id: "shared-slug", project: dir });
+      expect(calls[0]).toEqual(["shared-slug", resolveProjectIdentity(dir)]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // --- tdd_status project scoping (Task 10, client/sidecar path) ---

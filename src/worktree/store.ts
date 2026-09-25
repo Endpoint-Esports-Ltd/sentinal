@@ -5,6 +5,7 @@
  * Follows the SpecStore pattern: takes MemoryStore, uses getRawDb().
  */
 
+import { resolveSpecKey, resolveSpecKeyForWrite } from "../memory/spec-key.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
@@ -62,7 +63,12 @@ export class WorktreeStore {
       )
       .run(
         wt.id,
-        wt.specId ?? null,
+        // D6: worktree rows keep the repo root, which is not necessarily the
+        // spec's canonical key — fall back to a unique slug before failing.
+        wt.specId
+          ? (resolveSpecKeyForWrite(this.db, wt.specId, wt.projectPath) ??
+              wt.specId)
+          : null,
         wt.projectPath,
         wt.worktreePath,
         wt.branchName,
@@ -83,13 +89,18 @@ export class WorktreeStore {
     return row ? this.deserialize(row) : null;
   }
 
-  /** Get the active worktree for a spec (not merged or abandoned). */
-  getBySpecId(specId: string): Worktree | null {
+  /**
+   * Get the active worktree for a spec (not merged or abandoned). Accepts the
+   * spec key or its slug, resolved within `projectPath` when given (D6).
+   */
+  getBySpecId(specId: string, projectPath?: string): Worktree | null {
+    const key = resolveSpecKey(this.db, specId, projectPath);
+    if (!key) return null;
     const row = this.db
       .prepare(
         "SELECT * FROM worktrees WHERE spec_id = ? AND status IN ('active', 'ready-to-merge') ORDER BY created_at DESC LIMIT 1",
       )
-      .get(specId) as RawWorktree | null;
+      .get(key) as RawWorktree | null;
     return row ? this.deserialize(row) : null;
   }
 
@@ -138,7 +149,7 @@ export class WorktreeStore {
   updateSpecId(id: string, specId: string): void {
     this.db
       .prepare("UPDATE worktrees SET spec_id = ? WHERE id = ?")
-      .run(specId, id);
+      .run(resolveSpecKey(this.db, specId) ?? specId, id);
   }
 
   /** Delete a worktree record. Returns true if a row was deleted. */
@@ -309,8 +320,11 @@ export class WorktreeStore {
    * Returns null if no match.
    */
   resolveBySlug(slug: string, projectPath?: string): Worktree | null {
-    // Primary: exact spec_id match
-    const bySpec = this.getBySpecId(slug);
+    // Primary: the spec's key (slug scoped to the project when given — D6).
+    const bySpec = this.getBySpecId(
+      slug,
+      projectPath ? canonicalPath(projectPath) : undefined,
+    );
     if (bySpec) return bySpec;
 
     // Branch names: the configured prefix (default "sentinal/spec-") plus

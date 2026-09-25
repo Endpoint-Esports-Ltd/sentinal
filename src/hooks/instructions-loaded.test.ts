@@ -297,4 +297,51 @@ describe("cross-project ownership guard (spec-review should_fix)", () => {
     expect(mockUpdateObservation).not.toHaveBeenCalled();
     expect(mockAddObservation).toHaveBeenCalledTimes(1);
   });
+  // ─── D10 (hardening-sweep Task 15): server-side dedupe key ──────────────
+  it("inserts with source + a dedupeKey of the full instructions path", async () => {
+    await processInstructionsLoaded(
+      makeInput({ file_path: "/test/project/sub/CLAUDE.md" }),
+    );
+    const obs = mockAddObservation.mock.calls[0]![0] as {
+      metadata?: Record<string, unknown>;
+    };
+    expect(obs.metadata).toEqual({
+      source: "instructions-loaded",
+      dedupeKey: "/test/project/sub/CLAUDE.md",
+    });
+  });
+
+  it("repeats collapse server-side even when the H9 search is down", async () => {
+    const { MemoryStore } = await import("../memory/store.js");
+    const { MemoryService } = await import("../memory/service.js");
+    const store = new MemoryStore(":memory:");
+    const service = new MemoryService(store);
+    try {
+      mockMemorySearch.mockImplementation(async () => {
+        throw new Error("search down");
+      });
+      mockAddObservation.mockImplementation(async (obs: unknown) => {
+        const o = obs as Parameters<typeof service.addObservationDeduped>[0];
+        return service.addObservationDeduped({
+          ...o,
+          filePaths: [],
+          metadata: o.metadata ?? {},
+          timestamp: Date.now(),
+        }).observation;
+      });
+      for (const load_reason of [
+        "session_start",
+        "path_glob_match",
+        "session_start",
+      ]) {
+        await processInstructionsLoaded(makeInput({ load_reason }));
+      }
+      expect(mockAddObservation).toHaveBeenCalledTimes(3);
+      expect(store.getStats().totalObservations).toBe(1);
+      const [row] = store.getRecentForProject("/test/project");
+      expect(row!.metadata.occurrences).toBe(3);
+    } finally {
+      service.close();
+    }
+  });
 });

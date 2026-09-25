@@ -19,8 +19,14 @@ import { readSharedMemory, toObservation } from "./shared.js";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RestoreOptions {
-  /** Project path to restore context for */
+  /** STORAGE KEY — the canonical project whose observations are restored */
   projectPath: string;
+  /**
+   * Local checkout root that `.sentinal/project-memory.json` is read from
+   * (D8). Defaults to `projectPath`. In a linked worktree the two differ:
+   * observations are keyed by the main checkout, shared memory is on disk here.
+   */
+  workspacePath?: string;
   /** Maximum number of recent observations */
   recentLimit?: number;
   /** How far back to look for decisions (ms) */
@@ -121,7 +127,7 @@ async function restoreContextAsync(
     recent = service.getRecentForProject(options.projectPath, recentLimit);
   }
 
-  const merged = mergeSharedObservations(recent, options.projectPath);
+  const merged = mergeSharedObservations(recent, options);
 
   if (merged.length === 0) {
     return { markdown: "", observationCount: 0, hasMemory: false };
@@ -137,7 +143,7 @@ function restoreContextSync(
   const recentLimit = options.recentLimit ?? DEFAULTS.recentLimit;
 
   const recent = service.getRecentForProject(options.projectPath, recentLimit);
-  const merged = mergeSharedObservations(recent, options.projectPath);
+  const merged = mergeSharedObservations(recent, options);
 
   if (merged.length === 0) {
     return { markdown: "", observationCount: 0, hasMemory: false };
@@ -151,9 +157,10 @@ const MAX_SHARED_OBSERVATIONS = 15;
 /** Merge shared observations from .sentinal/project-memory.json with SQLite observations */
 function mergeSharedObservations(
   sqliteObs: Observation[],
-  projectPath: string,
+  options: RestoreOptions,
 ): Observation[] {
-  const shared = readSharedMemory(projectPath);
+  const projectPath = options.projectPath;
+  const shared = readSharedMemory(options.workspacePath ?? projectPath);
   if (shared.length === 0) return sqliteObs;
 
   const existingTitles = new Set(sqliteObs.map((o) => o.title));

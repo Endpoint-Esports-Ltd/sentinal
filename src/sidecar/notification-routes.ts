@@ -14,29 +14,23 @@
  * markAllNotificationsRead() is GLOBAL and would clear other projects'
  * notifications and the dashboard badge.
  *
- * Lives outside routes.ts, which is at its length budget.
+ * Also hosts the WRITE side, `POST /notification` (`handleInsertNotificationRoute`),
+ * moved out of routes.ts and dispatched from `handleSidecarRequest` inside its
+ * try/catch. Its optional `projectPath` (D5) is what lets a warning reach
+ * its own project's session digest; absent means NULL, as before.
  */
 
 import type { SidecarContext } from "./server.js";
-import { ok, fail } from "./response.js";
-import { resolveProjectIdentity } from "../project/identity.js";
+import { ok, fail, readBody } from "./response.js";
+import { normalizeProjectKey, MISSING_PROJECT_PATH } from "./project-key.js";
 import { listSessionNotificationCandidates } from "../hooks/session-notifications.js";
+import type { NotificationType } from "../memory/types.js";
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 20;
 
 const MISSING_PROJECT =
   "Missing or empty 'project' — the sidecar cannot infer it from its own cwd";
-
-/**
- * Canonical project from a caller-supplied value, or null. Blank is rejected
- * BEFORE resolving: resolveProjectIdentity("") falls back to process.cwd(),
- * which in a detached sidecar is meaningless.
- */
-function projectFrom(raw: string | null): string | null {
-  if (raw === null || raw.trim() === "") return null;
-  return resolveProjectIdentity(raw);
-}
 
 function limitFrom(raw: string | null): number {
   const n = Number(raw);
@@ -62,7 +56,7 @@ export async function handleNotificationRequest(
   const url = new URL(req.url, "http://localhost");
 
   if (url.pathname === "/notifications/session" && req.method === "GET") {
-    const project = projectFrom(url.searchParams.get("project"));
+    const project = normalizeProjectKey(url.searchParams.get("project"));
     if (!project) return fail(MISSING_PROJECT);
     return ok(
       listSessionNotificationCandidates(
@@ -81,4 +75,45 @@ export async function handleNotificationRequest(
   }
 
   return null;
+}
+
+/**
+ * Handle `POST /notification` (insert). Dispatched from `handleSidecarRequest`
+ * (routes.ts) inside its try/catch. Returns null for any other request.
+ */
+export async function handleInsertNotificationRoute(
+  url: URL,
+  req: Request,
+  ctx: SidecarContext,
+): Promise<Response | null> {
+  if (url.pathname !== "/notification" || req.method !== "POST") return null;
+
+  const body = await readBody<{
+    type: string;
+    title: string;
+    message?: string;
+    source?: string;
+    specId?: string;
+    sessionId?: string;
+    projectPath?: string;
+  }>(req);
+
+  // D5: absent → NULL (old clients send none); present → canonical identity,
+  // and a blank one is refused rather than stored as "" or treated as global.
+  let projectPath: string | null = null;
+  if (body.projectPath !== undefined && body.projectPath !== null) {
+    projectPath = normalizeProjectKey(body.projectPath);
+    if (!projectPath) return fail(MISSING_PROJECT_PATH);
+  }
+
+  const notif = ctx.store.insertNotification({
+    type: body.type as NotificationType,
+    title: body.title,
+    message: body.message ?? null,
+    source: body.source ?? null,
+    specId: body.specId ?? null,
+    sessionId: body.sessionId ?? null,
+    projectPath,
+  });
+  return ok(notif);
 }

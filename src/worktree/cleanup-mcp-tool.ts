@@ -112,8 +112,7 @@ export function registerWorktreeCleanupTool(
             force: force === true,
             projectPath,
             currentWorktree,
-            isPlanActive: (slug) =>
-              specStore.getSpec(slug)?.status === "IN_PROGRESS",
+            isPlanActive: (slug) => specStore.isSlugInProgress(slug),
             warnings,
           });
           cleaned = result.cleaned;

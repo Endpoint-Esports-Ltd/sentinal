@@ -528,3 +528,40 @@ describe("processTddGuard — with active spec", () => {
     expect(result).not.toBeNull();
   });
 });
+
+// ─── Task 10: the spec lookup uses the canonical identity, not the raw cwd ───
+
+import { realpathSync } from "node:fs";
+import { spyOn } from "bun:test";
+
+describe("processTddGuard — spec lookup key (Task 10)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir("tdd-guard-key"); // raw `/var/…` on macOS
+    mkdirSync(join(tmpDir, "repo", "src"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], {
+      cwd: join(tmpDir, "repo"),
+    });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("calls getCurrentSpec with resolveProjectIdentity(cwd)", () => {
+    const cwd = join(tmpDir, "repo", "src");
+    const spy = spyOn(SpecStore.prototype, "getCurrentSpec");
+    try {
+      processTddGuard({
+        toolName: "Edit",
+        filePath: join(cwd, "impl.ts"),
+        cwd,
+        dbPath: join(tmpDir, "test.db"),
+      });
+      expect(spy.mock.calls[0]![0]).toBe(realpathSync(join(tmpDir, "repo")));
+    } finally {
+      spy.mockRestore();
+    }
+  }, 30_000);
+});

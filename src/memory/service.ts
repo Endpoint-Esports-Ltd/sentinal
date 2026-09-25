@@ -28,6 +28,7 @@ import { SEARCH_CONSTANTS, SearchFiltersSchema } from "./types.js";
 import type { ObservationType } from "./types.js";
 import { sanitizeObservationFields } from "./sanitize.js";
 import { applyFreshness } from "./search/freshness.js";
+import { computeDedupeSignature, isAutoCapture } from "./dedupe-signature.js";
 
 /**
  * D3: a signed error repeating within this window of its FIRST sighting is
@@ -36,10 +37,18 @@ import { applyFreshness } from "./search/freshness.js";
  */
 export const ERROR_DEDUP_WINDOW_MS = 30 * 60 * 1000;
 
+/** D10: the same fixed first-sight window, for every signed observation. */
+export const AUTO_CAPTURE_DEDUP_WINDOW_MS = ERROR_DEDUP_WINDOW_MS;
+
+/** D10: auto-captured `fix` rows also collapse on (project, title). */
+export const FIX_TITLE_DEDUP_WINDOW_MS = 5 * 60 * 1000;
+
 export interface DedupedObservationResult {
   observation: Observation;
   /** true when an existing row absorbed this sighting (no insert). */
   deduplicated: boolean;
+  /** true when the observation was signed, i.e. eligible for dedupe. */
+  deduplicable: boolean;
 }
 
 export interface MemoryServiceOptions {
@@ -116,38 +125,68 @@ export class MemoryService {
   }
 
   /**
-   * Add an observation, de-duplicating signed errors (D3).
+   * Add an observation, de-duplicating repeats (D3 signed errors, D10
+   * auto-captures).
    *
-   * When `obs.type === "error"` and `obs.metadata.signature` is a non-empty
-   * string, an existing error with the same signature in the same project
-   * first seen within `ERROR_DEDUP_WINDOW_MS` before `obs.timestamp` has its
-   * `occurrences` bumped (no insert, no re-embed) and is returned with
-   * `deduplicated: true`. Otherwise the observation is inserted through
-   * `addObservation` — signed errors stamped with `occurrences: 1`, anything
-   * else passed through unchanged.
+   * The signature is the client's `metadata.signature` for an error (D3), else
+   * `computeDedupeSignature` — non-null only for auto-captures and
+   * observations carrying `metadata.dedupeKey`. An existing row of the same
+   * (project, type, signature) first seen within 30 min before
+   * `obs.timestamp` — or, for an auto-captured `fix`, the same (project,
+   * title) within 5 min — has its `occurrences` bumped (no insert, no
+   * re-embed) and is returned with `deduplicated: true`. Otherwise the
+   * observation is inserted, stamped with the signature and `occurrences: 1`.
+   * Unsigned (manual) observations pass through unchanged.
    */
   addObservationDeduped(obs: CreateObservation): DedupedObservationResult {
-    const signature = obs.metadata?.signature;
-    if (obs.type !== "error" || typeof signature !== "string" || !signature) {
-      return { observation: this.addObservation(obs), deduplicated: false };
+    const clientSignature = obs.metadata?.signature;
+    const signature =
+      obs.type === "error" &&
+      typeof clientSignature === "string" &&
+      clientSignature
+        ? clientSignature
+        : computeDedupeSignature(obs);
+    if (!signature) {
+      return {
+        observation: this.addObservation(obs),
+        deduplicated: false,
+        deduplicable: false,
+      };
     }
 
-    const existing = this.store.findRecentErrorBySignature(
-      obs.projectPath,
-      signature,
-      obs.timestamp - ERROR_DEDUP_WINDOW_MS,
-    );
+    const existing =
+      this.store.findRecentBySignature(
+        obs.projectPath,
+        obs.type,
+        signature,
+        obs.timestamp - AUTO_CAPTURE_DEDUP_WINDOW_MS,
+      ) ??
+      (obs.type === "fix" && isAutoCapture(obs.metadata)
+        ? this.store.findRecentAutoCaptureByTitle(
+            obs.projectPath,
+            "fix",
+            sanitizeObservationFields({ title: obs.title, content: "" }).title,
+            obs.timestamp - FIX_TITLE_DEDUP_WINDOW_MS,
+          )
+        : null);
     if (existing) {
-      const repeated = this.store.recordErrorRepeat(existing.id, obs.timestamp);
-      if (repeated) return { observation: repeated, deduplicated: true };
+      const repeated = this.store.recordRepeat(existing.id, obs.timestamp);
+      if (repeated) {
+        return {
+          observation: repeated,
+          deduplicated: true,
+          deduplicable: true,
+        };
+      }
     }
 
     return {
       observation: this.addObservation({
         ...obs,
-        metadata: { ...obs.metadata, occurrences: 1 },
+        metadata: { ...obs.metadata, signature, occurrences: 1 },
       }),
       deduplicated: false,
+      deduplicable: true,
     };
   }
 

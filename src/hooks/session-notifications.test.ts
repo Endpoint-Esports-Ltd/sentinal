@@ -8,6 +8,8 @@
 import { describe, it, expect } from "bun:test";
 import type { Notification } from "../memory/types.js";
 import { SKEW_NOTIFICATION_SOURCE } from "../sidecar/retire-notify.js";
+import { notifyVectorUnavailableOnce } from "../sidecar/vector-stats.js";
+import { MemoryStore } from "../memory/store.js";
 import {
   GLOBAL_NOTIFICATION_SOURCES,
   MAX_SESSION_NOTIFICATIONS,
@@ -41,10 +43,31 @@ function notif(over: Partial<Notification> = {}): Notification {
 }
 
 describe("GLOBAL_NOTIFICATION_SOURCES", () => {
-  it("is a narrow allow-list containing exactly the skew source", () => {
+  it("is a narrow allow-list: exactly the skew and vector-init sources", () => {
     expect([...GLOBAL_NOTIFICATION_SOURCES]).toEqual([
       SKEW_NOTIFICATION_SOURCE,
+      "vector-init",
     ]);
+  });
+
+  it("surfaces the REAL vector-unavailable notification in every project's digest", async () => {
+    const store = new MemoryStore(":memory:");
+    try {
+      // The actual producer, so a renamed source cannot drift silently.
+      expect(notifyVectorUnavailableOnce(store, "vec0 missing")).toBe(true);
+      const reader: SessionNotificationReader = {
+        listCandidates: (p, limit) =>
+          listSessionNotificationCandidates(store, p, limit),
+        markRead: () => {}, // leave unread so the second project sees it too
+      };
+      for (const project of [PROJECT, OTHER]) {
+        expect(await surfaceSessionNotifications(reader, project)).toContain(
+          "[warning] Vector search unavailable",
+        );
+      }
+    } finally {
+      store.close();
+    }
   });
 });
 

@@ -22,6 +22,7 @@ import {
 import { readTddState } from "../memory/tdd-state.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import { isGuardedFile } from "../utils/tdd.js";
 
 // ─── State messages ───────────────────────────────────────────────────────────
@@ -65,7 +66,9 @@ export function processTddGuard(input: TddGuardInput): DenyOutput | null {
   const store = new MemoryStore(dbPath);
   try {
     const specStore = new SpecStore(store);
-    const spec = specStore.getCurrentSpec(cwd);
+    // Storage key: the canonical identity, never the raw cwd (a subdirectory,
+    // symlink or linked worktree would otherwise miss the spec row).
+    const spec = specStore.getCurrentSpec(resolveProjectIdentity(cwd));
     if (!spec) return null; // No active spec = no enforcement
   } finally {
     store.close();

@@ -5,31 +5,24 @@
  * Wraps MemoryStore's raw database to access the specs and spec_tasks tables.
  */
 
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { MemoryStore } from "../memory/store.js";
 import { parsePlanFile } from "./parser.js";
 import { ACTIVE_STATUSES } from "./types.js";
+import { canonicalProjectKey } from "../sidecar/project-key.js";
+import {
+  mergeSpecInto,
+  renameSpec,
+  resolveSpecKey,
+  specKey,
+  withDeferredFks,
+} from "../memory/spec-key.js";
 import type { Spec, SpecTask } from "./types.js";
+import { auditSpecCompletion, type AuditResult } from "./audit.js";
 
-// --- Audit Types ---
-
-export interface AuditFix {
-  taskPosition: number;
-  taskTitle: string;
-  issue: "md-ahead" | "sqlite-ahead";
-  /** What was changed: "updated-sqlite" or "updated-md" */
-  action: string;
-}
-
-export interface AuditResult {
-  specId: string;
-  totalTasks: number;
-  completeTasks: number;
-  fixes: AuditFix[];
-  inSync: boolean;
-}
+export type { AuditFix, AuditResult } from "./audit.js";
 
 // --- Raw DB Row Types ---
 
@@ -78,13 +71,34 @@ export class SpecStore {
     this.memoryStore = memoryStore;
   }
 
-  /** Sync a single plan file into the SQLite index. */
+  /**
+   * Sync a single plan file into the SQLite index — the single write point
+   * for `specs.project_path`, so it canonicalizes (idempotently) itself: a raw
+   * subdirectory / symlink / `/var` alias key made the Stop guard read the
+   * plan as ownerless ("orphaned" block).
+   */
   syncFromPlanFile(
     planFile: string,
     projectPath: string,
     sessionId?: string,
   ): Spec {
+    return this.syncCanonical(
+      planFile,
+      canonicalProjectKey(projectPath),
+      sessionId,
+    );
+  }
+
+  /** `syncFromPlanFile` with an already-canonical key. */
+  private syncCanonical(
+    planFile: string,
+    projectPath: string,
+    sessionId?: string,
+  ): Spec {
     const spec = parsePlanFile(planFile);
+    // D6: the stored id is project-qualified; `spec.id` stays the slug.
+    const key = specKey(projectPath, spec.id);
+    this.healSameIdentityRows(key, projectPath, spec.id);
     const now = Date.now();
     const tasksDone = spec.tasks.filter((t) => t.status === "complete").length;
     const metadataJson = JSON.stringify(spec.metadata ?? {});
@@ -94,7 +108,7 @@ export class SpecStore {
       .prepare(
         "SELECT status, started_at, completed_at FROM specs WHERE id = ?",
       )
-      .get(spec.id) as
+      .get(key) as
       | {
           status: string;
           started_at: number | null;
@@ -129,8 +143,8 @@ export class SpecStore {
     // INSERT-only and therefore sticky forever: a row first written from a
     // linked worktree kept that worktree's path as its key for the rest of
     // time, so the same plan re-registered from the main checkout stayed
-    // invisible to `getCurrentSpec(canonicalRoot)`. Callers now pass the
-    // CANONICAL identity (see `resolveProjectIdentity`), and writing it on
+    // invisible to `getCurrentSpec(canonicalRoot)`. The key is now the
+    // CANONICAL identity (canonicalized above), and writing it on
     // conflict is what lets pre-existing stale rows self-heal on the next
     // `spec_register` — no schema migration, no `SCHEMA_VERSION` bump.
     //
@@ -157,7 +171,7 @@ export class SpecStore {
          completed_at = COALESCE(excluded.completed_at, specs.completed_at)`,
     );
     upsertSpec.run(
-      spec.id,
+      key,
       projectPath,
       spec.title,
       spec.id,
@@ -180,7 +194,7 @@ export class SpecStore {
     // Log phase_change event on status transitions
     if (oldStatus && oldStatus !== spec.status) {
       this.memoryStore.logSpecEvent({
-        specId: spec.id,
+        specId: key,
         sessionId: sessionId ?? undefined,
         eventType: "phase_change",
         details: { from: oldStatus, to: spec.status },
@@ -202,11 +216,11 @@ export class SpecStore {
     // Delete tasks that no longer exist in the plan (position > task count)
     this.db
       .prepare("DELETE FROM spec_tasks WHERE spec_id = ? AND position > ?")
-      .run(spec.id, spec.tasks.length);
+      .run(key, spec.tasks.length);
 
     for (const task of spec.tasks) {
       upsertTask.run(
-        spec.id,
+        key,
         task.position,
         task.title,
         task.status,
@@ -216,11 +230,57 @@ export class SpecStore {
       );
     }
 
-    return spec;
+    return { ...spec, key, projectPath };
   }
 
-  /** Get spec-level timing data. */
-  getSpecTiming(specId: string): {
+  /**
+   * Runtime heal (D6). When `key` has no row yet, a row for the same slug
+   * whose project resolves to the same identity — a linked-worktree key V14
+   * could not see through, or a bare id an old sidecar wrote after V14 — is
+   * re-keyed onto `key` (newest wins; the rest are folded in) instead of
+   * leaving an orphan duplicate. Only runs on a first registration.
+   */
+  private healSameIdentityRows(key: string, project: string, slug: string) {
+    if (this.db.prepare("SELECT 1 FROM specs WHERE id = ?").get(key)) return;
+    const same = (
+      this.db
+        .prepare(
+          "SELECT id, project_path, updated_at FROM specs WHERE slug = ? AND id != ?",
+        )
+        .all(slug, key) as Array<{
+        id: string;
+        project_path: string;
+        updated_at: number;
+      }>
+    )
+      .filter(
+        (r) =>
+          r.project_path === project ||
+          canonicalProjectKey(r.project_path) === project,
+      )
+      .sort((a, b) => b.updated_at - a.updated_at || a.id.localeCompare(b.id));
+    if (same.length === 0) return;
+    withDeferredFks(this.db, () => {
+      const [winner, ...losers] = same;
+      for (const l of losers) mergeSpecInto(this.db, l.id, winner!.id);
+      renameSpec(this.db, winner!.id, key, project);
+    });
+  }
+
+  /** Resolve a key or slug (optionally within a project) to the stored id. */
+  private keyOf(value: string, project?: string): string | null {
+    return resolveSpecKey(
+      this.db,
+      value,
+      project ? canonicalProjectKey(project) : undefined,
+    );
+  }
+
+  /** Get spec-level timing data (key, or slug + optional project). */
+  getSpecTiming(
+    specId: string,
+    project?: string,
+  ): {
     title: string;
     status: string;
     startedAt: number | null;
@@ -230,7 +290,7 @@ export class SpecStore {
       .prepare(
         "SELECT title, status, started_at, completed_at FROM specs WHERE id = ?",
       )
-      .get(specId) as
+      .get(this.keyOf(specId, project)) as
       | {
           title: string;
           status: string;
@@ -247,8 +307,11 @@ export class SpecStore {
     };
   }
 
-  /** Get task-level timing data. */
-  getTaskTiming(specId: string): Array<{
+  /** Get task-level timing data (key, or slug + optional project). */
+  getTaskTiming(
+    specId: string,
+    project?: string,
+  ): Array<{
     position: number;
     title: string;
     status: string;
@@ -259,7 +322,7 @@ export class SpecStore {
       .prepare(
         "SELECT position, title, status, started_at, completed_at FROM spec_tasks WHERE spec_id = ? ORDER BY position",
       )
-      .all(specId) as Array<{
+      .all(this.keyOf(specId, project)) as Array<{
       position: number;
       title: string;
       status: string;
@@ -278,10 +341,12 @@ export class SpecStore {
   /** Sync all plan files from a directory into the SQLite index. */
   syncAllPlans(plansDir: string, projectPath: string): number {
     let count = 0;
+    // Resolve the identity ONCE per call, not one git spawn per plan file.
+    const key = canonicalProjectKey(projectPath);
     try {
       const files = readdirSync(plansDir).filter((f) => f.endsWith(".md"));
       for (const file of files) {
-        this.syncFromPlanFile(join(plansDir, file), projectPath);
+        this.syncCanonical(join(plansDir, file), key);
         count++;
       }
     } catch {
@@ -290,22 +355,28 @@ export class SpecStore {
     return count;
   }
 
-  /** Get a spec by ID (slug). */
-  getSpec(id: string): Spec | null {
+  /**
+   * Get a spec by its key, or by slug (within `project` when given). A bare
+   * slug that exists in more than one project resolves to null — pass the
+   * project (D6).
+   */
+  getSpec(id: string, project?: string): Spec | null {
+    const key = this.keyOf(id, project);
+    if (!key) return null;
     const row = this.db
       .prepare("SELECT * FROM specs WHERE id = ?")
-      .get(id) as RawSpec | null;
+      .get(key) as RawSpec | null;
     if (!row) return null;
     return this.deserializeSpec(row);
   }
 
-  /** List all specs for a project, ordered by most recent first. */
+  /** List all specs for a project (key canonicalized), most recent first. */
   listSpecs(projectPath: string): Spec[] {
     const rows = this.db
       .prepare(
         "SELECT * FROM specs WHERE project_path = ? ORDER BY updated_at DESC",
       )
-      .all(projectPath) as RawSpec[];
+      .all(canonicalProjectKey(projectPath)) as RawSpec[];
     return rows.map((r) => this.deserializeSpec(r));
   }
 
@@ -317,11 +388,14 @@ export class SpecStore {
     return rows.map((r) => this.deserializeSpec(r));
   }
 
-  /** Get the current (most recently updated) active spec for a project. */
+  /**
+   * Get the current (most recently updated) active spec for a project. The
+   * key is canonicalized like the write point, so a raw alias still matches.
+   */
   getCurrentSpec(projectPath: string): Spec | null {
     const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
     const params: SQLQueryBindings[] = [
-      projectPath,
+      canonicalProjectKey(projectPath),
       ...(ACTIVE_STATUSES as readonly string[]),
     ];
     const row = this.db
@@ -343,9 +417,25 @@ export class SpecStore {
     return rows.map((r) => this.deserializeSpec(r));
   }
 
+  /**
+   * Is a plan with this slug IN_PROGRESS in ANY project? The guard that keeps
+   * a running plan's worktree from being force-removed. Deliberately
+   * project-blind (D6): a bare slug may name plans in several projects, and a
+   * false positive only skips one removal, while a false negative deletes work.
+   */
+  isSlugInProgress(slug: string): boolean {
+    return (
+      this.db
+        .prepare(
+          "SELECT 1 FROM specs WHERE (slug = ? OR id = ?) AND status = 'IN_PROGRESS' LIMIT 1",
+        )
+        .get(slug, slug) !== null
+    );
+  }
+
   /** Get a spec by ID with tasks pre-loaded (convenience wrapper). */
-  getSpecWithTasks(specId: string): Spec | null {
-    return this.getSpec(specId);
+  getSpecWithTasks(specId: string, project?: string): Spec | null {
+    return this.getSpec(specId, project);
   }
 
   /**
@@ -353,13 +443,15 @@ export class SpecStore {
    * Returns the first "in-progress" task, or the first "pending" task if none in-progress.
    * Returns null if all tasks are complete/failed or the spec has no tasks.
    */
-  getCurrentTask(specId: string): SpecTask | null {
+  getCurrentTask(specId: string, project?: string): SpecTask | null {
+    const key = this.keyOf(specId, project);
+    if (!key) return null;
     // Prefer in-progress
     const inProgress = this.db
       .prepare(
         "SELECT * FROM spec_tasks WHERE spec_id = ? AND status = 'in-progress' ORDER BY position LIMIT 1",
       )
-      .get(specId) as RawSpecTask | null;
+      .get(key) as RawSpecTask | null;
     if (inProgress) return this.deserializeTask(inProgress);
 
     // Fall back to first pending
@@ -367,7 +459,7 @@ export class SpecStore {
       .prepare(
         "SELECT * FROM spec_tasks WHERE spec_id = ? AND status = 'pending' ORDER BY position LIMIT 1",
       )
-      .get(specId) as RawSpecTask | null;
+      .get(key) as RawSpecTask | null;
     if (pending) return this.deserializeTask(pending);
 
     return null;
@@ -392,88 +484,17 @@ export class SpecStore {
         status,
         opts?.startedAt ?? null,
         opts?.completedAt ?? null,
-        specId,
+        this.keyOf(specId) ?? specId,
         position,
       );
   }
 
   /**
-   * Cross-check plan file checkboxes against SQLite task states.
-   * Fixes discrepancies in both directions:
-   *   - md has [x] but sqlite has pending/in-progress → update sqlite to complete
-   *   - sqlite has complete but md has [ ] → update md checkbox to [x]
+   * Cross-check plan file checkboxes against SQLite task states, fixing
+   * discrepancies in both directions (see `audit.ts`).
    */
   auditCompletion(specId: string): AuditResult {
-    const spec = this.getSpec(specId);
-    if (!spec) {
-      return {
-        specId,
-        totalTasks: 0,
-        completeTasks: 0,
-        fixes: [],
-        inSync: true,
-      };
-    }
-
-    // Re-parse the .md file to get current checkbox states
-    const mdSpec = parsePlanFile(spec.planFile);
-    const sqliteTasks = this.getTasksForSpec(specId);
-    const fixes: AuditFix[] = [];
-
-    // Build a map of sqlite tasks by position
-    const sqliteByPos = new Map(sqliteTasks.map((t) => [t.position, t]));
-
-    for (const mdTask of mdSpec.tasks) {
-      const sqliteTask = sqliteByPos.get(mdTask.position);
-      if (!sqliteTask) continue;
-
-      const mdComplete = mdTask.status === "complete";
-      const sqliteComplete = sqliteTask.status === "complete";
-
-      if (mdComplete && !sqliteComplete) {
-        // MD is ahead — update SQLite
-        this.updateTaskStatus(specId, mdTask.position, "complete", {
-          completedAt: Date.now(),
-        });
-        fixes.push({
-          taskPosition: mdTask.position,
-          taskTitle: mdTask.title,
-          issue: "md-ahead",
-          action: "updated-sqlite",
-        });
-      } else if (sqliteComplete && !mdComplete) {
-        // SQLite is ahead — update MD file
-        fixes.push({
-          taskPosition: mdTask.position,
-          taskTitle: sqliteTask.title,
-          issue: "sqlite-ahead",
-          action: "updated-md",
-        });
-      }
-    }
-
-    // If any sqlite-ahead fixes, rewrite the md file
-    const sqliteAheadPositions = new Set(
-      fixes
-        .filter((f) => f.issue === "sqlite-ahead")
-        .map((f) => f.taskPosition),
-    );
-    if (sqliteAheadPositions.size > 0) {
-      this.updateMdCheckboxes(spec.planFile, sqliteAheadPositions);
-    }
-
-    const finalTasks = this.getTasksForSpec(specId);
-    const completeTasks = finalTasks.filter(
-      (t) => t.status === "complete",
-    ).length;
-
-    return {
-      specId,
-      totalTasks: finalTasks.length,
-      completeTasks,
-      fixes,
-      inSync: fixes.length === 0,
-    };
+    return auditSpecCompletion(this, specId);
   }
 
   // --- Helpers ---
@@ -482,31 +503,8 @@ export class SpecStore {
   getTasksForSpec(specId: string): SpecTask[] {
     const rows = this.db
       .prepare("SELECT * FROM spec_tasks WHERE spec_id = ? ORDER BY position")
-      .all(specId) as RawSpecTask[];
+      .all(this.keyOf(specId) ?? specId) as RawSpecTask[];
     return rows.map((r) => this.deserializeTask(r));
-  }
-
-  /**
-   * Rewrite a plan file's checkboxes: change `- [ ] Task N:` to `- [x] Task N:`
-   * for the given task positions. Preserves all other content.
-   */
-  private updateMdCheckboxes(planFile: string, positions: Set<number>): void {
-    const content = readFileSync(planFile, "utf-8");
-    const lines = content.split("\n");
-
-    const updated = lines.map((line) => {
-      // Match: `- [ ] Task N: Title` or `- [~] Task N: Title`
-      const match = line.match(/^(-\s+)\[[ ~]\]\s+(Task\s+(\d+):.*)$/i);
-      if (match) {
-        const pos = parseInt(match[3], 10);
-        if (positions.has(pos)) {
-          return `${match[1]}[x] ${match[2]}`;
-        }
-      }
-      return line;
-    });
-
-    writeFileSync(planFile, updated.join("\n"));
   }
 
   private deserializeTask(r: RawSpecTask): SpecTask {
@@ -531,7 +529,9 @@ export class SpecStore {
       // Malformed JSON — fall back to empty
     }
     return {
-      id: row.id,
+      id: row.slug || row.id,
+      key: row.id,
+      projectPath: row.project_path,
       title: row.title,
       status: row.status as Spec["status"],
       type: row.type as Spec["type"],

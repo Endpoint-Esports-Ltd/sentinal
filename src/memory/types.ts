@@ -222,7 +222,7 @@ export interface RawNotification {
 export const DB_CONSTANTS = {
   DB_DIR: ".sentinal",
   DB_NAME: "memory.db",
-  SCHEMA_VERSION: 13,
+  SCHEMA_VERSION: 14,
 } as const;
 
 // ─── TDD Cycle Types ──────────────────────────────────────────────────────────

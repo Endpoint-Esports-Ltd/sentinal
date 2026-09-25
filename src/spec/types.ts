@@ -65,7 +65,15 @@ export const SpecTaskSchema = z.object({
 });
 
 export const SpecSchema = z.object({
+  /** The bare plan slug (filename) — what callers compare with parsed plans. */
   id: z.string().min(1),
+  /**
+   * D6: the stored, project-qualified `specs.id` (`<project>::<slug>`), opaque.
+   * Set on rows read from SQLite; absent on a freshly parsed plan.
+   */
+  key: z.string().optional(),
+  /** Canonical project the stored row belongs to. */
+  projectPath: z.string().optional(),
   title: z.string().min(1),
   status: z.enum(SPEC_STATUSES),
   type: z.enum(SPEC_TYPES),

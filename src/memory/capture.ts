@@ -17,8 +17,14 @@
  */
 
 import type { ObservationType } from "./types.js";
+import { isErrorOutput } from "./error-classifier.js";
+
+export { isErrorOutput, isPassingTestSummary } from "./error-classifier.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+/** A heuristic that turns an earlier error into a capture, consuming it. */
+export type CaptureConsumer = "fix" | "build" | "tdd";
 
 export interface ToolEvent {
   toolName: string;
@@ -30,6 +36,18 @@ export interface ToolEvent {
   output?: string;
   /** Timestamp of the event */
   timestamp: number;
+  /**
+   * Process exit code when KNOWN (OpenCode `metadata.exit`; 0 for a Claude
+   * Code Bash seen on PostToolUse, which fires only on success). Overrides
+   * the text heuristics in `isErrorOutput`.
+   */
+  exitCode?: number | null;
+  /**
+   * Heuristics this error has already produced a capture for. Stored ON the
+   * event so it survives the CC hook's JSON-persisted buffer — an error, once
+   * it yields a fix, never yields another.
+   */
+  consumedBy?: CaptureConsumer[];
 }
 
 export interface CaptureDecision {
@@ -79,26 +97,8 @@ const ARCHITECTURAL_FILE_PATTERNS = [
   /index\.ts$/,
 ];
 
-const ERROR_INDICATORS = [
-  /error\s*TS\d+/i,
-  /\bERROR\b/,
-  /\bFAILED\b/i,
-  /\bfail\b/i,
-  /\bexception\b/i,
-  /\bstack\s*trace\b/i,
-  /Cannot find module/i,
-  /is not assignable/i,
-  /does not exist/i,
-  /unexpected token/i,
-];
-
-const FIX_INDICATORS = [
-  /\bfix\b/i,
-  /\bresolved\b/i,
-  /\bworkaround\b/i,
-  /\bsolution\b/i,
-  /\bpatch\b/i,
-];
+/** Edits to documentation never count as fixing an error (D9). */
+const DOC_PATH_PATTERNS = [/\.(?:md|mdx|markdown)$/i, /(?:^|\/)docs\//];
 
 // A count of ZERO is not evidence: every passing bun run prints " 0 fail" and an
 // all-failing one prints " 0 pass". Matching `\d+` read every passing bun run
@@ -122,6 +122,13 @@ export const TEST_PASS_INDICATORS = [
 
 // ─── Event Buffer ─────────────────────────────────────────────────────────────
 
+export interface ErrorWindowOptions {
+  /** The event being analysed — excluded from its own window. */
+  exclude?: ToolEvent;
+  /** Whose consumption to honour (default "fix"). */
+  consumer?: CaptureConsumer;
+}
+
 /**
  * Sliding window of recent tool events for pattern detection.
  * Maintains the last N events per session to detect sequences
@@ -142,23 +149,38 @@ export class EventBuffer {
     }
   }
 
-  /** Get recent events (most recent first) */
-  recent(count: number = 5): ToolEvent[] {
-    return this.events.slice(-count).reverse();
+  /**
+   * Get recent events (most recent first). `exclude` drops the event being
+   * analysed — callers push it before analysing, and it is never its own
+   * predecessor.
+   */
+  recent(count: number = 5, exclude?: ToolEvent): ToolEvent[] {
+    const pool = exclude
+      ? this.events.filter((e) => e !== exclude)
+      : this.events;
+    return pool.slice(-count).reverse();
   }
 
-  /** Check if a recent event had an error */
-  hasRecentError(windowSize: number = 3): ToolEvent | null {
-    const recent = this.events.slice(-windowSize);
-    for (let i = recent.length - 1; i >= 0; i--) {
-      if (
-        !recent[i].success ||
-        (recent[i].output && hasErrorIndicator(recent[i].output!))
-      ) {
-        return recent[i];
-      }
-    }
-    return null;
+  /**
+   * Unconsumed errors among the last `windowSize` PRIOR events, most recent
+   * first. `consumer` (default "fix") selects whose consumption is honoured.
+   */
+  recentErrors(
+    windowSize: number = 3,
+    opts: ErrorWindowOptions = {},
+  ): ToolEvent[] {
+    const consumer = opts.consumer ?? "fix";
+    return this.recent(windowSize, opts.exclude).filter(
+      (e) => isErrorEvent(e) && !e.consumedBy?.includes(consumer),
+    );
+  }
+
+  /** The most recent unconsumed error in the window, or null. */
+  hasRecentError(
+    windowSize: number = 3,
+    opts: ErrorWindowOptions = {},
+  ): ToolEvent | null {
+    return this.recentErrors(windowSize, opts)[0] ?? null;
   }
 
   clear(): void {
@@ -199,9 +221,14 @@ function detectErrorFixSequence(
 ): CaptureDecision | null {
   if (!isEditTool(event.toolName) || !event.success || !event.filePath)
     return null;
+  // A doc edit neither fixes the error nor consumes it.
+  if (DOC_PATH_PATTERNS.some((p) => p.test(event.filePath!))) return null;
 
-  const recentError = buffer.hasRecentError(5);
+  const errors = buffer.recentErrors(5, { exclude: event, consumer: "fix" });
+  const recentError = errors[0];
   if (!recentError) return null;
+  // The whole error streak is answered by this one fix.
+  for (const e of errors) consume(e, "fix");
 
   return {
     shouldCapture: true,
@@ -265,18 +292,17 @@ function detectBuildFixSequence(
   // Check if this looks like a successful build/lint
   const isBuildSuccess =
     /\b(compiled|built|passed|success)\b/i.test(event.output) &&
-    !hasErrorIndicator(event.output);
+    !isErrorOutput(event.output, event.exitCode);
   if (!isBuildSuccess) return null;
 
   // Check if a recent Bash event had errors
-  const recentError = buffer.hasRecentError(3);
-  if (
-    !recentError ||
-    recentError.toolName.toLowerCase() !== "bash" ||
-    !recentError.output
-  )
+  const recentError = buffer.hasRecentError(3, {
+    exclude: event,
+    consumer: "build",
+  });
+  if (!recentError || recentError.toolName.toLowerCase() !== "bash")
     return null;
-  if (!hasErrorIndicator(recentError.output)) return null;
+  consume(recentError, "build");
 
   return {
     shouldCapture: true,
@@ -299,7 +325,7 @@ function detectTddCycle(
   if (!event.output || !hasTestPassIndicator(event.output)) return null;
 
   // Look backward for a test failure, with edits in between
-  const recent = buffer.recent(10);
+  const recent = buffer.recent(10, event);
   let testFailEvent: ToolEvent | null = null;
   let hasEditBetween = false;
 
@@ -310,6 +336,7 @@ function detectTddCycle(
     if (
       prev.toolName.toLowerCase() === "bash" &&
       prev.output &&
+      prev.exitCode !== 0 &&
       hasTestFailIndicator(prev.output)
     ) {
       testFailEvent = prev;
@@ -317,16 +344,15 @@ function detectTddCycle(
     }
   }
 
+  // A failure whose cycle was already captured closes the search.
   if (!testFailEvent || !hasEditBetween) return null;
+  if (testFailEvent.consumedBy?.includes("tdd")) return null;
+  consume(testFailEvent, "tdd");
 
   // Collect file paths from edits between the fail and pass
   const editPaths: string[] = [];
-  let foundFail = false;
   for (const prev of recent) {
-    if (prev === testFailEvent) {
-      foundFail = true;
-      break;
-    }
+    if (prev === testFailEvent) break;
     if (isEditTool(prev.toolName) && prev.filePath) {
       editPaths.push(prev.filePath);
     }
@@ -388,11 +414,11 @@ function detectFailedApproach(
 
   // Signal 1: 3+ errors on same file — trigger on the error event itself
   if (!event.success && event.filePath) {
-    const recent = buffer.recent(10);
+    const recent = buffer.recent(10, event);
     let errorCount = 1; // Count current event
     for (const e of recent) {
       if (e.filePath !== event.filePath) continue;
-      if (!e.success || (e.output && hasErrorIndicator(e.output))) {
+      if (isErrorEvent(e)) {
         errorCount++;
       } else if (e.success && e.toolName.toLowerCase() === "bash") {
         // A successful bash run on the same file breaks the error streak
@@ -432,8 +458,17 @@ function isEditTool(toolName: string): boolean {
   return ["write", "edit", "multiedit", "patch"].includes(name);
 }
 
-function hasErrorIndicator(text: string): boolean {
-  return ERROR_INDICATORS.some((p) => p.test(text));
+/**
+ * Whether a buffered event is an error: a known exit code decides; otherwise
+ * a failed call, or output the classifier reads as an error.
+ */
+export function isErrorEvent(e: ToolEvent): boolean {
+  if (typeof e.exitCode === "number") return e.exitCode !== 0;
+  return !e.success || isErrorOutput(e.output);
+}
+
+function consume(e: ToolEvent, by: CaptureConsumer): void {
+  if (!e.consumedBy?.includes(by)) e.consumedBy = [...(e.consumedBy ?? []), by];
 }
 
 function basename(filePath: string): string {

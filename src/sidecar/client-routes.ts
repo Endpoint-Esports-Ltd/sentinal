@@ -122,9 +122,14 @@ export abstract class SidecarRoutes {
     await this.post("/tdd-state", { action: "clearForSpec", specId });
   }
 
-  async listActiveTddStates(specId?: string | null): Promise<TddCycle[]> {
+  /** `project` (optional) scopes server-side; an old sidecar ignores it. */
+  async listActiveTddStates(
+    specId?: string | null,
+    project?: string,
+  ): Promise<TddCycle[]> {
     const params = new URLSearchParams();
     if (specId) params.set("spec_id", specId);
+    if (project) params.set("project", project);
     const qs = params.toString();
     return this.get(`/tdd-state/list${qs ? `?${qs}` : ""}`);
   }
@@ -177,10 +182,13 @@ export abstract class SidecarRoutes {
   async restoreContext(
     projectPath: string,
     semanticQuery?: string,
+    /** D8 — local checkout for shared memory; old sidecars ignore it. */
+    workspace?: string,
   ): Promise<{ hasMemory: boolean; markdown: string | null }> {
     let url = `/context?project=${encodeURIComponent(projectPath)}`;
     if (semanticQuery)
       url += `&semanticQuery=${encodeURIComponent(semanticQuery)}`;
+    if (workspace) url += `&workspace=${encodeURIComponent(workspace)}`;
     return this.get(url);
   }
 
@@ -279,8 +287,14 @@ export abstract class SidecarRoutes {
    * Spec + task timing for spec_metrics. One route, one shape — exactly
    * the two store reads the tool performs (getSpecTiming + getTaskTiming).
    */
-  async getSpecMetrics(specId: string): Promise<SpecMetricsData> {
-    return this.get(`/spec/metrics?spec_id=${encodeURIComponent(specId)}`);
+  async getSpecMetrics(
+    specId: string,
+    /** D6 — disambiguates a shared slug; old sidecars ignore it. */
+    project?: string,
+  ): Promise<SpecMetricsData> {
+    let url = `/spec/metrics?spec_id=${encodeURIComponent(specId)}`;
+    if (project) url += `&project=${encodeURIComponent(project)}`;
+    return this.get(url);
   }
 
   // ─── Worktrees ────────────────────────────────────────────────────────
@@ -354,6 +368,8 @@ export abstract class SidecarRoutes {
     source?: string;
     specId?: string;
     sessionId?: string;
+    /** Owning project (D5); omit for a global notification. */
+    projectPath?: string;
   }): Promise<void> {
     await this.post("/notification", notif);
   }

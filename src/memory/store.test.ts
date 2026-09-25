@@ -312,13 +312,13 @@ describe("MemoryStore", () => {
 
   describe("getTimelineAround", () => {
     it("should return before and after context", () => {
-      const obs1 = store.insertObservation(
+      store.insertObservation(
         makeObservation({ timestamp: 100, title: "Before" }),
       );
       const obs2 = store.insertObservation(
         makeObservation({ timestamp: 200, title: "Anchor" }),
       );
-      const obs3 = store.insertObservation(
+      store.insertObservation(
         makeObservation({ timestamp: 300, title: "After" }),
       );
 
@@ -870,6 +870,108 @@ describe("MemoryStore — error signature dedupe", () => {
         )
         .get() as { n: number };
       expect(ftsRows.n).toBe(1);
+    });
+  });
+});
+
+// ─── Generalized dedupe primitives (hardening-sweep Task 15, D10) ─────────
+
+describe("MemoryStore — generalized signature dedupe", () => {
+  let store: MemoryStore;
+  const T0 = 1_700_000_000_000;
+
+  beforeEach(() => {
+    store = new MemoryStore(":memory:");
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  function autoFix(overrides: Partial<CreateObservation> = {}) {
+    return makeObservation({
+      type: "fix",
+      title: "Fixed issue in a.ts",
+      timestamp: T0,
+      metadata: { source: "auto-capture", signature: "sig-f", occurrences: 1 },
+      ...overrides,
+    });
+  }
+
+  describe("findRecentBySignature", () => {
+    it("matches any type, scoped by (project, type, signature, since)", () => {
+      const fix = store.insertObservation(autoFix());
+      expect(
+        store.findRecentBySignature("/test/project", "fix", "sig-f", T0 - 1)
+          ?.id,
+      ).toBe(fix.id);
+      expect(
+        store.findRecentBySignature(
+          "/test/project",
+          "pattern",
+          "sig-f",
+          T0 - 1,
+        ),
+      ).toBeNull();
+      expect(
+        store.findRecentBySignature("/other", "fix", "sig-f", T0 - 1),
+      ).toBeNull();
+      expect(
+        store.findRecentBySignature("/test/project", "fix", "sig-x", T0 - 1),
+      ).toBeNull();
+      expect(
+        store.findRecentBySignature("/test/project", "fix", "sig-f", T0),
+      ).toBeNull();
+    });
+
+    it("the error-named alias still finds errors only", () => {
+      store.insertObservation(autoFix());
+      expect(
+        store.findRecentErrorBySignature("/test/project", "sig-f", T0 - 1),
+      ).toBeNull();
+    });
+  });
+
+  describe("recordRepeat", () => {
+    it("is the generalized recordErrorRepeat", () => {
+      const obs = store.insertObservation(autoFix());
+      expect(store.recordRepeat(obs.id, T0 + 5)!.metadata).toMatchObject({
+        occurrences: 2,
+        lastSeen: T0 + 5,
+      });
+      expect(
+        store.recordErrorRepeat(obs.id, T0 + 6)!.metadata.occurrences,
+      ).toBe(3);
+    });
+  });
+
+  describe("findRecentAutoCaptureByTitle", () => {
+    it("finds an auto-captured row with the same (project, type, title) after the cutoff", () => {
+      const obs = store.insertObservation(autoFix({ content: "one" }));
+      expect(
+        store.findRecentAutoCaptureByTitle(
+          "/test/project",
+          "fix",
+          "Fixed issue in a.ts",
+          T0 - 1,
+        )?.id,
+      ).toBe(obs.id);
+    });
+
+    it("never matches a manual row, another title/type/project, or an old row", () => {
+      store.insertObservation(autoFix({ metadata: { source: "mcp-tool" } }));
+      store.insertObservation(autoFix({ metadata: {} }));
+      store.insertObservation(autoFix({ title: "Fixed issue in b.ts" }));
+      store.insertObservation(autoFix({ type: "pattern" }));
+      store.insertObservation(autoFix({ projectPath: "/other" }));
+      store.insertObservation(autoFix({ timestamp: T0 - 10 }));
+      expect(
+        store.findRecentAutoCaptureByTitle(
+          "/test/project",
+          "fix",
+          "Fixed issue in a.ts",
+          T0 - 1,
+        ),
+      ).toBeNull();
     });
   });
 });

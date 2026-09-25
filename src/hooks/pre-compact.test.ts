@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import type { HookInput } from "../utils/hook-output.js";
 import { SidecarClient } from "../sidecar/client.js";
+import { resolveWorkspaceRoot } from "../project/identity.js";
 
 const HOOK = join(import.meta.dir, "pre-compact.ts");
 
@@ -121,6 +122,70 @@ describe("processPreCompact (M10c)", () => {
       await processPreCompact(makeInput(tmpDir));
       expect(mockTouch).toHaveBeenCalledWith("pre-compact-test");
       expect(mockRestore).toHaveBeenCalledTimes(1);
+    } finally {
+      connectSpy.mockRestore();
+    }
+  }, 30_000);
+});
+
+// ─── Task 10 (#5 / #10a): spec sync + /context use the CANONICAL project ─────
+
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+
+describe("processPreCompact — canonical project key", () => {
+  let rawRoot: string;
+  let homeDir: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    rawRoot = makeTmpDir("pre-compact-canon"); // raw `/var/…` on macOS
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: rawRoot });
+    mkdirSync(join(rawRoot, "src"));
+    mkdirSync(join(rawRoot, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      join(rawRoot, "docs", "plans", "2026-09-25-pc.md"),
+      "# PC\n\nStatus: IN_PROGRESS\nType: Feature\nApproved: Yes\n",
+    );
+    homeDir = makeTmpDir();
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = homeDir;
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(rawRoot, { recursive: true, force: true });
+    rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("sends the canonical root (not the raw subdirectory cwd) to syncSpec and restoreContext", async () => {
+    const canonical = realpathSync(rawRoot);
+    const syncSpec = mock(
+      async (_plan: string, _project: string, _sid?: string) => {},
+    );
+    const restoreContext = mock(async (_project: string, _q?: string) => ({
+      hasMemory: false,
+      markdown: "",
+    }));
+    const connectSpy = spyOn(SidecarClient, "connect").mockImplementation(
+      async () =>
+        ({
+          touchSession: async () => {},
+          restoreContext,
+          syncSpec,
+        }) as unknown as SidecarClient,
+    );
+    try {
+      const { processPreCompact } = await import("./pre-compact.js");
+      await processPreCompact(makeInput(join(rawRoot, "src")));
+      expect(syncSpec).toHaveBeenCalledTimes(1);
+      expect(syncSpec.mock.calls[0]![1]).toBe(canonical);
+      expect(syncSpec.mock.calls[0]![2]).toBe("pre-compact-test");
+      expect(restoreContext.mock.calls[0]![0]).toBe(canonical);
+      // D8: shared memory is read from the LOCAL checkout root.
+      expect((restoreContext.mock.calls[0] as unknown[])[2]).toBe(
+        resolveWorkspaceRoot(join(rawRoot, "src")),
+      );
     } finally {
       connectSpy.mockRestore();
     }

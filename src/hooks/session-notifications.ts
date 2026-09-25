@@ -20,9 +20,16 @@
 import type { Notification } from "../memory/types.js";
 import { SKEW_NOTIFICATION_SOURCE } from "../sidecar/retire-notify.js";
 
-/** NULL-project sources that are relevant to EVERY project. Keep narrow. */
+/**
+ * NULL-project sources that are relevant to EVERY project. Keep narrow.
+ * `"vector-init"` is `notifyVectorUnavailableOnce`'s source
+ * (`src/sidecar/vector-stats.ts`), inlined rather than imported: that module
+ * reaches native-deps, and this one is bundled into the OpenCode plugin. The
+ * test drives the real producer, so a rename there fails here.
+ */
 export const GLOBAL_NOTIFICATION_SOURCES: readonly string[] = [
   SKEW_NOTIFICATION_SOURCE,
+  "vector-init",
 ];
 
 export const MAX_SESSION_NOTIFICATIONS = 5;

@@ -371,3 +371,121 @@ describe("handleTddTransitionRequest", () => {
     ).toBe(false);
   });
 });
+
+// ─── Task 10: canonical keys on get/list; D4 inferred project on set ─────────
+
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { MemoryService } from "../memory/service.js";
+import { SpecStore } from "../spec/store.js";
+import { WorktreeStore } from "../worktree/store.js";
+import { handleTddStateRoute } from "./tdd-routes.js";
+import { writeFileSync } from "node:fs";
+
+describe("per-file TDD routes — project canonicalization (D3/D4)", () => {
+  let root: string;
+  let aliasHolder: string;
+  let alias: string;
+  let logDir: string;
+  let store: MemoryStore;
+  let ctx: SidecarContext;
+
+  async function call(
+    path: string,
+    body?: unknown,
+  ): Promise<{ ok: boolean; data?: any; error?: string; status: number }> {
+    const req = new Request(`http://localhost${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const res = (await handleTddStateRoute(new URL(req.url), req, ctx))!;
+    return { ...((await res.json()) as any), status: res.status };
+  }
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "tdd-rt-canon-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: root });
+    mkdirSync(join(root, "src"));
+    aliasHolder = realpathSync(mkdtempSync(join(tmpdir(), "tdd-rt-alias-")));
+    symlinkSync(root, join(aliasHolder, "link"));
+    alias = join(aliasHolder, "link", "src");
+    logDir = makeTmpDir("tdd-rt-log");
+    spyOn(fileLogModule, "getLogDir").mockReturnValue(logDir);
+    store = new MemoryStore(":memory:");
+    ctx = {
+      store,
+      service: new MemoryService(store),
+      specStore: new SpecStore(store),
+      wtStore: new WorktreeStore(store),
+    };
+  });
+
+  afterEach(() => {
+    mock.restore();
+    store.close();
+    for (const d of [root, aliasHolder, logDir]) {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /tdd-state canonicalizes the project used for hasActiveSpec", async () => {
+    const plans = join(root, "docs", "plans");
+    mkdirSync(plans, { recursive: true });
+    const plan = join(plans, "2026-09-25-tdd-get.md");
+    writeFileSync(plan, "# P\n\nStatus: IN_PROGRESS\nType: Feature\n");
+    ctx.specStore.syncFromPlanFile(plan, root);
+    const r = await call(
+      `/tdd-state?file=${encodeURIComponent(join(root, "src/a.ts"))}&project=${encodeURIComponent(alias)}`,
+    );
+    expect(r.data).toEqual({ state: "IDLE", hasActiveSpec: true });
+  }, 30_000);
+
+  it("GET /tdd-state/list scopes to a supplied (canonicalized) project; absent = all", async () => {
+    store.setTddState({
+      filePath: join(root, "src/mine.ts"),
+      state: "RED_CONFIRMED",
+      projectPath: root,
+    });
+    store.setTddState({
+      filePath: "/elsewhere/src/other.ts",
+      state: "RED_CONFIRMED",
+      projectPath: "/elsewhere",
+    });
+    const scoped = await call(
+      `/tdd-state/list?project=${encodeURIComponent(alias)}`,
+    );
+    expect(scoped.data.map((c: any) => c.filePath)).toEqual([
+      join(root, "src/mine.ts"),
+    ]);
+    const all = await call("/tdd-state/list");
+    expect(all.data).toHaveLength(2);
+    const blank = await call("/tdd-state/list?project=%20");
+    expect(blank.data).toHaveLength(2);
+  }, 30_000);
+
+  it("POST set WITHOUT a project stores the project inferred from the file (D4)", async () => {
+    // `src/new/` does not exist: inference climbs to the nearest existing dir.
+    const file = join(alias, "new", "thing.ts");
+    const r = await call("/tdd-state", {
+      action: "set",
+      filePath: file,
+      state: "TEST_WRITTEN",
+    });
+    expect(r.ok).toBe(true);
+    expect(store.getTddState(file)!.projectPath).toBe(root);
+    const log = readLastLines(join(logDir, SIDECAR_LOG_FILE), 20).join("\n");
+    expect(log).toContain("inferred projectPath");
+  }, 30_000);
+
+  it("POST set WITHOUT a project and with a RELATIVE filePath is a 400", async () => {
+    const r = await call("/tdd-state", {
+      action: "set",
+      filePath: "src/relative.ts",
+      state: "TEST_WRITTEN",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(400);
+    expect(store.getTddState("src/relative.ts")).toBeNull();
+  });
+});

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "./store.js";
-import type { AuditResult } from "./store.js";
 
 // --- Helpers ---
 
@@ -124,7 +123,7 @@ Type: Feature
   describe("getCurrentSpec", () => {
     it("should return the most recent active spec", () => {
       writePlan(tmpDir, "2026-01-01-old.md", "# Old\n\nStatus: VERIFIED\n");
-      const activePath = writePlan(
+      writePlan(
         tmpDir,
         "2026-02-01-active.md",
         "# Active\n\nStatus: PENDING\n",
@@ -609,36 +608,24 @@ Type: Feature
 - [ ] Task 1: Setup
 `;
 
-    it("re-keys a stale worktree project_path to the canonical root on re-registration", () => {
-      // A row that already exists keyed to a LINKED WORKTREE — the state every
-      // pre-existing database is in before this change.
-      const stalePlan = writePlan(tmpDir, "2026-09-23-rekey.md", PLAN);
-      const staleRoot = join(tmpDir, "worktrees", "feature-x");
-      specStore.syncFromPlanFile(stalePlan, staleRoot);
+    it("a same-named plan registered under a DIFFERENT project keeps its own row (D6)", () => {
+      // Before V14 `specs.id` was the bare slug, so this re-registration MOVED
+      // the row. Two unrelated projects must now keep two rows. Re-keying a
+      // SAME-identity row (a linked worktree) is covered in store-keys.test.ts.
+      const plan = writePlan(tmpDir, "2026-09-23-rekey.md", PLAN);
+      const otherRoot = join(tmpDir, "worktrees", "feature-x");
+      const mainRoot = join(tmpDir, "main-checkout");
+      specStore.syncFromPlanFile(plan, otherRoot);
+      specStore.syncFromPlanFile(plan, mainRoot);
 
-      const before = memoryStore
-        .getRawDb()
-        .prepare("SELECT project_path FROM specs WHERE id = ?")
-        .get("2026-09-23-rekey") as { project_path: string };
-      expect(before.project_path).toBe(staleRoot);
-
-      // Re-register the same plan under the canonical (main checkout) root.
-      const canonicalRoot = join(tmpDir, "main-checkout");
-      specStore.syncFromPlanFile(stalePlan, canonicalRoot);
-
-      const after = memoryStore
-        .getRawDb()
-        .prepare("SELECT project_path FROM specs WHERE id = ?")
-        .get("2026-09-23-rekey") as { project_path: string };
-      expect(after.project_path).toBe(canonicalRoot);
-
-      // And the re-key is visible through both read paths.
-      expect(specStore.listSpecs(canonicalRoot)).toHaveLength(1);
-      expect(specStore.listSpecs(staleRoot)).toHaveLength(0);
-      expect(specStore.getCurrentSpec(canonicalRoot)?.id).toBe(
-        "2026-09-23-rekey",
+      expect(specStore.listSpecs(mainRoot)).toHaveLength(1);
+      expect(specStore.listSpecs(otherRoot)).toHaveLength(1);
+      expect(specStore.getCurrentSpec(mainRoot)?.key).toBe(
+        `${mainRoot}::2026-09-23-rekey`,
       );
-      expect(specStore.getCurrentSpec(staleRoot)).toBeNull();
+      expect(specStore.getCurrentSpec(otherRoot)?.key).toBe(
+        `${otherRoot}::2026-09-23-rekey`,
+      );
     });
 
     it("keeps plan_file pointing at the registering worktree's own copy", () => {
@@ -647,7 +634,7 @@ Type: Feature
 
       const row = memoryStore
         .getRawDb()
-        .prepare("SELECT plan_file FROM specs WHERE id = ?")
+        .prepare("SELECT plan_file FROM specs WHERE slug = ?")
         .get("2026-09-23-planfile") as { plan_file: string };
       expect(row.plan_file).toBe(planFile);
       expect(specStore.getSpec("2026-09-23-planfile")!.planFile).toBe(planFile);
@@ -678,4 +665,89 @@ Type: Feature
       expect(names).toContain("idx_wt_spec");
     });
   });
+});
+
+// ─── Task 10: canonical project keys (D3) ────────────────────────────────────
+//
+// `syncFromPlanFile` is the single write point; the project-keyed reads
+// canonicalize too, so a raw alias (macOS `/var` vs `/private/var`, a
+// symlink, a subdirectory, a linked worktree) is stored AND read canonically.
+
+import { realpathSync, symlinkSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spyOn } from "bun:test";
+import * as identityModule from "../project/identity.js";
+
+describe("SpecStore — canonical project keys", () => {
+  const PLAN = "# Canon Plan\n\nStatus: IN_PROGRESS\nType: Feature\n";
+  let root: string; // canonical repo root
+  let alias: string; // raw alias of a SUBDIRECTORY of root, through a symlink
+  let aliasHolder: string;
+  let memoryStore: MemoryStore;
+  let specStore: SpecStore;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "spec-canon-")));
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: root });
+    mkdirSync(join(root, "src"));
+    aliasHolder = realpathSync(mkdtempSync(join(tmpdir(), "spec-alias-")));
+    symlinkSync(root, join(aliasHolder, "link"));
+    alias = join(aliasHolder, "link", "src");
+    memoryStore = new MemoryStore(":memory:");
+    specStore = new SpecStore(memoryStore);
+  });
+
+  afterEach(() => {
+    (identityModule.resolveProjectIdentity as any).mockRestore?.();
+    memoryStore.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(aliasHolder, { recursive: true, force: true });
+  });
+
+  function storedKey(id: string): string {
+    return (
+      memoryStore
+        .getRawDb()
+        .prepare("SELECT project_path FROM specs WHERE slug = ?")
+        .get(id) as { project_path: string }
+    ).project_path;
+  }
+
+  it("stores a raw alias under the canonical root", () => {
+    const plan = writePlan(root, "2026-09-25-canon.md", PLAN);
+    specStore.syncFromPlanFile(plan, alias);
+    expect(storedKey("2026-09-25-canon")).toBe(root);
+  }, 30_000);
+
+  it("reads through the alias AND the canonical root (getCurrentSpec, listSpecs)", () => {
+    const plan = writePlan(root, "2026-09-25-canon.md", PLAN);
+    specStore.syncFromPlanFile(plan, root);
+    expect(specStore.getCurrentSpec(alias)?.id).toBe("2026-09-25-canon");
+    expect(specStore.listSpecs(alias)).toHaveLength(1);
+    expect(specStore.getCurrentSpec(root)?.id).toBe("2026-09-25-canon");
+  }, 30_000);
+
+  it("keeps non-existent synthetic keys stable", () => {
+    const plan = writePlan(root, "2026-09-25-synthetic.md", PLAN);
+    specStore.syncFromPlanFile(plan, "/test/project");
+    expect(storedKey("2026-09-25-synthetic")).toBe("/test/project");
+    expect(specStore.getCurrentSpec("/test/project")?.id).toBe(
+      "2026-09-25-synthetic",
+    );
+  });
+
+  it("syncAllPlans resolves the identity ONCE per call, not per plan file", () => {
+    for (const n of [1, 2, 3]) {
+      writePlan(root, `2026-09-25-all-${n}.md`, PLAN);
+    }
+    // A path never resolved before in this process, so the memo cannot hide
+    // a per-file resolution.
+    const fresh = join(aliasHolder, "link", `fresh-${Date.now()}`);
+    mkdirSync(fresh);
+    const spy = spyOn(identityModule, "resolveProjectIdentity");
+    const count = specStore.syncAllPlans(join(root, "docs", "plans"), fresh);
+    expect(count).toBe(3);
+    expect(spy.mock.calls.length).toBe(1);
+    expect(storedKey("2026-09-25-all-2")).toBe(root);
+  }, 30_000);
 });

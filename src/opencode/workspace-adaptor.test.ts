@@ -5,7 +5,7 @@
  * All sidecar calls and executor invocations are mocked.
  */
 
-import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
@@ -67,14 +67,13 @@ describe("createSpecWorktreeAdaptor — configure()", () => {
       getCurrentSpec: mock(async (_p: string) => ({
         id: "2026-06-09-my-feature",
         title: "My Feature",
-        status: "IN_PROGRESS" as "IN_PROGRESS",
-        type: "Feature" as "Feature",
+        status: "IN_PROGRESS" as const,
+        type: "Feature" as const,
         approved: true,
         planFile: "/test/project/docs/plans/2026-06-09-my-feature.md",
         tasks: [],
         metadata: {},
         sessionId: null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       })) as unknown as SidecarClient["getCurrentSpec"],
     });
     const adaptor = createSpecWorktreeAdaptor(sidecar);
@@ -379,5 +378,43 @@ describe("createSpecWorktreeAdaptor — target() silent-main-fallback fix", () =
     const result = await adaptor.target(config);
     expect(isLocalDir(result, MAIN_ROOT)).toBe(false);
     expect(result.type).toBe("remote");
+  });
+});
+
+// ─── Task 10: configure() sends the canonical identity, never "" ─────────────
+
+import { realpathSync } from "node:fs";
+
+describe("createSpecWorktreeAdaptor — configure() project key (Task 10)", () => {
+  it("queries /spec/current with resolveProjectIdentity(directory)", async () => {
+    const tmpDir = makeTmpDir("ws-adaptor-key"); // raw `/var/…` on macOS
+    try {
+      mkdirSync(join(tmpDir, "src"));
+      Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: tmpDir });
+      const getCurrentSpec = mock(async (_p: string) => null);
+      const sidecar = makeMockSidecar({
+        getCurrentSpec:
+          getCurrentSpec as unknown as SidecarClient["getCurrentSpec"],
+      });
+      const adaptor = createSpecWorktreeAdaptor(sidecar);
+      await adaptor.configure(makeConfig({ directory: join(tmpDir, "src") }));
+      expect(getCurrentSpec.mock.calls[0]![0]).toBe(realpathSync(tmpDir));
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("never sends an empty project when the directory is absent", async () => {
+    for (const directory of [null, ""]) {
+      const getCurrentSpec = mock(async (_p: string) => null);
+      const sidecar = makeMockSidecar({
+        getCurrentSpec:
+          getCurrentSpec as unknown as SidecarClient["getCurrentSpec"],
+      });
+      const adaptor = createSpecWorktreeAdaptor(sidecar);
+      const config = makeConfig({ directory });
+      expect(await adaptor.configure(config)).toEqual(config);
+      expect(getCurrentSpec).not.toHaveBeenCalled();
+    }
   });
 });

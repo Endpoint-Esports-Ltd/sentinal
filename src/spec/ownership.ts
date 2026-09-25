@@ -153,12 +153,12 @@ export function resolveStopDecision(input: StopDecisionInput): StopDecision {
  * Returns null when the spec is not in the DB (unregistered), belongs to a
  * DIFFERENT project, or has no owner.
  *
- * ⛔ The `project_path` predicate is load-bearing. `specs.id` is the bare plan
- * FILENAME with the directory discarded (`src/spec/parser.ts`) and is the table's
- * PRIMARY KEY, so two unrelated projects that name a plan the same way share one
- * row. Without the predicate, project B's stop-guard reads project A's owner —
- * and if A's session is alive that resolves to ALLOW, silently disabling the
- * guard. `projectPath` MUST be the canonical identity (see the caller).
+ * ⛔ Looked up by `(slug, project_path)` — the pair `UNIQUE(project_path, slug)`
+ * makes the real identity since V14 (D6). `specId` here is the parsed plan's
+ * bare slug; `specs.id` is the opaque project-qualified key. Without the
+ * project predicate, project B's stop-guard would read project A's owner for a
+ * same-named plan — and if A's session is alive that resolves to ALLOW,
+ * silently disabling the guard. `projectPath` MUST be the canonical identity.
  */
 function getSpecOwner(
   store: MemoryStore,
@@ -168,7 +168,9 @@ function getSpecOwner(
   try {
     const db = store.getRawDb();
     const row = db
-      .prepare("SELECT session_id FROM specs WHERE id = ? AND project_path = ?")
+      .prepare(
+        "SELECT session_id FROM specs WHERE slug = ? AND project_path = ?",
+      )
       .get(specId, projectPath) as { session_id: string | null } | null;
     if (!row) return null;
     return row.session_id || null; // treat empty string as null

@@ -379,6 +379,46 @@ describe("restoreContext", () => {
     }
   });
 
+  it("keys queries by projectPath but reads shared memory from workspacePath (D8)", async () => {
+    const { writeSharedMemory } = await import("./shared.js");
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+
+    const workspace = join(tmpdir(), `sentinal-restore-ws-${Date.now()}`);
+    mkdirSync(workspace, { recursive: true });
+    try {
+      writeSharedMemory(workspace, [
+        {
+          type: "decision",
+          title: "Uncommitted worktree decision",
+          content: "Only in the linked worktree",
+          tags: [],
+          filePaths: [],
+          createdAt: "2026-09-25",
+        },
+      ]);
+      service.addObservation(
+        makeObservation({
+          projectPath: "/canonical/main",
+          type: "decision",
+          title: "Canonical project decision",
+        }),
+      );
+
+      const result = await restoreContext(service, {
+        projectPath: "/canonical/main",
+        workspacePath: workspace,
+      });
+
+      expect(result.markdown).toContain("Canonical project decision");
+      expect(result.markdown).toContain("Uncommitted worktree decision");
+      expect(result.markdown).toContain("**Project:** /canonical/main");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it("should work when no shared memory file exists", async () => {
     const result = await restoreContext(service, {
       projectPath: "/nonexistent/project",

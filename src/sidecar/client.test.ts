@@ -24,7 +24,7 @@ import {
   realpathSync,
 } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
-import { startSidecar, stopSidecar, getSidecarPortPath } from "./server.js";
+import { startSidecar, stopSidecar } from "./server.js";
 import { SidecarClient, withSidecarOrDirect } from "./client.js";
 import { MemoryStore } from "../memory/store.js";
 import * as pathsModule from "./paths.js";
@@ -205,6 +205,46 @@ describe("SidecarClient", () => {
   it("should restore empty context", async () => {
     const ctx = await client.restoreContext("/test");
     expect(ctx.hasMemory).toBe(false);
+  });
+
+  it("getSpecMetrics forwards an optional project (D6)", async () => {
+    const seen: string[] = [];
+    const spy = spyOn(client as never, "get" as never).mockImplementation(
+      (async (url: string) => {
+        seen.push(url);
+        return { spec: null, tasks: [] };
+      }) as never,
+    );
+    try {
+      await client.getSpecMetrics("s", "/p q");
+      await client.getSpecMetrics("s");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen).toEqual([
+      "/spec/metrics?spec_id=s&project=%2Fp%20q",
+      "/spec/metrics?spec_id=s",
+    ]);
+  });
+
+  it("restoreContext forwards an optional workspace as &workspace= (D8)", async () => {
+    const seen: string[] = [];
+    const spy = spyOn(client as never, "get" as never).mockImplementation(
+      (async (url: string) => {
+        seen.push(url);
+        return { hasMemory: false, markdown: "" };
+      }) as never,
+    );
+    try {
+      await client.restoreContext("/key", "q", "/ws dir");
+      await client.restoreContext("/key");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen[0]).toBe(
+      "/context?project=%2Fkey&semanticQuery=q&workspace=%2Fws%20dir",
+    );
+    expect(seen[1]).toBe("/context?project=%2Fkey");
   });
 
   // ─── Specs ───────────────────────────────────────────────────────────────
@@ -1342,5 +1382,36 @@ describe("SidecarClient retire on skew (Task 8)", () => {
   it("/retire has a short request budget", async () => {
     const { requestTimeoutMsFor } = await import("./client.js");
     expect(requestTimeoutMsFor("/retire")).toBeLessThanOrEqual(1_000);
+  });
+});
+
+// ─── Task 10: listActiveTddStates forwards an optional project ───────────────
+
+describe("SidecarClient.listActiveTddStates project param", () => {
+  it("sends ?project= only when supplied", async () => {
+    const seen: string[] = [];
+    const srv = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        seen.push(u.pathname + u.search);
+        return Response.json({ ok: true, data: [] });
+      },
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${srv.port}`,
+      );
+      await client.listActiveTddStates("spec-1", "/repo/main");
+      await client.listActiveTddStates(null, "/repo/main");
+      await client.listActiveTddStates();
+      expect(seen).toEqual([
+        "/tdd-state/list?spec_id=spec-1&project=%2Frepo%2Fmain",
+        "/tdd-state/list?project=%2Frepo%2Fmain",
+        "/tdd-state/list",
+      ]);
+    } finally {
+      srv.stop(true);
+    }
   });
 });

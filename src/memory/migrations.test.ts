@@ -305,8 +305,8 @@ describe("migrateV13", () => {
     return dbPath;
   }
 
-  it("SCHEMA_VERSION is 13", () => {
-    expect(DB_CONSTANTS.SCHEMA_VERSION).toBe(13);
+  it("SCHEMA_VERSION is at least 13 (V14 is covered in migrations-v14.test.ts)", () => {
+    expect(DB_CONSTANTS.SCHEMA_VERSION).toBeGreaterThanOrEqual(13);
   });
 
   it("adds project_path + index to tdd_cycles and notifications on a fresh DB", () => {
@@ -319,7 +319,7 @@ describe("migrateV13", () => {
     expect(colNames("notifications")).toContain("project_path");
     expect(indexExists("idx_tdd_cycles_project")).toBe(true);
     expect(indexExists("idx_notif_project")).toBe(true);
-    expect(version()).toBe(13);
+    expect(version()).toBe(DB_CONSTANTS.SCHEMA_VERSION);
   });
 
   it("migrates a v12 DB: deletes all pre-existing tdd_cycles rows and logs the count (D1)", () => {

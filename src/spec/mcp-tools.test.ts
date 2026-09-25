@@ -282,7 +282,7 @@ describe("spec_register project identity", () => {
 
     const row = store
       .getRawDb()
-      .prepare("SELECT project_path, plan_file FROM specs WHERE id = ?")
+      .prepare("SELECT project_path, plan_file FROM specs WHERE slug = ?")
       .get("2026-09-23-wt-plan") as {
       project_path: string;
       plan_file: string;
@@ -300,14 +300,28 @@ describe("spec_register project identity", () => {
     const planFile = makePlanFile(wtPath, "2026-09-23-rekey", "IN_PROGRESS");
     const specStore = new SpecStore(store);
     // Pre-existing stale row, keyed to the worktree (pre-change behaviour).
+    // `syncFromPlanFile` canonicalizes since Task 10, so the stale key can
+    // only be planted with raw SQL — exactly the shape an old DB holds.
     specStore.syncFromPlanFile(planFile, wtPath);
-    expect(specStore.getCurrentSpec(wtPath)?.id).toBe("2026-09-23-rekey");
+    const db = store.getRawDb();
+    db.prepare("UPDATE specs SET project_path = ? WHERE slug = ?").run(
+      wtPath,
+      "2026-09-23-rekey",
+    );
+    const key = () =>
+      (
+        db
+          .prepare("SELECT project_path FROM specs WHERE slug = ?")
+          .get("2026-09-23-rekey") as { project_path: string }
+      ).project_path;
+    expect(key()).toBe(wtPath);
+    expect(specStore.getCurrentSpec(repoDir)).toBeNull();
 
     const handler = tools.get("spec_register")!;
     await handler({ plan_path: planFile, project: wtPath });
 
+    expect(key()).toBe(repoDir);
     expect(specStore.getCurrentSpec(repoDir)?.id).toBe("2026-09-23-rekey");
-    expect(specStore.getCurrentSpec(wtPath)).toBeNull();
   }, 20_000);
 });
 
@@ -864,7 +878,7 @@ describe("spec_metrics MCP tool", () => {
     // Manually set timing on the spec
     store
       .getRawDb()
-      .run("UPDATE specs SET started_at = ? WHERE id = ?", [
+      .run("UPDATE specs SET started_at = ? WHERE slug = ?", [
         Date.now() - 3600000,
         "2026-03-18-test",
       ]);
@@ -932,7 +946,7 @@ describe("spec_metrics MCP tool", () => {
     store
       .getRawDb()
       .run(
-        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = ? AND position = 1",
+        "UPDATE spec_tasks SET started_at = ?, completed_at = ? WHERE spec_id = (SELECT id FROM specs WHERE slug = ?) AND position = 1",
         [now - 900000, now - 300000, "2026-03-18-test"],
       );
 

@@ -167,7 +167,7 @@ async function handleAbandonWorktree(
   // ⛔ Abandon stops an owned process group AND removes a directory. Unlike
   // cleanup, a second execution is NOT harmless, so the idempotency guard
   // matters more here than on the route that surfaced the bug.
-  let replayed = false;
+  let replayed: boolean;
   try {
     const outcome = await withIdempotencyAsync(
       ctx.store,
@@ -257,8 +257,7 @@ async function handleCleanupWorktrees(
         currentWorktree: body.currentWorktree,
         // A plan is "active" if its spec exists and is IN_PROGRESS — never
         // remove its worktree during a force cleanup.
-        isPlanActive: (slug) =>
-          ctx.specStore.getSpec(slug)?.status === "IN_PROGRESS",
+        isPlanActive: (slug) => ctx.specStore.isSlugInProgress(slug),
         warnings,
       });
       // Warnings are captured INSIDE so a replay carries them too.

@@ -22,6 +22,7 @@ import { findActivePlan } from "./detect.js";
 import type { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { requiredEnum } from "../utils/schema.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 
 // --- Public API ---
 
@@ -37,6 +38,8 @@ export function registerSpecEventsTools(
 }
 
 // --- spec_notify ---
+
+const NOTIFY_SOURCE = "spec-notify";
 
 function registerSpecNotifyTool(
   server: McpServer,
@@ -54,15 +57,26 @@ function registerSpecNotifyTool(
       title: z.string().describe("Short notification title"),
       message: z.string().optional().describe("Longer notification message"),
       spec_id: z.string().optional().describe("Associated spec ID"),
+      project: z
+        .string()
+        .optional()
+        .describe(
+          "Project the notification belongs to (defaults to the current working directory's project)",
+        ),
     },
-    async ({ type, title, message, spec_id }) => {
+    async ({ type, title, message, spec_id, project }) => {
       try {
+        // D5: scoped to the canonical project so it reaches that project's
+        // session-start digest (and disambiguates a slug-only spec_id).
+        const projectPath = resolveProjectIdentity(project ?? process.cwd());
         if (client) {
           await client.insertNotification({
             type,
             title,
             message: message ?? undefined,
             specId: spec_id ?? undefined,
+            source: NOTIFY_SOURCE,
+            projectPath,
           });
         } else {
           memoryStore!.insertNotification({
@@ -70,6 +84,8 @@ function registerSpecNotifyTool(
             title,
             message: message ?? null,
             specId: spec_id ?? null,
+            source: NOTIFY_SOURCE,
+            projectPath,
           });
         }
         return mcpText(`Notification created: ${title}`);
@@ -168,12 +184,12 @@ function registerSpecMetricsTool(
       }>;
       try {
         if (client) {
-          const data = await client.getSpecMetrics(targetId);
+          const data = await client.getSpecMetrics(targetId, project);
           rawSpec = data.spec;
           rawTasks = data.tasks;
         } else {
-          rawSpec = specStore!.getSpecTiming(targetId);
-          rawTasks = rawSpec ? specStore!.getTaskTiming(targetId) : [];
+          rawSpec = specStore!.getSpecTiming(targetId, project);
+          rawTasks = rawSpec ? specStore!.getTaskTiming(targetId, project) : [];
         }
       } catch (err) {
         return mcpError("Error getting spec metrics", err);

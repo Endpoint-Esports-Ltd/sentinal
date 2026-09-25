@@ -17,6 +17,10 @@ import { readStdin, type HookInput } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 import { findActivePlan } from "../spec/detect.js";
 import { SidecarClient } from "../sidecar/client.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -43,15 +47,26 @@ export async function processPreCompact(input: HookInput): Promise<void> {
     /* non-fatal */
   }
 
+  // STORAGE KEY for the spec row and the memory restore. The raw cwd (a
+  // subdirectory, symlink, `/var` alias or linked worktree) keyed the spec row
+  // so the Stop guard's canonical lookup found no owner → "orphaned" block.
+  // D8: shared memory is read from the LOCAL checkout (`workspace`).
+  const project = resolveProjectIdentity(input.cwd);
+  const workspace = resolveWorkspaceRoot(input.cwd);
+
   try {
     const client = await SidecarClient.connect();
     if (client) {
       // Bump heartbeat via sidecar (fire-and-forget — non-critical)
       client.touchSession(input.session_id).catch(() => {});
-      const restored = await client.restoreContext(input.cwd, semanticQuery);
+      const restored = await client.restoreContext(
+        project,
+        semanticQuery,
+        workspace,
+      );
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) {
-        await client.syncSpec(active.filePath, input.cwd, input.session_id);
+        await client.syncSpec(active.filePath, project, input.session_id);
       }
     } else {
       // Direct fallback (no sidecar running)
@@ -64,17 +79,14 @@ export async function processPreCompact(input: HookInput): Promise<void> {
       store.touchSession(input.session_id);
       const service = new MemoryService(store);
       const restored = await restoreContext(service, {
-        projectPath: input.cwd,
+        projectPath: project,
+        workspacePath: workspace,
         semanticQuery,
       });
       if (restored.hasMemory) memoryContext = restored.markdown;
       if (active) {
         const specStore = new SpecStore(store);
-        specStore.syncFromPlanFile(
-          active.filePath,
-          input.cwd,
-          input.session_id,
-        );
+        specStore.syncFromPlanFile(active.filePath, project, input.session_id);
       }
       service.close();
     }

@@ -11,6 +11,10 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import type { HookInput } from "../utils/hook-output.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
 import { SidecarClient } from "../sidecar/client.js";
 
 const HOOK = join(import.meta.dir, "memory-restore.ts");
@@ -94,7 +98,13 @@ describe("processMemoryRestore (M10c)", () => {
       const { processMemoryRestore } = await import("./memory-restore.js");
       await processMemoryRestore(makeInput(tmpDir));
       expect(mockRestore).toHaveBeenCalledTimes(1);
-      expect(mockRestore.mock.calls[0]?.[0]).toBe(tmpDir);
+      // D8: storage key = identity, shared memory from the local checkout.
+      expect(mockRestore.mock.calls[0]?.[0]).toBe(
+        resolveProjectIdentity(tmpDir),
+      );
+      expect((mockRestore.mock.calls[0] as unknown[] | undefined)?.[2]).toBe(
+        resolveWorkspaceRoot(tmpDir),
+      );
     } finally {
       connectSpy.mockRestore();
     }

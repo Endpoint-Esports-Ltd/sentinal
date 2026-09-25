@@ -74,17 +74,20 @@ export async function processTddTracking(
   const store = new MemoryStore();
   try {
     const specStore = new SpecStore(store);
-    const spec = specStore.getCurrentSpec(cwd);
+    const spec = specStore.getCurrentSpec(project);
+    // D6: FK writes use the stored project-qualified key. `spec.id` is the
+    // bare slug, which is ambiguous once another project has a same-named plan.
+    const specKey = spec ? (spec.key ?? spec.id) : null;
 
     // Case 1: Test file written/edited — transition to TEST_WRITTEN
     if (isEditTool(toolName) && filePath && isTestFile(filePath)) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
-      const task = spec ? specStore.getCurrentTask(spec.id) : null;
+      const task = spec ? specStore.getCurrentTask(specKey!) : null;
 
       store.setTddState({
         filePath: implPath,
         state: "TEST_WRITTEN",
-        specId: spec?.id ?? null,
+        specId: specKey,
         taskPosition: task?.position ?? null,
         testFilePath: filePath,
         projectPath: project,
@@ -92,7 +95,7 @@ export async function processTddTracking(
 
       if (spec) {
         store.logSpecEvent({
-          specId: spec.id,
+          specId: specKey!,
           sessionId: sessionId ?? null,
           eventType: "tdd_cycle",
           details: {
@@ -110,7 +113,7 @@ export async function processTddTracking(
     // ⛔ Both bulk cases read project-scoped: an unscoped read would transition
     // (and, via the project on the write, re-key) or delete OTHER projects' rows.
     if (toolName === "Bash" && bashOutput && hasTestFailure(bashOutput)) {
-      const states = store.listActiveTddStates(spec?.id ?? null, project);
+      const states = store.listActiveTddStates(specKey, project);
       let transitioned = false;
 
       for (const cycle of states) {
@@ -127,7 +130,7 @@ export async function processTddTracking(
 
       if (transitioned && spec) {
         store.logSpecEvent({
-          specId: spec.id,
+          specId: specKey!,
           sessionId: sessionId ?? null,
           eventType: "tdd_cycle",
           details: { phase: "red_confirmed" },
@@ -138,7 +141,7 @@ export async function processTddTracking(
 
     // Case 3: Bash output shows test pass — cycle complete, reset to IDLE
     if (toolName === "Bash" && bashOutput && hasTestPass(bashOutput)) {
-      const states = store.listActiveTddStates(spec?.id ?? null, project);
+      const states = store.listActiveTddStates(specKey, project);
       let completed = false;
 
       for (const cycle of states) {
@@ -150,7 +153,7 @@ export async function processTddTracking(
 
       if (completed && spec) {
         store.logSpecEvent({
-          specId: spec.id,
+          specId: specKey!,
           sessionId: sessionId ?? null,
           eventType: "tdd_cycle",
           details: { phase: "green_confirmed" },

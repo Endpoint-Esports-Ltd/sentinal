@@ -2,6 +2,7 @@ import { readStdin } from "../utils/hook-output.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { findActivePlan } from "../spec/detect.js";
 import { findGitRoot } from "../utils/git.js";
+import { resolveProjectIdentity } from "../project/identity.js";
 import type { HookInput } from "../utils/hook-output.js";
 
 /**
@@ -26,10 +27,14 @@ export async function processStopFailure(input: HookInput): Promise<void> {
   const errorDetails = input.error_details;
   const lastMessage = input.last_assistant_message;
 
+  // D5: scoped to the project (identity — a storage key) so the warning
+  // reaches that project's next session-start digest.
   await client.insertNotification({
     type: "warning",
     title: `API Error: ${error}`,
     message: errorDetails,
+    source: "stop-failure",
+    projectPath: resolveProjectIdentity(input.cwd),
   });
 
   // If a spec is active, persist the error as a memory observation

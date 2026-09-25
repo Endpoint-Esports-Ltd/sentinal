@@ -2,7 +2,8 @@
  * Sentinal Plugin for OpenCode
  *
  * Quality enforcement plugin for TypeScript, Angular, and NestJS projects.
- * Provides automatic quality checks on file edits, tool redirection hints,
+ * Provides edit-time guards (file length, framework patterns, TDD), tool
+ * redirection hints,
  * session state management across context compaction, and persistent memory.
  *
  * Features:
@@ -27,18 +28,21 @@
 import {
   isTestFile,
   getExpectedTestPaths,
-  shouldSkipTddGuard,
   isGuardedFile,
   getImplPathForTest,
 } from "../../../src/utils/tdd.js";
-import { checkNestPatterns, isNestFile } from "../../../src/checkers/nestjs.js";
+import { checkNestPatterns } from "../../../src/checkers/nestjs.js";
 import { isAngularFile } from "../../../src/checkers/angular.js";
 import { detectFramework } from "../../../src/checkers/detect.js";
 import { checkFileLength } from "../../../src/utils/file-length.js";
 import {
   ensureDashboard,
   getBinaryVersion,
+  getSentinalBinPath,
 } from "../../../src/opencode/dashboard-ensure.js";
+import { getSentinalHome } from "../../../src/memory/db-path.js";
+import { getSidecarPidPath } from "../../../src/sidecar/paths.js";
+import { getPidFilePath } from "../../../src/dashboard/lifecycle.js";
 import {
   analyzeEvent,
   EventBuffer,
@@ -51,7 +55,7 @@ import {
   classifyToolFailure,
   type ToolFailureInput,
 } from "../../../src/memory/tool-failure.js";
-import { findActivePlan, shouldBlockStop } from "../../../src/spec/detect.js";
+import { findActivePlan } from "../../../src/spec/detect.js";
 import { resolveStopDecision } from "../../../src/spec/ownership.js";
 import { processInstructionsLoaded } from "../../../src/hooks/instructions-loaded.js";
 import { processPostCompact } from "../../../src/hooks/post-compact.js";
@@ -84,7 +88,6 @@ import {
   unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 
 // Type definitions for OpenCode plugin system
@@ -210,9 +213,14 @@ interface CompactState {
 
 // ─── Node.js-compatible helpers ──────────────────────────────────────────────
 
-const SENTINAL_DIR = join(homedir(), ".sentinal");
+// ⛔ Never cache a Sentinal path at module load (the old
+// `SENTINAL_DIR = join(homedir(), ".sentinal")` ignored SENTINAL_HOME, so the
+// sidecar pid/binary/config came from a different tree than the dashboard's).
+// Every path below is resolved at call time through the SENTINAL_HOME-aware
+// helpers: getSidecarPidPath, getPidFilePath, getSentinalBinPath,
+// getSentinalHome.
 
-/** Append a timestamped line to ~/.sentinal/plugin.debug.log */
+/** Append a timestamped line to `$SENTINAL_HOME/plugin.debug.log` */
 function log(message: string): void {
   logToFile(PLUGIN_LOG_FILE, message);
 }
@@ -224,8 +232,7 @@ function log(message: string): void {
 // plugin-load failures. This module must export ONLY the plugin function.
 
 /** Spawn a sentinal sub-command if the PID file is stale or missing. */
-function autoStartProcess(pidFile: string, ...args: string[]): void {
-  const pidPath = join(SENTINAL_DIR, pidFile);
+function autoStartProcess(pidPath: string, ...args: string[]): void {
   if (existsSync(pidPath)) {
     try {
       const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
@@ -237,7 +244,7 @@ function autoStartProcess(pidFile: string, ...args: string[]): void {
       /* stale PID */
     }
   }
-  const binPath = join(SENTINAL_DIR, "bin", "sentinal");
+  const binPath = getSentinalBinPath();
   if (!existsSync(binPath)) return;
   try {
     log(
@@ -250,8 +257,7 @@ function autoStartProcess(pidFile: string, ...args: string[]): void {
   }
 }
 
-function stopProcess(pidFile: string): void {
-  const pidPath = join(SENTINAL_DIR, pidFile);
+function stopProcess(pidPath: string): void {
   if (!existsSync(pidPath)) return;
   try {
     const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
@@ -264,11 +270,11 @@ function stopProcess(pidFile: string): void {
 
 function stopDashboard(): void {
   log("stopDashboard: sending SIGTERM to dashboard");
-  stopProcess("server.pid");
+  stopProcess(getPidFilePath());
 }
 
 function stopSidecar(): void {
-  stopProcess("sidecar.pid");
+  stopProcess(getSidecarPidPath());
 }
 
 // ─── TDD via sidecar ─────────────────────────────────────────────────────────
@@ -456,9 +462,7 @@ function failureObservation(
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 export const SentinalPlugin: Plugin = async ({
-  project,
   client,
-  $,
   directory,
   worktree,
   experimental_workspace,
@@ -527,7 +531,7 @@ export const SentinalPlugin: Plugin = async ({
 
   // Auto-start sidecar (Node.js-compatible spawn)
   try {
-    autoStartProcess("sidecar.pid", "sidecar", "start");
+    autoStartProcess(getSidecarPidPath(), "sidecar", "start");
   } catch {
     /* non-fatal */
   }
@@ -547,10 +551,12 @@ export const SentinalPlugin: Plugin = async ({
     }
   });
 
-  // Inline: avoid importing config.ts which pulls in types.ts → zod
+  // Inline read of `$SENTINAL_HOME/config.json`, fresh on every init: do not
+  // import memory/config.ts — it pulls in types.ts → zod (bundle
+  // self-containment) and its loadConfig() caches across inits.
   const memoryEnabled = (() => {
     try {
-      const cfgPath = join(SENTINAL_DIR, "config.json");
+      const cfgPath = join(getSentinalHome(), "config.json");
       if (existsSync(cfgPath)) {
         const raw = JSON.parse(readFileSync(cfgPath, "utf-8"));
         return raw?.memory?.enabled !== false;
@@ -862,6 +868,9 @@ export const SentinalPlugin: Plugin = async ({
             // `metadata.exit` (may be null on abort/timeout — the typeof
             // guard degrades gracefully to !asyncShouldBlock then).
             let eventSuccess = !asyncShouldBlock;
+            // A KNOWN exit code overrides the text heuristics (D9): a passing
+            // bun run prints " 0 fail" and is still exit 0.
+            let eventExitCode: number | undefined;
             let failurePayload: ReturnType<typeof failureObservation> = null;
             if (BASH_TOOLS.includes(input.tool)) {
               const metadata = (output.metadata ?? {}) as Record<
@@ -870,7 +879,10 @@ export const SentinalPlugin: Plugin = async ({
               >;
               const exitCode =
                 metadata.exit ?? metadata.exitCode ?? metadata.exit_code;
-              if (typeof exitCode === "number") eventSuccess = exitCode === 0;
+              if (typeof exitCode === "number") {
+                eventSuccess = exitCode === 0;
+                eventExitCode = exitCode;
+              }
 
               // Failure capture: a non-zero exit becomes a signed `error`
               // observation (the sidecar de-duplicates by signature). An
@@ -909,6 +921,7 @@ export const SentinalPlugin: Plugin = async ({
               success: eventSuccess,
               output: eventOutput,
               timestamp: Date.now(),
+              ...(eventExitCode !== undefined && { exitCode: eventExitCode }),
             };
             eventBuffer.push(event);
             const decision = analyzeEvent(event, eventBuffer);
@@ -959,7 +972,11 @@ export const SentinalPlugin: Plugin = async ({
               projectIdentity,
               sessionId ?? undefined,
             );
-          const restored = await sidecar.restoreContext(projectIdentity, sq);
+          const restored = await sidecar.restoreContext(
+            projectIdentity,
+            sq,
+            projectWorkspace,
+          );
           if (restored.hasMemory) memoryContext = restored.markdown;
         }
       } catch (e) {
@@ -1202,7 +1219,11 @@ export const SentinalPlugin: Plugin = async ({
         // if the first compaction happens before the sidecar is fully ready.
         try {
           if (sidecar) {
-            const restored = await sidecar.restoreContext(projectIdentity);
+            const restored = await sidecar.restoreContext(
+              projectIdentity,
+              undefined,
+              projectWorkspace,
+            );
             if (restored.hasMemory && restored.markdown) {
               await client.app.log({
                 body: {
