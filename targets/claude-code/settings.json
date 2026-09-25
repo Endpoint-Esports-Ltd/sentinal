@@ -16,7 +16,7 @@
     "tips": [
       "[SENTINAL] Run /sync after installation to generate project-specific rules",
       "[SENTINAL] Use /spec for structured plan-implement-verify workflows",
-      "[SENTINAL] Prettier, ESLint, and tsc run automatically on every file edit",
+      "[SENTINAL] Run quality_report with file: after editing a file — project-wide it only reports",
       "[SENTINAL] Angular standards enforce standalone components, signals, and new control flow",
       "[SENTINAL] NestJS standards enforce DTOs, guards, and Swagger decorators",
       "[SENTINAL] File length: warn at 400 lines, block at 600 lines (tests exempt)",

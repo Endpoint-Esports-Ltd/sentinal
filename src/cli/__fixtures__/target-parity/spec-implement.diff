@@ -26,7 +26,7 @@
            prompt="""
            You are implementing a single task from a spec plan using TDD.
  
-@@ -148,15 +144,17 @@
+@@ -150,15 +146,17 @@
            Do NOT update the plan file checkboxes — the orchestrator handles this.
            """
          )
@@ -47,7 +47,7 @@
  ---
  
  ### Step 2.3: TDD Loop
-@@ -166,10 +164,10 @@
+@@ -168,10 +166,10 @@
  1. **Read plan's implementation steps** — list files to create/modify/delete
  2. **Pre-Mortem check:** Scan plan's `## Pre-Mortem` section — if any trigger condition is observably true for this task, note it in the plan and adapt your approach autonomously. Only escalate to user if it's an architectural-level change.
  3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects. Work down this order and stop at the first rung actually available to you:

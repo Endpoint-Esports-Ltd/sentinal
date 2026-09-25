@@ -17,9 +17,9 @@ vexor "database connection setup"
 
 **Self-Correction:** Fix obvious mistakes (syntax errors, typos, missing imports) in code you are actively writing. Do not auto-fix errors in code the user edited — report them and let the user decide.
 
-**Diagnostics:** Quality checks (tsc, eslint, prettier) are on-demand — they do NOT run automatically on every edit. Call `quality_report` after completing edits to each file. Call `check_diagnostics` for TypeScript-only diagnostics. Fix all errors before marking complete.
+**Diagnostics:** Quality checks (tsc, eslint, prettier) are on-demand — they do NOT run automatically on every edit. Call `quality_report` with `file:` set to each file after completing edits to it. Call `check_diagnostics` for TypeScript-only diagnostics. Fix all errors before marking complete.
 
-**Formatting:** Prettier and ESLint run on-demand via `quality_report` MCP tool, not automatically per edit.
+**Formatting:** Prettier and ESLint run on-demand via the `quality_report` MCP tool, not automatically per edit. Only a call with `file:` rewrites anything, and only that file; a project-wide call (no `file`) is report-only — it lists unformatted files and lint counts and never rewrites.
 
 ### Systematic Debugging
 

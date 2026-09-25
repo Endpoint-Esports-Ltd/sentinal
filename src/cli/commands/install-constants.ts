@@ -60,13 +60,12 @@ This file is automatically loaded by OpenCode for all projects.
 
 ## Quality Enforcement
 
-Sentinal automatically enforces quality standards on every file edit:
+Sentinal runs fast structural checks on every file edit:
 - **File length:** Warn at 400 lines, block at 600 lines (test files exempt)
 - **TDD:** Check for companion test files on implementation files
 - **NestJS:** Validate decorators on controllers, DTOs, and entities
-- **TypeScript:** Run tsc --noEmit for type checking
 
-Note: Prettier and ESLint are handled automatically by OpenCode's built-in formatter system.
+tsc, ESLint and Prettier do NOT run on edit. After editing a file, call \`quality_report\` with \`file:\` set to it — that auto-fixes only that file. A project-wide call (no \`file\`) is report-only: it lists unformatted files and lint counts and never rewrites anything.
 
 ## Commands
 

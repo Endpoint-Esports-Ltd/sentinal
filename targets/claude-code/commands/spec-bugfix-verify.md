@@ -53,7 +53,7 @@ Run all tests. Fix any failures immediately. Re-run until green.
 
    ⛔ Do **not** rely solely on `check_diagnostics` / `quality_report` for this gate — those tools use an incremental tsc cache (`.tsbuildinfo` in `~/.sentinal/tsbuildinfo/`) and an LSP client limited to ~10 open files, which can miss cross-file type errors in files the fix did not touch. Optionally run `check_diagnostics` MCP tool **after** the full run to see NEW/FIXED delta for spec-relevant files.
 
-2. **Linter** — `quality_report` with `checks: ["eslint"]` (or `npx eslint .` as fallback). Errors are blockers, fix immediately.
+2. **Linter** — `quality_report` with `checks: ["eslint"]` (or `npx eslint .` as fallback). Without `file` this is **report-only** — it lists error/warning counts and locations but fixes nothing; fix each reported file yourself or re-run with `file:` set to it. Errors are blockers, fix immediately.
 3. **Angular build (if applicable):** `npx ng build`
 4. **NestJS build (if applicable):** `npx nest build`
 

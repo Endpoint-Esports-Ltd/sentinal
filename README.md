@@ -45,7 +45,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 
 ## Features
 
-- **Automatic Quality Checks** — Prettier, ESLint, and `tsc --noEmit` run on every file edit (Claude Code: via hooks, OpenCode: built-in + plugin)
+- **Quality Checks** — instant structural checks (file length, companion tests, framework patterns) on every file edit; Prettier, ESLint, and `tsc --noEmit` on demand via the `quality_report` MCP tool (auto-fixes only the `file` you pass; project-wide is report-only)
 - **Framework-Specific Rules** — Targeted standards for Angular 17+ (standalone, signals, control flow) and NestJS (DTOs, guards, Swagger)
 - **TDD Enforcement** — Blocks edits to implementation files until a failing test exists (RED→GREEN→REFACTOR cycle tracking)
 - **File Length Guardrails** — Warns at 400 lines, blocks at 600 lines (test files exempt)
@@ -376,7 +376,7 @@ Claude Code uses compiled TypeScript hooks that intercept lifecycle events via t
 | `PreToolUse`       | tdd-guard            | Block edits to implementation files until a failing test exists (RED state required)                      |
 | `PreToolUse`       | pre-edit-guide       | Provide context-aware guidance before file edits                                                          |
 | `PreToolUse`       | tool-redirect        | Deny `WebSearch`/`WebFetch` (use MCP instead), hint on vague Grep patterns                               |
-| `PostToolUse`      | file-checker         | Prettier, ESLint, tsc, framework checks, file length, TDD checks on every `Write`/`Edit`                 |
+| `PostToolUse`      | file-checker         | File length, framework checks, companion-test check on every `Write`/`Edit` (no formatters or tsc)        |
 | `PostToolUse`      | tdd-tracker          | Track RED/GREEN state transitions after test runs                                                         |
 | `PostToolUse`      | memory-observer      | Auto-capture learning moments from tool results                                                           |
 | `PostToolUse`      | context-monitor      | Monitor context window %, warn at 65/75/85%+ thresholds                                                  |
@@ -407,7 +407,7 @@ OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) execu
 | ------------------ | -------------------------------- | -------------------------------- |
 | **Extension type** | Compiled hook scripts            | Native TypeScript plugin         |
 | **Hook dispatch**  | `sentinal hook <scope> <name>`   | Plugin event handlers            |
-| **Formatters**     | Explicit in hooks                | Built-in automatically           |
+| **Formatters**     | On demand (`quality_report`)     | On demand (`quality_report`)     |
 | **Runtime**        | Compiled JS via Bun              | Node.js (plugin) + Bun (sidecar) |
 | **Tool blocking**  | Exit code 2 + stderr             | Throw Error                      |
 | **Compaction**     | Save state to file               | Direct context injection         |
@@ -415,18 +415,16 @@ OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) execu
 
 ### File Edit Flow
 
-When the assistant edits a TypeScript file, quality checks run automatically:
+When the assistant edits a TypeScript file, Sentinal runs only fast structural checks:
 
 1. Checks line count (warns at 400+, blocks at 600+)
-2. Detects the project's package manager from lockfiles (pnpm, yarn, bun, or npm)
-3. Runs **Prettier** — auto-formats if needed (Claude Code only; OpenCode handles this built-in)
-4. Runs **ESLint** — auto-fixes lint issues (Claude Code only; OpenCode handles this built-in)
-5. Runs **TypeScript** — `tsc --noEmit` for type errors
-6. If Angular file detected — runs `ng build --dry-run` for template/compiler errors
-7. If NestJS file detected — checks for `@ApiTags`, `class-validator`, `@Entity` decorators
-8. Checks for companion test file — blocks edit if TDD guard is active (RED state not confirmed)
+2. If Angular file detected — runs `ng build --dry-run` for template/compiler errors
+3. If NestJS file detected — checks for `@ApiTags`, `class-validator`, `@Entity` decorators
+4. Checks for companion test file — blocks edit if TDD guard is active (RED state not confirmed)
 
 All feedback is returned as structured hints that the assistant acts on automatically.
+
+**Prettier, ESLint, and `tsc` do not run on edit.** The shipped rules tell the assistant to call the `quality_report` MCP tool with `file:` set to each file it edited — that call applies `eslint --fix` and `prettier --write` to that one file only. A project-wide call (no `file`) is report-only: it lists unformatted files and ESLint error/warning counts and never rewrites anything.
 
 ### Framework Detection
 
