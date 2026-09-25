@@ -1,3 +1,10 @@
+## [1.39.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.1...v1.39.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **memory:** a passing test summary no longer hides compiler errors or FAIL lines ([ef2165f](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ef2165fe6f59f70e527efc1cecd1d3bab4e4da4a))
+
 ## [1.39.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.0...v1.39.1) (2026-09-25)
 
 
