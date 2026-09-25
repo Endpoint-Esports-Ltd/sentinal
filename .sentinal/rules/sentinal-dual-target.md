@@ -15,7 +15,7 @@ If you're adding a checker, hook helper, MCP tool, memory feature, or CLI comman
 | Extension type    | Compiled hook scripts (Bun → JS)                          | Native TypeScript plugin (Bun runs `.ts` directly)                                |
 | Event names       | `SessionStart`, `PreToolUse`, `PostToolUse`, `PreCompact` | `tool.execute.before/after`, `session.created`, `session.idle`                    |
 | Tool block        | Exit code 2 + stderr                                      | `throw new Error("message")`                                                      |
-| Formatters        | Must invoke Prettier/ESLint explicitly in hooks           | Built-in — OpenCode runs them automatically                                       |
+| Formatters        | None in hooks — on-demand via `quality_report` (`file`)   | Built-in — OpenCode runs them automatically                                       |
 | Context injection | Write to `.sentinal/compact-state.json`                   | Direct `output.context.push()` on `session.compacting`                            |
 | Tool name seen    | Exact Claude Code name (`Write`, `Edit`, `Bash`)          | OpenCode lowercase names (`write`, `edit`, `bash`); MCP tools use their full name |
 | Subagent MCP      | Per-subagent `mcpServers` frontmatter supported           | NOT supported — MCP scoping is global                                             |
@@ -25,7 +25,7 @@ If you're adding a checker, hook helper, MCP tool, memory feature, or CLI comman
 1. **Editing pure logic in `src/` (checker, util, memory, spec, tdd)?** → Shared code, no target files needed. Both targets pick it up on next build.
 2. **Adding a new MCP tool?** → Register it in the matching `src/<domain>/mcp-tools.ts`. The `createSentinalServer` factory (`src/mcp/server.ts:36`) registers all domains for both targets automatically.
 3. **Adding/changing a hook behavior?** → Update the Claude Code hook in `src/hooks/` AND the equivalent OpenCode handler in `targets/opencode/plugins/sentinal.ts`. See `sentinal-hooks-development.md` for the mapping.
-4. **Adding a slash command?** → Edit `templates/commands/<name>.md`, then run `scripts/generate-commands.js` to regenerate both `targets/claude-code/commands/` and `targets/opencode/commands/`.
+4. **Adding a slash command?** → Edit `targets/claude-code/commands/<name>.md` and the OpenCode counterpart (`targets/opencode/commands/`, or `targets/opencode/skills/<name>/SKILL.md` for spec sub-phases) directly — there is no generator (see `sentinal-targets-vs-src.md`); keep parity baselines in mind (`sentinal-parity-baselines`).
 5. **Changing permissions / settings?** → Update `targets/claude-code/settings.json` AND `targets/opencode/opencode.json` — these are separate files with different schemas.
 6. **Adding a new shipped rule (`standards-*.md`)?** → Put the same file in both `targets/claude-code/rules/` and `targets/opencode/rules/`. They MUST stay in sync.
 
@@ -55,4 +55,4 @@ bun run deploy:opencode      # builds + copies to ~/.config/opencode/plugins/
 - **New MCP server in `.mcp.json` but not in `opencode.json`** — both files list MCP servers separately.
 - **New hook in `hooks.json` but no OpenCode equivalent in `plugins/sentinal.ts`** — OpenCode won't get the feature.
 - **Standards rule updated in one `targets/*/rules/` but not the other** — users on one platform miss the update.
-- **Command template edited AND target file hand-edited** — next regeneration will overwrite the hand edit.
+- **Command edited in one target but not the other** — there is no generator to catch it; `src/cli/target-parity.test.ts` does.

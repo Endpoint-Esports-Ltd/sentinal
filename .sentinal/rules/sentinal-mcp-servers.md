@@ -48,19 +48,26 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 | `spec_plan_parse`   | Parse a plan .md file into structured metadata              |
 | `spec_config`       | Read `SENTINAL_*` env config snapshot                       |
 | `spec_events`       | Recent lifecycle events for a spec                          |
-| `spec_metrics`      | Per-task timing + plan duration                             |
-| `spec_notify`       | Create a dashboard notification                             |
+| `spec_metrics`      | Per-task timing + plan duration (scoped by `project`)       |
+| `spec_notify`       | Create a notification (optional `project`, default cwd)     |
 | `spec_wait_file`    | Block until a reviewer-output file appears                  |
 | `spec_master_audit` | Reconcile a master plan against its child plans (read-only) |
 
 ⛔ `spec_master_audit` is **direct-fs and takes no deps**, unlike every other tool in
 this domain. It resolves a master's children by their `Parent:` back-link — never by
 globbing `<master-slug>-phase-*.md`, which false-positives on spike files and misses
-off-convention children. Only `VERIFIED` passes: `COMPLETE` means *implemented,
-awaiting verification*, so a fail-list naming only `PENDING`/`IN_PROGRESS`/`DRAFT`
+off-convention children. Only `VERIFIED` passes: `COMPLETE` means _implemented,
+awaiting verification_, so a fail-list naming only `PENDING`/`IN_PROGRESS`/`DRAFT`
 would let the very drift this tool exists to catch through. Do **not** give it a
 sidecar route or a `store` dependency — `store` is `null` in production whenever the
 sidecar runs, which would make it pass every test and do nothing in the field.
+
+`spec_notify` takes an optional `project` (default: the MCP server's cwd), resolved with
+`resolveProjectIdentity` and sent as `projectPath` with `source: "spec-notify"` (D5), so the notice
+reaches that project's session-start digest. `spec_metrics` passes its `project` to
+`client.getSpecMetrics(id, project)` → `GET /spec/metrics?spec_id=&project=`, which disambiguates a
+plan slug that several projects share (D6 — `specs.id` is `<project>::<slug>`; tools accept either
+the slug or the stored key).
 
 ### TDD Domain (`src/tdd/mcp-tools.ts`) — 3 tools
 
@@ -76,10 +83,12 @@ defaults to `process.cwd()`; it is normalized with `resolveProjectIdentity`, so 
 worktree or subdirectory lists its main checkout's cycles. It is scoped on **both**
 paths: the store path filters in SQL (`listActiveTddStates(specId, projectPath)`,
 which excludes NULL-project rows), while the sidecar path — the one production
-actually takes, since `store` is `null` whenever the sidecar runs — filters the
-fetched rows client-side with `scopeCyclesToProject`
-(`src/opencode/native-tdd-status.ts`), because `/tdd-state/list` takes no project.
-That helper drops `projectPath: null` like the store does, but **keeps** a row whose
+actually takes, since `store` is `null` whenever the sidecar runs — now sends the
+project too (`client.listActiveTddStates(specId, identity)` →
+`GET /tdd-state/list?project=`, which also resolves a shared spec slug to this
+project's key) **and still** filters the fetched rows client-side with
+`scopeCyclesToProject` (`src/opencode/native-tdd-status.ts`), because a pre-hardening
+sidecar ignores the param. That helper drops `projectPath: null` like the store does, but **keeps** a row whose
 `projectPath` key is absent entirely (a pre-V13 sidecar cannot say), so an old
 sidecar over-reports rather than going silently empty. The OpenCode native
 `sentinal_tdd_status` tool scopes the same way from `context.directory`. Do not
@@ -120,7 +129,20 @@ silently skip the reconcile warning.
 | `check_diagnostics` | Filtered TypeScript diagnostics with NEW/FIXED delta tracking                        |
 | `impact_analysis`   | Expected vs unexpected changes, file-length violations, LOW/MED/HIGH risk            |
 | `plan_impact`       | **Prospective** — same-wave file-overlap detection + reach on a plan's claimed files |
-| `quality_report`    | Run tsc/eslint/prettier via sidecar `/quality-check` endpoint                        |
+| `quality_report`    | tsc/eslint/prettier — auto-fixes ONLY a given `file`; project-wide is report-only    |
+
+⛔ **`quality_report` never rewrites a project (D1 of `docs/plans/2026-09-24-hardening-sweep.md`).**
+With `file`, the path is resolved against `project` and **refused outside it**
+(`resolveQualityTarget`, `src/sidecar/quality-runners.ts`), then sent to the sidecar as an absolute
+path: `eslint --fix <file>`, and `prettier --write <file>` only when `--check` exits **1**
+(unformatted) — never on 2 (tool error). Without `file` it is **report-only**: it lists unformatted
+files and ESLint error/warning counts, top rules and locations, and modifies nothing. Project-wide,
+only `tsc` goes to the sidecar; **eslint/prettier run in-process** (`runQualityChecks`,
+`src/analysis/mcp-tools.ts`), never through `/quality-check`, because a ≤1.38 sidecar still in
+memory would answer them with `eslint --fix .` / `prettier --write .` (measured: 85 files on this
+repo). The argv logic lives in `src/sidecar/quality-lint.ts`, the report shape in
+`quality-summary.ts` / `src/analysis/quality-format.ts`. Tests use fake binaries that assert the
+exact argv — never the real tools on repo files.
 
 `plan_impact` is the prospective counterpart to `impact_analysis`, which is driven by
 `git diff --name-only HEAD` and therefore answers "0 files changed" during planning. Its two halves

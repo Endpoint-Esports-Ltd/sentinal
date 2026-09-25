@@ -65,7 +65,11 @@ Sentinal eats its own dog food. When editing `src/**/*.ts`:
 - **The TDD guard blocks Write/Edit on an implementation file until a failing test exists in the corresponding `*.test.ts`.**
 - Red → Green → Refactor: write a failing test first, then the implementation.
 - Use `sentinal_tdd_status` / `sentinal_tdd_set_state` MCP tools (or the `sentinal hook shared tdd-guard`) to inspect state.
-- Test files (`*.test.ts`, `*.spec.ts`) are exempt from both TDD guard and file-length limits.
+- Test files are exempt from both TDD guard and file-length limits. File length (`TEST_PATTERNS`,
+  `src/utils/file-length.ts`): `.spec.ts`, `.test.ts`, `.test.tsx`, `.e2e-spec.ts`, `.e2e.ts`,
+  `.spec-e2e.ts`, `.spec.js`, `.test.js`. TDD guard (`isTestFile`, `src/utils/tdd.ts`) also
+  recognises `.e2e.ts` and `.spec-e2e.ts` (plus `.tsx`/`.jsx` and other-language conventions), so
+  an e2e file is never treated as an implementation needing a companion test.
 
 ## File-Length Limits Apply to Sentinal Too
 
@@ -76,7 +80,7 @@ Sentinal eats its own dog food. When editing `src/**/*.ts`:
 
 ### File-Length Exemption: `targets/opencode/plugins/sentinal.ts`
 
-`targets/opencode/plugins/sentinal.ts` is **exempt from file-length limits** (currently ~1008 lines).
+`targets/opencode/plugins/sentinal.ts` is **exempt from file-length limits** (currently ~1,500 lines).
 
 **Rationale:** OpenCode's plugin format requires all hook handlers and helpers to be colocated in a single plugin file. This is a platform constraint, not a code smell — splitting the file would require a bundling step that conflicts with OpenCode's native TypeScript plugin loader.
 

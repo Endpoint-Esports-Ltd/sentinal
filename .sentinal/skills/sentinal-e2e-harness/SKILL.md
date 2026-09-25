@@ -11,7 +11,7 @@ description: |
   (5) real-binary Layer B skips/fails on auth ("Not logged in"), (6) you need to
   observe real OpenCode plugin events or tool errors without credentials.
 author: Claude Code
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Isolated E2E Harness
@@ -38,22 +38,56 @@ import {
 const sb = createSandbox(); // temp HOME + XDG_CONFIG_HOME + CLAUDE_CONFIG_DIR
 sb.install("opencode"); // sentinal install <target> --bundled, in-sandbox
 sb.run(["hook", "shared", "spec-stop-guard"], { stdin, cwd: sb.home });
-sb.cleanup(); // kills sandbox procs (PID-ownership-checked) + rm -rf
+sb.cleanup(); // kills sandbox procs (env-ownership-checked), rm -rf, THROWS on survivors
 ```
 
 Sandbox env (all set by `createSandbox`): `HOME`, `XDG_CONFIG_HOME=$HOME/.config`,
 `CLAUDE_CONFIG_DIR=$HOME/.claude` (REQUIRED — HOME alone does NOT redirect the
 spawned `claude`), `SENTINAL_NO_AUTO_SETUP=1`, `CLAUDE_PLUGIN_DATA=""` (cleared —
-the one var that can relocate the memory DB outside HOME). NEVER set HOME to `/`
-or empty (root-guard: `homedir()`→`/`).
+the one var that can relocate the memory DB outside HOME),
+`SENTINAL_HOME=$HOME/.sentinal` (pinned — see below), and
+`SENTINAL_E2E_SANDBOX_ID=sentinal-e2e-<uuid>` (also exposed as `sb.id`; it is
+how teardown and the escape check recognise this sandbox's processes and log
+lines). NEVER set HOME to `/` or empty (root-guard: `homedir()`→`/`).
+
+Layout (`tests/e2e/harness/`): `sandbox.ts` (createSandbox, binary resolution,
+`assertEnvContained`; re-exports the rest — import everything from it),
+`sandbox-procs.ts` (`killSandboxProcesses`), `real-escape.ts`
+(`snapshotRealDirs` / `assertNoRealEscape` / `hashTree`).
 
 ## Rules that prevent escapes / flakes
 
 - **Escape guarantee is structural first:** `assertEnvContained(env, home)` runs
   before every spawn (proves the process env stays inside the sandbox). The
-  content-hash backstop `snapshotRealDirs()`/`assertNoRealEscape()` catches
-  nested-file rewrites mtime/entry-list would miss. Put `snapshotRealDirs()` in
-  `beforeAll`, `assertNoRealEscape()` in `afterEach`.
+  backstop `snapshotRealDirs()`/`assertNoRealEscape()` then checks the real
+  dirs. Put `snapshotRealDirs()` in `beforeAll`, `assertNoRealEscape()` in
+  `afterEach`.
+- **The backstop checks ATTRIBUTABLE writes, so a live Sentinal can keep
+  running** (`real-escape.ts`). Default mode: real `~/.sentinal/*.log` bytes
+  appended after the snapshot must not name a sandbox HOME (or its realpath) or
+  id; the real `memory.db` is opened read-only and the counts of rows keyed to
+  a sandbox/tmpdir path or a test session id (`E2E_TEST_SESSION_IDS`) must not
+  change; static user config (`~/.claude` settings/rules/commands/…,
+  `~/.config/opencode` config, rc files, `~/.sentinal/config.json`) is
+  content-hashed and `~/.sentinal/{bin,deps,models}` stat-fingerprinted.
+  `SENTINAL_E2E_STRICT_ESCAPE=1` additionally fingerprints the WHOLE real trees
+  (bin/deps/models stat-only) — only usable with no live Sentinal running.
+- **Teardown is pidfile-first, env-matched** (`sandbox-procs.ts`). Sandbox
+  sidecar/dashboard command lines do NOT contain the sandbox path (it is only in
+  the env), so matching the command line leaked processes that recreated the
+  deleted HOME. `killSandboxProcesses(home, id)` kills the pids in
+  `<sandbox>/.sentinal/{sidecar,server}.pid` after proving via `ps eww` that
+  their env carries this sandbox's `SENTINAL_E2E_SANDBOX_ID` / `HOME` /
+  `SENTINAL_HOME` (a recycled pid or the user's real sidecar is never
+  signalled), then strays found by the same env match; SIGTERM → grace →
+  SIGKILL, rescanning for late respawns. `sb.cleanup()` throws if any survive.
+- **A stale `dist/sentinal` is refused.** With `SENTINAL_E2E_BINARY` unset, the
+  harness uses `dist/sentinal` only if its `--version` equals `package.json`'s
+  AND it is newer than every non-test file under `src/`
+  (`assertCompiledBinaryFresh`); otherwise it THROWS telling you to run
+  `bun run build:cli` or set `SENTINAL_E2E_BINARY`. No `dist/sentinal` →
+  `bun src/cli/index.ts`. (A months-old dist once made a failing test pass.)
+  An explicit `SENTINAL_E2E_BINARY` is deliberately NOT freshness-checked.
 - **Pre-install `sb.run` needs `{ cwd: sb.home }`** — the default cwd `<home>/work`
   only exists after `install()` (which `mkdir -p`s it). A missing cwd gives a
   misleading `ENOENT posix_spawn`.
@@ -110,10 +144,14 @@ XDG_CACHE_HOME=… PATH=… opencode serve --port <p>`. Drop inherited
 - Each sandbox sets `SENTINAL_HOME=<sandbox HOME>/.sentinal` and asserts it
   stays inside the sandbox. Before that, sandboxes inherited the test runner's
   temp home and all shared one DB (`spec-workflow.e2e.ts` 0/4 → 3/4).
-- `assertNoRealEscape` hashes all of `~/.sentinal`, so it trips whenever the
-  developer's live sidecar writes — unreliable on a machine with Sentinal running.
-- The TDD guard does not treat `*.spec-e2e.ts` as a test file; set
-  `RED_CONFIRMED` by hand when editing one test-first.
+- ~~`assertNoRealEscape` hashes all of `~/.sentinal`~~ — replaced by the
+  attributable-write check above (2026-09-24 hardening sweep, Task 8); the old
+  hash tripped on every live sidecar write.
+- `*.e2e.ts` and `*.spec-e2e.ts` are test files for both the TDD guard
+  (`isTestFile`, `src/utils/tdd.ts`) and the file-length limit
+  (`src/utils/file-length.ts`) — no manual `RED_CONFIRMED` needed.
+- The user's real DB already held 5 `sessions` rows keyed to tmp paths from
+  earlier escapes; the check compares counts, so pre-existing rows don't trip it.
 
 ## Release-artifact gate
 
@@ -133,8 +171,9 @@ release pipeline does), sets `SENTINAL_E2E_BINARY`, and runs the pinned gate.
 bun run e2e                              # deterministic Layer A, CI-safe
 SENTINAL_E2E_REAL=1 bun run e2e:real     # + real binaries (local, needs creds)
 bun run pre-release                      # release-artifact gate (current platform)
-# real dirs must be byte-unchanged; no sandbox procs leak:
-pgrep -fl "sentinal-e2e-" ; ls -lad ~/.claude ~/.config/opencode
+SENTINAL_E2E_STRICT_ESCAPE=1 bun run e2e # full real-tree check (no live Sentinal running)
+# no sandbox procs leak (they are identified by env, not command line):
+ps axeww | grep -c "SENTINAL_E2E_SANDBOX_ID=sentinal-e2e-" ; ls -lad ~/.claude ~/.config/opencode
 ```
 
 ## When NOT to Use
@@ -145,7 +184,9 @@ pgrep -fl "sentinal-e2e-" ; ls -lad ~/.claude ~/.config/opencode
 
 ## References
 
-- `tests/e2e/harness/sandbox.ts` (createSandbox/assertEnvContained/hashTree/snapshotRealDirs)
+- `tests/e2e/harness/sandbox.ts` (createSandbox/assertEnvContained/assertCompiledBinaryFresh)
+- `tests/e2e/harness/sandbox-procs.ts` (killSandboxProcesses), `real-escape.ts`
+  (snapshotRealDirs/assertNoRealEscape/hashTree)
 - `tests/e2e/harness/release-asset.ts`, `scripts/pre-release.mjs`
 - Sibling skill `sentinal-bun-e2e-discovery` (bun test file-discovery/runner gotchas)
 - Memory: E2E harness build + Layer B live-verification + release-gate patterns (2026-07-17)

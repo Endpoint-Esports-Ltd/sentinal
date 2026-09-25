@@ -1,0 +1,91 @@
+{
+  "review_summary": "The plan covers every item from #1 to #10 and stays in scope. Task 13 is the weak point. Keeping Spec.id = slug while the FK columns switch to a key breaks internal writers that aren't in its Files list: tdd-tracker writes spec.id into tdd_cycles.spec_id. Its collision handling also conflicts with UNIQUE(spec_id, position). And it doesn't say where defer_foreign_keys is set, even though runMigrations runs outside any transaction. Task 10 canonicalizes writes but not reads, and adds a git spawn to every plan in syncAll. Task 11's Files list leaves out the code that fills in and keeps the event buffer.",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Task 13: internal FK writers pass spec.id (which stays the slug) into FK columns, and they aren't in the Files list",
+      "description": "Plan D6: 'API keeps id = slug and adds key … Internal FK writers use key.' But the code that turns a spec into FK values sits outside Task 13's Files: src/hooks/tdd-tracker.ts:82 `specStore.getCurrentTask(spec.id)`, :87/:95/:130/:153 `specId: spec.id` → tdd_cycles.spec_id (FK). src/memory/store.ts:229-230 clearTddStatesForSpec, :242-253 listActiveTddStates, :267-292 addSpecEvent/getSpecEvents all use `spec_id = ?` with a caller-supplied id. src/memory/store-sessions.ts:160-165 stampPlanOwner(specId) writes specs WHERE id = ?. src/opencode/native-tdd-status.ts:72-87 passes an agent-supplied spec_id straight through. The client-routes.ts:272-283 getSpecEvents/getSpecMetrics → spec-routes.ts:58-63 getSpecTiming(specId) chain does the same. After V14 every one of these sends the slug: the FK insert fails (server.test.ts:212 shows an FK error becomes a JSON error, so TDD tracking would quietly stop), or the lookup returns nothing (getCurrentTask → null, events and metrics empty). src/tdd/mcp-tools.ts:151 and events-mcp-tools are listed; the rest aren't.",
+      "suggested_fix": "Add these to Task 13 Files: src/hooks/tdd-tracker.ts, src/hooks/tdd-guard.ts, src/memory/store.ts, src/memory/store-sessions.ts, src/opencode/native-tdd-status.ts, src/sidecar/client-routes.ts, and targets/opencode/plugins/sentinal.ts if it forwards spec.id to tdd, events or owner routes. Rule: every value that reaches a `spec_id` column or a `specs WHERE id = ?` must be `spec.key`, or go through resolveSpecKey(value, project). Add a grep-based DoD: no `spec.id` passed into specId/spec_id/getCurrentTask/stampPlanOwner. Add a test that runs tdd-tracker after V14 and asserts a tdd_cycles row is written with the key."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Task 13: defer_foreign_keys only works inside the migration's own transaction, and runMigrations is not wrapped in one",
+      "description": "store.ts:46-47 runs `PRAGMA foreign_keys = ON` and then `runMigrations(this.db, this.dbPath)` with no surrounding transaction. migrations.ts:84 uses db.transaction() for some steps only. SQLite switches defer_foreign_keys off at every COMMIT/ROLLBACK, and each autocommit statement is its own transaction. So a `PRAGMA defer_foreign_keys = ON` issued before BEGIN, or in a separate step, has no effect on the rewrite, and `foreign_keys` can't be changed inside a transaction. The plan's rehearsal was done by hand in 'one transaction'. The plan never says where the pragma goes in the live path.",
+      "suggested_fix": "State it in Task 13: V14 runs inside `db.transaction(() => { db.run('PRAGMA defer_foreign_keys = ON'); …rewrite…; assert PRAGMA foreign_key_check returns 0 rows; record version })()`. The pragma must be the first statement after BEGIN. Add a unit test that runs V14 through `new MemoryStore(path)` on a fixture with children in all five FK tables and asserts foreign_key_check is empty and the transaction commits. Add a negative test showing that the same rewrite without the in-transaction pragma throws. That proves the test can tell the two apart."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 13 collision rule 're-point children' breaks spec_tasks UNIQUE(spec_id, position)",
+      "description": "Plan: 'resolve collisions deterministically (keep newest updated_at, re-point children, delete the other)'. spec_tasks has UNIQUE(spec_id, position) (migrations.ts:289, per the plan's own #7A facts). Re-pointing the loser's tasks to the winner's key collides on position 1..N and aborts the whole V14 transaction on exactly the user DB shape Pre-Mortem 2 predicts. Re-pointing tdd_cycles is also questionable: tdd_cycles may be unique per file.",
+      "suggested_fix": "Per child table: spec_tasks and spec_events of the loser → DELETE, because they come from the loser's plan file and are regenerated on the next sync. tdd_cycles, notifications and worktrees → re-point, or NULL where the column is nullable. Put these rules in the plan and add a V14 test with two colliding rows that both have tasks at positions 1..3."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 13 migration canonicalization (string-only) differs from runtime canonicalization, so stale raw-alias rows survive",
+      "description": "V14 canonicalizes 'by string, stripping /.sentinal/worktrees/spec-* suffixes; no git in migrations'. At runtime (Task 10) keys come from resolveProjectIdentity, which does realpath plus the main checkout. Existing rows under /var/… (macOS tmp), symlinks, subdirectories or linked worktrees keep their raw project_path. The next sync writes a second row under the canonical path. The unique index (project_path, slug) doesn't see a collision, so the two rows sit side by side, and the old one still shows up as ownerless in dashboards and listings.",
+      "suggested_fix": "In V14 also apply realpathSync to project paths that still exist (no git needed). Or in Task 18, report and merge rows whose project path resolves to the same identity. Add a DoD line that counts duplicate (canonical project, slug) pairs after the rehearsal."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Task 10: canonicalizing inside syncFromPlanFile makes writes and reads asymmetric and spawns git once per plan in syncAll",
+      "description": "Plan: '`syncFromPlanFile` canonicalizes `projectPath` itself … the single write point'. (1) SpecStore's read methods (getCurrentSpec, listing, isPlanActive) still take raw paths. A test or caller that does syncFromPlanFile(p, rawTmp) and then getCurrentSpec(rawTmp) now misses on macOS, because tmpdir resolves to /private/var. Only tdd-tracker and tdd-guard are fixed; any other raw reader breaks silently. (2) store.ts:284 syncAll calls syncFromPlanFile once per plan file. If resolveProjectIdentity runs `git rev-parse`, that's one git spawn per plan (this repo has dozens) on register-plan, pre-compact and the /spec/sync path.",
+      "suggested_fix": "Canonicalize once at the top of syncAll and pass the result in, keeping an internal no-resolve helper. Resolve inside public syncFromPlanFile only when called directly. Apply the same canonicalization to SpecStore's read entry points, so reads and writes match. Or leave SpecStore raw and canonicalize at every caller, but pick one and enforce it with a test that syncs and reads back through a symlinked tmpdir. Add src/spec/status-mcp-tools.ts, whose comment must change, to Files."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 11 Files omit the code that fills in and keeps the event buffer (memory-observer.ts, plugin)",
+      "description": "D9 needs 'a known exit code … overrides text heuristics' and 'an error … is consumed (persisted in the buffer)'. Buffers are built in src/hooks/memory-observer.ts:52 (`new EventBuffer(20)`, a new Claude Code hook subprocess per event, so any persistence lives in that hook, not in capture.ts) and targets/opencode/plugins/sentinal.ts:478 (an in-memory buffer that lives for the process). A 'consumed' flag held only in memory is lost between Claude Code hook calls unless the hook's serialization carries it. The exit code has to be filled in from bashOutputOf / PostToolUseFailure (CC) and metadata.exit (OC). Task 11 lists only capture.ts. The ordering bug (callers push before analysing, sentinal.ts:913-914, memory-observer.ts:64-65) is also in those files.",
+      "suggested_fix": "Add src/hooks/memory-observer.ts, its test, and targets/opencode/plugins/sentinal.ts to Task 11 (wave 2 has no other owner of these files; the plugin is T7 in wave 1 and T12 in wave 3). Add `exitCode?: number` and `consumed?: boolean` to ToolEvent and include them in whatever serialization memory-observer uses. Add a test that runs two separate memory-observer calls, error then two edits, and asserts one fix. Alternatively, mark the error consumed through the observation itself and dedupe it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Wave 3 overlap risk: Task 13 will need the plugin, client-routes and pre-compact, which Task 12 owns in the same wave",
+      "description": "Task 12 (wave 3) modifies client-routes.ts, pre-compact.ts and targets/opencode/plugins/sentinal.ts. Task 13 (wave 3), once its Files are complete (see first issue), needs client-routes.ts (getSpecEvents/getSpecMetrics, key-aware params) and probably the plugin (sentinal.ts:1425 compare, and any spec id forwarded to tdd routes). Same-wave edits to one file corrupt work in a shared working directory.",
+      "suggested_fix": "Move Task 13 to its own wave (3b) after Task 12, or give all client-routes and plugin edits for both tasks to Task 12. Re-run sentinal_plan_impact after completing the Files lists."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Task 5 Files miss the client and type surface for the new quality-check result shape",
+      "description": "Task 5 adds `fixMode` and changes what errors/report data contain, but lists only quality-runners.ts, quality-routes.ts and analysis/mcp-tools.ts. The SidecarClient quality-check method and its result type (client.ts / client-routes.ts), and any shared result type, also have to change, or the MCP renderer can't see the new fields. Deleting src/checkers/typescript.ts assumes nothing re-exports it. The src/index.ts barrel wasn't checked, and deleting a public export is not behaviour-preserving.",
+      "suggested_fix": "Add src/sidecar/client.ts (or client-routes.ts) and the quality result type file to Task 5 Files. Before deleting checkers/typescript.ts, grep src/index.ts and targets/ for its exports. If it's in the barrel, keep a deprecated re-export or document the removal as breaking."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 18 can't be implemented exactly as written, and old clients will recreate duplicates",
+      "description": "'Error section is a passing run (non-zero pass, zero fail, no other error line)' depends on the stored content format and only knows bun's output. Other runners' passing output wouldn't be recognized, which is fine because it errs toward keeping rows, but the parser is unspecified: SQL LIKE can't express 'no other error line'. Also, if cleanup runs before the new plugin and sidecar are deployed (the deployed plugin is ≤1.39 with the old capture trigger), duplicates come straight back. Merged survivors also lack the Task 15 signature metadata, so the next identical capture creates a fresh row instead of incrementing.",
+      "suggested_fix": "Implement Task 18 as a TypeScript script: parse the '**Error:**' block, classify with the Task 11 indicator functions (shared code, not a copy), and print 10 samples per class in the dry-run. Make 'new plugin deployed and sidecar restarted' a precondition. While merging, write the Task 15 signature into each survivor's metadata so future repeats increment it."
+    },
+    {
+      "severity": "consider",
+      "category": "untested_assumption",
+      "title": "Task 8: environment-based process matching and attributable-write escape detection",
+      "description": "`ps eww` shows the environment for processes owned by the same user on macOS and Linux (/proc/<pid>/environ), which covers sandbox children. But it reflects the environment at exec, and argv/env output can be truncated. Checking 'appended log bytes containing the sandbox path' only catches escapes that log the sandbox path. An escape that writes the real memory.db under a non-sandbox key would pass. Also, reading the user's live memory.db while their sidecar holds a WAL needs a read-only open (?mode=ro) to avoid lock contention.",
+      "suggested_fix": "Kill processes primarily by the sandbox's own pidfiles (<sandbox SENTINAL_HOME>/sidecar.pid, dashboard pid), with an ownership check. Use `ps eww` as a fallback sweep for SENTINAL_E2E_SANDBOX_ID. For DB escape checks, open read-only and compare the max rowid/created_at of observations, sessions and specs before and after, then attribute new rows by session id or project. That catches unattributed writes too."
+    },
+    {
+      "severity": "consider",
+      "category": "untested_assumption",
+      "title": "Tasks 2–4: spy-based tests verified safe; state it so the implementer doesn't touch the tests",
+      "description": "update.test.ts spies only on dependency modules (uninstallModule, installModule, autoSetupModule, stalenessModule, lines 134-422), not on update.ts itself. migrations.test.ts spies only on console.error. No spyOn or mock.module targets slots.ts, routes.ts or worktree-config.ts. The splits won't break interception as long as the moved code imports those dependency modules directly: Bun's spyOn patches the module namespace, and live bindings in the new files see it.",
+      "suggested_fix": "Record this in Tasks 2–4: moved code must import install, uninstall, auto-setup and staleness from their original modules, not through local wrapper re-binding (e.g. `const f = mod.fn`), which would capture the function before the spy is installed."
+    },
+    {
+      "severity": "consider",
+      "category": "scope_alignment",
+      "title": "Task 8 adds `.test.tsx` to exemptions, which isn't needed for #10",
+      "description": "The repo has no TSX. Adding `.test.tsx` to TEST_PATTERNS goes beyond the E2E harness defects.",
+      "suggested_fix": "Drop `.test.tsx`, or keep it and say why (users' projects), with a test."
+    }
+  ]
+}

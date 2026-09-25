@@ -26,7 +26,11 @@ Hooks are spawned as subprocesses. They receive JSON on **stdin** and respond vi
   hook_event_name: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: { output?: string; [k: string]: unknown };  // PostToolUse only
+  // PostToolUse only. Bash: {stdout, stderr, interrupted, isImage, …} — there is
+  // NO `output` field on real Claude Code payloads; read it via bashOutputOf().
+  tool_response?: { stdout?: string; stderr?: string; output?: string; [k: string]: unknown };
+  tool_use_id?: string;    // PostToolUse / PostToolUseFailure
+  is_interrupt?: boolean;  // PostToolUseFailure
 }
 ```
 
@@ -69,6 +73,15 @@ process.exit(2);
 | `PreCompact`       | (any)                            | pre-compact          | no      |
 | `Stop`             | (any)                            | spec-stop-guard      | no      |
 | `SessionEnd`       | (any)                            | session-end          | no      |
+
+Partial — `hooks.json` also registers `PostToolUseFailure` (tdd-tracker, tool-failure-observer),
+`StopFailure`, `ConfigChange`, `InstructionsLoaded`, `CwdChanged`, `FileChanged`, `PostCompact`
+and `TaskCreated`.
+
+**`file-checker` runs no formatter, linter or type-checker.** It checks file length, the companion
+test file and Angular structural patterns (`src/hooks/file-checker.ts`); tsc/eslint/prettier are
+on-demand only, via the `quality_report` MCP tool (which auto-fixes only an explicit `file` — see
+`sentinal-mcp-servers.md`). Do not add formatter/linter subprocesses to an edit hook.
 
 ### ⛔ Gotchas
 
