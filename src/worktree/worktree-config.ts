@@ -42,7 +42,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { excludeFromGit } from "./git-exclude.js";
-import { SLOT_ENV_RELATIVE_PATH, SLOT_ENV_VAR } from "./slots.js";
+import { SLOT_ENV_RELATIVE_PATH, SLOT_ENV_VAR } from "./slot-env.js";
 import { discoverSeedSources, SEED_FILENAME } from "./seed-sources.js";
 
 // Discovery lives in `seed-sources.ts` (it needs a pruned, depth-capped tree
