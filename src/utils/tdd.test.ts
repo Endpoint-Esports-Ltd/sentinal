@@ -189,6 +189,21 @@ describe("tdd utilities", () => {
       expect(isTestFile("Button.jsx")).toBe(false);
     });
 
+    // Bun opt-in E2E conventions (excluded from the default `bun test` glob)
+    it("should detect .spec-e2e.ts and .e2e.ts files", () => {
+      expect(isTestFile("tests/e2e/harness/sandbox.spec-e2e.ts")).toBe(true);
+      expect(isTestFile("tests/e2e/hooks.e2e.ts")).toBe(true);
+    });
+
+    it("should detect NestJS .e2e-spec.ts files", () => {
+      expect(isTestFile("test/app.e2e-spec.ts")).toBe(true);
+    });
+
+    it("should not detect look-alike e2e helper files", () => {
+      expect(isTestFile("tests/e2e/harness/sandbox.ts")).toBe(false);
+      expect(isTestFile("src/e2e.ts")).toBe(false);
+    });
+
     // Go
     it("should detect Go _test.go files", () => {
       expect(isTestFile("auth_test.go")).toBe(true);
@@ -325,6 +340,20 @@ describe("tdd utilities", () => {
       expect(isGuardedFile("src/test_auth.py")).toBe(false);
       expect(isGuardedFile("src/auth_test.rs")).toBe(false);
       expect(isGuardedFile("src/test_auth.c")).toBe(false);
+    });
+
+    it("should not guard e2e test files (no companion test required)", () => {
+      expect(isGuardedFile("tests/e2e/hooks.e2e.ts")).toBe(false);
+      expect(isGuardedFile("tests/e2e/harness/sandbox.spec-e2e.ts")).toBe(
+        false,
+      );
+    });
+
+    it("returns no expected companion tests for an e2e file", () => {
+      expect(getExpectedTestPaths("tests/e2e/hooks.e2e.ts")).toEqual([]);
+      expect(
+        getExpectedTestPaths("tests/e2e/harness/sandbox.spec-e2e.ts"),
+      ).toEqual([]);
     });
 
     it("should not guard skipped files", () => {

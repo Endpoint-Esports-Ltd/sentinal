@@ -9,8 +9,11 @@
 // the memory DB outside HOME), and sets SENTINAL_NO_AUTO_SETUP=1.
 //
 // Escape guarantee is STRUCTURAL (primary): assertEnvContained proves every
-// spawned process's env stays inside the sandbox. hashTree is the content-hash
-// backstop that detects nested-file rewrites the mtime/entry-list approach misses.
+// spawned process's env stays inside the sandbox. snapshotRealDirs /
+// assertNoRealEscape are the backstop: they look for writes ATTRIBUTABLE to a
+// sandbox (so the user's live sidecar can keep writing during a run), plus a
+// content hash of static user config — see ./real-escape.ts. Teardown kills
+// sandbox processes by pidfile + environment — see ./sandbox-procs.ts.
 
 import {
   mkdtempSync,
@@ -20,9 +23,20 @@ import {
   readFileSync,
   statSync,
 } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { registerSandboxMarkers } from "./real-escape.ts";
+import { killSandboxProcesses } from "./sandbox-procs.ts";
+
+export {
+  E2E_TEST_SESSION_IDS,
+  hashTree,
+  snapshotRealDirs,
+  assertNoRealEscape,
+  type SnapshotOptions,
+} from "./real-escape.ts";
+export { killSandboxProcesses } from "./sandbox-procs.ts";
 
 // Repo root = three levels up from tests/e2e/harness/.
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
@@ -40,6 +54,8 @@ export interface SandboxEnv {
    */
   SENTINAL_NO_AUTO_SETUP?: string;
   CLAUDE_PLUGIN_DATA: string;
+  /** Unique per sandbox; lets teardown find strays by their environment. */
+  SENTINAL_E2E_SANDBOX_ID: string;
   [key: string]: string | undefined;
 }
 
@@ -64,6 +80,8 @@ export interface InstallOptions {
 
 export interface Sandbox {
   home: string;
+  /** SENTINAL_E2E_SANDBOX_ID — also present in `env`. */
+  id: string;
   env: SandboxEnv;
   /**
    * The resolved binary the harness runs. Either the SENTINAL_E2E_BINARY
@@ -79,19 +97,95 @@ export interface Sandbox {
   ): SpawnResult;
   /** Path existence within the sandbox. */
   exists(path: string): boolean;
-  /** Tear down: kill sandbox-owned sidecar/dashboard, then remove the HOME. */
+  /**
+   * Tear down: kill sandbox-owned processes, remove the HOME, then THROW if
+   * any sandbox process survived (a survivor can recreate the deleted HOME).
+   */
   cleanup(): void;
 }
 
-// ── Sandbox construction ─────────────────────────────────────────────────────
+// ── Binary resolution + freshness ────────────────────────────────────────────
+
+export interface CompiledBinaryCheck {
+  binary: string;
+  expectedVersion: string;
+  srcDir: string;
+  env?: Record<string, string | undefined>;
+}
+
+const TEST_SOURCE = /\.(test|spec)\.[jt]sx?$|\.e2e\.ts$|\.spec-e2e\.ts$/;
+
+function newestSourceFile(
+  dir: string,
+): { path: string; mtimeMs: number } | null {
+  let best: { path: string; mtimeMs: number } | null = null;
+  const walk = (d: string) => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(d, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "node_modules") walk(full);
+      } else if (e.isFile() && !TEST_SOURCE.test(e.name)) {
+        const m = statSync(full).mtimeMs;
+        if (!best || m > best.mtimeMs) best = { path: full, mtimeMs: m };
+      }
+    }
+  };
+  walk(dir);
+  return best;
+}
+
+/**
+ * Refuse a compiled binary that does not represent the current source: its
+ * `--version` must equal package.json's and it must be newer than every
+ * non-test file under `srcDir`. A stale dist/sentinal silently tests OLD code.
+ */
+export function assertCompiledBinaryFresh(o: CompiledBinaryCheck): void {
+  const hint =
+    "Run `bun run build:cli` to rebuild it, or set SENTINAL_E2E_BINARY=<path> " +
+    "to test a specific binary.";
+  const r = Bun.spawnSync([o.binary, "--version"], {
+    env: (o.env ?? process.env) as Record<string, string>,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 15_000,
+  });
+  const out = r.stdout?.toString().trim() ?? "";
+  const got =
+    /\d+\.\d+\.\d+(?:[-+][\w.-]+)?/.exec(out)?.[0] ??
+    `<no version, exit ${r.exitCode}>`;
+  if (got !== o.expectedVersion) {
+    throw new Error(
+      `Refusing stale ${o.binary}: --version reports ${got} but package.json ` +
+        `is ${o.expectedVersion}. ${hint}`,
+    );
+  }
+  const binMtime = statSync(o.binary).mtimeMs;
+  const newest = newestSourceFile(o.srcDir);
+  if (newest && newest.mtimeMs > binMtime) {
+    throw new Error(
+      `Refusing stale ${o.binary}: it is older than ${newest.path} ` +
+        `(modified ${new Date(newest.mtimeMs).toISOString()}). ${hint}`,
+    );
+  }
+}
+
+const freshBinaries = new Set<string>(); // "<path>@<mtimeMs>" already verified
 
 /**
  * Resolve the binary the harness will run.
  * - SENTINAL_E2E_BINARY set → MUST exist, else THROW (never silently fall back to
  *   the dev build — a bad release path would otherwise produce a green gate).
- * - unset → dev `dist/sentinal` if present, else `bun src/cli/index.ts`.
+ *   Not freshness-checked: a release artifact is deliberately pinned.
+ * - unset → dev `dist/sentinal` if present AND fresh (else THROW), otherwise
+ *   `bun src/cli/index.ts`.
  */
-function resolveEntry(): string[] {
+function resolveEntry(env: SandboxEnv): string[] {
   const override = process.env.SENTINAL_E2E_BINARY;
   if (override) {
     const abs = resolve(override);
@@ -103,13 +197,28 @@ function resolveEntry(): string[] {
     }
     return [abs];
   }
-  return existsSync(CLI_COMPILED) ? [CLI_COMPILED] : ["bun", CLI_SRC];
+  if (!existsSync(CLI_COMPILED)) return ["bun", CLI_SRC];
+  const key = `${CLI_COMPILED}@${statSync(CLI_COMPILED).mtimeMs}`;
+  if (!freshBinaries.has(key)) {
+    const pkg = JSON.parse(
+      readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+    ) as { version: string };
+    assertCompiledBinaryFresh({
+      binary: CLI_COMPILED,
+      expectedVersion: pkg.version,
+      srcDir: join(REPO_ROOT, "src"),
+      env,
+    });
+    freshBinaries.add(key);
+  }
+  return [CLI_COMPILED];
 }
+
+// ── Sandbox construction ─────────────────────────────────────────────────────
 
 export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
   const home = mkdtempSync(join(tmpdir(), "sentinal-e2e-"));
-  const entryCmd = resolveEntry(); // may throw on a bad SENTINAL_E2E_BINARY
-  const binaryPath = entryCmd[entryCmd.length - 1] ?? "";
+  const id = `sentinal-e2e-${randomUUID()}`;
 
   const env: SandboxEnv = {
     ...(process.env as Record<string, string | undefined>),
@@ -122,11 +231,22 @@ export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
     // otherwise inherit the bun test preload's per-run temp SENTINAL_HOME, so
     // every sandbox in a run would share one DB/sidecar outside its HOME.
     SENTINAL_HOME: join(home, ".sentinal"),
+    SENTINAL_E2E_SANDBOX_ID: id,
   };
   if (opts.autoSetup) {
     // Must DELETE (not just skip): an inherited process.env value survives the spread.
     delete env.SENTINAL_NO_AUTO_SETUP;
   }
+
+  let entryCmd: string[];
+  try {
+    entryCmd = resolveEntry(env); // throws on a bad override or a stale dist
+  } catch (err) {
+    rmSync(home, { recursive: true, force: true });
+    throw err;
+  }
+  const binaryPath = entryCmd[entryCmd.length - 1] ?? "";
+  registerSandboxMarkers(home, id);
 
   const cwdTmp = join(home, "work");
 
@@ -167,16 +287,22 @@ export function createSandbox(opts: CreateSandboxOptions = {}): Sandbox {
   }
 
   function cleanup(): void {
-    killSandboxProcesses(home);
+    const survivors = killSandboxProcesses(home, id);
     try {
       rmSync(home, { recursive: true, force: true });
     } catch {
       /* best effort */
     }
+    if (survivors.length > 0) {
+      throw new Error(
+        `Sandbox processes survived cleanup of ${home}: ${survivors.join(", ")}`,
+      );
+    }
   }
 
   return {
     home,
+    id,
     env,
     binaryPath,
     run,
@@ -230,138 +356,4 @@ export function assertEnvContained(
 
 function withSep(p: string): string {
   return p.endsWith(sep) ? p : p + sep;
-}
-
-// ── Content-hash escape backstop ─────────────────────────────────────────────
-
-/**
- * Recursively content-hash a directory tree (sorted paths + file contents).
- * Returns "<absent>" when the path does not exist. Detects nested-file content
- * rewrites that a dir-mtime/entry-list snapshot would miss.
- */
-export function hashTree(root: string): string {
-  if (!existsSync(root)) return "<absent>";
-  const h = createHash("sha256");
-  const walk = (dir: string) => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir).sort();
-    } catch {
-      return; // unreadable → skip (permission dirs like keychain)
-    }
-    for (const name of entries) {
-      const full = join(dir, name);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      h.update(full);
-      if (st.isDirectory()) {
-        walk(full);
-      } else if (st.isFile()) {
-        try {
-          h.update(readFileSync(full));
-        } catch {
-          h.update("<unreadable>");
-        }
-      }
-    }
-  };
-  walk(root);
-  return h.digest("hex");
-}
-
-/**
- * Snapshot the real user dirs/files that install/shell-init could touch.
- * Used as a defense-in-depth backstop around assertEnvContained.
- */
-export function snapshotRealDirs(): Record<string, string> {
-  const home = homedir();
-  const targets = [
-    join(home, ".claude"),
-    join(home, ".config", "opencode"),
-    join(home, ".opencode"),
-    join(home, ".sentinal"),
-    join(home, ".bashrc"),
-    join(home, ".zshrc"),
-    join(home, ".config", "fish", "config.fish"),
-    join(home, ".npmrc"),
-    process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"),
-  ];
-  const snap: Record<string, string> = {};
-  for (const t of targets) snap[t] = hashTree(t);
-  return snap;
-}
-
-export function assertNoRealEscape(before: Record<string, string>): void {
-  for (const [path, prevHash] of Object.entries(before)) {
-    const now = hashTree(path);
-    if (now !== prevHash) {
-      throw new Error(
-        `Sandbox escape detected: real path "${path}" changed during the e2e run`,
-      );
-    }
-  }
-}
-
-// ── Teardown: kill sandbox-owned processes (PID-reuse safe) ───────────────────
-
-function killSandboxProcesses(sandboxHome: string): void {
-  // 1. Best-effort SIGTERM via the sandbox pid files, guarded by ownership.
-  const pidDir = join(sandboxHome, ".sentinal");
-  for (const pidFile of ["sidecar.pid", "server.pid"]) {
-    const p = join(pidDir, pidFile);
-    if (!existsSync(p)) continue;
-    const pid = Number(safeRead(p).trim());
-    if (
-      Number.isFinite(pid) &&
-      pid > 1 &&
-      processBelongsToSandbox(pid, sandboxHome)
-    ) {
-      trySignal(pid, "SIGTERM");
-    }
-  }
-  // 2. Backstop: kill any process whose command line references the unique
-  //    sandbox HOME path (covers detached children / reparented sidecars).
-  try {
-    const ps = Bun.spawnSync(["pgrep", "-f", sandboxHome], { stdout: "pipe" });
-    const out = ps.stdout?.toString() ?? "";
-    for (const line of out.split("\n")) {
-      const pid = Number(line.trim());
-      if (Number.isFinite(pid) && pid > 1) trySignal(pid, "SIGKILL");
-    }
-  } catch {
-    /* pgrep may be unavailable; pid-file path already handled the common case */
-  }
-}
-
-function processBelongsToSandbox(pid: number, sandboxHome: string): boolean {
-  // Confirm the PID's command line references the sandbox HOME before killing,
-  // guarding against PID reuse naming an unrelated host process.
-  try {
-    const r = Bun.spawnSync(["ps", "-o", "command=", "-p", String(pid)], {
-      stdout: "pipe",
-    });
-    return (r.stdout?.toString() ?? "").includes(sandboxHome);
-  } catch {
-    return false; // if we can't verify ownership, don't kill
-  }
-}
-
-function trySignal(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-  try {
-    process.kill(pid, signal);
-  } catch {
-    /* already gone */
-  }
-}
-
-function safeRead(p: string): string {
-  try {
-    return readFileSync(p, "utf-8");
-  } catch {
-    return "";
-  }
 }

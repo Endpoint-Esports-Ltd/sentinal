@@ -12,6 +12,12 @@ const TEST_FILE_PATTERNS = [
   /\.test\.tsx$/,
   /\.spec\.jsx$/,
   /\.test\.jsx$/,
+  // E2E: NestJS `.e2e-spec.ts`, and Bun opt-in `.e2e.ts` / `.spec-e2e.ts`
+  // (named so the default `bun test` glob skips them). An e2e file IS the
+  // test — it must never be treated as an impl needing a companion test.
+  /\.e2e-spec\.ts$/,
+  /\.e2e\.ts$/,
+  /\.spec-e2e\.ts$/,
   // Go
   /_test\.go$/,
   // Python

@@ -36,6 +36,25 @@ describe("checkFileLength", () => {
     expect(result).toBeNull();
   });
 
+  it("should exempt bun opt-in e2e files (.e2e.ts / .spec-e2e.ts)", () => {
+    expect(checkFileLength("/tests/e2e/hooks.e2e.ts", 700)).toBeNull();
+    expect(
+      checkFileLength("/tests/e2e/harness/sandbox.spec-e2e.ts", 700),
+    ).toBeNull();
+  });
+
+  it("should exempt .test.tsx files", () => {
+    expect(checkFileLength("/src/Button.test.tsx", 700)).toBeNull();
+  });
+
+  it("should still block look-alike non-test files", () => {
+    expect(checkFileLength("/src/e2e.ts", 700)?.severity).toBe("block");
+    expect(checkFileLength("/src/spec-e2e-helpers.ts", 700)?.severity).toBe(
+      "block",
+    );
+    expect(checkFileLength("/src/Button.tsx", 700)?.severity).toBe("block");
+  });
+
   describe("auto-generated file detection", () => {
     it("should exempt files with AUTO-GENERATED marker in header", () => {
       const content = `/**

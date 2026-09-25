@@ -4,7 +4,11 @@ const GENERATED_HEADER_SCAN_BYTES = 500;
 const TEST_PATTERNS = [
   /\.spec\.ts$/,
   /\.test\.ts$/,
+  /\.test\.tsx$/,
   /\.e2e-spec\.ts$/,
+  // Bun opt-in e2e conventions (excluded from the default `bun test` glob)
+  /\.e2e\.ts$/,
+  /\.spec-e2e\.ts$/,
   /\.spec\.js$/,
   /\.test\.js$/,
 ];
