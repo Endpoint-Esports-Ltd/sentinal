@@ -16,7 +16,13 @@ import {
 } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import { startSidecar, stopSidecar, getSidecarPortPath } from "./server.js";
 import { SidecarClient, withSidecarOrDirect } from "./client.js";
@@ -521,21 +527,51 @@ describe("SidecarClient.qualityCheck", () => {
     expect(Array.isArray(result.tsc!.errors)).toBe(true);
   }, 60_000);
 
-  it("should support single-file mode", async () => {
+  it("should support single-file mode (fake prettier — never the real one on repo files)", async () => {
     const client = await SidecarClient.connect();
     expect(client).not.toBeNull();
 
-    const projectPath = join(import.meta.dir, "../..");
+    // Fake project whose prettier records argv and reports "unformatted".
+    const projectPath = realpathSync(tmpDir);
+    const bin = join(projectPath, "node_modules", ".bin");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(join(projectPath, "src"), { recursive: true });
+    writeFileSync(join(projectPath, "src", "a.ts"), "export const a=1\n");
+    const argvLog = join(projectPath, "prettier.argv");
+    writeFileSync(
+      join(bin, "prettier"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${argvLog}"\n[ "$1" = "--check" ] && exit 1\nexit 0\n`,
+      { mode: 0o755 },
+    );
+
     const result = await client!.qualityCheck({
       projectPath,
-      filePath: join(import.meta.dir, "client.ts"),
+      filePath: "src/a.ts",
       checks: ["prettier"],
-      timeout: 30000,
+      timeout: 5000,
     });
 
-    expect(result.prettier).toBeDefined();
-    expect(typeof result.prettier!.ok).toBe("boolean");
-  }, 30_000);
+    const abs = join(projectPath, "src", "a.ts");
+    expect(readFileSync(argvLog, "utf-8").trim().split("\n")).toEqual([
+      `--check ${abs}`,
+      `--write ${abs}`,
+    ]);
+    expect(result.prettier!.ok).toBe(true);
+    expect(result.prettier!.autoFixed).toBe(true);
+    expect(result.prettier!.fixMode).toBe("file");
+  }, 15_000);
+
+  it("rejects a file outside the project (sidecar answers 400)", async () => {
+    const client = await SidecarClient.connect();
+    expect(client).not.toBeNull();
+    await expect(
+      client!.qualityCheck({
+        projectPath: realpathSync(tmpDir),
+        filePath: "/etc/hosts",
+        checks: ["prettier"],
+      }),
+    ).rejects.toThrow(/outside the project/);
+  }, 10_000);
 });
 
 // ─── Self-healing reconnect ────────────────────────────────────────────────

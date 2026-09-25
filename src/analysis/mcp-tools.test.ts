@@ -8,12 +8,65 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+  existsSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { registerAnalysisTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
+
+// --- Fake eslint/prettier for quality_report (D1) ---
+// Never run the real formatter/linter on repo files: each fake appends its
+// argv to `.fake/<tool>.argv`; `.fake/<tool>.<mode>.{out,exit}` set behaviour.
+
+const FAKE_SCRIPT = (dir: string, tool: string) => `#!/bin/sh
+D="${dir}/.fake"
+printf '%s\\n' "$*" >> "$D/${tool}.argv"
+M=$(echo "$1" | sed 's/^--//')
+[ -f "$D/${tool}.$M.out" ] && cat "$D/${tool}.$M.out"
+exit $(cat "$D/${tool}.$M.exit" 2>/dev/null || echo 0)
+`;
+
+const fakeDirs: string[] = [];
+function fake(spec: Record<string, string | number> = {}): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "qtool-fake-")));
+  fakeDirs.push(dir);
+  mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+  mkdirSync(join(dir, ".fake"), { recursive: true });
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+  for (const tool of ["eslint", "prettier"]) {
+    writeFileSync(
+      join(dir, "node_modules", ".bin", tool),
+      FAKE_SCRIPT(dir, tool),
+      { mode: 0o755 },
+    );
+  }
+  for (const [k, v] of Object.entries(spec)) {
+    writeFileSync(join(dir, ".fake", k), String(v));
+  }
+  return dir;
+}
+function argvOf(dir: string, tool: string): string[] {
+  const p = join(dir, ".fake", `${tool}.argv`);
+  return existsSync(p)
+    ? readFileSync(p, "utf-8").split("\n").filter(Boolean)
+    : [];
+}
+afterEach(() => {
+  for (const d of fakeDirs.splice(0))
+    rmSync(d, { recursive: true, force: true });
+});
 
 // --- Helpers ---
 
@@ -301,9 +354,7 @@ describe("impact_analysis", () => {
     );
 
     const origSpawn = Bun.spawn;
-    let callCount = 0;
     (Bun as any).spawn = mock((cmd: string[]) => {
-      callCount++;
       if (cmd.includes("--name-only")) {
         return {
           stdout: { text: async () => "src/auth/auth.service.ts\n" },
@@ -534,20 +585,133 @@ describe("quality_report MCP tool", () => {
     expect(text).toContain("TypeScript");
   });
 
-  it("should support single-file mode", async () => {
+  it("single-file mode (no sidecar) fixes only that file — fake prettier", async () => {
+    const dir = fake({ "prettier.check.exit": 1 });
     const tools = captureTools(registerAnalysisTools, {});
-    const handler = tools.get("quality_report")!;
-    const projectPath = join(import.meta.dir, "../..");
-
-    const result = await handler({
-      project: projectPath,
-      file: join(import.meta.dir, "mcp-tools.ts"),
+    const result = await tools.get("quality_report")!({
+      project: dir,
+      file: "src/a.ts",
       checks: ["prettier"],
-      timeout_ms: 30000,
+      timeout_ms: 5000,
     });
+    const abs = join(dir, "src", "a.ts");
+    expect(argvOf(dir, "prettier")).toEqual([
+      `--check ${abs}`,
+      `--write ${abs}`,
+    ]);
+    expect(result.content[0].text).toContain(`Formatted ${abs}`);
+  }, 10_000);
 
-    expect(result.content).toBeDefined();
+  it("describes project-wide mode as report-only and file mode as the only auto-fix", () => {
+    const server = new McpServer({ name: "t", version: "0" });
+    let description = "";
+    let fileDescription = "";
+    const orig = server.tool.bind(server);
+    server.tool = ((...args: any[]) => {
+      if (args[0] === "quality_report") {
+        description = args[1];
+        fileDescription = args[2].file.description;
+      }
+      return (orig as any)(...args);
+    }) as any;
+    registerAnalysisTools(server, {});
+    expect(description).toContain("report-only");
+    expect(description).not.toContain("with auto-fix for eslint/prettier");
+    expect(fileDescription).toContain("auto-fixes only the given file");
+    expect(fileDescription).toContain("project-wide is report-only");
+  });
+});
+
+// --- quality_report D1: fix scope with a sidecar client ---
+
+describe("quality_report fix scope (D1)", () => {
+  function mockClient() {
+    const calls: any[] = [];
+    const client = {
+      qualityCheck: mock(async (opts: any) => {
+        calls.push(opts);
+        return {
+          tsc: { ok: true, errors: [], durationMs: 1, incremental: true },
+        };
+      }),
+    } as unknown as SidecarClient;
+    return { client, calls };
+  }
+
+  it("project-wide: lint runs report-only in-process; only tsc goes to the (possibly old) sidecar", async () => {
+    const dir = fake({
+      "prettier.list-different.out": "src/a.ts\nsrc/b.ts\n",
+      "prettier.list-different.exit": 1,
+      "eslint.format.exit": 1,
+    });
+    writeFileSync(
+      join(dir, ".fake", "eslint.format.out"),
+      JSON.stringify([
+        {
+          filePath: join(dir, "src", "a.ts"),
+          errorCount: 1,
+          warningCount: 0,
+          messages: [{ ruleId: "no-undef", severity: 2, line: 7 }],
+        },
+      ]),
+    );
+    const { client, calls } = mockClient();
+    const tools = captureTools(registerAnalysisTools, { client });
+    const result = await tools.get("quality_report")!({
+      project: dir,
+      timeout_ms: 5000,
+    });
+    // An old sidecar would run `prettier --write .` — it must never see lint.
+    expect(calls).toEqual([
+      { projectPath: dir, filePath: undefined, checks: ["tsc"], timeout: 5000 },
+    ]);
+    expect(argvOf(dir, "eslint")).toEqual(["--format json ."]);
+    expect(argvOf(dir, "prettier")).toEqual(["--list-different ."]);
     const text = result.content[0].text;
-    expect(text).toContain("Quality Report");
+    expect(text).toContain("report-only");
+    expect(text).toContain("2 files not formatted");
+    expect(text).toContain("  - src/b.ts");
+    expect(text).toContain("1 error, 0 warnings");
+    expect(text).toContain("src/a.ts:7 no-undef");
+  }, 15_000);
+
+  it("project-wide without tsc never calls the sidecar", async () => {
+    const dir = fake();
+    const { client, calls } = mockClient();
+    const tools = captureTools(registerAnalysisTools, { client });
+    await tools.get("quality_report")!({
+      project: dir,
+      checks: ["prettier"],
+      timeout_ms: 5000,
+    });
+    expect(calls).toEqual([]);
+    expect(argvOf(dir, "prettier")).toEqual(["--list-different ."]);
+  }, 10_000);
+
+  it("single file: the sidecar receives the file resolved against the project", async () => {
+    const dir = fake();
+    const { client, calls } = mockClient();
+    const tools = captureTools(registerAnalysisTools, { client });
+    await tools.get("quality_report")!({
+      project: dir,
+      file: "src/a.ts",
+      checks: ["prettier"],
+    });
+    expect(calls.length).toBe(1);
+    expect(calls[0].filePath).toBe(join(dir, "src", "a.ts"));
+  });
+
+  it("refuses a file outside the project without calling the sidecar or any tool", async () => {
+    const dir = fake();
+    const { client, calls } = mockClient();
+    const tools = captureTools(registerAnalysisTools, { client });
+    const result = await tools.get("quality_report")!({
+      project: dir,
+      file: "/etc/hosts",
+    });
+    expect(result.content[0].text).toContain("outside the project");
+    expect(calls).toEqual([]);
+    expect(argvOf(dir, "prettier")).toEqual([]);
+    expect(argvOf(dir, "eslint")).toEqual([]);
   });
 });

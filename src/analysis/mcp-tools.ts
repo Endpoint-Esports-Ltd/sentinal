@@ -5,6 +5,8 @@
  * Provides:
  *   - check_diagnostics: tsc with delta tracking and spec-file filtering
  *   - impact_analysis: change impact with plan-context cross-referencing and risk scoring
+ *   - quality_report: tsc/eslint/prettier — project-wide is report-only; only
+ *     an explicit `file` inside the project is auto-fixed (D1)
  *
  * Unlike raw bash commands, these tools leverage Sentinal's persistent state:
  *   - check_diagnostics caches tsc baselines in SQLite for delta tracking
@@ -24,10 +26,12 @@ import { SpecStore } from "../spec/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import {
   runQualityChecks,
+  resolveQualityTarget,
+  type QualityCheckRequest,
   type QualityCheckResult,
-  type ToolResult,
   type CheckName,
 } from "../sidecar/quality-routes.js";
+import { formatQualityReport } from "./quality-format.js";
 import {
   projectHash,
   parseTscOutput,
@@ -249,20 +253,42 @@ function registerCheckDiagnosticsTool(
 
 // --- quality_report ---
 
+const ALL_CHECKS: CheckName[] = ["tsc", "eslint", "prettier"];
+
+/** Sidecar first (warm LSP for tsc), in-process on sidecar failure. */
+async function runViaSidecar(
+  client: SidecarClient | null,
+  signal: AbortSignal | undefined,
+  req: QualityCheckRequest,
+): Promise<QualityCheckResult> {
+  // withAbort makes the tool return promptly on client cancellation even
+  // if the underlying subprocess lingers (reaped by the sidecar's
+  // runWithTimeout; the activeChecks/MAX_CONCURRENT guards release in a finally).
+  if (client) {
+    try {
+      return await withAbort(signal, client.qualityCheck(req));
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      // Sidecar failed — fall back to direct
+    }
+  }
+  return withAbort(signal, runQualityChecks(req));
+}
+
 function registerQualityReportTool(
   server: McpServer,
   client: SidecarClient | null,
 ): void {
   server.tool(
     "quality_report",
-    "Run TypeScript, ESLint, and Prettier quality checks on a project or single file. Returns structured results with timing info. Uses the sidecar for incremental tsc with tsBuildInfo caching. More useful than running tools manually: returns all checks in one call with auto-fix for eslint/prettier.",
+    "Run TypeScript, ESLint, and Prettier checks on a project or a single file. Project-wide (no `file`) is report-only: it lists unformatted files and real ESLint error/warning counts, top rules and locations, and never modifies anything. With `file`, ESLint --fix and Prettier --write are applied to that one file only (it must be inside the project). Uses the sidecar for incremental tsc with tsBuildInfo caching.",
     {
       project: z.string().describe("Absolute path to the project root"),
       file: z
         .string()
         .optional()
         .describe(
-          "Specific file to check (eslint/prettier only). If omitted, project-wide.",
+          "File for eslint/prettier, absolute or relative to `project` (must be inside it): auto-fixes only the given file; project-wide is report-only — when omitted, nothing is modified.",
         ),
       checks: z
         .array(z.enum(["tsc", "eslint", "prettier"]))
@@ -277,142 +303,53 @@ function registerQualityReportTool(
       try {
         const progressExtra = extra as ProgressExtra | undefined;
         const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+        // D1: resolve (and refuse outside the project) before anything runs.
+        const target = file ? resolveQualityTarget(project, file) : undefined;
         await emitProgress(progressExtra, {
           progress: 0,
           message: "running quality checks",
         });
+        const requested = (checks as CheckName[] | undefined) ?? ALL_CHECKS;
         let result: QualityCheckResult;
 
-        // Try sidecar first, fall back to direct execution.
-        // withAbort makes the tool return promptly on client cancellation even
-        // if the underlying subprocess lingers (reaped by the sidecar's
-        // runWithTimeout; the activeChecks/MAX_CONCURRENT guards release in a finally).
-        if (client) {
-          try {
-            result = await withAbort(
-              signal,
-              client.qualityCheck({
-                projectPath: project,
-                filePath: file,
-                checks,
-                timeout: timeout_ms,
-              }),
-            );
-          } catch (err) {
-            if (signal?.aborted) throw err;
-            // Sidecar failed — fall back to direct
-            result = await withAbort(
-              signal,
-              runQualityChecks({
-                projectPath: project,
-                filePath: file,
-                checks: checks as CheckName[] | undefined,
-                timeout: timeout_ms,
-              }),
-            );
-          }
+        if (target) {
+          result = await runViaSidecar(client, signal, {
+            projectPath: project,
+            filePath: target,
+            checks: checks as CheckName[] | undefined,
+            timeout: timeout_ms,
+          });
         } else {
-          result = await withAbort(
-            signal,
-            runQualityChecks({
-              projectPath: project,
-              filePath: file,
-              checks: checks as CheckName[] | undefined,
-              timeout: timeout_ms,
-            }),
-          );
+          // Project-wide: only tsc goes to the sidecar. eslint/prettier ALWAYS
+          // run in-process, report-only — a ≤ v1.38 sidecar still in memory
+          // would answer them with `eslint --fix .` / `prettier --write .`.
+          const tsc: QualityCheckResult = requested.includes("tsc")
+            ? await runViaSidecar(client, signal, {
+                projectPath: project,
+                filePath: undefined,
+                checks: ["tsc"],
+                timeout: timeout_ms,
+              })
+            : {};
+          const lint = requested.filter((c) => c !== "tsc");
+          const linted: QualityCheckResult = lint.length
+            ? await withAbort(
+                signal,
+                runQualityChecks({
+                  projectPath: project,
+                  checks: lint,
+                  timeout: timeout_ms,
+                }),
+              )
+            : {};
+          result = { tsc: tsc.tsc, ...linted };
         }
         await emitProgress(progressExtra, { progress: 1, message: "done" });
 
-        return mcpText(formatQualityReport(project, file, result));
+        return mcpText(formatQualityReport(project, target, result));
       } catch (err) {
         return mcpError("## Quality Report — Error\n", err);
       }
     },
   );
-}
-
-function formatQualityReport(
-  project: string,
-  file: string | undefined,
-  result: QualityCheckResult,
-): string {
-  const lines: string[] = [
-    "## Quality Report",
-    `**Project:** ${project}`,
-    file ? `**File:** ${file}` : "**Scope:** Project-wide",
-    "",
-  ];
-
-  if (result.tsc) {
-    const t = result.tsc;
-    const meta = [
-      `${(t.durationMs / 1000).toFixed(1)}s`,
-      t.incremental ? "incremental" : "full",
-      t.timedOut ? "TIMED OUT" : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    lines.push(`### TypeScript (${meta})`);
-    if (t.ok) {
-      lines.push("- 0 errors");
-    } else {
-      lines.push(
-        `- ${t.errors.length} error${t.errors.length === 1 ? "" : "s"}`,
-      );
-      for (const e of t.errors.slice(0, 10)) {
-        lines.push(`  - ${e}`);
-      }
-      if (t.errors.length > 10)
-        lines.push(`  - ... and ${t.errors.length - 10} more`);
-    }
-    lines.push("");
-  }
-
-  if (result.eslint) {
-    const t = result.eslint;
-    const meta = [
-      `${(t.durationMs / 1000).toFixed(1)}s`,
-      t.autoFixed ? "auto-fixed" : "",
-      t.timedOut ? "TIMED OUT" : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    lines.push(`### ESLint (${meta})`);
-    if (t.ok) {
-      lines.push(t.autoFixed ? "- Auto-fixed issues" : "- No issues");
-    } else {
-      lines.push(
-        `- ${t.errors.length} error${t.errors.length === 1 ? "" : "s"}`,
-      );
-      for (const e of t.errors.slice(0, 5)) {
-        lines.push(`  - ${e}`);
-      }
-    }
-    lines.push("");
-  }
-
-  if (result.prettier) {
-    const t = result.prettier;
-    const meta = [
-      `${(t.durationMs / 1000).toFixed(1)}s`,
-      t.autoFixed ? "auto-fixed" : "",
-      t.timedOut ? "TIMED OUT" : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    lines.push(`### Prettier (${meta})`);
-    if (t.ok) {
-      lines.push(
-        t.autoFixed ? "- Formatted files" : "- All files formatted correctly",
-      );
-    } else {
-      lines.push(
-        `- ${t.errors.length} issue${t.errors.length === 1 ? "" : "s"}`,
-      );
-    }
-    lines.push("");
-  }
-
-  return lines.join("\n");
 }

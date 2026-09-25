@@ -19,21 +19,23 @@ import { existsSync } from "node:fs";
 import { LspClient, isLspAvailable } from "./lsp-client.js";
 import {
   runTsc,
-  runEslint,
-  runPrettier,
   runTscLsp,
+  resolveQualityTarget,
   type CheckName,
   type QualityCheckRequest,
   type QualityCheckResult,
 } from "./quality-runners.js";
+import { runEslint, runPrettier } from "./quality-lint.js";
 
 // Re-export the public surface that moved to quality-runners.ts so existing
 // import sites (server.ts, analysis/mcp-tools.ts, client.ts, tests) are
 // unaffected by the split.
-export { getToolCommand } from "./quality-runners.js";
+export { getToolCommand, resolveQualityTarget } from "./quality-runners.js";
 export type {
   CheckName,
+  FixMode,
   QualityCheckRequest,
+  RuleCount,
   ToolResult,
   QualityCheckResult,
 } from "./quality-runners.js";
@@ -57,11 +59,18 @@ let concurrentCount = 0;
 /**
  * Run quality checks. Used by both the HTTP route handler and the MCP tool
  * fallback path (direct invocation without HTTP round-trip).
+ *
+ * D1: with `filePath`, eslint/prettier fix ONLY that file (resolved against
+ * the project; throws before running anything if it is outside). Without it,
+ * everything is report-only — nothing is rewritten.
  */
 export async function runQualityChecks(
   opts: QualityCheckRequest & { lspClient?: LspClient },
 ): Promise<QualityCheckResult> {
-  const { projectPath, filePath, timeout = DEFAULT_TIMEOUT, lspClient } = opts;
+  const { projectPath, timeout = DEFAULT_TIMEOUT, lspClient } = opts;
+  const filePath = opts.filePath
+    ? resolveQualityTarget(projectPath, opts.filePath)
+    : undefined;
   const checks = opts.checks ?? DEFAULT_CHECKS;
   const result: QualityCheckResult = {};
 
@@ -106,6 +115,14 @@ export async function handleQualityRequest(
     }
     if (!existsSync(body.projectPath)) {
       return fail(`Project path not found: ${body.projectPath}`);
+    }
+    // D1: refuse a file outside the project before taking the lock.
+    if (body.filePath) {
+      try {
+        resolveQualityTarget(body.projectPath, body.filePath);
+      } catch (err) {
+        return fail(err instanceof Error ? err.message : String(err));
+      }
     }
 
     // Concurrency control: reject duplicate per-project and limit total

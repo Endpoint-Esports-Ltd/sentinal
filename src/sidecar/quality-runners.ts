@@ -2,9 +2,10 @@
  * Quality Check Runners
  *
  * Subprocess machinery for the sidecar quality checks: tool resolution,
- * timeout-bounded spawning, and the per-tool runners (tsc/eslint/prettier,
- * plus the LSP-backed tsc fast path). Split from quality-routes.ts by
- * cohesion — the route handler and concurrency control live there.
+ * timeout-bounded spawning, the shared result types, and the tsc runners
+ * (plus the LSP-backed fast path). Split from quality-routes.ts by
+ * cohesion — the route handler and concurrency control live there. The
+ * eslint/prettier runners live in quality-lint.ts (which imports from here).
  */
 
 import {
@@ -21,6 +22,10 @@ import { detectPackageManager } from "../checkers/detect.js";
 import { parseTscOutput } from "../analysis/helpers.js";
 import { projectHash } from "../analysis/helpers.js";
 import type { LspClient } from "./lsp-client.js";
+import type { RuleCount } from "./quality-summary.js";
+
+export { resolveQualityTarget } from "./quality-summary.js";
+export type { RuleCount } from "./quality-summary.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -33,13 +38,33 @@ export interface QualityCheckRequest {
   timeout?: number;
 }
 
+/**
+ * eslint/prettier fix scope (D1). `"file"`: an explicit `file` was given and
+ * only it may be rewritten. `"none"`: project-wide — report-only, nothing is
+ * ever rewritten. Absent on tsc and on results from sidecars ≤ v1.38.
+ */
+export type FixMode = "file" | "none";
+
+/** Every D1 field is OPTIONAL: old clients ignore them, new renderers
+ * tolerate results from old sidecars. */
 export interface ToolResult {
   ok: boolean;
+  /** Human lines. Project-wide: prettier files / eslint `file:line rule`. */
   errors: string[];
   durationMs: number;
+  /** True only when the given `file` was actually rewritten. */
   autoFixed?: boolean;
   incremental?: boolean;
   timedOut?: boolean;
+  fixMode?: FixMode;
+  /** prettier, project-wide: first MAX_LISTED unformatted files. */
+  files?: string[];
+  /** prettier, project-wide: total unformatted files. */
+  fileCount?: number;
+  /** eslint, project-wide: totals from `--format json`. */
+  errorCount?: number;
+  warningCount?: number;
+  topRules?: RuleCount[];
 }
 
 export interface QualityCheckResult {
@@ -98,7 +123,7 @@ function killGroupBestEffort(pid: number): void {
 /**
  * Run a subprocess with a timeout. Returns { stdout, stderr, exitCode, timedOut }.
  */
-async function runWithTimeout(
+export async function runWithTimeout(
   cmd: string[],
   cwd: string,
   timeout: number,
@@ -239,120 +264,6 @@ export async function runTsc(
     errors,
     durationMs,
     incremental,
-  };
-}
-
-export async function runEslint(
-  projectPath: string,
-  filePath: string | undefined,
-  timeout: number,
-): Promise<ToolResult> {
-  const start = Date.now();
-  const target = filePath ?? ".";
-
-  // Detect auto-fix by comparing file mtime before/after (for single-file mode)
-  let mtimeBefore = 0;
-  if (filePath && existsSync(filePath)) {
-    try {
-      mtimeBefore = statSync(filePath).mtimeMs;
-    } catch {
-      /* ok */
-    }
-  }
-
-  const cmd = [...getToolCommand(projectPath, "eslint"), "--fix", target];
-  const result = await runWithTimeout(cmd, projectPath, timeout);
-  const durationMs = Date.now() - start;
-
-  if (result.timedOut) {
-    return {
-      ok: false,
-      errors: ["eslint timed out"],
-      durationMs,
-      timedOut: true,
-    };
-  }
-
-  const hasErrors = result.exitCode !== 0;
-  // Parse stdout for actual lint messages (eslint outputs to stdout by default)
-  const rawOutput = result.stdout || result.stderr;
-  const errors = hasErrors
-    ? rawOutput
-        .split("\n")
-        .filter((l) => l.trim().length > 0)
-        .slice(0, 10)
-    : [];
-
-  // Detect auto-fix via mtime change
-  let autoFixed = false;
-  if (!hasErrors && filePath && existsSync(filePath) && mtimeBefore > 0) {
-    try {
-      autoFixed = statSync(filePath).mtimeMs !== mtimeBefore;
-    } catch {
-      /* ok */
-    }
-  }
-
-  return { ok: !hasErrors, errors, durationMs, autoFixed };
-}
-
-export async function runPrettier(
-  projectPath: string,
-  filePath: string | undefined,
-  timeout: number,
-): Promise<ToolResult> {
-  const start = Date.now();
-  const prettierCmd = getToolCommand(projectPath, "prettier");
-  const target = filePath ?? ".";
-
-  // First: check
-  const check = await runWithTimeout(
-    [...prettierCmd, "--check", target],
-    projectPath,
-    timeout,
-  );
-
-  if (check.timedOut) {
-    return {
-      ok: false,
-      errors: ["prettier timed out"],
-      durationMs: Date.now() - start,
-      timedOut: true,
-    };
-  }
-
-  if (check.exitCode === 0) {
-    return {
-      ok: true,
-      errors: [],
-      durationMs: Date.now() - start,
-      autoFixed: false,
-    };
-  }
-
-  // Issues found — auto-fix
-  const fix = await runWithTimeout(
-    [...prettierCmd, "--write", target],
-    projectPath,
-    timeout,
-  );
-
-  const durationMs = Date.now() - start;
-
-  if (fix.timedOut) {
-    return {
-      ok: false,
-      errors: ["prettier --write timed out"],
-      durationMs,
-      timedOut: true,
-    };
-  }
-
-  return {
-    ok: true,
-    errors: [],
-    durationMs,
-    autoFixed: true,
   };
 }
 

@@ -5,13 +5,65 @@
  * as async subprocesses with timeouts and returns structured results.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { MemoryStore } from "../memory/store.js";
 import { startSidecar, stopSidecar } from "./server.js";
-import { getToolCommand } from "./quality-routes.js";
+import { getToolCommand, runQualityChecks } from "./quality-routes.js";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
+
+// ─── Fake tsc/eslint/prettier (argv-recording) ──────────────────────────
+// Never run the real formatter/linter against repo files (D1): each fake
+// appends its argv to `.fake/<tool>.argv`; `.fake/<tool>.<mode>.exit` etc.
+// set behaviour per first flag. (Same helper as quality-lint.test.ts.)
+
+const FAKE_SCRIPT = (dir: string, tool: string) => `#!/bin/sh
+D="${dir}/.fake"
+printf '%s\\n' "$*" >> "$D/${tool}.argv"
+M=$(echo "$1" | sed 's/^--//')
+[ -f "$D/${tool}.$M.out" ] && cat "$D/${tool}.$M.out"
+exit $(cat "$D/${tool}.$M.exit" 2>/dev/null || echo 0)
+`;
+
+const fakeDirs: string[] = [];
+function fake(spec: Record<string, string | number> = {}): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "qroute-fake-")));
+  fakeDirs.push(dir);
+  mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+  mkdirSync(join(dir, ".fake"), { recursive: true });
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+  for (const tool of ["tsc", "eslint", "prettier"]) {
+    writeFileSync(
+      join(dir, "node_modules", ".bin", tool),
+      FAKE_SCRIPT(dir, tool),
+      { mode: 0o755 },
+    );
+  }
+  for (const [k, v] of Object.entries(spec)) {
+    writeFileSync(join(dir, ".fake", k), String(v));
+  }
+  return dir;
+}
+function argvOf(dir: string, tool: string): string[] {
+  const p = join(dir, ".fake", `${tool}.argv`);
+  return existsSync(p)
+    ? readFileSync(p, "utf-8").split("\n").filter(Boolean)
+    : [];
+}
+afterEach(() => {
+  for (const d of fakeDirs.splice(0))
+    rmSync(d, { recursive: true, force: true });
+});
 
 // ─── Test Sidecar Setup ────────────────────────────────────────────────────
 
@@ -67,35 +119,6 @@ describe("POST /quality-check", () => {
     expect(Array.isArray(r.data.tsc.errors)).toBe(true);
   }, 60_000);
 
-  it("should support single-file eslint check", async () => {
-    const projectPath = join(import.meta.dir, "../..");
-    const r = await post(base, "/quality-check", {
-      projectPath,
-      filePath: join(import.meta.dir, "quality-routes.ts"),
-      checks: ["eslint"],
-      timeout: 30000,
-    });
-
-    expect(r.ok).toBe(true);
-    expect(r.data.eslint).toBeDefined();
-    expect(typeof r.data.eslint.ok).toBe("boolean");
-    expect(typeof r.data.eslint.durationMs).toBe("number");
-  }, 30_000);
-
-  it("should support single-file prettier check", async () => {
-    const projectPath = join(import.meta.dir, "../..");
-    const r = await post(base, "/quality-check", {
-      projectPath,
-      filePath: join(import.meta.dir, "quality-routes.ts"),
-      checks: ["prettier"],
-      timeout: 30000,
-    });
-
-    expect(r.ok).toBe(true);
-    expect(r.data.prettier).toBeDefined();
-    expect(typeof r.data.prettier.ok).toBe("boolean");
-  }, 30_000);
-
   it("should fail with 400 when projectPath is missing", async () => {
     const r = await post(base, "/quality-check", { checks: ["tsc"] });
     expect(r.ok).toBe(false);
@@ -122,21 +145,94 @@ describe("POST /quality-check", () => {
     expect(r.ok).toBe(true);
     expect(typeof r.data.tsc.incremental).toBe("boolean");
   }, 60_000);
+});
 
-  it("should run all checks when checks array is omitted", async () => {
-    const projectPath = join(import.meta.dir, "../..");
-    const r = await post(base, "/quality-check", {
-      projectPath,
-      filePath: join(import.meta.dir, "quality-routes.ts"),
-      timeout: 60000,
+// ─── D1: fix scope ──────────────────────────────────────────────────────
+
+describe("POST /quality-check fix scope (D1)", () => {
+  it("project-wide (no file) never passes --write or --fix", async () => {
+    const dir = fake({
+      "prettier.list-different.out": "src/a.ts\n",
+      "prettier.list-different.exit": 1,
+      "eslint.format.out": "[]",
     });
-
+    const r = await post(base, "/quality-check", {
+      projectPath: dir,
+      checks: ["eslint", "prettier"],
+      timeout: 5000,
+    });
     expect(r.ok).toBe(true);
-    // All three checks should be present
-    expect(r.data.tsc).toBeDefined();
-    expect(r.data.eslint).toBeDefined();
-    expect(r.data.prettier).toBeDefined();
-  }, 60_000);
+    expect(argvOf(dir, "eslint")).toEqual(["--format json ."]);
+    expect(argvOf(dir, "prettier")).toEqual(["--list-different ."]);
+    expect(r.data.prettier.fixMode).toBe("none");
+    expect(r.data.prettier.files).toEqual(["src/a.ts"]);
+    expect(r.data.prettier.autoFixed).toBe(false);
+    expect(r.data.eslint.fixMode).toBe("none");
+    expect(r.data.eslint.errorCount).toBe(0);
+  }, 10_000);
+
+  it("single file: eslint --fix and prettier --check/--write touch only that file", async () => {
+    const dir = fake({ "prettier.check.exit": 1 });
+    const abs = join(dir, "src", "a.ts");
+    const r = await post(base, "/quality-check", {
+      projectPath: dir,
+      filePath: "src/a.ts",
+      checks: ["eslint", "prettier"],
+      timeout: 5000,
+    });
+    expect(r.ok).toBe(true);
+    expect(argvOf(dir, "eslint")).toEqual([`--fix ${abs}`]);
+    expect(argvOf(dir, "prettier")).toEqual([
+      `--check ${abs}`,
+      `--write ${abs}`,
+    ]);
+    expect(r.data.prettier.autoFixed).toBe(true);
+    expect(r.data.prettier.fixMode).toBe("file");
+  }, 10_000);
+
+  it("refuses a file outside the project with 400 and spawns nothing", async () => {
+    const dir = fake();
+    const r = await post(base, "/quality-check", {
+      projectPath: dir,
+      filePath: "/etc/hosts",
+      timeout: 5000,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("outside the project");
+    for (const tool of ["tsc", "eslint", "prettier"]) {
+      expect(argvOf(dir, tool)).toEqual([]);
+    }
+    // The refusal must not leave the project locked in activeChecks.
+    const again = await post(base, "/quality-check", {
+      projectPath: dir,
+      checks: ["prettier"],
+      timeout: 5000,
+    });
+    expect(again.ok).toBe(true);
+  }, 10_000);
+});
+
+describe("runQualityChecks (direct)", () => {
+  it("runs all three checks when checks is omitted", async () => {
+    const dir = fake({ "eslint.format.out": "[]" });
+    const r = await runQualityChecks({ projectPath: dir, timeout: 5000 });
+    expect(r.tsc).toBeDefined();
+    expect(r.eslint).toBeDefined();
+    expect(r.prettier).toBeDefined();
+    expect(argvOf(dir, "prettier")).toEqual(["--list-different ."]);
+  }, 15_000);
+
+  it("rejects an outside file before running any check (tsc included)", async () => {
+    const dir = fake();
+    await expect(
+      runQualityChecks({
+        projectPath: dir,
+        filePath: "../x.ts",
+        timeout: 5000,
+      }),
+    ).rejects.toThrow(/outside the project/);
+    expect(argvOf(dir, "tsc")).toEqual([]);
+  }, 10_000);
 });
 
 // ─── Concurrency Control ────────────────────────────────────────────────
@@ -169,19 +265,16 @@ describe("POST /quality-check concurrency", () => {
     expect(rejects[0].error).toContain("already running");
   }, 60_000);
 
-  it("should allow requests for different projects", async () => {
-    const projectPath = join(import.meta.dir, "../..");
-    // Use different filePaths but same project — should still dedup by project
-    // To test different projects properly, we'd need two valid project paths.
-    // Just verify the first request succeeds.
+  it("should allow a request for another project while one is idle", async () => {
+    const dir = fake();
     const r = await post(base, "/quality-check", {
-      projectPath,
+      projectPath: dir,
       checks: ["prettier"],
-      filePath: join(import.meta.dir, "quality-routes.ts"),
-      timeout: 30000,
+      filePath: join(dir, "src", "a.ts"),
+      timeout: 5000,
     });
     expect(r.ok).toBe(true);
-  }, 30_000);
+  }, 10_000);
 });
 
 // ─── Hung subprocess (H8 wedge) ─────────────────────────────────────────
