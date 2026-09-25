@@ -5,7 +5,6 @@
 import { describe, it, expect, afterEach, beforeEach, spyOn, mock } from "bun:test";
 import { join } from "node:path";
 import {
-  mkdirSync,
   rmSync,
   readFileSync,
   existsSync,

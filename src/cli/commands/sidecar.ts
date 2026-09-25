@@ -203,8 +203,8 @@ async function runStart(opts: {
 
   writeFileSync(getSidecarPidPath(), String(process.pid), "utf-8");
   const httpPort = result.httpServer
-    ? (result.httpServer as any).port
-    : (result.server as any).port;
+    ? result.httpServer.port
+    : result.server.port;
   const addr =
     result.transport === "unix"
       ? `unix socket + http://127.0.0.1:${httpPort}`

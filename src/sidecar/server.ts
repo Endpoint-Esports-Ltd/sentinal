@@ -18,18 +18,10 @@ import { dirname } from "node:path";
 import { logSidecar } from "../utils/file-log.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
-import { loadCustomSqlite, VectorStore } from "../memory/vector-store.js";
-import { EmbeddingService } from "../memory/embeddings.js";
-import { SearchOrchestrator } from "../memory/search/orchestrator.js";
-import { backfillVectors } from "../memory/backfill.js";
+import { loadCustomSqlite } from "../memory/vector-store.js";
 import { runAutoDecayIfStale } from "../memory/auto-decay.js";
-import {
-  nativeDepsStatus,
-  type NativeDepsStatus,
-} from "../memory/native-deps.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "../worktree/store.js";
-import { notifyVectorUnavailableOnce } from "./vector-stats.js";
 import { handleSidecarRequest } from "./routes.js";
 import { handleQualityRequest } from "./quality-routes.js";
 import { handleProjectContextRequest } from "./project-routes.js";

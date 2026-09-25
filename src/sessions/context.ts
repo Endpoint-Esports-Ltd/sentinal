@@ -106,7 +106,7 @@ export function estimateContextUsage(
     DEFAULT_BYTES_PER_TOKEN,
   );
 
-  let fileBytes = 0;
+  let fileBytes: number;
   try {
     fileBytes = statSync(transcriptPath).size;
   } catch {

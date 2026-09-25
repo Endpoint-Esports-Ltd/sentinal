@@ -79,7 +79,7 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 
   // Slack tokens
   {
-    pattern: /xox[bpoas]-[A-Za-z0-9\-]{10,}/g,
+    pattern: /xox[bpoas]-[A-Za-z0-9-]{10,}/g,
     label: "[REDACTED:SLACK_TOKEN]",
   },
 

@@ -279,6 +279,7 @@ export interface AutoStartDeps extends StartAssessOptions {
 /** Default spawn: `sentinal sidecar start`, detached. */
 function spawnSidecarStart(): boolean {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: dashboard module is only needed on the spawn path, not by lifecycle probes
     const { findSentinalCmd } = require("../dashboard/lifecycle.js");
     const cmd: string[] | null = findSentinalCmd();
     if (!cmd) return false;

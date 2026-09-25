@@ -16,7 +16,6 @@ import { readStdin, hint, output } from "../utils/hook-output.js";
 import type { HintOutput } from "../utils/hook-output.js";
 import { findGitRoot } from "../utils/git.js";
 import { findActivePlan } from "../spec/detect.js";
-import type { Spec, SpecTask } from "../spec/types.js";
 
 /** Extended hook output that may include sessionTitle and/or additionalContext. */
 interface HintWithSessionTitle {

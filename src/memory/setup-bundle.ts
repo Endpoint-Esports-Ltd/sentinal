@@ -18,6 +18,7 @@
  * onnxruntime-node's bin tree is copied to <deps>/bin.
  */
 
+import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -94,13 +95,6 @@ interface BundleMeta {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function defaultSpawner(cmd: string[], opts?: { cwd?: string }): number {
-  const { spawnSync } = require("node:child_process") as {
-    spawnSync: (
-      command: string,
-      args: string[],
-      options: { stdio: "inherit"; cwd?: string },
-    ) => { status: number | null; error?: Error };
-  };
   const result = spawnSync(cmd[0]!, cmd.slice(1), {
     stdio: "inherit",
     cwd: opts?.cwd,

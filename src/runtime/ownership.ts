@@ -116,6 +116,7 @@ function realCwdOf(pid: number): string | null {
   if (process.platform === "linux") {
     try {
       // Lazily required to keep this file free of a top-level fs dependency.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: keeps ownership.ts free of a top-level fs dependency (Linux-only branch)
       const { readlinkSync } = require("node:fs") as typeof import("node:fs");
       return readlinkSync(`/proc/${pid}/cwd`);
     } catch {
@@ -162,6 +163,7 @@ function isUnder(child: string, root: string): boolean {
  */
 function realpathOrSelf(path: string): string {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: keeps ownership.ts free of a top-level fs dependency (see realCwdOf)
     const { realpathSync } = require("node:fs") as typeof import("node:fs");
     return realpathSync(path);
   } catch {

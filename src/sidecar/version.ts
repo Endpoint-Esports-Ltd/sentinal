@@ -23,8 +23,13 @@ export function getSentinalVersion(): string {
   }
   if (cached !== null) return cached;
   try {
+    // Lazy by design (see header ⛔): client.ts is hook-reachable, and the
+    // compiled binary never takes this branch (__SENTINAL_VERSION__ is set).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: dev-mode-only fallback on a hook-reachable path
     const { readFileSync } = require("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: see above
     const { join, dirname } = require("node:path");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: see above
     const { fileURLToPath } = require("node:url");
     const here = dirname(fileURLToPath(import.meta.url));
     const pkgPath = join(here, "..", "..", "package.json");

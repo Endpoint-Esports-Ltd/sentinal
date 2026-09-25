@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readFileSync, statSync } from "node:fs";
+import { rmSync, existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../test-helpers.js";
 import * as fileLogModule from "./file-log.js";

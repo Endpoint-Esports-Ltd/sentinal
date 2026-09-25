@@ -5,7 +5,6 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { Database } from "bun:sqlite";
 import { MemoryStore } from "../store.js";
 import { VectorStore, loadCustomSqlite } from "../vector-store.js";
 import { EmbeddingService } from "../embeddings.js";

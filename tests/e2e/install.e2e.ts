@@ -26,7 +26,7 @@
 // spawn, so we assert both those assets AND real-dir immutability below.
 
 import { describe, it, expect, afterEach, beforeAll } from "bun:test";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {

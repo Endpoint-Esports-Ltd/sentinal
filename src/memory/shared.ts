@@ -188,7 +188,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MemoryService } from "./service.js";
 import type { SidecarClient } from "../sidecar/client.js";
-import { OBSERVATION_TYPES } from "./types.js";
 
 export interface SharedToolsDeps {
   client?: SidecarClient | null;

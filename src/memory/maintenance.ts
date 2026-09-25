@@ -7,7 +7,6 @@
  * - Database backup before migrations
  */
 
-import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync } from "node:fs";
 import type { MemoryStore } from "./store.js";
 import type { VectorStore } from "./vector-store.js";

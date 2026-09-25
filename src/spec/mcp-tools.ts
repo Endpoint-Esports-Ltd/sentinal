@@ -49,8 +49,8 @@ export function registerSpecTools(
 ): void {
   // Backwards-compat: bare MemoryStore or null
   let client: SidecarClient | null = null;
-  let effectiveStore: MemoryStore | null = null;
-  let specStore: SpecStore | null = null;
+  let effectiveStore: MemoryStore | null;
+  let specStore: SpecStore | null;
 
   if (deps && ("client" in deps || "store" in deps)) {
     const d = deps as SpecToolsDeps;
@@ -62,7 +62,7 @@ export function registerSpecTools(
     specStore = new SpecStore(effectiveStore);
   }
 
-  registerSpecRegisterTool(server, client, specStore, effectiveStore);
+  registerSpecRegisterTool(server, client, specStore);
   registerSpecWaitFileTool(server);
   registerSpecPlanParseTool(server);
   // Siblings: all nine tools inline here breach the 600-line hard block.
@@ -114,7 +114,6 @@ function registerSpecRegisterTool(
   server: McpServer,
   client: SidecarClient | null,
   specStore: SpecStore | null,
-  effectiveStore: MemoryStore | null,
 ): void {
   server.tool(
     "spec_register",

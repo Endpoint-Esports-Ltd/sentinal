@@ -5,8 +5,7 @@
  * when the working directory changes.
  */
 
-import { describe, it, expect, mock } from "bun:test";
-import { processCwdChanged } from "./cwd-changed.js";
+import { describe, it, expect } from "bun:test";
 import type { HookInput } from "../utils/hook-output.js";
 
 function makeInput(overrides: Partial<HookInput> = {}): HookInput {

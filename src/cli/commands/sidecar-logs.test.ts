@@ -13,7 +13,6 @@ import { makeTmpDir } from "../../test-helpers.js";
 import * as fileLogModule from "../../utils/file-log.js";
 import {
   buildLogsReport,
-  type BuildLogsReportOptions,
 } from "./sidecar-logs.js";
 
 describe("buildLogsReport", () => {

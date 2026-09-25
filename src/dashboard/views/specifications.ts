@@ -5,13 +5,7 @@
  */
 
 import type { Spec } from "../../spec/types.js";
-import {
-  statusBadge,
-  progressBar,
-  formatTimestamp,
-  emptyState,
-  card,
-} from "./partials.js";
+import { statusBadge, progressBar, emptyState, card } from "./partials.js";
 import { escapeHtml } from "./layout.js";
 
 export function specificationsView(specs: Spec[]): string {

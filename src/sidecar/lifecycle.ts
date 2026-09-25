@@ -241,7 +241,7 @@ export function stopSidecarProcess(probes: StopProbes = {}): boolean {
   }
 
   const identify = probes.identify ?? probeProcessCommand;
-  let command: string | null = null;
+  let command: string | null;
   try {
     command = identify(pid);
   } catch {

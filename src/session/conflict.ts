@@ -8,7 +8,6 @@
 import type { MemoryStore } from "../memory/store.js";
 import type { Session } from "../memory/types.js";
 import { resolveProjectIdentity } from "../project/identity.js";
-import type { Database } from "bun:sqlite";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

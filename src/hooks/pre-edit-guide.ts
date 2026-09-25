@@ -14,7 +14,6 @@ import { isMemoryEnabled } from "../memory/config.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SidecarClient } from "../sidecar/client.js";
-import { detectFileConflict } from "../session/conflict.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

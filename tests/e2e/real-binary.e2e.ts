@@ -218,7 +218,7 @@ describe("Layer B — real-binary smoke (opt-in, SENTINAL_E2E_REAL=1)", () => {
       join(sb.home, ".config", "opencode", "auth.json"),
     ];
     const copied: string[] = [];
-    let threw = false;
+    let threw: boolean;
     try {
       for (const f of fakeCreds) {
         mkdirSync(dirname(f), { recursive: true });

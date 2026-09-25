@@ -13,9 +13,7 @@
 import type { Command } from "commander";
 import { MemoryStore } from "../../memory/store.js";
 import {
-  getModelRouting,
   setModelRouting,
-  resetModelRouting,
   resolveModelRouting,
   applyModelRouting,
   findInstalledPluginDirs,

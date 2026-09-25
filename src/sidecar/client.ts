@@ -83,6 +83,7 @@ export class SidecarClient extends SidecarRoutes {
   static autoStartFn: () => void = () => {
     try {
       // Lazy require keeps hook startup cost minimal (no bun:sqlite pull-in).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: hook cold-start cost; only needed on the respawn path
       const { autoStartSidecar } = require("./lifecycle.js");
       autoStartSidecar();
     } catch {

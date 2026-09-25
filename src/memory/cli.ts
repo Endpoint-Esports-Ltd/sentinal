@@ -19,7 +19,6 @@ import { MemoryStore } from "./store.js";
 import { MemoryService } from "./service.js";
 import {
   rebuildFtsIndex,
-  backupDatabase,
   checkIntegrity,
   decayQualityScores,
 } from "./maintenance.js";

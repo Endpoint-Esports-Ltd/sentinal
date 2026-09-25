@@ -15,13 +15,7 @@ import {
   spyOn,
 } from "bun:test";
 import { join } from "node:path";
-import {
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  rmSync,
-  utimesSync,
-} from "node:fs";
+import { writeFileSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import {
   readSidecarPid,

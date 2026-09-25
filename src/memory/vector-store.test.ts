@@ -12,7 +12,7 @@ import { VectorStore, loadCustomSqlite } from "./vector-store.js";
 import { EmbeddingService } from "./embeddings.js";
 
 // Try to load custom SQLite before any Database instances
-const customSqliteAvailable = loadCustomSqlite();
+loadCustomSqlite();
 
 describe("VectorStore", () => {
   let db: Database;

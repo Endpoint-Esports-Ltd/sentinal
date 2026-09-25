@@ -6,7 +6,7 @@
  * existing sync-generated rule files.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import {
   detectPackageManager,

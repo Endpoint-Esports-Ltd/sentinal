@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import {
   loadConfig,
   isMemoryEnabled,
@@ -55,9 +55,6 @@ describe("isMemoryEnabled", () => {
 });
 
 describe("config file parsing", () => {
-  let tmpDir: string;
-  let configPath: string;
-
   // Since we can't change homedir, we test the merge logic indirectly
   // by verifying default behavior and structure
 

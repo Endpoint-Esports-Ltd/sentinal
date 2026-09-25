@@ -43,7 +43,6 @@ import type { EmbeddingService } from "../memory/embeddings.js";
 import type { SearchOrchestrator } from "../memory/search/orchestrator.js";
 import type { SearchResult } from "../memory/types.js";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 async function get(base: string, path: string): Promise<any> {
   const res = await fetch(`${base}${path}`);
   return res.json();
@@ -55,7 +54,6 @@ async function post(base: string, path: string, body: unknown): Promise<any> {
   });
   return res.json();
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 describe("sidecar server", () => {
   let tmpDir: string;

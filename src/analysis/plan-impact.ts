@@ -155,7 +155,7 @@ async function resolvePlan(
     };
   }
 
-  let spec: { title: string; planFile: string } | null = null;
+  let spec: { title: string; planFile: string } | null;
   try {
     spec = specStore?.getCurrentSpec(project) ?? null;
     if (!spec && client) spec = (await client.getCurrentSpec(project)) ?? null;

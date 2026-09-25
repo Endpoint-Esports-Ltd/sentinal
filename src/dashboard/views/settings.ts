@@ -15,7 +15,7 @@ import { getDbPath } from "../../memory/store.js";
 export function settingsView(
   modelRouting: ModelRouting,
   version: string,
-  store: MemoryStore,
+  _store: MemoryStore,
 ): string {
   let dbSize = "N/A";
   let dbPath = "N/A";

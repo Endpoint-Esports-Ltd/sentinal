@@ -390,7 +390,7 @@ describe("worktree_sync MCP tool", () => {
 describe("worktree MCP tools (sidecar mode)", () => {
   it("worktree_detect should use client.resolveWorktreeBySlug", async () => {
     const mockClient = {
-      resolveWorktreeBySlug: async (slug: string, project?: string) => ({
+      resolveWorktreeBySlug: async (_slug: string, _project?: string) => ({
         id: "wt-1",
         worktreePath: "/tmp/wt",
         branchName: "spec/my-slug",
@@ -615,13 +615,12 @@ describe("worktree_abandon MCP tool", () => {
 describe("worktree_cleanup MCP tool", () => {
   let tmpDir: string;
   let store: MemoryStore;
-  let wtStore: WorktreeStore;
   let tools: Map<string, ToolHandler>;
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
     store = new MemoryStore(join(tmpDir, "test.db"));
-    wtStore = new WorktreeStore(store);
+    new WorktreeStore(store);
     tools = captureTools(registerWorktreeTools, store);
   });
 

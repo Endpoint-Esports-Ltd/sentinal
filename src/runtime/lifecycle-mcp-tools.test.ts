@@ -106,7 +106,6 @@ describe("runtime_stop tool description", () => {
       },
     };
     // Registration only needs `server.tool`; capture the descriptions directly.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerRuntimeTools(server as any, {});
     expect(descriptions.get("runtime_stop")).toContain("DESTRUCTIVE");
     expect(descriptions.get("runtime_up")).not.toContain("DESTRUCTIVE");

@@ -47,7 +47,7 @@ function tool<T extends z.ZodRawShape>(
 }
 
 // Attach schema helper
-(tool as any).schema = z;
+(tool as typeof tool & { schema?: typeof z }).schema = z;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants

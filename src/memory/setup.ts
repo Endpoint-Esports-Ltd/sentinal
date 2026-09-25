@@ -11,13 +11,7 @@
  * sqlite`); Windows is out of scope (no Windows release binaries).
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { platform } from "node:os";
 import { fileURLToPath } from "node:url";

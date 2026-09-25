@@ -9,7 +9,6 @@ import {
   getDailyUsage,
   formatResetCountdown,
   PLAN_LIMITS,
-  type UsageSummary,
 } from "./usage-stats.js";
 
 // Helper to create a JSONL log entry

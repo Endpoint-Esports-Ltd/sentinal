@@ -10,6 +10,9 @@
  */
 
 import type { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   writePidFile,
   removePidFile,
@@ -171,9 +174,6 @@ function getVersion(): string {
     return __SENTINAL_VERSION__;
   }
   try {
-    const { readFileSync } = require("node:fs");
-    const { join, dirname } = require("node:path");
-    const { fileURLToPath } = require("node:url");
     const __filename = fileURLToPath(import.meta.url);
     const pkgPath = join(dirname(__filename), "..", "..", "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));

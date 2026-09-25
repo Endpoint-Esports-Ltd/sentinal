@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isAngularFile, runAngularChecks } from "./angular";
+import { isAngularFile } from "./angular";
 
 describe("angular checker", () => {
   describe("isAngularFile", () => {

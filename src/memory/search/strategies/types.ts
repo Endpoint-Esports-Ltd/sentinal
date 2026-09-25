@@ -5,7 +5,7 @@
  * to swap between vector, FTS, hybrid, and filter strategies transparently.
  */
 
-import type { SearchFilters, SearchResult, Observation } from "../../types.js";
+import type { SearchFilters, Observation } from "../../types.js";
 
 export interface SearchStrategy {
   readonly name: string;
