@@ -1,3 +1,11 @@
+## [1.39.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.0...v1.39.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* canonical project keys, project-qualified spec ids, restore split, real fixes only ([7356669](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/735666923adc2fd612d51acf67cf89f8cdc5156e))
+* **quality:** quality_report never rewrites files it was not asked about ([b9e2082](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/b9e20821228a7ad35430c3c915f630e9278bb6b8))
+
 # [1.39.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.38.0...v1.39.0) (2026-09-24)
 
 
