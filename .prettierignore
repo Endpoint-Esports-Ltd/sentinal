@@ -1,0 +1,13 @@
+# Generated, vendored, or hand-curated prose that must never be reformatted
+# (D2 of docs/plans/2026-09-24-hardening-sweep.md). Prettier also honours
+# .gitignore by default; the generated paths are repeated here explicitly.
+CHANGELOG.md
+docs/**
+.sentinal/*.json
+.sentinal/worktrees/**
+dist/**
+targets/opencode/dist/**
+targets/claude-code/hooks/dist/**
+targets/opencode/tests/fixtures/**
+src/cli/embedded-assets.ts
+bun.lock
