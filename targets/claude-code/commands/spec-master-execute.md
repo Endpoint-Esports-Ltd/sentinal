@@ -22,6 +22,26 @@ model: sonnet
 - **Resumable** — re-running skips VERIFIED child plans automatically
 - **Plan file is source of truth** — re-read after auto-compaction
 - **Never stop mid-wave** — complete the current wave before pausing
+- **Orca Mode never deletes an Orca worktree through Sentinal** — adopted worktrees are released, and only `orca_remove_worktree` removes them
+
+---
+
+## Step 0: Choose the Execution Mode
+
+Call `orca_status({ scope: "master", agent: "<worker agent>", plan_path: "<master-plan-path>" })`.
+The worker agent is the coordinator's own: `claude` on Claude Code, `opencode` on OpenCode
+(a plan may override it).
+
+- **`mode: "subagents"`** — continue with Step 1 and spawn subagents exactly as described below.
+  Say the one-line `reason` so the user knows why Orca was not used.
+- **`mode: "orca"`** — continue with Step 1, but run each wave with **Orca Mode** (Step 3). The
+  reply also reports the worker agent's login: if `auth.ok` is false, tell the user (e.g. "run
+  `/login`, or use the `opencode` agent") and fall back to subagents rather than start workers that
+  will stall.
+
+The mode is decided once per run. The master plan header `Orchestration: orca|subagents` and the
+`SENTINAL_ORCHESTRATION` setting (`auto` | `orca` | `subagents`) control it; `auto` uses Orca only
+when this session runs inside an Orca terminal.
 
 ---
 
@@ -115,6 +135,65 @@ Agent(
 ```
 
 **Spawn all Agents for a wave in a single message** to enable parallel execution. Each Agent gets its own worktree, ensuring phases don't interfere with each other.
+
+### Orca Mode
+
+Each child plan runs as a supervised **Orca worker** in its own Orca worktree, which Sentinal
+adopts. You coordinate through the `orca_*` and `worktree_*` MCP tools; never call the `orca` CLI
+for lifecycle steps yourself.
+
+**Per wave:**
+
+1. **Commit your own edits first.** Child phases merge into the branch this session has checked
+   out, and a merge is refused while that checkout has uncommitted tracked changes (the master
+   plan's checkboxes, for example). Commit them before each wave's merges.
+2. **Dispatch.** `orca_dispatch({ objective, agent, tasks })` with one task per child plan:
+   `key` = the phase, `title` = the phase title, `worktree: "prepare-child"`,
+   `name: "spec-<child-plan-slug>"`, `base_branch` = this session's branch, `deps` = the task keys
+   (or ids) of the phases this one depends on. The `spec` text must be self-contained:
+
+   ```
+   Target: this worktree only. Run the spec workflow for <child-plan-path> (Phase N of master
+   plan <master-plan-path>): read the plan; PENDING + Approved: Yes or IN_PROGRESS → run
+   /spec <child-plan-path> to completion; COMPLETE → run verification only; VERIFIED → nothing
+   to do. Constraints: work only in this worktree; commit your work on this branch; do not
+   merge, push, or edit the master plan. Observable acceptance: the child plan file reads
+   Status: VERIFIED. Report with worker_done exactly once: --outcome succeeded when the plan
+   reads VERIFIED, otherwise --outcome failed with the plan's Status and the blocker.
+   ```
+
+   The reply returns each task's `task_id` and the prepared worktree `path`; nothing is started yet.
+
+3. **Adopt.** For each prepared worktree: `worktree_ensure({ plan_slug: "<child-plan-slug>",
+path, base: <this session's branch>, owner: "external" })`. This gives it a slot, seeds its
+   config and runs the project's `setup` (dependency install). Report any setup warning.
+4. **Start.** `orca_start({ task_id, worktree: { path }, agent })` for each task. If it returns
+   `pending`, call it again with the same `request_id`; if `blocked`, its dependencies are still
+   running — start it once they settle; if `refused` or `failed`, treat the phase as failed.
+5. **Wait.** Loop `orca_wait({ run_id })` (it returns within ~50 s; a timeout is a checkpoint, not
+   a failure). For each `worker_done` that is not marked `replayed` (a replayed one was
+   already settled — Orca re-sends a batch until it is acked; skip it):
+   - Read the **child plan file**. Only `Status: VERIFIED` counts, whatever the report says.
+   - If VERIFIED: `worktree_sync({ plan_slug })` squash-merges the phase into this session's
+     branch; then `orca_release({ dispatch_id })`, `worktree_abandon({ plan_slug })` (for an
+     adopted worktree this _releases_ it: slot freed, seeded files removed, nothing deleted) and
+     `orca_remove_worktree({ path })`.
+   - Otherwise treat it as a failed phase (below).
+     Then `orca_ack({ delivery_id })` before the next `orca_wait` (an un-acked batch is re-sent). Start
+     any task that has become ready.
+6. **Stalls.** If `orca_wait` reports a stall (the worker's agent exited, hit a login error, or went
+   idle without reporting): `orca_stop({ dispatch_id, evidence_id })`, then handle it as a failed
+   phase and ask the user. Never stop, release or remove a worker on anything weaker than a
+   reported stall.
+7. The wave is done when every task in it has settled; update progress (Step 4) and continue.
+
+**Resuming** in a new session: a Run is bound to the terminal that created it. Pass the Run's
+id (`run_id`, from the earlier `orca_dispatch` reply) to `orca_dispatch` to bind it to this
+terminal before waiting on it; otherwise `orca_wait` reports `consumer_fenced`.
+
+**On Skip or Stop** for a failed phase, still release its worktree through Sentinal
+(`worktree_abandon`) before `orca_remove_worktree`, so no slot stays reserved. On Retry, dispatch
+the phase again (a new task) into the same prepared worktree with `worktree: { path }`.
 
 ### Failure Handling
 

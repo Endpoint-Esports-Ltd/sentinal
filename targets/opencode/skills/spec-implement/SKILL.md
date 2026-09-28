@@ -163,6 +163,32 @@ FOR each wave (1, 2, 3, ...):
 
 ---
 
+**Orca Mode (opt-in).** Only when the plan header says `Orchestration: orca`: call
+`orca_status({ scope: "plan", agent: "<worker agent>", plan_path })` once before Wave 1 — the
+worker agent is the coordinator's own (`claude` on Claude Code, `opencode` on OpenCode). If it
+returns `mode: "orca"` (and `auth.ok`), run each 2+-task wave through Orca workers instead of
+parallel agents; otherwise say its `reason` and use parallel agents as above. A plan without the
+header always uses parallel agents.
+
+In Orca Mode, per wave:
+
+1. `orca_dispatch({ objective: "<plan title> — Wave N", agent, tasks })`, one task per plan task,
+   `worktree: "current"` (the workers share this working directory, exactly like parallel agents,
+   so the plan's same-wave file-overlap rule still protects them), no `deps` within a wave. The
+   `spec` is the same prompt you would give a parallel agent (plan path, the full task section,
+   TDD, `quality_report` with `file`, "do NOT update the plan file checkboxes", "do NOT run
+   `build:opencode` / `embed-assets` if the plan says the orchestrator does"), plus: "Report with
+   worker_done exactly once: --outcome succeeded or failed, --files-modified with the files you
+   changed."
+2. `orca_start({ task_id, worktree: "current", agent })` for each task (`pending` → call again with
+   the same `request_id`).
+3. Loop `orca_wait({ run_id })` until every task has a `worker_done`; `orca_ack` each delivery and
+   `orca_release({ dispatch_id })` each settled worker. A reported stall → `orca_stop({
+dispatch_id, evidence_id })` and ask the user Retry / Skip / Stop, as for a failed parallel
+   agent.
+4. Continue exactly as after a parallel wave: run the orchestrator's builds once, then update the
+   plan checkboxes (Step 2.4).
+
 ### Step 2.3: TDD Loop
 
 **For EVERY task (executed in main context — single-task waves or legacy sequential):**

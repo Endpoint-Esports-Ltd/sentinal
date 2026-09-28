@@ -1,4 +1,4 @@
-@@ -84,12 +84,11 @@
+@@ -104,12 +104,11 @@
  
  ### Spawning Subagents
  
@@ -14,16 +14,16 @@
    prompt="""
    Execute the spec workflow for this child plan.
  
-@@ -108,7 +107,7 @@
+@@ -128,7 +127,7 @@
  )
  ```
  
 -**Spawn all Agents for a wave in a single message** to enable parallel execution. Each Agent gets its own worktree, ensuring phases don't interfere with each other.
 +**Spawn all subagents for a wave in a single message** to enable parallel execution.
  
- ### Failure Handling
+ ### Orca Mode
  
-@@ -177,7 +176,7 @@
+@@ -256,7 +255,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  

@@ -14,6 +14,7 @@ When the sentinal MCP server is connected, prefer MCP tool calls over Bash:
 | `spec_events`       | N/A                                     | Get spec event history                                                                 |
 | `worktree_detect`   | `sentinal worktree detect`              | Find worktree by slug                                                                  |
 | `worktree_create`   | `sentinal worktree create`              | Create worktree                                                                        |
+| `worktree_ensure`   | `sentinal worktree ensure`              | Create or adopt a worktree (`--path --base --owner external` for another tool's)       |
 | `worktree_diff`     | `sentinal worktree diff`                | Get worktree diff                                                                      |
 | `worktree_sync`     | `sentinal worktree sync`                | Squash-merge worktree                                                                  |
 | `tdd_status`        | `bun -e` TDD state query                | Get TDD cycle state for file, or list all in the current project                       |
@@ -37,7 +38,7 @@ The `sentinal` binary manages sessions, worktrees, and context. All commands sup
 | `sentinal check-context --json`          | Get context usage % (informational only) |
 | `sentinal register-plan <path> <status>` | Associate plan with session              |
 
-**Worktree:** `sentinal worktree detect|create|diff|sync|cleanup|status --json <slug>`
+**Worktree:** `sentinal worktree detect|create|ensure|diff|sync|cleanup|status --json <slug>`
 
 Slug = plan filename without date prefix and `.md`. `create` auto-stashes uncommitted changes.
 
