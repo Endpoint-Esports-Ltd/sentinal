@@ -403,6 +403,61 @@ describe("target asset namespace parity", () => {
         expect(src).toMatch(/verifyBakedVersion\(\s*version/);
       }
     });
+
+    // D6 (docs/plans/2026-09-28-deferred-items.md): the Claude Code manifest
+    // carries the release version. embed-assets copies plugin.json verbatim
+    // into EMBEDDED_CC_PLUGIN_JSON, so the bake MUST precede it.
+    it("release-build.mjs and pre-release.mjs bake plugin.json before embedding, then verify it", () => {
+      for (const name of ["release-build.mjs", "pre-release.mjs"]) {
+        const src = readFileSync(join(REPO_ROOT, "scripts", name), "utf-8");
+        expect(src).toContain("./cc-plugin-version.mjs");
+        const bake = src.search(
+          /bakePluginVersion\(\s*CC_PLUGIN_JSON,\s*version\s*\)/,
+        );
+        const build = src.search(/buildOpencode\(\s*version/);
+        const embed = src.search(/scripts\/embed-assets\.mjs/);
+        const verify = src.search(/verifyPluginVersion\(\s*version/);
+        expect(bake).toBeGreaterThan(-1);
+        expect(bake).toBeLessThan(build);
+        expect(bake).toBeLessThan(embed);
+        expect(verify).toBeGreaterThan(embed);
+      }
+    });
+
+    it("release-build.mjs fails the release when plugin.json lacks the version", () => {
+      const src = readFileSync(
+        join(REPO_ROOT, "scripts", "release-build.mjs"),
+        "utf-8",
+      );
+      expect(src).toMatch(
+        /pluginProblems\s*=\s*verifyPluginVersion\(version[\s\S]*?if \(pluginProblems\.length > 0\)[\s\S]*?process\.exit\(1\)/,
+      );
+    });
+
+    it("@semantic-release/git commits the baked plugin.json", () => {
+      const rc = JSON.parse(
+        readFileSync(join(REPO_ROOT, ".releaserc.json"), "utf-8"),
+      ) as { plugins: unknown[] };
+      const git = rc.plugins.find(
+        (p) => Array.isArray(p) && p[0] === "@semantic-release/git",
+      ) as [string, { assets: string[] }];
+      expect(git[1].assets).toContain(
+        "targets/claude-code/.claude-plugin/plugin.json",
+      );
+    });
+
+    it("committed plugin.json carries package.json's version (a local pre-release leaves no diff)", () => {
+      const pkg = JSON.parse(
+        readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+      ) as { version: string };
+      const manifest = JSON.parse(
+        readFileSync(
+          join(CLAUDE_DIR, ".claude-plugin", "plugin.json"),
+          "utf-8",
+        ),
+      ) as { version: string };
+      expect(manifest.version).toBe(pkg.version);
+    });
   });
 
   describe("targets/opencode/skills/ — every SKILL.md must have valid OpenCode skill frontmatter", () => {

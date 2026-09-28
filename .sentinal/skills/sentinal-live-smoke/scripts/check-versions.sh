@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Is the new version actually RUNNING? Compares every independently-updated part.
-# Exit 0 only if all four report the binary's version.
+# Exit 0 only if all four report the binary's version (a missing or pre-bake
+# "0.1.0" Claude Code plugin.json is informational).
 set -uo pipefail
 H="${SENTINAL_HOME:-$HOME/.sentinal}"
 want=$(sentinal --version 2>/dev/null | head -1)
@@ -18,6 +19,15 @@ bad=0; mark() { [ "$1" = "$want" ] && echo ok || echo "$2"; }
 row "binary"          "$want" "(reference)"
 row "sidecar (pid ${spid:-?})" "$side" "$(mark "$side" '<- restart: sentinal sidecar restart')"; [ "$side" = "$want" ] || bad=1
 row "opencode plugin" "$oc"   "$(mark "$oc" '<- redeploy: sentinal update --reinstall-plugins; then start a NEW session')"; [ "$oc" = "$want" ] || bad=1
-row "cc plugin.json"  "$ccver" "(informational: hard-coded, not bumped per release)"
+# Releases bake the version into plugin.json since D6 (2026-09-28 plan). A
+# missing install (OpenCode-only user) and the pre-bake "0.1.0" are
+# informational; any other mismatch is a stale install.
+if [ -z "$ccver" ]; then
+  row "cc plugin.json" "$ccver" "(not installed)"
+elif [ "$ccver" = "0.1.0" ]; then
+  row "cc plugin.json" "$ccver" "(pre-bake install, informational — run: sentinal update)"
+else
+  row "cc plugin.json" "$ccver" "$(mark "$ccver" '<- reinstall: sentinal update --reinstall-plugins')"; [ "$ccver" = "$want" ] || bad=1
+fi
 [ "$bad" = 0 ] && echo "ALL RUNNING $want" || echo "MISMATCH — processes keep serving old code until restarted"
 exit $bad

@@ -17,6 +17,12 @@ import {
   shippedPluginPaths,
   verifyBakedVersion,
 } from "./build-opencode.mjs";
+import {
+  CC_PLUGIN_JSON,
+  bakePluginVersion,
+  shippedManifestPaths,
+  verifyPluginVersion,
+} from "./cc-plugin-version.mjs";
 
 const version = process.argv[2];
 if (!version) {
@@ -44,6 +50,12 @@ if (!existsSync(DIST_DIR)) {
 // prepare step BEFORE @semantic-release/npm bumps package.json, so anything
 // that reads package.json here sees the PREVIOUS release (1.38.0 shipped a
 // plugin reporting "1.37.1"). Do not "fix" it by reordering .releaserc.json.
+//
+// The Claude Code manifest is baked FIRST: embed-assets copies plugin.json
+// verbatim into EMBEDDED_CC_PLUGIN_JSON, so baking later would ship the old
+// version in every binary. @semantic-release/git commits the baked file.
+console.log(`Baking v${version} into the Claude Code plugin.json...`);
+bakePluginVersion(CC_PLUGIN_JSON, version);
 console.log("Bundling OpenCode plugin and embedding assets...");
 buildOpencode(version);
 execSync("bun scripts/embed-assets.mjs", { stdio: "inherit" });
@@ -55,6 +67,16 @@ if (versionProblems.length > 0) {
   console.error(
     `OpenCode plugin does not carry release version ${version}:\n  ` +
       versionProblems.join("\n  "),
+  );
+  process.exit(1);
+}
+
+// Same for the Claude Code manifest: the file and the binaries' embedded copy.
+const pluginProblems = verifyPluginVersion(version, shippedManifestPaths());
+if (pluginProblems.length > 0) {
+  console.error(
+    `Claude Code plugin.json does not carry release version ${version}:\n  ` +
+      pluginProblems.join("\n  "),
   );
   process.exit(1);
 }

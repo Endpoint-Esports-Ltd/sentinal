@@ -65,8 +65,9 @@ Permanent coverage: `targets/opencode/plugins/sentinal.test.ts` invokes
 .sentinal/skills/sentinal-live-smoke/scripts/check-versions.sh   # exit 0 = all aligned
 ```
 
-It compares the binary, the sidecar's `/health`, and the version baked into
-the deployed OpenCode plugin. Known facts behind the answers:
+It compares the binary, the sidecar's `/health`, the version baked into
+the deployed OpenCode plugin, and the installed Claude Code `plugin.json`
+(tested by `src/cli/check-versions-script.test.ts`). Known facts behind the answers:
 
 - **`sentinal update` never restarts the sidecar.** A running sidecar only
   retires itself once no session is active, so during an open session it stays
@@ -77,7 +78,13 @@ the deployed OpenCode plugin. Known facts behind the answers:
   from 2026-03-10 to 1.38.0 (release-build ordering). On those releases a
   "stale" plugin reading is expected, not a failed deploy. Fixed in 1.39.0.
 - A running session keeps its already-loaded plugin; start a **new** session.
-- `cc plugin.json` is hard-coded `0.1.0` — informational only.
+- `cc plugin.json` carries the release version since the release after
+  1.39.2: `release-build.mjs` bakes it (before embed-assets, which embeds it
+  verbatim) and `@semantic-release/git` commits it. A mismatch is a real
+  failure (`sentinal update --reinstall-plugins`). The **installed** copy only
+  carries it once such a release is installed, so `0.1.0` (every earlier
+  install) is informational with a `sentinal update` hint, and a missing file
+  (OpenCode-only user) reads "not installed".
 
 Manual equivalents:
 

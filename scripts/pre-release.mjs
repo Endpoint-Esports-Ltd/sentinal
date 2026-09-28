@@ -28,6 +28,12 @@ import {
   shippedPluginPaths,
   verifyBakedVersion,
 } from "./build-opencode.mjs";
+import {
+  CC_PLUGIN_JSON,
+  bakePluginVersion,
+  shippedManifestPaths,
+  verifyPluginVersion,
+} from "./cc-plugin-version.mjs";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DIST = join(REPO_ROOT, "dist");
@@ -59,7 +65,11 @@ function buildCurrentPlatform() {
   const outfile = join(DIST, assetName);
   const target = `bun-${process.platform}-${process.arch}`;
   console.log(`[pre-release] building ${assetName} (v${version}) as the release artifact...`);
-  // Mirror release-build.mjs: embed assets + externalize native deps + inject version.
+  // Mirror release-build.mjs: bake plugin.json (before embed — it is embedded
+  // verbatim) + embed assets + externalize native deps + inject version.
+  // package.json's version equals the committed plugin.json, so a local run
+  // leaves no diff.
+  bakePluginVersion(CC_PLUGIN_JSON, version);
   buildOpencode(version);
   execSync("node scripts/embed-assets.mjs", { cwd: REPO_ROOT, stdio: "inherit" });
   const versionProblems = verifyBakedVersion(version, shippedPluginPaths());
@@ -67,6 +77,13 @@ function buildCurrentPlatform() {
     throw new Error(
       `[pre-release] OpenCode plugin does not carry v${version}:\n  ` +
         versionProblems.join("\n  "),
+    );
+  }
+  const pluginProblems = verifyPluginVersion(version, shippedManifestPaths());
+  if (pluginProblems.length > 0) {
+    throw new Error(
+      `[pre-release] Claude Code plugin.json does not carry v${version}:\n  ` +
+        pluginProblems.join("\n  "),
     );
   }
   execSync(
