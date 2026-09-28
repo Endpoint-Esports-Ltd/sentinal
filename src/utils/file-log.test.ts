@@ -137,7 +137,9 @@ describe("file-log", () => {
     fileLogModule.logDashboard("dashboard started pid=1234");
     const logPath = join(tmpDir, fileLogModule.DASHBOARD_LOG_FILE);
     expect(existsSync(logPath)).toBe(true);
-    expect(readFileSync(logPath, "utf-8")).toContain("dashboard started pid=1234");
+    expect(readFileSync(logPath, "utf-8")).toContain(
+      "dashboard started pid=1234",
+    );
   });
 
   it("DASHBOARD_LOG_FILE constant should be 'dashboard.log'", () => {

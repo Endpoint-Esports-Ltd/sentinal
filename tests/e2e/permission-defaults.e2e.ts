@@ -218,19 +218,22 @@ async function resolveAgents(
   // Random high port — parallel e2e runs must not collide on a fixed one.
   const port = 41000 + Math.floor(Math.random() * 20000);
 
-  const proc = Bun.spawn([binary, "serve", "--port", String(port), "--hostname", "127.0.0.1"], {
-    cwd: projectDir,
-    env: {
-      ...(sb.env as Record<string, string>),
-      // opencode also keys off the data/cache/state dirs; keep every one of
-      // them inside the sandbox so the real ~/.local/share/opencode is untouched.
-      XDG_DATA_HOME: join(sb.home, ".local", "share"),
-      XDG_CACHE_HOME: join(sb.home, ".cache"),
-      XDG_STATE_HOME: join(sb.home, ".local", "state"),
+  const proc = Bun.spawn(
+    [binary, "serve", "--port", String(port), "--hostname", "127.0.0.1"],
+    {
+      cwd: projectDir,
+      env: {
+        ...(sb.env as Record<string, string>),
+        // opencode also keys off the data/cache/state dirs; keep every one of
+        // them inside the sandbox so the real ~/.local/share/opencode is untouched.
+        XDG_DATA_HOME: join(sb.home, ".local", "share"),
+        XDG_CACHE_HOME: join(sb.home, ".cache"),
+        XDG_STATE_HOME: join(sb.home, ".local", "state"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
     },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  );
 
   try {
     const url = `http://127.0.0.1:${port}/agent`;
@@ -305,14 +308,14 @@ describe("D4a opt-out default — RESOLVED policy (not just file presence)", () 
         const agent = agents.find((a) => a.name === name);
         if (!agent) continue; // agent set varies by version; don't invent a failure
         for (const cmd of BENIGN) {
-          expect(`${name}: ${cmd} -> ${evaluateBash(cmd, agent.permission)}`).toBe(
-            `${name}: ${cmd} -> allow`,
-          );
+          expect(
+            `${name}: ${cmd} -> ${evaluateBash(cmd, agent.permission)}`,
+          ).toBe(`${name}: ${cmd} -> allow`);
         }
         for (const cmd of GUARDED) {
-          expect(`${name}: ${cmd} -> ${evaluateBash(cmd, agent.permission)}`).toBe(
-            `${name}: ${cmd} -> ask`,
-          );
+          expect(
+            `${name}: ${cmd} -> ${evaluateBash(cmd, agent.permission)}`,
+          ).toBe(`${name}: ${cmd} -> ask`);
         }
       }
     },

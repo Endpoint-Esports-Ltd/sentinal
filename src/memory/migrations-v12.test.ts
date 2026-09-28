@@ -86,8 +86,11 @@ describe("Migration V12 — worktrees.slot", () => {
     const d = freshDb();
     expect(DB_CONSTANTS.SCHEMA_VERSION).toBeGreaterThanOrEqual(12);
     expect(
-      (d.prepare("SELECT version FROM schema_version WHERE version = 12").all() as unknown[])
-        .length,
+      (
+        d
+          .prepare("SELECT version FROM schema_version WHERE version = 12")
+          .all() as unknown[]
+      ).length,
     ).toBe(1);
   });
 
@@ -150,7 +153,9 @@ describe("Migration V12 — worktrees.slot", () => {
     insertWt(d, { id: "live", status: "active", slot: 4 });
     insertWt(d, { id: "gone", status: "merged", slot: 4 });
     expect(() =>
-      d.prepare("UPDATE worktrees SET status = 'active' WHERE id = 'gone'").run(),
+      d
+        .prepare("UPDATE worktrees SET status = 'active' WHERE id = 'gone'")
+        .run(),
     ).toThrow();
   });
 
@@ -159,13 +164,17 @@ describe("Migration V12 — worktrees.slot", () => {
   it("permits the same slot once the other row is terminal (merged)", () => {
     const d = freshDb();
     insertWt(d, { id: "old", status: "merged", slot: 5 });
-    expect(() => insertWt(d, { id: "new", status: "active", slot: 5 })).not.toThrow();
+    expect(() =>
+      insertWt(d, { id: "new", status: "active", slot: 5 }),
+    ).not.toThrow();
   });
 
   it("permits the same slot once the other row is terminal (abandoned)", () => {
     const d = freshDb();
     insertWt(d, { id: "old", status: "abandoned", slot: 6 });
-    expect(() => insertWt(d, { id: "new", status: "active", slot: 6 })).not.toThrow();
+    expect(() =>
+      insertWt(d, { id: "new", status: "active", slot: 6 }),
+    ).not.toThrow();
   });
 
   it("frees a slot when a live row transitions to abandoned", () => {
@@ -173,7 +182,9 @@ describe("Migration V12 — worktrees.slot", () => {
     insertWt(d, { id: "a", status: "active", slot: 7 });
     expect(() => insertWt(d, { id: "b", status: "active", slot: 7 })).toThrow();
     d.prepare("UPDATE worktrees SET status = 'abandoned' WHERE id = 'a'").run();
-    expect(() => insertWt(d, { id: "b", status: "active", slot: 7 })).not.toThrow();
+    expect(() =>
+      insertWt(d, { id: "b", status: "active", slot: 7 }),
+    ).not.toThrow();
   });
 
   // ── Scoping ─────────────────────────────────────────────────────────────
@@ -221,8 +232,11 @@ describe("Migration V12 — worktrees.slot", () => {
   it("does not record version 12 unless BOTH the slot column and the index exist", () => {
     const d = freshDb();
     const recorded12 =
-      (d.prepare("SELECT version FROM schema_version WHERE version = 12").all() as unknown[])
-        .length > 0;
+      (
+        d
+          .prepare("SELECT version FROM schema_version WHERE version = 12")
+          .all() as unknown[]
+      ).length > 0;
 
     const hasCol = (
       d.prepare("PRAGMA table_info(worktrees)").all() as Array<{ name: string }>

@@ -44,9 +44,10 @@ function hookInput(fields: Record<string, unknown>): string {
 
 // A 650-line .ts file exceeds Sentinal's 600-line block threshold.
 function bigTsSource(): string {
-  return Array.from({ length: 650 }, (_, i) => `export const v${i} = ${i};`).join(
-    "\n",
-  );
+  return Array.from(
+    { length: 650 },
+    (_, i) => `export const v${i} = ${i};`,
+  ).join("\n");
 }
 
 describe("hooks-fire E2E — real dispatcher in an isolated sandbox", () => {
@@ -65,34 +66,30 @@ describe("hooks-fire E2E — real dispatcher in an isolated sandbox", () => {
   // entries joined by "\n", no trailing newline) → exit 2, stdout
   // {"decision":"block","reason":"File is 650 lines (limit: 600)..."} and the
   // reason is also mirrored to stderr (CC only surfaces exit-2 reasons there).
-  it(
-    "file-checker blocks a >600-line .ts file (exit 2 + decision:block)",
-    () => {
-      sb = createSandbox();
-      const work = join(sb.home, "work");
-      mkdirSync(work, { recursive: true });
-      const bigFile = join(work, "big.ts");
-      writeFileSync(bigFile, bigTsSource());
+  it("file-checker blocks a >600-line .ts file (exit 2 + decision:block)", () => {
+    sb = createSandbox();
+    const work = join(sb.home, "work");
+    mkdirSync(work, { recursive: true });
+    const bigFile = join(work, "big.ts");
+    writeFileSync(bigFile, bigTsSource());
 
-      const stdin = hookInput({
-        cwd: work,
-        hook_event_name: "PostToolUse",
-        tool_name: "Write",
-        tool_input: { file_path: bigFile },
-      });
+    const stdin = hookInput({
+      cwd: work,
+      hook_event_name: "PostToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: bigFile },
+    });
 
-      const r = sb.run(["hook", "claude", "file-checker"], { stdin, cwd: work });
+    const r = sb.run(["hook", "claude", "file-checker"], { stdin, cwd: work });
 
-      expect(r.exitCode).toBe(2);
-      const parsed = JSON.parse(r.stdout) as { decision: string; reason: string };
-      expect(parsed.decision).toBe("block");
-      expect(parsed.reason).toContain("650 lines");
-      expect(parsed.reason).toContain("limit: 600");
-      // Exit-2 reason mirrored to stderr per the CC hook protocol.
-      expect(r.stderr).toContain("650 lines");
-    },
-    120_000,
-  );
+    expect(r.exitCode).toBe(2);
+    const parsed = JSON.parse(r.stdout) as { decision: string; reason: string };
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toContain("650 lines");
+    expect(parsed.reason).toContain("limit: 600");
+    // Exit-2 reason mirrored to stderr per the CC hook protocol.
+    expect(r.stderr).toContain("650 lines");
+  }, 120_000);
 
   // ── Case 2: spec-stop-guard (Stop) ────────────────────────────────────────
   //
@@ -105,57 +102,56 @@ describe("hooks-fire E2E — real dispatcher in an isolated sandbox", () => {
   // OBSERVED (probe 2026-07-17): exit 0, stdout
   // {"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Active spec
   // plan is IN_PROGRESS ... Do NOT stop."}}
-  it(
-    "spec-stop-guard soft-surfaces context for an IN_PROGRESS plan (exit 0 + additionalContext)",
-    () => {
-      sb = createSandbox();
-      const work = join(sb.home, "work");
-      const plansDir = join(work, "docs", "plans");
-      mkdirSync(plansDir, { recursive: true });
-      writeFileSync(
-        join(plansDir, "2026-07-17-mini.md"),
-        [
-          "# Mini Plan",
-          "",
-          "Created: 2026-07-17",
-          "Status: IN_PROGRESS",
-          "Approved: Yes",
-          "Type: Feature",
-          "",
-          "## Summary",
-          "A mini plan to drive the stop-guard.",
-          "",
-          "## Implementation Tasks",
-          "### Task 1: Do a thing",
-          "- [ ] Task 1: do the thing",
-          "",
-        ].join("\n"),
-      );
+  it("spec-stop-guard soft-surfaces context for an IN_PROGRESS plan (exit 0 + additionalContext)", () => {
+    sb = createSandbox();
+    const work = join(sb.home, "work");
+    const plansDir = join(work, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    writeFileSync(
+      join(plansDir, "2026-07-17-mini.md"),
+      [
+        "# Mini Plan",
+        "",
+        "Created: 2026-07-17",
+        "Status: IN_PROGRESS",
+        "Approved: Yes",
+        "Type: Feature",
+        "",
+        "## Summary",
+        "A mini plan to drive the stop-guard.",
+        "",
+        "## Implementation Tasks",
+        "### Task 1: Do a thing",
+        "- [ ] Task 1: do the thing",
+        "",
+      ].join("\n"),
+    );
 
-      const stdin = hookInput({
-        cwd: work,
-        hook_event_name: "Stop",
-        agent_type: "main",
-      });
+    const stdin = hookInput({
+      cwd: work,
+      hook_event_name: "Stop",
+      agent_type: "main",
+    });
 
-      const r = sb.run(["hook", "shared", "spec-stop-guard"], {
-        stdin,
-        cwd: work,
-      });
+    const r = sb.run(["hook", "shared", "spec-stop-guard"], {
+      stdin,
+      cwd: work,
+    });
 
-      // SOFT path: keeps the turn alive at exit 0 via additionalContext.
-      expect(r.exitCode).toBe(0);
-      const parsed = JSON.parse(r.stdout) as {
-        hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    // SOFT path: keeps the turn alive at exit 0 via additionalContext.
+    expect(r.exitCode).toBe(0);
+    const parsed = JSON.parse(r.stdout) as {
+      hookSpecificOutput?: {
+        hookEventName?: string;
+        additionalContext?: string;
       };
-      expect(parsed.hookSpecificOutput?.hookEventName).toBe("Stop");
-      expect(parsed.hookSpecificOutput?.additionalContext).toContain(
-        "IN_PROGRESS",
-      );
-      expect(r.stdout).toContain("additionalContext");
-    },
-    120_000,
-  );
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe("Stop");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain(
+      "IN_PROGRESS",
+    );
+    expect(r.stdout).toContain("additionalContext");
+  }, 120_000);
 
   // ── Case 3: tdd-guard (PreToolUse) ────────────────────────────────────────
   //
@@ -167,76 +163,72 @@ describe("hooks-fire E2E — real dispatcher in an isolated sandbox", () => {
   // OBSERVED (probe 2026-07-17): exit 2, stdout
   // {"permissionDecision":"deny","reason":"[Sentinal TDD Guard] Cannot edit
   // implementation file: no test has been written yet for this file...."}
-  it(
-    "tdd-guard blocks a Write on an impl file with no companion test (exit 2 + deny)",
-    () => {
-      sb = createSandbox();
-      const work = join(sb.home, "work");
-      const plansDir = join(work, "docs", "plans");
-      const srcDir = join(work, "src");
-      mkdirSync(plansDir, { recursive: true });
-      mkdirSync(srcDir, { recursive: true });
+  it("tdd-guard blocks a Write on an impl file with no companion test (exit 2 + deny)", () => {
+    sb = createSandbox();
+    const work = join(sb.home, "work");
+    const plansDir = join(work, "docs", "plans");
+    const srcDir = join(work, "src");
+    mkdirSync(plansDir, { recursive: true });
+    mkdirSync(srcDir, { recursive: true });
 
-      const planPath = join(plansDir, "2026-07-17-mini.md");
-      writeFileSync(
+    const planPath = join(plansDir, "2026-07-17-mini.md");
+    writeFileSync(
+      planPath,
+      [
+        "# Mini Plan",
+        "",
+        "Created: 2026-07-17",
+        "Status: IN_PROGRESS",
+        "Approved: Yes",
+        "Type: Feature",
+        "",
+        "## Summary",
+        "A mini plan.",
+        "",
+        "## Implementation Tasks",
+        "### Task 1: Do a thing",
+        "- [ ] Task 1: do the thing",
+        "",
+      ].join("\n"),
+    );
+
+    const implFile = join(srcDir, "impl.ts");
+    writeFileSync(implFile, "export function foo() {\n  return 1;\n}\n");
+
+    // Register the plan so getCurrentSpec(cwd) returns an active spec —
+    // without this the guard has no active spec and would pass through (exit 0).
+    const reg = sb.run(
+      [
+        "register-plan",
         planPath,
-        [
-          "# Mini Plan",
-          "",
-          "Created: 2026-07-17",
-          "Status: IN_PROGRESS",
-          "Approved: Yes",
-          "Type: Feature",
-          "",
-          "## Summary",
-          "A mini plan.",
-          "",
-          "## Implementation Tasks",
-          "### Task 1: Do a thing",
-          "- [ ] Task 1: do the thing",
-          "",
-        ].join("\n"),
-      );
+        "--project",
+        work,
+        "--session",
+        "e2e-session",
+        "--json",
+      ],
+      { cwd: work },
+    );
+    expect(reg.exitCode).toBe(0);
 
-      const implFile = join(srcDir, "impl.ts");
-      writeFileSync(implFile, "export function foo() {\n  return 1;\n}\n");
+    const stdin = hookInput({
+      cwd: work,
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: implFile },
+    });
 
-      // Register the plan so getCurrentSpec(cwd) returns an active spec —
-      // without this the guard has no active spec and would pass through (exit 0).
-      const reg = sb.run(
-        [
-          "register-plan",
-          planPath,
-          "--project",
-          work,
-          "--session",
-          "e2e-session",
-          "--json",
-        ],
-        { cwd: work },
-      );
-      expect(reg.exitCode).toBe(0);
+    const r = sb.run(["hook", "shared", "tdd-guard"], { stdin, cwd: work });
 
-      const stdin = hookInput({
-        cwd: work,
-        hook_event_name: "PreToolUse",
-        tool_name: "Write",
-        tool_input: { file_path: implFile },
-      });
-
-      const r = sb.run(["hook", "shared", "tdd-guard"], { stdin, cwd: work });
-
-      expect(r.exitCode).toBe(2);
-      const parsed = JSON.parse(r.stdout) as {
-        permissionDecision: string;
-        reason: string;
-      };
-      expect(parsed.permissionDecision).toBe("deny");
-      expect(parsed.reason).toContain("TDD Guard");
-      expect(parsed.reason).toContain("no test has been written");
-      // Exit-2 reason mirrored to stderr.
-      expect(r.stderr).toContain("TDD Guard");
-    },
-    120_000,
-  );
+    expect(r.exitCode).toBe(2);
+    const parsed = JSON.parse(r.stdout) as {
+      permissionDecision: string;
+      reason: string;
+    };
+    expect(parsed.permissionDecision).toBe("deny");
+    expect(parsed.reason).toContain("TDD Guard");
+    expect(parsed.reason).toContain("no test has been written");
+    // Exit-2 reason mirrored to stderr.
+    expect(r.stderr).toContain("TDD Guard");
+  }, 120_000);
 });

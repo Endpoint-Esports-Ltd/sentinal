@@ -14,12 +14,7 @@
 import { existsSync } from "node:fs";
 import { WorktreeStore } from "./store.js";
 import { listGitWorktrees, type GitWorktreeEntry } from "./disk-scan.js";
-import {
-  gitExec,
-  detectBaseBranch,
-  slugify,
-  randomHex,
-} from "../git/utils.js";
+import { gitExec, detectBaseBranch, slugify, randomHex } from "../git/utils.js";
 import {
   insertWithSlot,
   resolveSlotScope,

@@ -52,8 +52,7 @@ export function isStatuslineActive(settingsPath?: string): boolean {
     const cleaned = stripJsoncComments(raw);
     const settings = JSON.parse(cleaned) as Record<string, unknown>;
     const statusLine = settings.statusLine as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const command =
       typeof statusLine?.command === "string" ? statusLine.command : null;
 
@@ -97,8 +96,7 @@ export function extractRateLimits(
   sessionJson: Record<string, unknown>,
 ): { sessionPct: number; weeklyPct: number | undefined } | null {
   const rateLimits = sessionJson.rate_limits as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!rateLimits) return null;
 
   const fiveHour = rateLimits.five_hour as Record<string, unknown> | undefined;
@@ -125,13 +123,11 @@ export function extractWorktree(
 ): { branch: string } | null {
   try {
     const workspace = sessionJson.workspace as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (!workspace) return null;
 
     const gitWorktree = workspace.git_worktree as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (!gitWorktree) return null;
 
     const branch = gitWorktree.branch;
@@ -228,8 +224,7 @@ export function registerStatuslineCommand(program: Command): void {
 
         // Get context window data from session JSON
         const ctxWindow = sessionJson.context_window as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         const contextWindowSize =
           typeof ctxWindow?.context_window_size === "number"
             ? ctxWindow.context_window_size

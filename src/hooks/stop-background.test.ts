@@ -28,16 +28,22 @@ function input(overrides: Partial<HookInput> = {}): HookInput {
 
 describe("hasActiveBackgroundWork", () => {
   it("returns true when background_tasks is a non-empty array", () => {
-    expect(hasActiveBackgroundWork(input({ background_tasks: [{ id: "t" }] }))).toBe(true);
+    expect(
+      hasActiveBackgroundWork(input({ background_tasks: [{ id: "t" }] })),
+    ).toBe(true);
   });
 
   it("returns true when session_crons is a non-empty array", () => {
-    expect(hasActiveBackgroundWork(input({ session_crons: [{ id: "c" }] }))).toBe(true);
+    expect(
+      hasActiveBackgroundWork(input({ session_crons: [{ id: "c" }] })),
+    ).toBe(true);
   });
 
   it("returns false when both are empty arrays", () => {
     expect(
-      hasActiveBackgroundWork(input({ background_tasks: [], session_crons: [] })),
+      hasActiveBackgroundWork(
+        input({ background_tasks: [], session_crons: [] }),
+      ),
     ).toBe(false);
   });
 
@@ -83,13 +89,19 @@ describe("shouldSuppressForBackground", () => {
 
   it("never suppresses when there is no background work", () => {
     expect(
-      shouldSuppressForBackground({ hasBackground: false, ownership: "orphaned" }),
+      shouldSuppressForBackground({
+        hasBackground: false,
+        ownership: "orphaned",
+      }),
     ).toBe(false);
   });
 
   it("does not suppress when ownership class is unknown/undefined (fail toward block)", () => {
     expect(
-      shouldSuppressForBackground({ hasBackground: true, ownership: undefined }),
+      shouldSuppressForBackground({
+        hasBackground: true,
+        ownership: undefined,
+      }),
     ).toBe(false);
   });
 });

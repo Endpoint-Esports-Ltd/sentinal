@@ -28,7 +28,10 @@ describe("resolvePlansDir", () => {
   });
 
   it("should return <cwd>/docs/plans when worktreePath is undefined", () => {
-    const result = resolvePlansDir({ worktreePath: undefined, cwd: "/my/project" });
+    const result = resolvePlansDir({
+      worktreePath: undefined,
+      cwd: "/my/project",
+    });
     expect(result).toBe(join("/my/project", "docs", "plans"));
   });
 });

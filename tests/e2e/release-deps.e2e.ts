@@ -41,7 +41,8 @@ import {
 } from "./harness/sandbox.ts";
 
 // Both flags required. Network-heavy + needs a real release artifact.
-const GATED = !process.env.SENTINAL_E2E_DEPS || !process.env.SENTINAL_E2E_BINARY;
+const GATED =
+  !process.env.SENTINAL_E2E_DEPS || !process.env.SENTINAL_E2E_BINARY;
 
 // Provisioning (bun add/npm install) + embedding-model download is slow.
 const TIMEOUT = 600_000;

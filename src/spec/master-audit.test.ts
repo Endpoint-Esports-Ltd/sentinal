@@ -52,7 +52,9 @@ function writeChild(
 ) {
   const p = join(plansDir, `${slug}.md`);
   const parentLine =
-    opts.parent === null ? "" : `Parent: ${opts.parent}\nWave: ${opts.wave ?? 1}\n`;
+    opts.parent === null
+      ? ""
+      : `Parent: ${opts.parent}\nWave: ${opts.wave ?? 1}\n`;
   writeFileSync(
     p,
     `# ${slug}\n\n` +
@@ -314,11 +316,16 @@ describe("auditMasterPlan — CANCELLED is excluded, never silently passed", () 
 
 describe("auditMasterPlan — guards", () => {
   it("should throw for a plan that is not Type: Master", () => {
-    const p = writeChild("2026-09-17-feature", { status: "PENDING", parent: null });
+    const p = writeChild("2026-09-17-feature", {
+      status: "PENDING",
+      parent: null,
+    });
     expect(() => auditMasterPlan(p)).toThrow(/not a master plan/i);
   });
 
   it("should throw for a plan file that does not exist", () => {
-    expect(() => auditMasterPlan(join(plansDir, "nope.md"))).toThrow(/not found/i);
+    expect(() => auditMasterPlan(join(plansDir, "nope.md"))).toThrow(
+      /not found/i,
+    );
   });
 });

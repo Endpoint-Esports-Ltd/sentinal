@@ -6,11 +6,7 @@
  */
 
 export type PageId =
-  | "dashboard"
-  | "specifications"
-  | "memories"
-  | "sessions"
-  | "settings";
+  "dashboard" | "specifications" | "memories" | "sessions" | "settings";
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; href: string }> = [
   { id: "dashboard", label: "Dashboard", href: "/" },

@@ -73,7 +73,9 @@ function formatLoaded(r: LoadedRuntimeConfig): string {
 
   lines.push(`- **Slot:** ${r.slot === null ? "not assigned" : r.slot}`);
   lines.push(`- **up:** ${c.up ?? "(none — nothing to start)"}`);
-  lines.push(`- **down:** ${c.down ?? "(none — signal escalation on teardown)"}`);
+  lines.push(
+    `- **down:** ${c.down ?? "(none — signal escalation on teardown)"}`,
+  );
   if (c.up) lines.push(`- **detached:** ${c.detached}`);
   if (c.readiness) {
     lines.push(

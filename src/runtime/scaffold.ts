@@ -263,9 +263,7 @@ export function scaffoldRuntimeConfig(repoRoot: string): ScaffoldResult {
 }
 
 /** One rendered line-group: either a `key: value` pair or a comment block. */
-type Item =
-  | { kind: "entry"; text: string }
-  | { kind: "comment"; text: string };
+type Item = { kind: "entry"; text: string } | { kind: "comment"; text: string };
 
 const entry = (text: string): Item => ({ kind: "entry", text });
 const comment = (text: string): Item => ({ kind: "comment", text });

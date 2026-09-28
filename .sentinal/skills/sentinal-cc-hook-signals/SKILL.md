@@ -24,21 +24,21 @@ Especially for **Stop / SubagentStop** hooks going from a hard deny to a soft nu
 
 Claude Code reads hook output via **two mutually exclusive channels**:
 
-| Goal | Exit code | stdout JSON | stderr | Helper in `src/utils/hook-output.ts` |
-| --- | --- | --- | --- | --- |
-| **Hard block** (PreToolUse deny / Stop deny) | **2** | ignored | reason (shown to model) | `denyExit(reason)` |
-| **Soft block** feed reason back, continue turn | **2** | `{decision:"block",reason}` | reason | `blockExit(reason)` **+ `continueOnBlock:true` in hooks.json** |
-| **Soft feedback** (Stop nudge, keep turn alive) | **0** | `{hookSpecificOutput:{hookEventName,additionalContext}}` | — | `stopContext(reason)` / `hint(event,ctx)`+`output()` |
-| **Context injection** (PostToolUse, SessionStart) | **0** | `hint(...)` JSON | — | `output(hint(...))` |
+| Goal                                              | Exit code | stdout JSON                                              | stderr                  | Helper in `src/utils/hook-output.ts`                           |
+| ------------------------------------------------- | --------- | -------------------------------------------------------- | ----------------------- | -------------------------------------------------------------- |
+| **Hard block** (PreToolUse deny / Stop deny)      | **2**     | ignored                                                  | reason (shown to model) | `denyExit(reason)`                                             |
+| **Soft block** feed reason back, continue turn    | **2**     | `{decision:"block",reason}`                              | reason                  | `blockExit(reason)` **+ `continueOnBlock:true` in hooks.json** |
+| **Soft feedback** (Stop nudge, keep turn alive)   | **0**     | `{hookSpecificOutput:{hookEventName,additionalContext}}` | —                       | `stopContext(reason)` / `hint(event,ctx)`+`output()`           |
+| **Context injection** (PostToolUse, SessionStart) | **0**     | `hint(...)` JSON                                         | —                       | `output(hint(...))`                                            |
 
 ### The trap that cost real time (2026-07-17)
 
-`blockExit`'s docstring says *"Exiting 0 would silently downgrade to a no-op."*
+`blockExit`'s docstring says _"Exiting 0 would silently downgrade to a no-op."_
 **That is TRUE ONLY for the `{decision:"block"}` route.** It is FALSE for
 `hookSpecificOutput.additionalContext`:
 
-- CC docs: *"The hook must exit with code **0** for the JSON to be processed. If
-  the hook exits with code **2**, any JSON output is **ignored**."*
+- CC docs: _"The hook must exit with code **0** for the JSON to be processed. If
+  the hook exits with code **2**, any JSON output is **ignored**."_
 - So a Stop hook that wants to nudge (not hard-block) MUST emit
   `additionalContext` and **exit 0**. It keeps the turn alive as "Stop hook
   feedback" under the 8-consecutive-continuation cap (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`).

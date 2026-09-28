@@ -350,6 +350,7 @@ Sentinal integrates with each assistant through its native extension mechanism. 
 The sidecar (`sentinal sidecar start`) is a background HTTP server that holds a warm `MemoryStore`, `SpecStore`, `WorktreeStore`, and vector embeddings. Hooks and the MCP server connect via Unix domain socket (`~/.sentinal/sidecar.sock`) with HTTP fallback, avoiding the ~100ms per-invocation cold start of opening SQLite directly.
 
 The sidecar shuts itself down automatically:
+
 - 60 seconds after the last active session ends
 - 30 minutes of idle time if no sessions were ever created
 - 1 hour of no HTTP activity (stale session detection)
@@ -368,22 +369,22 @@ A request that exceeds its budget reports the outcome as **unknown** — the sid
 
 Claude Code uses compiled TypeScript hooks that intercept lifecycle events via the `sentinal hook <scope> <name>` CLI dispatcher:
 
-| Event              | Hook                 | What It Does                                                                                              |
-| ------------------ | -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `SessionStart`     | session-start        | Create session record; auto-start sidecar + dashboard                                                    |
-| `SessionStart`     | memory-restore       | Restore relevant memories for the current project                                                         |
-| `SessionStart`     | post-compact-restore | Restore active `/spec` plan after context compaction                                                      |
-| `PreToolUse`       | tdd-guard            | Block edits to implementation files until a failing test exists (RED state required)                      |
-| `PreToolUse`       | pre-edit-guide       | Provide context-aware guidance before file edits                                                          |
-| `PreToolUse`       | tool-redirect        | Deny `WebSearch`/`WebFetch` (use MCP instead), hint on vague Grep patterns                               |
-| `PostToolUse`      | file-checker         | File length, framework checks, companion-test check on every `Write`/`Edit` (no formatters or tsc)        |
-| `PostToolUse`      | tdd-tracker          | Track RED/GREEN state transitions after test runs                                                         |
-| `PostToolUse`      | memory-observer      | Auto-capture learning moments from tool results                                                           |
-| `PostToolUse`      | context-monitor      | Monitor context window %, warn at 65/75/85%+ thresholds                                                  |
-| `UserPromptSubmit` | prompt-context       | Inject active plan + memory context into every prompt                                                     |
-| `PreCompact`       | pre-compact          | Save active plan path and metadata to `.sentinal/compact-state.json`                                     |
-| `Stop`             | spec-stop-guard      | Block session exit if a `/spec` plan is in PENDING or COMPLETE state                                     |
-| `SessionEnd`       | session-end          | End session record; stop sidecar + dashboard if no other sessions active                                  |
+| Event              | Hook                 | What It Does                                                                                       |
+| ------------------ | -------------------- | -------------------------------------------------------------------------------------------------- |
+| `SessionStart`     | session-start        | Create session record; auto-start sidecar + dashboard                                              |
+| `SessionStart`     | memory-restore       | Restore relevant memories for the current project                                                  |
+| `SessionStart`     | post-compact-restore | Restore active `/spec` plan after context compaction                                               |
+| `PreToolUse`       | tdd-guard            | Block edits to implementation files until a failing test exists (RED state required)               |
+| `PreToolUse`       | pre-edit-guide       | Provide context-aware guidance before file edits                                                   |
+| `PreToolUse`       | tool-redirect        | Deny `WebSearch`/`WebFetch` (use MCP instead), hint on vague Grep patterns                         |
+| `PostToolUse`      | file-checker         | File length, framework checks, companion-test check on every `Write`/`Edit` (no formatters or tsc) |
+| `PostToolUse`      | tdd-tracker          | Track RED/GREEN state transitions after test runs                                                  |
+| `PostToolUse`      | memory-observer      | Auto-capture learning moments from tool results                                                    |
+| `PostToolUse`      | context-monitor      | Monitor context window %, warn at 65/75/85%+ thresholds                                            |
+| `UserPromptSubmit` | prompt-context       | Inject active plan + memory context into every prompt                                              |
+| `PreCompact`       | pre-compact          | Save active plan path and metadata to `.sentinal/compact-state.json`                               |
+| `Stop`             | spec-stop-guard      | Block session exit if a `/spec` plan is in PENDING or COMPLETE state                               |
+| `SessionEnd`       | session-end          | End session record; stop sidecar + dashboard if no other sessions active                           |
 
 Hooks are compiled to `targets/claude-code/hooks/dist/` and invoked by the `sentinal hook` CLI dispatcher.
 
@@ -391,27 +392,27 @@ Hooks are compiled to `targets/claude-code/hooks/dist/` and invoked by the `sent
 
 OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) executed natively by OpenCode's Node.js runtime:
 
-| Event                             | What It Does                                                            |
-| --------------------------------- | ----------------------------------------------------------------------- |
-| Plugin init                       | Auto-start sidecar; version-aware dashboard ensure                      |
-| `tool.execute.before`             | TDD guard, tool redirection hints, pre-edit guidance                    |
-| `tool.execute.after`              | Quality checks on file edits (file length, TDD, NestJS/Angular, tsc)   |
-| `experimental.session.compacting` | Inject active `/spec` plan state + memory context into compaction       |
-| `session.created`                 | Create session record; restore memories                                 |
-| `session.idle`                    | Warn about incomplete `/spec` plans                                     |
-| `session.deleted`                 | End session; stop sidecar + dashboard when no sessions remain           |
+| Event                             | What It Does                                                         |
+| --------------------------------- | -------------------------------------------------------------------- |
+| Plugin init                       | Auto-start sidecar; version-aware dashboard ensure                   |
+| `tool.execute.before`             | TDD guard, tool redirection hints, pre-edit guidance                 |
+| `tool.execute.after`              | Quality checks on file edits (file length, TDD, NestJS/Angular, tsc) |
+| `experimental.session.compacting` | Inject active `/spec` plan state + memory context into compaction    |
+| `session.created`                 | Create session record; restore memories                              |
+| `session.idle`                    | Warn about incomplete `/spec` plans                                  |
+| `session.deleted`                 | End session; stop sidecar + dashboard when no sessions remain        |
 
 ### Architecture Comparison
 
-| Feature            | Claude Code                      | OpenCode                         |
-| ------------------ | -------------------------------- | -------------------------------- |
-| **Extension type** | Compiled hook scripts            | Native TypeScript plugin         |
-| **Hook dispatch**  | `sentinal hook <scope> <name>`   | Plugin event handlers            |
-| **Formatters**     | On demand (`quality_report`)     | On demand (`quality_report`)     |
-| **Runtime**        | Compiled JS via Bun              | Node.js (plugin) + Bun (sidecar) |
-| **Tool blocking**  | Exit code 2 + stderr             | Throw Error                      |
-| **Compaction**     | Save state to file               | Direct context injection         |
-| **Sub-agents**     | plan-reviewer, spec-reviewer     | plan-reviewer, spec-reviewer     |
+| Feature            | Claude Code                    | OpenCode                         |
+| ------------------ | ------------------------------ | -------------------------------- |
+| **Extension type** | Compiled hook scripts          | Native TypeScript plugin         |
+| **Hook dispatch**  | `sentinal hook <scope> <name>` | Plugin event handlers            |
+| **Formatters**     | On demand (`quality_report`)   | On demand (`quality_report`)     |
+| **Runtime**        | Compiled JS via Bun            | Node.js (plugin) + Bun (sidecar) |
+| **Tool blocking**  | Exit code 2 + stderr           | Throw Error                      |
+| **Compaction**     | Save state to file             | Direct context injection         |
+| **Sub-agents**     | plan-reviewer, spec-reviewer   | plan-reviewer, spec-reviewer     |
 
 ### File Edit Flow
 
@@ -574,10 +575,10 @@ Sentinal can **draft** the file (`/sync`, or the `runtime_init` MCP tool) but ne
     "target": "http://localhost:3000/health", // URL, or a shell command for `exec`
     "expectStatus": [200], // http only; default is any 2xx–3xx
     "startupTimeoutMs": 60000,
-    "pollIntervalMs": 250
+    "pollIntervalMs": 250,
   },
 
-  "shutdown": { "signal": "SIGTERM", "graceMs": 10000 }
+  "shutdown": { "signal": "SIGTERM", "graceMs": 10000 },
 }
 ```
 
@@ -595,12 +596,12 @@ Comments are allowed (`//` and `/* */`); trailing commas are not.
 
 The map declares **the sharing that remains after `up` runs** — the common half-measure is a start command that parameterizes the port while the database URL still comes from a shared `.env`.
 
-| Declaration           | Blocks a run? | Reported?                |
-| --------------------- | ------------- | ------------------------ |
-| `"isolated"`          | no            | no                       |
-| `"shared"` (explicit) | **yes**       | yes                      |
-| `"none"`              | no            | no                       |
-| **absent**            | **no**        | yes, **non-blocking**    |
+| Declaration           | Blocks a run? | Reported?             |
+| --------------------- | ------------- | --------------------- |
+| `"isolated"`          | no            | no                    |
+| `"shared"` (explicit) | **yes**       | yes                   |
+| `"none"`              | no            | no                    |
+| **absent**            | **no**        | yes, **non-blocking** |
 
 - **Unstated means `unknown`, not `shared`, and `unknown` never prompts.** A prompt that fires on every run of every project carries no information, and a reflexively-accepted one teaches you to wave through "not isolated". You get a line of context instead.
 - **Only an explicit, human-written `"shared"` gates anything.** Deliberate, therefore rare, therefore worth reading.
@@ -614,14 +615,14 @@ Declaring the contract is half of it; the other half is that Sentinal, not the a
 
 | Tool           | Does                                                                                                                                                       |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtime_up`   | Runs `up` in a **new process group Sentinal owns**, records it, polls `readiness`, and returns only once the probe passes. Failures carry a log tail.       |
-| `runtime_stop` | **DESTRUCTIVE.** Runs `down`, then escalates `shutdown.signal` → `graceMs` → `SIGKILL` **to that group and nothing else**. Idempotent; safe to call twice.  |
+| `runtime_up`   | Runs `up` in a **new process group Sentinal owns**, records it, polls `readiness`, and returns only once the probe passes. Failures carry a log tail.      |
+| `runtime_stop` | **DESTRUCTIVE.** Runs `down`, then escalates `shutdown.signal` → `graceMs` → `SIGKILL` **to that group and nothing else**. Idempotent; safe to call twice. |
 
 **The ownership record is a file, not a daemon.** `runtime_up` writes `<worktree>/.sentinal/runtime.pid` — pid, pgid, the command, and a state of `starting` or `ready` — **before** the first readiness poll, not after. Writing it only on success would leave the entire startup window (up to 60s) with a detached process group and nothing recording it, which is the orphan the record exists to prevent. Both the pidfile and `.sentinal/runtime.log` are hidden from git automatically.
 
 Staleness is evaluated **on read**, so there is no background sweeper and no state outside the worktree. The record dies with the worktree.
 
-**Sentinal never signals a process it cannot prove is yours.** Before any signal it re-checks both that the PID is alive and that the process still references this worktree — by command line *or* by working directory. **If that cannot be established, it refuses and tells you what it found**, because a recycled PID belongs to someone else. That refusal is the whole point: `kill -- -$PGID` against a verified group is the correct alternative to `pkill -f`, and it only stays correct while the verification is unskippable.
+**Sentinal never signals a process it cannot prove is yours.** Before any signal it re-checks both that the PID is alive and that the process still references this worktree — by command line _or_ by working directory. **If that cannot be established, it refuses and tells you what it found**, because a recycled PID belongs to someone else. That refusal is the whole point: `kill -- -$PGID` against a verified group is the correct alternative to `pkill -f`, and it only stays correct while the verification is unskippable.
 
 **"Could not check" is never treated as "nothing is running."** If `ps` is missing or fails, Sentinal cannot enumerate the process group — and a probe that could not answer is not evidence that a group is gone. So an unenumerable group makes `runtime_stop` **refuse**, keeping the ownership record rather than deleting the only thing that can find that group again, and makes `worktree_cleanup --force` treat the worktree as **live** and skip it. The cost of the opposite default is a live process whose working directory has just been deleted.
 
@@ -633,7 +634,7 @@ Because a failed stop aborts the exit path, a worktree whose runtime cannot be s
    ```sh
    ps -A -o pid=,pgid=,command= | awk '$2 == <PGID>'
    ```
-   (`ps -g` is *not* portable process-group selection: Darwin ignores the flag, and Linux reads it as a session id rather than a process-group id.)
+   (`ps -g` is _not_ portable process-group selection: Darwin ignores the flag, and Linux reads it as a session id rather than a process-group id.)
 2. Stop by hand whatever you recognise as belonging to that worktree.
 3. Delete the ownership record: `rm <worktree>/.sentinal/runtime.pid`.
 4. Re-run `worktree_abandon` / `worktree_sync`. With no pidfile the stop is an immediate no-op, so the worktree is no longer wedged.
@@ -642,12 +643,12 @@ Because a failed stop aborts the exit path, a worktree whose runtime cannot be s
 
 **⛔ An occupied port is a hard failure. Sentinal never picks a different one.** A free port proves nothing about what is behind it — a second stack on port 3001 still writes to the same database as the one on 3000, so re-porting converts a loud, obvious failure into a silent one that corrupts shared state. `runtime_up` therefore fails and names the conflict:
 
-| Situation                                     | What `runtime_up` does                                                       |
-| --------------------------------------------- | ---------------------------------------------------------------------------- |
-| A **ready** stack of ours already holds it    | **Reuses** it, and never tears it down — killing what we did not start is the same error class as `pkill -f` |
-| A **half-started** stack of ours holds it     | Tears that group down, then starts fresh                                     |
-| A dead leader, but its **group** still holds it | Reaps the group — but only after verifying a live member references this worktree |
-| Anything else, or nothing we can identify     | **Fails, naming the port.** No alternative port is attempted, anywhere       |
+| Situation                                       | What `runtime_up` does                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| A **ready** stack of ours already holds it      | **Reuses** it, and never tears it down — killing what we did not start is the same error class as `pkill -f` |
+| A **half-started** stack of ours holds it       | Tears that group down, then starts fresh                                                                     |
+| A dead leader, but its **group** still holds it | Reaps the group — but only after verifying a live member references this worktree                            |
+| Anything else, or nothing we can identify       | **Fails, naming the port.** No alternative port is attempted, anywhere                                       |
 
 **Stopping happens on every exit path.** `worktree_sync` and `worktree_abandon` stop the worktree's process group **before** they touch the directory (and, for a merge, before `git checkout` — a live process holding files can fail the checkout itself). `worktree_cleanup --force` skips any worktree that still owns live processes and tells you which. Worktrees that never started a runtime pay nothing: with no pidfile the stop returns immediately, without loading the contract or running `down`.
 
@@ -671,13 +672,13 @@ The CLI is a genuine fallback when the MCP path is failing: `sentinal worktree c
 
 Sentinal configures 5 MCP servers for enhanced capabilities:
 
-| Server         | Purpose                                    | Package                 |
-| -------------- | ------------------------------------------ | ----------------------- |
-| **context7**   | Up-to-date library/framework documentation | `@upstash/context7-mcp` |
-| **web-search** | Web search via DuckDuckGo/Bing/Exa         | `open-websearch`        |
-| **grep-mcp**   | GitHub code search across 1M+ public repos | `mcp.grep.app`          |
-| **web-fetch**  | Full web page fetching via Playwright      | `fetcher-mcp`           |
-| **sentinal**   | Memory, spec, worktree, TDD, analysis, runtime | `@endpoint/sentinal` |
+| Server         | Purpose                                        | Package                 |
+| -------------- | ---------------------------------------------- | ----------------------- |
+| **context7**   | Up-to-date library/framework documentation     | `@upstash/context7-mcp` |
+| **web-search** | Web search via DuckDuckGo/Bing/Exa             | `open-websearch`        |
+| **grep-mcp**   | GitHub code search across 1M+ public repos     | `mcp.grep.app`          |
+| **web-fetch**  | Full web page fetching via Playwright          | `fetcher-mcp`           |
+| **sentinal**   | Memory, spec, worktree, TDD, analysis, runtime | `@endpoint/sentinal`    |
 
 These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
 
@@ -685,15 +686,15 @@ These are preferred over built-in web tools. In Claude Code, the `tool-redirect`
 
 The `sentinal` MCP server exposes **37 tools across 7 domains**:
 
-| Domain       | Count | Tools                                                                                      |
-| ------------ | ----- | ------------------------------------------------------------------------------------------ |
-| **Memory**   | 9     | `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_update`, `memory_delete`, `memory_share`, `memory_maintain`, `memory_stats` |
+| Domain       | Count | Tools                                                                                                                                                              |
+| ------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Memory**   | 9     | `memory_search`, `memory_timeline`, `memory_get`, `memory_save`, `memory_update`, `memory_delete`, `memory_share`, `memory_maintain`, `memory_stats`               |
 | **Spec**     | 10    | `spec_init`, `spec_status`, `spec_register`, `spec_plan_parse`, `spec_config`, `spec_events`, `spec_metrics`, `spec_notify`, `spec_wait_file`, `spec_master_audit` |
-| **Worktree** | 6     | `worktree_detect`, `worktree_create`, `worktree_diff`, `worktree_sync`, `worktree_abandon`, `worktree_cleanup` |
-| **TDD**      | 3     | `tdd_status`, `tdd_set_state`, `tdd_clear`                                                |
-| **Analysis** | 4     | `check_diagnostics`, `impact_analysis`, `plan_impact`, `quality_report`                    |
-| **Runtime**  | 4     | `runtime_config`, `runtime_init`, `runtime_up`, `runtime_stop`                             |
-| **Project**  | 1     | `project_context`                                                                          |
+| **Worktree** | 6     | `worktree_detect`, `worktree_create`, `worktree_diff`, `worktree_sync`, `worktree_abandon`, `worktree_cleanup`                                                     |
+| **TDD**      | 3     | `tdd_status`, `tdd_set_state`, `tdd_clear`                                                                                                                         |
+| **Analysis** | 4     | `check_diagnostics`, `impact_analysis`, `plan_impact`, `quality_report`                                                                                            |
+| **Runtime**  | 4     | `runtime_config`, `runtime_init`, `runtime_up`, `runtime_stop`                                                                                                     |
+| **Project**  | 1     | `project_context`                                                                                                                                                  |
 
 ## Development
 
@@ -776,7 +777,7 @@ bun run pre-release:download   # test a PUBLISHED asset (needs GITHUB_TOKEN)
   the #1 thing that passes the bundled harness but can fail a real user. Opt-in (slow).
 - **`:download`** fetches the latest (or `SENTINAL_E2E_TAG`) release asset **and verifies
   its sha256 against `checksums.txt`** (hard-fail on mismatch) before testing it.
-- **Cross-platform caveat:** a host can only *execute* its own platform's binary (a Mac
+- **Cross-platform caveat:** a host can only _execute_ its own platform's binary (a Mac
   can't run `sentinal-linux-*`). Run `bun run pre-release` on a **Linux CI runner** for the
   authoritative Linux `run` coverage; `:download` can fetch + checksum-verify a Linux asset
   from any host but not execute it.

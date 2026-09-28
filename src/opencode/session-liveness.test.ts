@@ -73,7 +73,9 @@ describe("buildLivenessProbe", () => {
 
   it("probe reports a stale (old updated) session as NOT alive", async () => {
     const probe = await buildLivenessProbe({
-      client: client([{ id: "sess-A", updated: now - 3 * 60 * 60 * 1000 }]) as unknown,
+      client: client([
+        { id: "sess-A", updated: now - 3 * 60 * 60 * 1000 },
+      ]) as unknown,
       windowMs: 45 * 60 * 1000,
     });
     expect(probe!("sess-A")).toBe(false);

@@ -170,7 +170,10 @@ describe("package.json inference", () => {
   });
 
   it("ignores a dev script with no discoverable port rather than guessing one", () => {
-    write("package.json", JSON.stringify({ scripts: { dev: "node server.js" } }));
+    write(
+      "package.json",
+      JSON.stringify({ scripts: { dev: "node server.js" } }),
+    );
     const cfg = parsed(scaffoldRuntimeConfig(root).content);
     expect(cfg.up).toBeUndefined();
     expect(cfg.readiness).toBeUndefined();
@@ -230,7 +233,8 @@ describe("ambiguity is left empty with a comment, never guessed", () => {
     for (const setup of [
       () => {},
       () => write("docker-compose.yml", COMPOSE),
-      () => write("docker-compose.yml", "services:\n  db:\n    image: postgres\n"),
+      () =>
+        write("docker-compose.yml", "services:\n  db:\n    image: postgres\n"),
       () => write("package.json", JSON.stringify({ scripts: { dev: "x" } })),
       () => write("Procfile", "web: node x\n"),
     ]) {

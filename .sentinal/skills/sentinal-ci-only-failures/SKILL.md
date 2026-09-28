@@ -29,7 +29,9 @@ set code (Node does). Any test exercising a CLI failure path that sets
 `process.exitCode = 1` poisons the whole run unless reset to `0`:
 
 ```ts
-afterEach(() => { process.exitCode = 0; });   // NOT undefined
+afterEach(() => {
+  process.exitCode = 0;
+}); // NOT undefined
 ```
 
 Find the leaking file by running suspects individually and checking `$?`:

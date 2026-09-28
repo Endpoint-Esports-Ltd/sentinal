@@ -243,7 +243,9 @@ export async function buildTransformersBundle(
         `import("${bundlePath.replaceAll("\\", "/")}").then((m) => process.exit(m.pipeline ? 0 : 1)).catch(() => process.exit(1));`,
       ]);
       if (code !== 0) {
-        report.push(`Bundle import smoke failed (exit ${code}) — not recording the bundle as usable.`);
+        report.push(
+          `Bundle import smoke failed (exit ${code}) — not recording the bundle as usable.`,
+        );
         return { ok: false, bundler, report };
       }
       report.push("Bundle import smoke passed.");

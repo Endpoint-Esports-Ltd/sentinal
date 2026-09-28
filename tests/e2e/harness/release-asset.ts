@@ -154,7 +154,9 @@ export async function downloadReleaseAsset(
 
   const binaryBytes = await downloadAssetById(binaryId, opts.token);
   const checksumsBytes = await downloadAssetById(checksumsId, opts.token);
-  const checksums = parseChecksums(Buffer.from(checksumsBytes).toString("utf8"));
+  const checksums = parseChecksums(
+    Buffer.from(checksumsBytes).toString("utf8"),
+  );
 
   const expected = checksums.get(assetName);
   if (!expected) {

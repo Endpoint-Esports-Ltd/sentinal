@@ -47,13 +47,17 @@ function currentAssetName() {
   const archMap = { x64: "x64", arm64: "arm64" };
   const os = osMap[process.platform];
   const arch = archMap[process.arch];
-  if (!os) throw new Error(`Unsupported OS: ${process.platform} (need darwin/linux)`);
-  if (!arch) throw new Error(`Unsupported arch: ${process.arch} (need x64/arm64)`);
+  if (!os)
+    throw new Error(`Unsupported OS: ${process.platform} (need darwin/linux)`);
+  if (!arch)
+    throw new Error(`Unsupported arch: ${process.arch} (need x64/arm64)`);
   return `sentinal-${os}-${arch}`;
 }
 
 function pkgVersion() {
-  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));
+  const pkg = JSON.parse(
+    readFileSync(join(REPO_ROOT, "package.json"), "utf-8"),
+  );
   return pkg.version ?? "0.0.0";
 }
 
@@ -64,14 +68,19 @@ function buildCurrentPlatform() {
   const assetName = currentAssetName();
   const outfile = join(DIST, assetName);
   const target = `bun-${process.platform}-${process.arch}`;
-  console.log(`[pre-release] building ${assetName} (v${version}) as the release artifact...`);
+  console.log(
+    `[pre-release] building ${assetName} (v${version}) as the release artifact...`,
+  );
   // Mirror release-build.mjs: bake plugin.json (before embed — it is embedded
   // verbatim) + embed assets + externalize native deps + inject version.
   // package.json's version equals the committed plugin.json, so a local run
   // leaves no diff.
   bakePluginVersion(CC_PLUGIN_JSON, version);
   buildOpencode(version);
-  execSync("node scripts/embed-assets.mjs", { cwd: REPO_ROOT, stdio: "inherit" });
+  execSync("node scripts/embed-assets.mjs", {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+  });
   const versionProblems = verifyBakedVersion(version, shippedPluginPaths());
   if (versionProblems.length > 0) {
     throw new Error(
@@ -142,7 +151,9 @@ function runGate(binaryPath) {
   const ranMatch = /Ran (\d+) tests?/.exec(combined);
   const ran = ranMatch ? Number(ranMatch[1]) : 0;
   if (ran === 0) {
-    throw new Error("[pre-release] gate ran 0 tests — a gate path is likely mistyped");
+    throw new Error(
+      "[pre-release] gate ran 0 tests — a gate path is likely mistyped",
+    );
   }
   if (proc.status !== 0) {
     throw new Error(`[pre-release] gate FAILED (exit ${proc.status})`);
@@ -159,9 +170,8 @@ async function downloadArtifact() {
       "[pre-release] --download requires GITHUB_TOKEN (private repo).",
     );
   }
-  const { downloadReleaseAsset } = await import(
-    "../tests/e2e/harness/release-asset.ts"
-  );
+  const { downloadReleaseAsset } =
+    await import("../tests/e2e/harness/release-asset.ts");
   const tag = process.env.SENTINAL_E2E_TAG; // optional; else latest
   console.log(
     `[pre-release] downloading published asset (${tag ?? "latest"}) + verifying checksum...`,

@@ -218,8 +218,16 @@ describe("MemoryStore — Notifications", () => {
 
   describe("getUnreadGlobalNotifications", () => {
     it("returns only unread NULL-project rows whose source is listed", () => {
-      store.insertNotification({ type: "warning", title: "Skew", source: "sidecar-retire" });
-      store.insertNotification({ type: "info", title: "Legacy", source: "session-end" });
+      store.insertNotification({
+        type: "warning",
+        title: "Skew",
+        source: "sidecar-retire",
+      });
+      store.insertNotification({
+        type: "info",
+        title: "Legacy",
+        source: "session-end",
+      });
       store.insertNotification({ type: "info", title: "NoSource" });
       store.insertNotification({
         type: "warning",
@@ -239,7 +247,11 @@ describe("MemoryStore — Notifications", () => {
     });
 
     it("returns nothing for an empty source list", () => {
-      store.insertNotification({ type: "warning", title: "Skew", source: "sidecar-retire" });
+      store.insertNotification({
+        type: "warning",
+        title: "Skew",
+        source: "sidecar-retire",
+      });
       expect(store.getUnreadGlobalNotifications([], 10)).toEqual([]);
     });
 

@@ -146,7 +146,9 @@ describe("decideTestHome", () => {
 
   it("does not treat a sibling-prefixed path as inside the temp root", () => {
     const preset = tmpRoot + "-evil/home";
-    expect(decideTestHome(preset, { tmpRoot, realHome, mkTemp }).owned).toBe(true);
+    expect(decideTestHome(preset, { tmpRoot, realHome, mkTemp }).owned).toBe(
+      true,
+    );
   });
 });
 
@@ -168,7 +170,9 @@ describe("linkSharedModels / removeTestHome", () => {
       linkSharedModels(home, shared, real);
 
       expect(readlinkSync(join(home, "models"))).toBe(shared);
-      expect(existsSync(join(home, "models", "Xenova", "model.onnx"))).toBe(true);
+      expect(existsSync(join(home, "models", "Xenova", "model.onnx"))).toBe(
+        true,
+      );
       // The real dir is only read: still exactly as it was.
       expect(existsSync(join(real, "Xenova", "model.onnx"))).toBe(true);
     } finally {
@@ -231,7 +235,9 @@ describe("linkSharedModels / removeTestHome", () => {
 
 describe("sweepStaleTestHomes", () => {
   it("removes only sentinal-test-home-* dirs older than the cutoff", () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-isolation-sweep-")));
+    const root = realpathSync(
+      mkdtempSync(join(tmpdir(), "sentinal-isolation-sweep-")),
+    );
     try {
       const old = join(root, "sentinal-test-home-OLD");
       const fresh = join(root, "sentinal-test-home-NEW");
@@ -259,7 +265,9 @@ describe("sweepStaleTestHomes", () => {
 
 describe("the preload end to end (subprocess)", () => {
   it("a fresh run creates its own temp home and deletes it at exit", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-isolation-probe-")));
+    const dir = realpathSync(
+      mkdtempSync(join(tmpdir(), "sentinal-isolation-probe-")),
+    );
     try {
       const probe = join(dir, "probe.test.ts");
       writeFileSync(

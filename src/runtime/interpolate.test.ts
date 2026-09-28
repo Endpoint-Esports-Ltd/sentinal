@@ -23,7 +23,11 @@ describe("closed namespace", () => {
   });
 
   it("interpolates exactly up, down and readiness.target", () => {
-    expect([...INTERPOLATED_FIELDS]).toEqual(["up", "down", "readiness.target"]);
+    expect([...INTERPOLATED_FIELDS]).toEqual([
+      "up",
+      "down",
+      "readiness.target",
+    ]);
   });
 });
 

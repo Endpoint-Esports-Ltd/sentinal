@@ -71,9 +71,7 @@ export async function buildLivenessProbe(
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Narrow the client to a callable session.list, or null. */
-function getSessionList(
-  client: unknown,
-): (() => Promise<unknown>) | null {
+function getSessionList(client: unknown): (() => Promise<unknown>) | null {
   if (!client || typeof client !== "object") return null;
   const session = (client as { session?: unknown }).session;
   if (!session || typeof session !== "object") return null;

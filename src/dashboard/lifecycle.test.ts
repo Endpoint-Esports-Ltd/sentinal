@@ -2,14 +2,17 @@
  * Dashboard Lifecycle Tests
  */
 
-import { describe, it, expect, afterEach, beforeEach, spyOn, mock } from "bun:test";
-import { join } from "node:path";
 import {
-  rmSync,
-  readFileSync,
-  existsSync,
-  writeFileSync,
-} from "node:fs";
+  describe,
+  it,
+  expect,
+  afterEach,
+  beforeEach,
+  spyOn,
+  mock,
+} from "bun:test";
+import { join } from "node:path";
+import { rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import * as fileLogModule from "../utils/file-log.js";
 import * as lifecycleModule from "./lifecycle.js";
@@ -106,11 +109,15 @@ describe("Dashboard lifecycle logging", () => {
   it("should log when stopServer sends SIGTERM to a live process", () => {
     // Redirect PID file path to tmpDir so the function reads the right file
     const pidPath = join(tmpDir, "server.pid");
-    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(
+      pidPath,
+    );
     writeFileSync(pidPath, String(process.pid), "utf-8");
 
     // Intercept SIGTERM so we don't kill the test process
-    const killSpy = spyOn(process, "kill").mockImplementation((() => true) as any);
+    const killSpy = spyOn(process, "kill").mockImplementation(
+      (() => true) as any,
+    );
     try {
       lifecycleModule.stopServer();
     } finally {
@@ -126,7 +133,9 @@ describe("Dashboard lifecycle logging", () => {
 
   it("should log when stopServer finds no PID file", () => {
     const pidPath = join(tmpDir, "server.pid"); // doesn't exist
-    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(
+      pidPath,
+    );
     try {
       lifecycleModule.stopServer();
     } finally {
@@ -143,7 +152,9 @@ describe("Dashboard lifecycle logging", () => {
     // Redirect PID file to tmpDir with current PID → isServerRunning() returns true
     const pidPath = join(tmpDir, "server.pid");
     writeFileSync(pidPath, String(process.pid), "utf-8");
-    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(pidPath);
+    const getPidSpy = spyOn(lifecycleModule, "getPidFilePath").mockReturnValue(
+      pidPath,
+    );
 
     try {
       await lifecycleModule.autoStartDashboard(); // no version — should return early with a log
@@ -189,7 +200,8 @@ describe("decideServeStartup", () => {
       probeFn: async () => ({ version: "1.30.0", pid: 9999 }),
     });
     expect(result.action).toBe("exit");
-    if (result.action === "exit") expect(result.reason).toContain("already running");
+    if (result.action === "exit")
+      expect(result.reason).toContain("already running");
   });
 
   it("should return 'takeover' when older-version dashboard is live with pid", async () => {
@@ -244,7 +256,8 @@ describe("decideServeStartup", () => {
       let calls = 0;
       const result = await lifecycleModule.waitForDashboardHealthy({
         expectedVersion: "1.31.3",
-        probeFn: async () => (++calls < 3 ? null : { version: "1.31.3", pid: 42 }),
+        probeFn: async () =>
+          ++calls < 3 ? null : { version: "1.31.3", pid: 42 },
         timeoutMs: 2000,
         intervalMs: 1,
       });
@@ -298,7 +311,9 @@ describe("decideServeStartup", () => {
   it("should return 'start' when probe throws", async () => {
     const result = await lifecycleModule.decideServeStartup({
       currentVersion: "1.30.0",
-      probeFn: async () => { throw new Error("ECONNREFUSED"); },
+      probeFn: async () => {
+        throw new Error("ECONNREFUSED");
+      },
     });
     expect(result.action).toBe("start");
   });

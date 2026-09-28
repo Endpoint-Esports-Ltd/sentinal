@@ -46,11 +46,23 @@ compiled binary can't bundle):
 ```ts
 await Bun.build({
   entrypoints: ["<deps>/node_modules/<pkg>/<entry>.js"],
-  target: "node", format: "esm",
-  plugins: [{ name: "stub-sharp", setup(b) {
-    b.onResolve({ filter: /^sharp$/ }, () => ({ path: "s", namespace: "stub" }));
-    b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ contents: "export default null;", loader: "js" }));
-  }}],
+  target: "node",
+  format: "esm",
+  plugins: [
+    {
+      name: "stub-sharp",
+      setup(b) {
+        b.onResolve({ filter: /^sharp$/ }, () => ({
+          path: "s",
+          namespace: "stub",
+        }));
+        b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+          contents: "export default null;",
+          loader: "js",
+        }));
+      },
+    },
+  ],
 });
 ```
 
@@ -71,12 +83,12 @@ package's expected tree next to the bundle. For onnxruntime-node the bundle at
 
 ## Gotchas That Cost Hours
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| sharp's "npm ls sharp" help error at import | transformers imports sharp eagerly (images only) | Alias/stub to `export default null;` — `.default` must exist |
-| esbuild `No loader for .node` | `.node` referenced in source | `--external:*.node` (NOT `--loader:.node=copy` — copies break `@rpath` dylib siblings) |
-| esbuild ESM output: require is not defined | externals use require() | the createRequire banner above |
-| Bundle imports fine under bun, fails in binary | smoke ran under bun only | smoke-test inside a tiny compiled test binary: `bun build --compile main.ts` where main.ts imports the bundle path from argv |
+| Symptom                                        | Cause                                            | Fix                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| sharp's "npm ls sharp" help error at import    | transformers imports sharp eagerly (images only) | Alias/stub to `export default null;` — `.default` must exist                                                                 |
+| esbuild `No loader for .node`                  | `.node` referenced in source                     | `--external:*.node` (NOT `--loader:.node=copy` — copies break `@rpath` dylib siblings)                                       |
+| esbuild ESM output: require is not defined     | externals use require()                          | the createRequire banner above                                                                                               |
+| Bundle imports fine under bun, fails in binary | smoke ran under bun only                         | smoke-test inside a tiny compiled test binary: `bun build --compile main.ts` where main.ts imports the bundle path from argv |
 
 ## Verification
 

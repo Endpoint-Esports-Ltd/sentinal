@@ -122,15 +122,12 @@ describe("Layer B — real-binary smoke (opt-in, SENTINAL_E2E_REAL=1)", () => {
         // (NOT `-p`, which is --password). Model must be specified since the
         // sandbox has no default. `--dangerously-skip-permissions` is not a
         // `run` flag on this version.
-        const proc = Bun.spawnSync(
-          [oc, "run", "say hi", "--model", OC_MODEL],
-          {
-            env: sb.env as Record<string, string>,
-            cwd: join(sb.home, "work"),
-            stdout: "pipe",
-            stderr: "pipe",
-          },
-        );
+        const proc = Bun.spawnSync([oc, "run", "say hi", "--model", OC_MODEL], {
+          env: sb.env as Record<string, string>,
+          cwd: join(sb.home, "work"),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         // We do NOT assert the LLM turn succeeded. A full `opencode run` headless
         // turn does NOT complete in a fresh sandbox HOME even with --pure (no
         // plugins) — an OpenCode-side limitation, not a Sentinal bug (verified

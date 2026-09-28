@@ -461,7 +461,9 @@ describe("worktree-config seeding", () => {
     });
 
     expect(r.warnings).toContain(notIsolatedWarning(".env.example"));
-    expect(r.warnings.join("\n")).not.toContain("Shared with the main checkout");
+    expect(r.warnings.join("\n")).not.toContain(
+      "Shared with the main checkout",
+    );
   });
 
   it("treats an explicitly EMPTY list the same as omitting it", () => {

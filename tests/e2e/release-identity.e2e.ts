@@ -85,7 +85,9 @@ describe("release identity gate (SENTINAL_E2E_BINARY)", () => {
       // That path can never be a legitimate release-artifact override, so this
       // catches a silent source-mode fallback regardless of the override value.
       expect(sb.binaryPath).not.toBe(CLI_SRC);
-      expect(sb.binaryPath.endsWith(join("src", "cli", "index.ts"))).toBe(false);
+      expect(sb.binaryPath.endsWith(join("src", "cli", "index.ts"))).toBe(
+        false,
+      );
 
       // NOTE on the "reject the dev dist/sentinal build" requirement: a blanket
       // "binaryPath must NOT end with /dist/sentinal" is WRONG when the caller

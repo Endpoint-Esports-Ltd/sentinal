@@ -31,9 +31,8 @@ import { join } from "node:path";
 
 describe("shipped OpenCode plugin export surface", () => {
   it("exports exactly the plugin function (default + SentinalPlugin, same reference)", async () => {
-    const { EMBEDDED_OPENCODE_PLUGIN } = await import(
-      "../cli/embedded-assets.js"
-    );
+    const { EMBEDDED_OPENCODE_PLUGIN } =
+      await import("../cli/embedded-assets.js");
     const dir = mkdtempSync(join(tmpdir(), "sentinal-export-guard-"));
     const file = join(dir, "plugin.mjs");
     writeFileSync(file, EMBEDDED_OPENCODE_PLUGIN);

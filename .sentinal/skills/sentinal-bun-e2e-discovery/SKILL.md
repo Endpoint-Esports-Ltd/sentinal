@@ -31,6 +31,7 @@ out to `bun test` and inspects the result.
    finds NOTHING, because dir-scan requires a `.test.`/`.spec.` (dotted) or
    `_test_`/`_spec_` token — `.e2e.ts`/`.spec-e2e.ts` don't match. So a runner
    MUST enumerate explicit file paths, not a directory:
+
    ```bash
    bun test ./tests/e2e/harness/sandbox.spec-e2e.ts ./tests/e2e/foo.e2e.ts ...
    ```
@@ -40,7 +41,7 @@ out to `bun test` and inspects the result.
    run `bun test ./tests/e2e/x.e2e.ts`.
 
 4. **`bun test` writes its results to STDERR**, including the `Ran N tests across
-   M files` summary. A script that captures only stdout sees an empty result. In
+M files` summary. A script that captures only stdout sees an empty result. In
    `spawnSync`, use `stdio: ["inherit","pipe","pipe"]` and inspect
    `stdout + stderr`.
 

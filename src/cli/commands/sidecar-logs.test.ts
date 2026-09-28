@@ -11,9 +11,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeTmpDir } from "../../test-helpers.js";
 import * as fileLogModule from "../../utils/file-log.js";
-import {
-  buildLogsReport,
-} from "./sidecar-logs.js";
+import { buildLogsReport } from "./sidecar-logs.js";
 
 describe("buildLogsReport", () => {
   let tmpDir: string;
@@ -106,7 +104,9 @@ describe("buildLogsReport", () => {
 
   it("should show only dashboard.log when --file dashboard", () => {
     writeLog("sidecar.log", ["2026-06-09T00:00:00.000Z sidecar: started"]);
-    writeLog("dashboard.log", ["2026-06-09T00:00:00.000Z dashboard: started pid=1234"]);
+    writeLog("dashboard.log", [
+      "2026-06-09T00:00:00.000Z dashboard: started pid=1234",
+    ]);
     const report = buildLogsReport({ lines: 10, file: "dashboard" });
     expect(report).toContain("dashboard.log");
     expect(report).toContain("dashboard: started pid=1234");
@@ -115,7 +115,9 @@ describe("buildLogsReport", () => {
 
   it("should include dashboard.log in all mode", () => {
     writeLog("sidecar.log", ["2026-06-09T00:00:00.000Z sidecar: started"]);
-    writeLog("dashboard.log", ["2026-06-09T00:00:00.000Z dashboard: started pid=1234"]);
+    writeLog("dashboard.log", [
+      "2026-06-09T00:00:00.000Z dashboard: started pid=1234",
+    ]);
     writeLog("plugin.debug.log", ["2026-06-09T00:00:00.000Z plugin: hello"]);
     const report = buildLogsReport({ lines: 10, file: "all" });
     expect(report).toContain("dashboard.log");

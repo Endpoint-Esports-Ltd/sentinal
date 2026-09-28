@@ -24,7 +24,9 @@ describe("parseBinaryVersion", () => {
   });
 
   it("never throws on non-string input (Buffer, undefined, null, number, object)", () => {
-    expect(parseBinaryVersion(Buffer.from("1.31.3\n") as unknown as string)).toBe("1.31.3");
+    expect(
+      parseBinaryVersion(Buffer.from("1.31.3\n") as unknown as string),
+    ).toBe("1.31.3");
     expect(parseBinaryVersion(undefined as unknown as string)).toBeNull();
     expect(parseBinaryVersion(null as unknown as string)).toBeNull();
     expect(parseBinaryVersion(42 as unknown as string)).toBeNull();

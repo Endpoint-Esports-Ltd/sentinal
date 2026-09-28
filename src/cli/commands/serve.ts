@@ -48,7 +48,9 @@ export function registerServeCommand(program: Command): void {
 
         if (decision.action === "exit") {
           logDashboard(`dashboard: ${decision.reason} — skipping start`);
-          console.log(`Dashboard already running. Visit http://${host}:${port}`);
+          console.log(
+            `Dashboard already running. Visit http://${host}:${port}`,
+          );
           process.exit(0);
         }
 
@@ -61,16 +63,23 @@ export function registerServeCommand(program: Command): void {
             // Wait for port to be released — up to 3 × 200ms
             for (let i = 0; i < 3; i++) {
               await new Promise((r) => setTimeout(r, 200));
-              const recheck = await decideServeStartup({ currentVersion: version });
-              if (recheck.action !== "exit" && recheck.action !== "takeover") break;
+              const recheck = await decideServeStartup({
+                currentVersion: version,
+              });
+              if (recheck.action !== "exit" && recheck.action !== "takeover")
+                break;
             }
           } catch (e) {
             const code = (e as NodeJS.ErrnoException).code;
             if (code === "ESRCH") {
               // Process already gone — fine, proceed to start
-              logDashboard("dashboard: takeover target already gone (ESRCH) — proceeding");
+              logDashboard(
+                "dashboard: takeover target already gone (ESRCH) — proceeding",
+              );
             } else {
-              logDashboard(`dashboard: takeover kill failed (${code}) — proceeding`);
+              logDashboard(
+                `dashboard: takeover kill failed (${code}) — proceeding`,
+              );
             }
           }
         }

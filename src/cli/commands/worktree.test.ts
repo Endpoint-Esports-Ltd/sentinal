@@ -129,7 +129,9 @@ describe("worktree CLI --json carries the slot (Task 6)", () => {
     // Committed so `git worktree add` gives the worktree its own copy — that
     // copy is what `sharedResourcesFor(worktreePath)` reads.
     Bun.spawnSync(["git", "add", "-Af"], { cwd: repoDir });
-    Bun.spawnSync(["git", "commit", "-m", "runtime contract"], { cwd: repoDir });
+    Bun.spawnSync(["git", "commit", "-m", "runtime contract"], {
+      cwd: repoDir,
+    });
 
     const created = cli([
       "create",

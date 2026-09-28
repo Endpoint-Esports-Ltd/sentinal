@@ -122,7 +122,15 @@ describe("/spec workflow + session-aware stop-guard (E2E)", () => {
 
       // WHAT STAMPS OWNERSHIP: register with --session owner-A.
       const reg = sb.run(
-        ["register-plan", plan, "--project", cwd, "--session", "owner-A", "--json"],
+        [
+          "register-plan",
+          plan,
+          "--project",
+          cwd,
+          "--session",
+          "owner-A",
+          "--json",
+        ],
         { cwd },
       );
       expect(reg.exitCode).toBe(0);
