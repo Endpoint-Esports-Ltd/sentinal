@@ -1,3 +1,10 @@
+## [1.41.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.41.0...v1.41.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **orca:** orca_status reports only the orchestration capabilities ([388394e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/388394e8e6fd34c2a410ea8087f854797b9ef117))
+
 # [1.41.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.40.0...v1.41.0) (2026-09-28)
 
 
