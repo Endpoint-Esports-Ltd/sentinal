@@ -136,6 +136,15 @@ describe("orca_status", () => {
     expect(r.data.detection.terminalHandle).toBe(COORD);
     expect(r.data.detection.appVersion).toBe("1.4.215");
     expect(r.text).toContain("orca");
+    // Only the orchestration capabilities — the full list (~100) is noise.
+    expect(r.data.detection.capabilities).toContain(
+      "orchestration.contract.v1",
+    );
+    expect(
+      r.data.detection.capabilities.every((c: string) =>
+        c.startsWith("orchestration."),
+      ),
+    ).toBe(true);
   });
 
   it("honours the plan header read from plan_path", async () => {

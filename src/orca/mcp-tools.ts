@@ -100,7 +100,14 @@ function registerStatusTool(server: McpServer, deps: OrcaToolsDeps): void {
         scope: args.scope,
         plan_header: planHeader ?? null,
         ...(planError ? { plan_error: planError } : {}),
-        detection,
+        // Only the orchestration capabilities: the full list (~100 entries)
+        // costs the calling agent context and decides nothing here.
+        detection: {
+          ...detection,
+          capabilities: detection.capabilities.filter((c) =>
+            c.startsWith("orchestration."),
+          ),
+        },
         auth,
       };
       const lines = [
