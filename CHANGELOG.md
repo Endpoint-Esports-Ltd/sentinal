@@ -1,3 +1,14 @@
+# [1.41.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.40.0...v1.41.0) (2026-09-28)
+
+
+### Features
+
+* **orca:** run spec work as supervised Orca workers ([7ca2338](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7ca2338e8cc88af4efa9b5e6b756dd7b8b1bb708))
+* **runtime:** a once-per-worktree `setup` command in runtime.json ([e01b529](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/e01b529ab7da5d0f388c5c96127dc383bc284de7))
+* **spec:** choose between Orca workers and subagents per plan ([33ac7e5](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/33ac7e56a9beca595db51e62a97f50e60d6c8093))
+* **spec:** master plans and opt-in waves can run through Orca ([9ea7106](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/9ea710665ef78e4d7cceebac4d5795c21c45554c))
+* **worktree:** adopt worktrees another tool created, and never delete them ([426d6e8](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/426d6e862c514d81332990575ace28466aa563b5))
+
 # [1.40.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.2...v1.40.0) (2026-09-28)
 
 
