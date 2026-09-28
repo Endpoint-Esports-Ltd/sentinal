@@ -3,11 +3,13 @@ name: Release
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
+# Read-only by default: the test job also runs for pull requests (unmerged
+# code). Only the push-only release job gets write access.
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   test:
@@ -18,17 +20,28 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.10
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
       # Generated embedded-assets.ts is not committed — verify the generator is
-      # deterministic and produces current targets/ content before testing.
+      # deterministic and produces current targets/ content before testing. It
+      # also leaves src/cli/embedded-assets.ts on disk, which tsc needs.
       - run: bun scripts/check-embed-assets.mjs
+      - run: bun run typecheck
+      # The root tsconfig excludes targets/ — type-check the OpenCode plugin graph.
+      - run: bun run typecheck:plugin
+      - run: bun run lint
+      - run: bun run format:check
       - run: bun test --timeout 30000
 
   release:
     name: Release
     needs: test
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,9 +54,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.10
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - name: Run semantic-release
         env:

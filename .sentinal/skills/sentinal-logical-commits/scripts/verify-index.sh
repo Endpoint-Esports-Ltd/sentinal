@@ -15,13 +15,20 @@ git init -q . && git add -A >/dev/null 2>&1
 bun run embed-assets >"$X/.embed.log" 2>&1 || { echo "FAIL embed-assets"; tail -5 "$X/.embed.log"; exit 1; }
 fail=0
 bunx tsc --noEmit >"$X/.tsc.log" 2>&1 && echo "ok   tsc (src)" || { echo "FAIL tsc (src)"; tail -5 "$X/.tsc.log"; fail=1; }
-cat >"$X/tsconfig.plugin.json" <<'EOF'
+# The plugin graph lives in the committed tsconfig.plugin.json (root tsconfig
+# excludes targets/). Fall back to generating it for commits that predate it.
+[ -f tsconfig.plugin.json ] || cat >"$X/tsconfig.plugin.json" <<'EOF'
 { "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
   "include": ["targets/opencode/plugins/sentinal.ts", "targets/opencode/plugins/sentinal-helpers.ts",
               "targets/opencode/plugins/sentinal.test.ts", "targets/opencode/plugins/sentinal-helpers.test.ts"] }
 EOF
 bunx tsc -p tsconfig.plugin.json >"$X/.ptsc.log" 2>&1 && echo "ok   tsc (plugin)" || { echo "FAIL tsc (plugin)"; tail -5 "$X/.ptsc.log"; fail=1; }
+# Lint/format gates, exactly as CI runs them, when the commit defines them.
+if grep -q '"format:check"' package.json; then
+  bunx eslint . >"$X/.lint.log" 2>&1 && echo "ok   eslint" || { echo "FAIL eslint"; tail -5 "$X/.lint.log"; fail=1; }
+  bunx prettier --check . >"$X/.fmt.log" 2>&1 && echo "ok   prettier" || { echo "FAIL prettier"; tail -5 "$X/.fmt.log"; fail=1; }
+fi
 bun test "$@" >"$X/.test.log" 2>&1
 summary=$(grep -E '^ *[0-9]+ (pass|fail)$' "$X/.test.log" | tr -s ' \n' ' ')
 nfail=$(grep -E '^ *[0-9]+ fail$' "$X/.test.log" | tail -1 | tr -dc '0-9')
