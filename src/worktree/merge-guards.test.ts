@@ -20,6 +20,8 @@ import {
   assertCleanForMerge,
   mainCheckoutTrackedChanges,
   assertMainCheckoutCleanForMerge,
+  assertBaseFreeForMerge,
+  resolveMergeCheckout,
   removeMergedWorktree,
 } from "./merge-guards.js";
 import { WorktreeError, type Worktree } from "./types.js";
@@ -189,6 +191,88 @@ describe("merge-guards", () => {
       } catch (err) {
         expect((err as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
         expect(err instanceof Error ? err.message : "").toContain("README.md");
+      }
+    });
+  });
+
+  // ─── D3: merge in the checkout that holds the base ────────────────────────
+
+  describe("resolveMergeCheckout", () => {
+    it("is the main checkout when it holds the base (today's behaviour)", () => {
+      expect(resolveMergeCheckout(wt)).toBe(repoDir);
+    });
+
+    it("is the main checkout when the base is checked out nowhere", () => {
+      git(["branch", "develop"], repoDir);
+      expect(resolveMergeCheckout({ ...wt, baseBranch: "develop" })).toBe(
+        repoDir,
+      );
+    });
+
+    it("is the linked worktree that holds the base", () => {
+      const holder = join(tmpDir, "holder");
+      git(["worktree", "add", "-b", "coord", holder], repoDir);
+      expect(resolveMergeCheckout({ ...wt, baseBranch: "coord" })).toBe(holder);
+    });
+
+    it("never picks the worktree being merged itself", () => {
+      // The child's own checkout holds its base (someone switched it): a merge
+      // "into itself" is nonsense, so fall back and let the guard refuse.
+      const child = { ...wt, baseBranch: "feat", branchName: "other" };
+      expect(resolveMergeCheckout(child)).toBe(repoDir);
+      expect(() => assertBaseFreeForMerge(child, repoDir)).toThrow(
+        /BASE_CHECKED_OUT|checked out/,
+      );
+    });
+
+    it("never picks a holder whose directory is gone", () => {
+      const holder = join(tmpDir, "gone");
+      git(["worktree", "add", "-b", "coord", holder], repoDir);
+      rmSync(holder, { recursive: true, force: true });
+      expect(resolveMergeCheckout({ ...wt, baseBranch: "coord" })).toBe(
+        repoDir,
+      );
+    });
+  });
+
+  describe("assertBaseFreeForMerge with a chosen checkout", () => {
+    it("does not fire when the chosen checkout IS the holder", () => {
+      const holder = join(tmpDir, "holder");
+      git(["worktree", "add", "-b", "coord", holder], repoDir);
+      const child = { ...wt, baseBranch: "coord" };
+      expect(() => assertBaseFreeForMerge(child, holder)).not.toThrow();
+    });
+
+    it("fires BASE_CHECKED_OUT when the base is held somewhere else", () => {
+      const holder = join(tmpDir, "holder");
+      git(["worktree", "add", "-b", "coord", holder], repoDir);
+      try {
+        assertBaseFreeForMerge({ ...wt, baseBranch: "coord" }, repoDir);
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as WorktreeError).code).toBe("BASE_CHECKED_OUT");
+        expect((err as Error).message).toContain(holder);
+      }
+    });
+  });
+
+  describe("assertMainCheckoutCleanForMerge on a chosen checkout", () => {
+    it("checks the chosen checkout, names it, and gives the coordinator remedy", () => {
+      const holder = join(tmpDir, "holder");
+      git(["worktree", "add", "-b", "coord", holder], repoDir);
+      writeFileSync(join(holder, "README.md"), "# edited\n");
+      // The main checkout is clean — only the holder is dirty.
+      expect(() => assertMainCheckoutCleanForMerge(wt)).not.toThrow();
+      try {
+        assertMainCheckoutCleanForMerge({ ...wt, baseBranch: "coord" }, holder);
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as WorktreeError).code).toBe("DIRTY_MAIN_CHECKOUT");
+        const msg = (err as Error).message;
+        expect(msg).toContain(holder);
+        expect(msg).toContain("README.md");
+        expect(msg).toContain("commit or stash them");
+        expect(msg).toContain("coordinator should commit its plan edits");
       }
     });
   });

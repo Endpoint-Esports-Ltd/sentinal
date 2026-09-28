@@ -292,6 +292,7 @@ describe("worktree-routes", () => {
           id,
           "abandoned",
         );
+        return { outcome: "removed" as const, message: "", warnings: [] };
       };
 
       try {
@@ -308,6 +309,74 @@ describe("worktree-routes", () => {
         // Verify row is abandoned
         const updated = ctx.wtStore.get("wt-abandon-route-1");
         expect(updated?.status).toBe("abandoned");
+      } finally {
+        WorktreeManager.prototype.abandon = origAbandon;
+      }
+    });
+
+    it("returns the abandon result's outcome, message and warnings — also on replay", async () => {
+      const wtPath = join(tmpDir, ".worktrees", "abandon-ext");
+      mkdirSync(wtPath, { recursive: true });
+      ctx.wtStore.insert({
+        id: "wt-abandon-ext",
+        projectPath: tmpDir,
+        worktreePath: wtPath,
+        branchName: "orca-x",
+        baseBranch: "coord",
+        baseCommit: "abc123",
+        status: "active",
+        owner: "external",
+        createdAt: Date.now(),
+      });
+
+      const origAbandon = WorktreeManager.prototype.abandon;
+      let calls = 0;
+      WorktreeManager.prototype.abandon = async function (id: string) {
+        calls++;
+        (this as unknown as { store: WorktreeStore }).store.updateStatus(
+          id,
+          "abandoned",
+        );
+        return {
+          outcome: "released" as const,
+          message: `Released ${wtPath} — left in place.`,
+          warnings: ["kept .env: modified since seeding"],
+        };
+      };
+
+      const post = () =>
+        handleWorktreeRequest(
+          new Request("http://localhost/worktree/abandon", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              worktree_id: "wt-abandon-ext",
+              idempotencyKey: "k-ext-1",
+            }),
+          }),
+          ctx,
+        );
+
+      try {
+        const expected = {
+          worktree_id: "wt-abandon-ext",
+          status: "abandoned",
+          outcome: "released",
+          message: `Released ${wtPath} — left in place.`,
+          warnings: ["kept .env: modified since seeding"],
+        };
+        const first = (await (await post())!.json()) as {
+          ok: boolean;
+          data: Record<string, unknown>;
+        };
+        expect(first.ok).toBe(true);
+        expect(first.data).toEqual(expected);
+
+        const replay = (await (await post())!.json()) as {
+          data: Record<string, unknown>;
+        };
+        expect(replay.data).toEqual({ ...expected, replayed: true });
+        expect(calls).toBe(1);
       } finally {
         WorktreeManager.prototype.abandon = origAbandon;
       }
@@ -624,6 +693,80 @@ describe("POST /worktree/abandon stops the owned group first", () => {
     expect(((await (await call())!.json()) as { ok: boolean }).ok).toBe(true);
     expect(existsSync(wt.worktreePath)).toBe(false);
     expect(ctx.wtStore.get(wt.id)!.status).toBe("abandoned");
+  }, 20_000);
+
+  // ── D2: external worktrees through the production route wiring ──────────
+  function addExternal(path: string, branch: string): string {
+    mkdirSync(join(path, ".."), { recursive: true });
+    Bun.spawnSync(["git", "worktree", "add", "-b", branch, path], {
+      cwd: repoDir,
+    });
+    const real = realpathSync(path);
+    writeFileSync(join(real, "work.txt"), "uncommitted\n");
+    ctx.wtStore.insert({
+      id: `ext-${branch.replace(/\W/g, "-")}`,
+      specId: null,
+      projectPath: repoDir,
+      worktreePath: real,
+      branchName: branch,
+      baseBranch: "main",
+      baseCommit: "HEAD",
+      status: "active",
+      slot: null,
+      owner: "external",
+      createdAt: Date.now(),
+    });
+    return real;
+  }
+  const branchExists = (b: string): boolean =>
+    Bun.spawnSync(
+      ["git", "rev-parse", "--verify", "--quiet", `refs/heads/${b}`],
+      {
+        cwd: repoDir,
+      },
+    ).exitCode === 0;
+
+  it("abandon RELEASES an external worktree: dir, branch and work survive; row abandoned", async () => {
+    const ext = addExternal(join(tmpDir, "orca", "feature-x"), "feature-x");
+
+    const res = await handleWorktreeRequest(
+      new Request("http://localhost/worktree/abandon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ worktree_id: "ext-feature-x" }),
+      }),
+      ctx,
+    );
+
+    expect(((await res!.json()) as { ok: boolean }).ok).toBe(true);
+    expect(existsSync(join(ext, "work.txt"))).toBe(true);
+    expect(branchExists("feature-x")).toBe(true);
+    expect(ctx.wtStore.get("ext-feature-x")!.status).toBe("abandoned");
+  }, 20_000);
+
+  it("cleanup --force never removes an external worktree placed in .sentinal/worktrees (guard 6)", async () => {
+    const ext = addExternal(
+      join(repoDir, ".sentinal", "worktrees", "spec-orca-1"),
+      "sentinal/spec-orca-1",
+    );
+
+    const res = await handleWorktreeRequest(
+      new Request("http://localhost/worktree/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: repoDir, force: true }),
+      }),
+      ctx,
+    );
+    const body = (await res!.json()) as {
+      ok: boolean;
+      data: { cleaned: number };
+    };
+
+    expect(body.ok).toBe(true);
+    expect(body.data.cleaned).toBe(0);
+    expect(existsSync(join(ext, "work.txt"))).toBe(true);
+    expect(branchExists("sentinal/spec-orca-1")).toBe(true);
   }, 20_000);
 });
 

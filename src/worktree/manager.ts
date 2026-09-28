@@ -5,22 +5,26 @@
  * Orchestrates git commands (via utils.ts) with SQLite persistence (via WorktreeStore).
  */
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { WorktreeStore } from "./store.js";
 import { parseNumstat } from "./diff-parse.js";
-import { gitExec, gitExecOrThrow, getCurrentCommit } from "../git/utils.js";
+import { gitExec } from "../git/utils.js";
 import { resolveProjectIdentity } from "../project/identity.js";
-import { createWorktree } from "./create.js";
+import {
+  createWorktree,
+  runSetupNonFatally,
+  type WorktreeSetupOutcome,
+} from "./create.js";
 import { cleanupWorktrees } from "./cleanup.js";
 import type { CleanupOptions, CleanupResult } from "./cleanup.js";
 import { resolveWithReconcile } from "./reconcile.js";
+import { abandonWorktree } from "./abandon.js";
+import type { AbandonResult } from "./abandon.js";
 import {
-  assertCleanForMerge,
-  assertMainCheckoutCleanForMerge,
-  assertBaseFreeForMerge,
-  inMainCheckout,
-  removeMergedWorktree,
-} from "./merge-guards.js";
+  hasMergeConflicts,
+  squashMergeWorktree,
+  type MergeResult,
+} from "./merge.js";
 import {
   WorktreeError,
   DEFAULT_WORKTREE_CONFIG,
@@ -32,6 +36,8 @@ import {
 // `CleanupOptions` moved to `cleanup.ts` with the pass it configures. Re-export
 // so the manager's published surface is unchanged for existing importers.
 export type { CleanupOptions } from "./cleanup.js";
+export type { AbandonResult } from "./abandon.js";
+export type { MergeResult } from "./merge.js";
 
 // ─── Manager ────────────────────────────────────────────────────────────────
 
@@ -62,6 +68,28 @@ export class WorktreeManager {
       baseBranch,
       warnings,
     );
+  }
+
+  /**
+   * {@link create}, then the injected `config.runSetup` (orca D5) — outside the
+   * rollback, so a setup failure is a warning and the worktree stays. What the
+   * `worktree_create` tool calls; `create` stays synchronous for its callers.
+   * Goes through `this.create` (not `createWorktreeWithSetup`) so it is the
+   * same code path — and the same seam — as a plain create.
+   */
+  async createWithSetup(
+    specId: string | undefined,
+    projectPath: string,
+    baseBranch?: string,
+    warnings?: string[],
+  ): Promise<{ worktree: Worktree; setup?: WorktreeSetupOutcome }> {
+    const worktree = this.create(specId, projectPath, baseBranch, warnings);
+    const runSetup = this.config.runSetup;
+    if (!runSetup) return { worktree };
+    return {
+      worktree,
+      setup: await runSetupNonFatally(runSetup, worktree, warnings),
+    };
   }
 
   /**
@@ -129,243 +157,50 @@ export class WorktreeManager {
     const wt = this.store.get(worktreeId);
     if (!wt)
       throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
-
-    // Use merge-tree to do a dry-run merge
-    const mergeBase = gitExec(
-      ["merge-base", wt.baseBranch, wt.branchName],
-      wt.projectPath,
-    );
-    if (mergeBase.exitCode !== 0) return true;
-
-    const result = gitExec(
-      ["merge-tree", mergeBase.stdout, wt.baseBranch, wt.branchName],
-      wt.projectPath,
-    );
-
-    // merge-tree outputs conflict markers when there are conflicts
-    return result.stdout.includes("<<<<<<");
+    return hasMergeConflicts(wt);
   }
 
   /**
-   * Stop the process group this worktree owns, before anything touches its
-   * directory. Throws `RUNTIME_STOP_FAILED` if the stop refused or failed.
-   *
-   * ⛔ **Fast no-op** in the case that matters: `stopOwnedGroup` short-circuits
-   * on an absent pidfile *before* it loads the runtime contract, so a worktree
-   * that never started a runtime never runs `down` and never pays `graceMs`
-   * (Pre-Mortem #2 — `abandon` is called on every worktree, not just the ones
-   * that ran something).
-   *
-   * ⛔ A failed stop **aborts the exit path**. `stopOwnedGroup` reports
-   * `ok: false` exactly when it could not prove ownership or could not signal;
-   * removing the directory anyway would orphan a live process with its cwd
-   * deleted, which is precisely the failure this phase exists to prevent. The
-   * caller gets an actionable message naming what to do by hand.
-   *
-   * ⛔ An **absent** resolver aborts it too. This used to `return` early, which
-   * made "nobody wired the dep" behave identically to "there is nothing to
-   * stop" — the one decision in this tier that failed OPEN, guarded only by a
-   * grep over five known construction sites. `stopOwnedRuntime` is now required
-   * on `WorktreeConfig`, so omission is a compile error; this branch catches the
-   * JS caller and the `as any` that tsc never sees. A deliberate opt-out is
-   * spelled {@link NO_RUNTIME_STOP}, which is a real function and never lands
-   * here.
-   */
-  private async stopOwnedRuntime(wt: Worktree): Promise<void> {
-    const stop = this.config.stopOwnedRuntime;
-    if (!stop) {
-      throw new WorktreeError(
-        `Refusing to remove ${wt.worktreePath}: this WorktreeManager was built with no ` +
-          `\`stopOwnedRuntime\` resolver, so Sentinal cannot tell whether the worktree owns ` +
-          `running processes. Removing the directory now could orphan a live process with a ` +
-          `deleted working directory. ` +
-          `Remedy: construct the manager via runtimeWorktreeConfig() (src/runtime/worktree-deps.ts), ` +
-          `or — if this manager genuinely owns no runtime — declare that by setting ` +
-          `stopOwnedRuntime: NO_RUNTIME_STOP.`,
-        "RUNTIME_STOP_FAILED",
-      );
-    }
-
-    const outcome = await stop(wt.worktreePath);
-    if (outcome.ok) return;
-
-    throw new WorktreeError(
-      `Refusing to remove ${wt.worktreePath}: the runtime it owns could not be stopped. ` +
-        `${outcome.reason ?? "No reason was given."} ` +
-        `Removing the directory now would leave a live process with a deleted working ` +
-        `directory — resolve this first, then retry.`,
-      "RUNTIME_STOP_FAILED",
-    );
-  }
-
-  /**
-   * Squash merge the worktree branch into the base branch.
-   * Returns the merge commit hash.
-   *
-   * The main checkout is put back on the branch it was on before the merge —
-   * including on failure paths after the `checkout` already moved it. A
-   * detached HEAD is left on the base branch (there is no branch to go back
-   * to) and noted via `warnings`.
-   *
-   * @param warnings - optional collector for non-fatal notes (detached HEAD,
-   *   a branch restore that itself failed). Same channel as {@link create}.
+   * Squash merge the worktree branch into the base branch; returns the merge
+   * commit hash. Back-compat wrapper over {@link squashMergeDetailed}.
    */
   async squashMerge(
     worktreeId: string,
     message?: string,
     warnings?: string[],
   ): Promise<string> {
-    const row = this.store.get(worktreeId);
-    if (!row)
-      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
-    // D5: run in the MAIN checkout, even for a legacy linked-keyed row.
-    const wt = inMainCheckout(row);
-
-    if (wt.status !== "active" && wt.status !== "ready-to-merge") {
-      throw new WorktreeError(
-        `Worktree ${worktreeId} is ${wt.status}, cannot merge`,
-        "GIT_ERROR",
-      );
-    }
-
-    // Check for conflicts first
-    if (this.hasConflicts(worktreeId)) {
-      throw new WorktreeError(
-        `Worktree ${worktreeId} has merge conflicts with ${wt.baseBranch}. Resolve conflicts manually.`,
-        "CONFLICT",
-      );
-    }
-
-    // ⛔ Refuse a worktree git will not let us remove, BEFORE anything is done.
-    // The alternative outcomes are both bad: `--force` would silently discard
-    // untracked work the squash never carried across, and swallowing the
-    // refusal (the old behaviour) marked the row `merged` — terminal, so its
-    // slot was released — while the directory stayed on disk. See
-    // `merge-guards.ts` for the full argument.
-    assertCleanForMerge(wt);
-
-    // ⛔ H3: the merge also runs `git checkout` + `git commit` in the MAIN
-    // checkout, so its staged/modified tracked work would be swept into the
-    // squash commit. Refuse BEFORE anything is done. Untracked files are
-    // allowed — see `assertMainCheckoutCleanForMerge`.
-    assertMainCheckoutCleanForMerge(wt);
-    // D5: a base held by ANOTHER worktree cannot be checked out here.
-    assertBaseFreeForMerge(wt);
-
-    const commitMsg =
-      message ?? `feat: ${wt.branchName.replace(this.config.branchPrefix, "")}`;
-
-    // ⛔ Stop BEFORE `git checkout`, not merely before `worktree remove`. A live
-    // process holding files under the worktree can make the checkout itself
-    // fail, which would leave the main checkout on the wrong branch with the
-    // merge half-done — a worse state than not having started.
-    await this.stopOwnedRuntime(wt);
-
-    // H3: remember where the user was, so we can put them back. Empty string
-    // means detached HEAD — nothing to restore to; the checkout below will
-    // leave them on the base branch, and we say so instead of guessing a ref.
-    const originalBranch = gitExec(
-      ["branch", "--show-current"],
-      wt.projectPath,
-    ).stdout;
-    if (!originalBranch) {
-      warnings?.push(
-        `The main checkout was on a detached HEAD before the merge; it has been ` +
-          `left on ${wt.baseBranch}. Re-detach manually if you need that state back.`,
-      );
-    }
-
-    let checkedOut = false;
-    try {
-      // Checkout base branch in main project
-      gitExecOrThrow(["checkout", wt.baseBranch], wt.projectPath);
-      checkedOut = true;
-
-      // Squash merge
-      gitExecOrThrow(["merge", "--squash", wt.branchName], wt.projectPath);
-
-      // Commit
-      gitExecOrThrow(["commit", "-m", commitMsg], wt.projectPath);
-
-      // Get merge commit hash
-      const mergeCommit = getCurrentCommit(wt.projectPath);
-
-      // Cleanup: remove the worktree directory and delete the branch — and THROW
-      // if the directory survives. The preflight cannot see a file created since,
-      // and `merged` must never be written over a directory that is still there:
-      // it is terminal, so it frees the slot for a worktree that would then
-      // collide with this one's ports, databases and seeded `.env`.
-      removeMergedWorktree(wt, mergeCommit);
-
-      // Update store — reached only once the directory is gone.
-      this.store.updateStatus(worktreeId, "merged", mergeCommit);
-
-      return mergeCommit;
-    } finally {
-      // H3: restore the user's branch — on success AND on any failure after
-      // the checkout moved HEAD. Best-effort (`gitExec`, not OrThrow): a
-      // restore failure must never mask the real error travelling out of the
-      // try block. No-op when the user was already on the base branch, or
-      // detached, or the checkout never happened.
-      if (checkedOut && originalBranch && originalBranch !== wt.baseBranch) {
-        const restore = gitExec(["checkout", originalBranch], wt.projectPath);
-        if (restore.exitCode !== 0) {
-          warnings?.push(
-            `Could not restore the main checkout to ${originalBranch} ` +
-              `(it is on ${wt.baseBranch}): ${restore.stderr || restore.stdout}`,
-          );
-        }
-      }
-    }
+    return (await this.squashMergeDetailed(worktreeId, message, warnings))
+      .commit;
   }
 
-  /** Abandon a worktree — remove from disk and mark as abandoned. */
-  async abandon(worktreeId: string): Promise<void> {
-    const row = this.store.get(worktreeId);
-    if (!row)
-      throw new WorktreeError(`Worktree ${worktreeId} not found`, "NOT_FOUND");
-    const wt = inMainCheckout(row); // D5: git runs in the main checkout
+  /**
+   * Squash merge, reporting which checkout received the commit (D3) and
+   * whether the worktree was removed or — external — released (D2).
+   * Delegates to {@link squashMergeWorktree} in `merge.ts`.
+   *
+   * @param warnings - optional collector for non-fatal notes (detached HEAD,
+   *   a branch restore that itself failed). Same channel as {@link create}.
+   */
+  squashMergeDetailed(
+    worktreeId: string,
+    message?: string,
+    warnings?: string[],
+  ): Promise<MergeResult> {
+    return squashMergeWorktree(
+      this.store,
+      this.config,
+      worktreeId,
+      message,
+      warnings,
+    );
+  }
 
-    // ⛔ Before the directory is touched at all — including the `rmSync`
-    // fallback below, which git cannot veto.
-    await this.stopOwnedRuntime(wt);
-
-    // Remove worktree from disk (force in case of uncommitted changes)
-    if (existsSync(wt.worktreePath)) {
-      const result = gitExec(
-        ["worktree", "remove", "--force", wt.worktreePath],
-        wt.projectPath,
-      );
-      if (result.exitCode !== 0) {
-        // Fallback: remove directory manually and prune
-        try {
-          rmSync(wt.worktreePath, { recursive: true, force: true });
-          gitExec(["worktree", "prune"], wt.projectPath);
-        } catch {
-          // Swallowed deliberately — the existsSync verification below is
-          // what the invariant is actually about (M3c).
-        }
-      }
-      // ⛔ M3c: `abandoned` is terminal, so it frees the row's slot. Writing it
-      // over a SURVIVING directory hands the next worktree this one's ports and
-      // seeded `.env` — mirror `removeMergedWorktree`'s discipline.
-      if (existsSync(wt.worktreePath)) {
-        throw new WorktreeError(
-          `Could not remove ${wt.worktreePath} — both \`git worktree remove --force\` and ` +
-            `the manual fallback failed, and the directory is still on disk. Deliberately ` +
-            `left active rather than marked abandoned: abandoning would release its slot ` +
-            `while the directory survives. Remedy: resolve whatever blocks removal ` +
-            `(permissions, a process holding the directory), then re-run worktree_abandon.`,
-          "REMOVE_FAILED",
-        );
-      }
-    }
-
-    // Delete the branch — only after the directory is confirmed gone.
-    gitExec(["branch", "-D", wt.branchName], wt.projectPath);
-
-    // Update store
-    this.store.updateStatus(worktreeId, "abandoned");
+  /**
+   * Abandon a worktree. Sentinal-owned → removed with its branch; external →
+   * RELEASED, left in place (D2). Delegates to {@link abandonWorktree}.
+   */
+  abandon(worktreeId: string): Promise<AbandonResult> {
+    return abandonWorktree(this.store, this.config, worktreeId);
   }
 
   /**

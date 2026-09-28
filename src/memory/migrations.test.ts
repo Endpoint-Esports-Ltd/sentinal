@@ -48,6 +48,26 @@ describe("runMigrations", () => {
     expect(row.version).toBe(DB_CONSTANTS.SCHEMA_VERSION);
   });
 
+  it("records every step 1..SCHEMA_VERSION on a fresh DB (V15 wired into the runner)", () => {
+    tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, "test.db");
+    db = new Database(dbPath, { create: true });
+    runMigrations(db, dbPath);
+
+    const recorded = (
+      db
+        .prepare("SELECT version FROM schema_version ORDER BY version")
+        .all() as Array<{ version: number }>
+    ).map((r) => r.version);
+    expect(recorded).toContain(15);
+    const cols = (
+      db.prepare("PRAGMA table_info(worktrees)").all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(["owner", "slug"]));
+  });
+
   it("should be idempotent — running twice is safe", () => {
     tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, "test.db");

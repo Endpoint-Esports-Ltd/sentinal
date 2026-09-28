@@ -50,7 +50,11 @@
 import { existsSync } from "node:fs";
 import { gitExec } from "../git/utils.js";
 import { resolveProjectIdentity } from "../project/identity.js";
-import { listGitWorktrees, resolveRealPath } from "./disk-scan.js";
+import {
+  listGitWorktrees,
+  resolveRealPath,
+  type GitWorktreeEntry,
+} from "./disk-scan.js";
 import { WorktreeError, type Worktree } from "./types.js";
 
 /** Enough to identify the problem without pasting a thousand-line status. */
@@ -152,26 +156,60 @@ export function mainCheckoutTrackedChanges(projectPath: string): string[] {
 }
 
 /**
- * Refuse the merge if the MAIN checkout holds staged or modified tracked work
- * the squash commit would sweep up. Throws `DIRTY_MAIN_CHECKOUT`; **nothing has
- * been done** when it does. See {@link mainCheckoutTrackedChanges} for the
- * untracked-files policy.
+ * Refuse the merge if the checkout it will run in (`checkout`, default the
+ * main checkout; see {@link resolveMergeCheckout}) holds staged or modified
+ * tracked work the squash commit would sweep up. Throws `DIRTY_MAIN_CHECKOUT`
+ * (the code predates D3 and is kept for callers); **nothing has been done**
+ * when it does. See {@link mainCheckoutTrackedChanges} for the untracked-files
+ * policy.
  */
-export function assertMainCheckoutCleanForMerge(wt: Worktree): void {
-  const dirty = mainCheckoutTrackedChanges(wt.projectPath);
+export function assertMainCheckoutCleanForMerge(
+  wt: Worktree,
+  checkout: string = wt.projectPath,
+): void {
+  const dirty = mainCheckoutTrackedChanges(checkout);
   if (dirty.length === 0) return;
 
+  const which =
+    checkout === wt.projectPath ? "the main checkout" : "the checkout";
   throw new WorktreeError(
-    `Refusing to merge ${wt.branchName}: the main checkout at ${wt.projectPath} has ` +
+    `Refusing to merge ${wt.branchName}: ${which} at ${checkout}, which holds ` +
+      `${wt.baseBranch} and would receive the merge, has ` +
       `${dirty.length} staged or modified tracked file(s) — ${listPaths(dirty)}. ` +
       `The squash merge runs \`git checkout ${wt.baseBranch}\` and \`git commit\` there, so ` +
       `these edits would ride along onto ${wt.baseBranch} and anything staged would be ` +
       `silently committed INTO the spec's squash commit as if it were part of the spec. ` +
-      `Remedy: commit them, or \`git stash\` them in the main checkout and \`git stash pop\` ` +
-      `after the merge. Untracked files are not blockers — git commit cannot commit them. ` +
+      `Remedy: commit or stash them in ${checkout} (a coordinator should commit its plan ` +
+      `edits before syncing); after a \`git stash\`, \`git stash pop\` once merged. ` +
+      `Untracked files are not blockers — git commit cannot commit them. ` +
       `Nothing has been merged — re-run once resolved.`,
     "DIRTY_MAIN_CHECKOUT",
   );
+}
+
+/**
+ * D3 (orca-orchestration): the checkout the squash merge runs in.
+ *
+ * git lets a branch be checked out in one worktree at a time, so if some
+ * worktree of the repo already holds `baseBranch` (an Orca coordinator's
+ * checkout, typically), the merge must happen THERE — that is the branch the
+ * child came from. Otherwise the main checkout, exactly as before.
+ *
+ * `wt` must already be {@link inMainCheckout}'d. Falls back to the main
+ * checkout — leaving {@link assertBaseFreeForMerge} to refuse — for a holder
+ * that cannot receive the merge: the worktree being merged itself, or one
+ * whose directory is gone (a prunable entry).
+ */
+export function resolveMergeCheckout(
+  wt: Worktree,
+  lister: (repoRoot: string) => GitWorktreeEntry[] = listGitWorktrees,
+): string {
+  const holder = lister(wt.projectPath).find((e) => e.branch === wt.baseBranch);
+  if (!holder || !existsSync(holder.path)) return wt.projectPath;
+  if (resolveRealPath(holder.path) === resolveRealPath(wt.worktreePath)) {
+    return wt.projectPath;
+  }
+  return holder.path;
 }
 
 /**
@@ -192,22 +230,27 @@ export function inMainCheckout(wt: Worktree): Worktree {
 }
 
 /**
- * Refuse the merge if the base branch is checked out in ANOTHER worktree of
- * the repo (D5). git allows a branch in one worktree at a time, so the main
- * checkout's `git checkout <base>` would fail mid-flow with a bare git error.
+ * Refuse the merge if the base branch is checked out in a worktree OTHER than
+ * `checkout`, the one the merge will run in (D5; since D3 that is the holder
+ * whenever one can receive it, so this fires only for a holder that cannot —
+ * see {@link resolveMergeCheckout}). git allows a branch in one worktree at a
+ * time, so `git checkout <base>` would fail mid-flow with a bare git error.
  * Throws `BASE_CHECKED_OUT`; **nothing has been done** when it does.
  */
-export function assertBaseFreeForMerge(wt: Worktree): void {
-  const main = resolveRealPath(wt.projectPath);
+export function assertBaseFreeForMerge(
+  wt: Worktree,
+  checkout: string = wt.projectPath,
+): void {
+  const target = resolveRealPath(checkout);
   const holder = listGitWorktrees(wt.projectPath).find(
-    (e) => e.branch === wt.baseBranch && resolveRealPath(e.path) !== main,
+    (e) => e.branch === wt.baseBranch && resolveRealPath(e.path) !== target,
   );
   if (!holder) return;
 
   throw new WorktreeError(
     `Refusing to merge ${wt.branchName}: its base branch ${wt.baseBranch} is checked out ` +
-      `in another worktree at ${holder.path}. The squash merge runs in the main checkout ` +
-      `at ${wt.projectPath}, and git allows a branch to be checked out in only one ` +
+      `in another worktree at ${holder.path}. The squash merge runs in the checkout ` +
+      `at ${checkout}, and git allows a branch to be checked out in only one ` +
       `worktree, so it cannot check out ${wt.baseBranch} there. ` +
       `Remedy: switch that worktree to another branch and re-run, or merge ` +
       `${wt.branchName} into ${wt.baseBranch} by hand from inside ${holder.path}. ` +

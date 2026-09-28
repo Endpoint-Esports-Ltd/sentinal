@@ -26,6 +26,7 @@ import { loadRuntimeConfig } from "./loader.js";
 import { stopOwnedGroup } from "./teardown.js";
 import { ownsLiveRuntime } from "./pidfile.js";
 import { unknownSentinalTokens } from "./interpolate.js";
+import { runWorktreeSetup, type WorktreeSetupResult } from "./setup.js";
 import {
   DEFAULT_WORKTREE_CONFIG,
   type WorktreeConfig,
@@ -63,5 +64,32 @@ export function runtimeWorktreeConfig(
     // ⛔ The seeding path is the one that writes CREDENTIALS config, and until
     // now it was the only interpolated surface the typo check never reached.
     unknownSentinalTokens: (text) => unknownSentinalTokens(text),
+    runSetup: (worktreePath, slot) => runSetupFor(worktreePath, slot),
   };
+}
+
+/**
+ * The once-per-worktree `setup` (orca D5): the WORKTREE's own contract (its
+ * checked-out copy, interpolated for its slot), run by `runWorktreeSetup`.
+ * Never throws. An absent contract, or one without `setup`, is an inert
+ * success; a contract that exists but cannot be used is reported as a failed
+ * setup rather than skipped silently — its `setup` may be exactly what the
+ * worktree needs.
+ */
+async function runSetupFor(
+  worktreePath: string,
+  slot: number | null,
+): Promise<WorktreeSetupResult> {
+  const loaded = loadRuntimeConfig(worktreePath);
+  if (loaded.error) {
+    return {
+      ran: false,
+      ok: false,
+      exitCode: null,
+      timedOut: false,
+      tail: "",
+      reason: `${loaded.relPath} could not be used, so setup was not run: ${loaded.error}`,
+    };
+  }
+  return runWorktreeSetup(worktreePath, loaded.config, { slot });
 }

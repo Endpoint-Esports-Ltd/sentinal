@@ -23,6 +23,7 @@ import { migrateV11 } from "./migrations-v11.js";
 import { migrateV12 } from "./migrations-v12.js";
 import { migrateV13 } from "./migrations-v13.js";
 import { migrateV14 } from "./migrations-v14.js";
+import { migrateV15 } from "./migrations-v15.js";
 
 // ─── Migration Runner ─────────────────────────────────────────────────────────
 
@@ -81,4 +82,5 @@ const STEPS: ReadonlyArray<readonly [number, Step]> = [
   [12, migrateV12],
   [13, (db, backupPath) => migrateV13(db, backupPath)],
   [14, (db) => migrateV14(db)],
+  [15, (db) => migrateV15(db)],
 ];

@@ -5,6 +5,7 @@
  * Provides:
  *   - worktree_detect: Find worktree by plan slug (self-healing: marks stale entries abandoned)
  *   - worktree_create: Create worktree for a plan slug
+ *   - worktree_ensure: Create-or-ADOPT (orca) — sibling `adopt-mcp-tool.ts`
  *   - worktree_diff: Get diff summary for a worktree
  *   - worktree_sync: Squash-merge a worktree
  *   - worktree_abandon: Abandon a worktree by slug (remove from disk + mark abandoned)
@@ -27,6 +28,10 @@ import type { SidecarClient } from "../sidecar/client.js";
 import { formatSlot } from "./slots.js";
 import { mcpText, mcpError } from "../mcp/helpers.js";
 import { registerWorktreeCleanupTool } from "./cleanup-mcp-tool.js";
+import {
+  formatSetupLine,
+  registerWorktreeEnsureTool,
+} from "./adopt-mcp-tool.js";
 
 /**
  * Append non-fatal warnings to a Markdown tool response.
@@ -85,6 +90,7 @@ export function registerWorktreeTools(
 
   registerWorktreeDetectTool(server, client, manager);
   registerWorktreeCreateTool(server, manager);
+  registerWorktreeEnsureTool(server, wtStore, worktreeConfig);
   registerWorktreeDiffTool(server, client, manager);
   registerWorktreeSyncTool(server, client, manager);
   registerWorktreeAbandonTool(server, client, manager);
@@ -163,7 +169,8 @@ function registerWorktreeCreateTool(
       try {
         const projectPath = project ?? process.cwd();
         const warnings: string[] = [];
-        const wt = manager.create(
+        // Setup (orca D5) runs once, after seeding, outside the rollback.
+        const { worktree: wt, setup } = await manager.createWithSetup(
           plan_slug,
           projectPath,
           base_branch,
@@ -178,6 +185,7 @@ function registerWorktreeCreateTool(
           `- **Branch:** ${wt.branchName}`,
           `- **Base Branch:** ${wt.baseBranch}`,
           `- **Slot:** ${formatSlot(wt.slot)}`,
+          ...(setup ? [`- ${formatSetupLine(setup)}`] : []),
         ];
 
         return mcpText(withWarnings(lines, warnings).join("\n"));
@@ -249,7 +257,9 @@ function registerWorktreeSyncTool(
 ): void {
   server.tool(
     "worktree_sync",
-    "Squash-merge a worktree back to its base branch. WARNING: This is destructive — the worktree is removed after merge.",
+    "Squash-merge a worktree back to its base branch — in the checkout that has the base checked out, else the " +
+      "main checkout; the result names it. WARNING: This is destructive — a Sentinal-owned worktree is removed " +
+      "after merge; an external (adopted) one is released and left in place.",
     {
       plan_slug: z.string().describe("Plan slug (e.g. '2026-03-12-add-auth')"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
@@ -276,10 +286,17 @@ function registerWorktreeSyncTool(
           );
         }
 
-        const commitHash = await manager.squashMerge(wt.id, message);
-        return mcpText(
-          `Merged: ${commitHash} (branch: ${wt.branchName} → ${wt.baseBranch})`,
-        );
+        // D3: the commit lands in whichever checkout holds the base; D2: an
+        // external worktree is released, not removed. Both must be stated.
+        const warnings: string[] = [];
+        const r = await manager.squashMergeDetailed(wt.id, message, warnings);
+        const lines = [
+          `Merged: ${r.commit} (branch: ${wt.branchName} → ${wt.baseBranch})`,
+          "",
+          `- **Merged in:** ${r.mergedIn}`,
+          `- **Worktree:** ${r.outcome}`,
+        ];
+        return mcpText(withWarnings(lines, warnings).join("\n"));
       } catch (err) {
         return mcpError("Error syncing worktree", err);
       }
@@ -296,7 +313,8 @@ function registerWorktreeAbandonTool(
 ): void {
   server.tool(
     "worktree_abandon",
-    "Abandon a worktree — remove from disk and mark as abandoned. WARNING: Uncommitted changes will be lost.",
+    "Abandon a worktree — remove from disk and mark as abandoned. WARNING: Uncommitted changes will be lost. " +
+      "An external (adopted) worktree is only RELEASED: left in place with its branch; the result says which.",
     {
       plan_slug: z.string().describe("Plan slug (e.g. '2026-03-12-add-auth')"),
       project: z.string().optional().describe("Project path (defaults to CWD)"),
@@ -323,17 +341,18 @@ function registerWorktreeAbandonTool(
           return mcpText(`No active worktree found for slug: ${plan_slug}`);
         }
 
-        if (client) {
-          await client.abandonWorktree(wt.id, {
-            idempotencyKey: idempotency_key,
-          });
-        } else {
-          await manager.abandon(wt.id);
-        }
+        // An OLD sidecar answers without a payload: keep the classic line.
+        const r = client
+          ? await client.abandonWorktree(wt.id, {
+              idempotencyKey: idempotency_key,
+            })
+          : await manager.abandon(wt.id);
 
-        return mcpText(
-          `Worktree abandoned: ${wt.branchName} (was at ${wt.worktreePath})`,
-        );
+        const head = `Worktree abandoned: ${wt.branchName} (was at ${wt.worktreePath})`;
+        if (!r?.outcome) return mcpText(head);
+        const lines = [head, "", `- **Outcome:** ${r.outcome}`];
+        if (r.message) lines.push(`- ${r.message}`);
+        return mcpText(withWarnings(lines, r.warnings ?? []).join("\n"));
       } catch (err) {
         return mcpError("Error abandoning worktree", err);
       }

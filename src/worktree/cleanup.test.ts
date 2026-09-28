@@ -658,4 +658,147 @@ describe("worktree cleanup", () => {
       expect(cleanupWorktrees(wtStore, testConfig, opts).cleaned).toBe(0);
     });
   });
+
+  // ── D2: external (e.g. Orca) worktrees are never deleted by cleanup ───────
+  describe("external worktrees (D2)", () => {
+    function git(args: string[], cwd = repoDir): string {
+      const r = Bun.spawnSync(["git", ...args], { cwd, stderr: "pipe" });
+      return String(r.stdout).trim();
+    }
+    function branchExists(branch: string): boolean {
+      return git(["branch", "--list", branch]).includes(branch);
+    }
+    /** `git worktree add` + an `external` row, in `status`. */
+    function addExternal(
+      path: string,
+      branch: string,
+      status: "active" | "abandoned" | "merged" = "active",
+      slug = "ext",
+    ): string {
+      git(["worktree", "add", "-b", branch, path]);
+      const real = realpathSync(path);
+      writeFileSync(join(real, "work.txt"), "uncommitted\n");
+      wtStore.insert({
+        id: `ext-${Math.random().toString(36).slice(2)}`,
+        specId: null,
+        projectPath: repoDir,
+        worktreePath: real,
+        branchName: branch,
+        baseBranch: "main",
+        baseCommit: git(["rev-parse", "main"]),
+        status,
+        slot: null,
+        owner: "external",
+        slug,
+        createdAt: Date.now(),
+      });
+      return real;
+    }
+    const force = {
+      force: true,
+      isPlanActive: () => false,
+      ownsLiveRuntime: () => ({ live: false }),
+    };
+
+    it("default pass: external row with its dir gone → terminal only; branch survives, no prune, not counted", () => {
+      const ext = addExternal(join(tmpDir, "orca", "feature-x"), "feature-x");
+      rmSync(ext, { recursive: true, force: true });
+      const warnings: string[] = [];
+
+      const result = manager.cleanup({ projectPath: repoDir, warnings });
+
+      expect(result).toEqual({ cleaned: 0, removed: [] });
+      expect(branchExists("feature-x")).toBe(true);
+      // No `git worktree prune`: git still lists the (missing) entry.
+      expect(gitWorktreePaths()).toContain(ext);
+      const row = wtStore.listAll().find((w) => w.worktreePath === ext)!;
+      expect(row.status).toBe("abandoned");
+      expect(warnings.join("\n")).toContain("external");
+    }, 15_000);
+
+    it("default pass, unscoped: same for an external row", () => {
+      const ext = addExternal(join(tmpDir, "orca", "feature-y"), "feature-y");
+      rmSync(ext, { recursive: true, force: true });
+
+      expect(manager.cleanup().cleaned).toBe(0);
+      expect(branchExists("feature-y")).toBe(true);
+    }, 15_000);
+
+    it("default pass still removes a Sentinal-owned row next to an external one", () => {
+      const ext = addExternal(join(tmpDir, "orca", "feature-x"), "feature-x");
+      rmSync(ext, { recursive: true, force: true });
+      const own = manager.create(undefined, repoDir);
+      rmSync(own.worktreePath, { recursive: true, force: true });
+
+      const { removed } = manager.cleanup({ projectPath: repoDir });
+
+      expect(removed.map((r) => r.branch)).toEqual([own.branchName]);
+      expect(branchExists(own.branchName)).toBe(false);
+      expect(branchExists("feature-x")).toBe(true);
+    }, 15_000);
+
+    it("guard 6: force never touches an external worktree inside .sentinal/worktrees on a sentinal/spec- branch", () => {
+      const inside = addExternal(
+        join(repoDir, ".sentinal", "worktrees", "spec-orca-1"),
+        "sentinal/spec-orca-1",
+      );
+      const outside = addExternal(
+        join(tmpDir, "orca", "feature-x"),
+        "feature-x",
+      );
+      const warnings: string[] = [];
+
+      const { removed } = manager.cleanup({
+        ...force,
+        projectPath: repoDir,
+        warnings,
+      });
+
+      expect(removed).toEqual([]);
+      for (const p of [inside, outside]) {
+        expect(existsSync(join(p, "work.txt"))).toBe(true);
+        expect(gitWorktreePaths()).toContain(p);
+      }
+      expect(branchExists("sentinal/spec-orca-1")).toBe(true);
+      expect(branchExists("feature-x")).toBe(true);
+    }, 15_000);
+
+    it("guard 6 holds for an external row in ANY status (abandoned, merged)", () => {
+      const a = addExternal(
+        join(repoDir, ".sentinal", "worktrees", "spec-orca-a"),
+        "sentinal/spec-orca-a",
+        "abandoned",
+      );
+      const m = addExternal(
+        join(repoDir, ".sentinal", "worktrees", "spec-orca-m"),
+        "sentinal/spec-orca-m",
+        "merged",
+      );
+
+      const { removed } = manager.cleanup({ ...force, projectPath: repoDir });
+
+      expect(removed).toEqual([]);
+      expect(existsSync(a)).toBe(true);
+      expect(existsSync(m)).toBe(true);
+      expect(branchExists("sentinal/spec-orca-a")).toBe(true);
+      expect(branchExists("sentinal/spec-orca-m")).toBe(true);
+    }, 15_000);
+
+    it("force still removes a Sentinal orphan, and never marks an external row sharing its slug", () => {
+      const own = manager.create("shared-slug", repoDir);
+      const ext = addExternal(
+        join(tmpDir, "orca", "feature-x"),
+        "feature-x",
+        "active",
+        own.branchName.slice("sentinal/spec-".length),
+      );
+
+      const { removed } = manager.cleanup({ ...force, projectPath: repoDir });
+
+      expect(removed.map((r) => r.path)).toEqual([own.worktreePath]);
+      expect(existsSync(ext)).toBe(true);
+      const extRow = wtStore.listAll().find((w) => w.worktreePath === ext)!;
+      expect(extRow.status).toBe("active");
+    }, 15_000);
+  });
 });

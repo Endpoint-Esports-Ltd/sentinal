@@ -11,6 +11,7 @@ import { makeTmpDir } from "../test-helpers.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
+import { insertWithSlot } from "./slots.js";
 import type { Worktree, WorktreeStatus } from "./types.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -173,6 +174,49 @@ describe("WorktreeStore", () => {
 
     it("should return false for non-existent id", () => {
       expect(store.delete("nonexistent")).toBe(false);
+    });
+  });
+
+  describe("owner + slug (V15)", () => {
+    it("defaults owner to 'sentinal' and slug to undefined", () => {
+      const wt = store.insert(makeWorktree({ id: "wt-default" }));
+      expect(wt.owner).toBe("sentinal");
+      expect(wt.slug).toBeUndefined();
+      expect(store.get("wt-default")!.owner).toBe("sentinal");
+    });
+
+    it("round-trips owner='external' and a slug through insert/get/list", () => {
+      store.insert(
+        makeWorktree({ id: "wt-ext", owner: "external", slug: "phase-1" }),
+      );
+      const got = store.get("wt-ext")!;
+      expect(got.owner).toBe("external");
+      expect(got.slug).toBe("phase-1");
+      expect(store.listAll()[0]!.owner).toBe("external");
+    });
+
+    it("insertWithSlot carries owner + slug", () => {
+      const wt = insertWithSlot(
+        store,
+        makeWorktree({ id: "wt-slotted", owner: "external", slug: "ph-2" }),
+        5,
+      );
+      expect(wt.slot).toBe(1);
+      expect(wt.owner).toBe("external");
+      expect(wt.slug).toBe("ph-2");
+      expect(store.get("wt-slotted")!.owner).toBe("external");
+    });
+
+    it("forceNull insertWithSlot carries owner + slug too", () => {
+      const wt = insertWithSlot(
+        store,
+        makeWorktree({ id: "wt-null", owner: "external", slug: "ph-3" }),
+        5,
+        { forceNull: true },
+      );
+      expect(wt.slot).toBeNull();
+      expect(wt.owner).toBe("external");
+      expect(wt.slug).toBe("ph-3");
     });
   });
 
@@ -430,6 +474,108 @@ describe("WorktreeStore", () => {
       expect(result!.id).toBe("wt-canonical");
     });
 
+    it("finds a row with a non-Sentinal branch via its slug column (V15)", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-orca",
+          branchName: "evan/orca-child-7f3a",
+          owner: "external",
+          slug: "2026-09-28-orca-phase-1",
+          projectPath: "/test/project",
+        }),
+      );
+      const hit = store.resolveBySlug(
+        "2026-09-28-orca-phase-1",
+        "/test/project",
+      );
+      expect(hit?.id).toBe("wt-orca");
+      expect(hit?.owner).toBe("external");
+      expect(hit?.slug).toBe("2026-09-28-orca-phase-1");
+      // Global (unscoped) lookup finds it too.
+      expect(store.resolveBySlug("2026-09-28-orca-phase-1")?.id).toBe(
+        "wt-orca",
+      );
+    });
+
+    it("slug column is slugified like create.ts (write and read)", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-sluggy",
+          branchName: "feature/x",
+          slug: "My Plan_Slug!",
+          projectPath: "/test/project",
+        }),
+      );
+      expect(store.get("wt-sluggy")!.slug).toBe("my-plan-slug");
+      expect(store.resolveBySlug("my-plan-slug", "/test/project")?.id).toBe(
+        "wt-sluggy",
+      );
+      expect(store.resolveBySlug("My Plan_Slug!", "/test/project")?.id).toBe(
+        "wt-sluggy",
+      );
+    });
+
+    it("slug-column lookup is project-scoped: a scoped miss does not return another project's row", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-slug-b",
+          branchName: "orca/child-b",
+          slug: "shared-slug",
+          projectPath: "/project-b",
+        }),
+      );
+      expect(store.resolveBySlug("shared-slug", "/project-a")).toBeNull();
+      expect(store.resolveBySlug("shared-slug", "/project-b")?.id).toBe(
+        "wt-slug-b",
+      );
+    });
+
+    it("slug-column lookup ignores terminal rows", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-slug-merged",
+          branchName: "orca/child-m",
+          slug: "done-slug",
+        }),
+      );
+      store.updateStatus("wt-slug-merged", "merged", "c0ffee");
+      expect(store.resolveBySlug("done-slug", "/test/project")).toBeNull();
+    });
+
+    it("order is spec_id → slug column → branch prefix", () => {
+      store.insert(
+        makeWorktree({
+          id: "wt-by-branch",
+          branchName: "sentinal/spec-ordered",
+          createdAt: 2,
+        }),
+      );
+      store.insert(
+        makeWorktree({
+          id: "wt-by-slug",
+          branchName: "orca/ordered",
+          slug: "ordered",
+          createdAt: 1,
+        }),
+      );
+      expect(store.resolveBySlug("ordered", "/test/project")?.id).toBe(
+        "wt-by-slug",
+      );
+
+      createSpec(tmpDir, memoryStore, "ordered");
+      store.insert(
+        makeWorktree({
+          id: "wt-by-spec",
+          specId: "ordered",
+          branchName: "orca/other",
+          createdAt: 0,
+        }),
+      );
+      expect(store.resolveBySlug("ordered", "/test/project")?.id).toBe(
+        "wt-by-spec",
+      );
+    });
+
     it("should prefer spec_id match over branch name match", () => {
       createSpec(tmpDir, memoryStore, "my-slug");
       store.insert(
@@ -524,6 +670,26 @@ describe("WorktreeStore — canonical scope (Task 12)", () => {
     );
     expect(store.resolveBySlug("2026-09-24-scoped", two.w1)).toBeNull();
     expect(store.resolveBySlug("2026-09-24-scoped", two.main)).toBeNull();
+  }, 15_000);
+
+  it("resolveBySlug via the slug column uses the same repo scope (linked caller hits, other repo misses)", () => {
+    const one = linkedRepo(root, "one");
+    const two = linkedRepo(root, "two");
+    store.insert(
+      makeWorktree({
+        id: "wt-ext-one",
+        projectPath: one.main,
+        worktreePath: one.w1,
+        branchName: "one-b1",
+        owner: "external",
+        slug: "2026-09-28-slug-scope",
+      }),
+    );
+    expect(store.resolveBySlug("2026-09-28-slug-scope", one.w1)?.id).toBe(
+      "wt-ext-one",
+    );
+    expect(store.resolveBySlug("2026-09-28-slug-scope", two.w1)).toBeNull();
+    expect(store.resolveBySlug("2026-09-28-slug-scope", two.main)).toBeNull();
   }, 15_000);
 
   it("countActive counts the canonical set when given the repo's roots, and is unchanged without them", () => {

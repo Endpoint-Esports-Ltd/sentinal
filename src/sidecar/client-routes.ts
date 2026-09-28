@@ -20,7 +20,10 @@
 import { SidecarRoutesSpec } from "./client-routes-spec.js";
 import type { QualityCheckResult } from "./quality-routes.js";
 import type { Notification } from "../memory/types.js";
-import type { ResolvedWorktree } from "../worktree/types.js";
+import type {
+  ResolvedWorktree,
+  WorktreeAbandonResponse,
+} from "../worktree/types.js";
 
 export abstract class SidecarRoutes extends SidecarRoutesSpec {
   // ─── Worktrees ────────────────────────────────────────────────────────
@@ -43,11 +46,16 @@ export abstract class SidecarRoutes extends SidecarRoutesSpec {
     return this.get(`/worktree/resolve?${params}`);
   }
 
+  /**
+   * The payload's `outcome`/`message`/`warnings` are optional: an older
+   * sidecar answers with `worktree_id` + `status` only. `| void` (not
+   * `undefined`) keeps existing no-payload test doubles assignable.
+   */
   async abandonWorktree(
     worktreeId: string,
     opts?: { idempotencyKey?: string },
-  ): Promise<void> {
-    await this.post("/worktree/abandon", {
+  ): Promise<WorktreeAbandonResponse | void> {
+    return this.post("/worktree/abandon", {
       worktree_id: worktreeId,
       idempotencyKey: opts?.idempotencyKey,
     });

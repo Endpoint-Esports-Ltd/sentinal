@@ -144,6 +144,18 @@ export function cleanupWorktrees(
     );
   for (const wt of candidates) {
     if (existsSync(wt.worktreePath)) continue;
+    // ⛔ D2: an EXTERNAL row's branch belongs to another tool. Mark it
+    // terminal (frees the slot) and nothing else — no `branch -D`, and no
+    // repo-wide `worktree prune` on its behalf. Not counted in `removed`,
+    // which promises the branch was deleted.
+    if (wt.owner === "external") {
+      store.updateStatus(wt.id, "abandoned");
+      opts?.warnings?.push(
+        `Released external worktree record ${wt.branchName} (directory ${wt.worktreePath} is ` +
+          `gone): marked abandoned; its branch was left in place — it belongs to another tool.`,
+      );
+      continue;
+    }
     const cwd = gitRoot ?? wt.projectPath;
     // Remove git worktree reference if still tracked
     gitExec(["worktree", "prune"], cwd);
@@ -178,7 +190,9 @@ export function cleanupWorktrees(
  *      `config.directory` (worktrees nested by earlier versions),
  *   3. never the caller's `currentWorktree`,
  *   4. never a worktree whose plan is IN_PROGRESS (`isPlanActive`),
- *   5. never a worktree that still owns live processes (`ownsLiveRuntime`).
+ *   5. never a worktree that still owns live processes (`ownsLiveRuntime`),
+ *   6. never a path that has an `external` row in ANY status (D2) — checked
+ *      FIRST, because it is absolute and cheap (one DB read per pass).
  *
  * ⛔ Guard 5 runs **last** on purpose. It is the only guard that shells out
  * (`ps`, `lsof`), so a candidate already excluded by a cheaper guard must not
@@ -237,10 +251,28 @@ function forceCleanupOrphans(
 
   const removed: RemovedWorktree[] = [];
 
+  // Guard 6 input: every path another tool owns, whatever its row's status —
+  // an `abandoned`/`merged` external row was RELEASED, not deleted (D2).
+  const externalPaths = new Set(
+    store
+      .listAll()
+      .filter((w) => w.owner === "external")
+      .map((w) => resolveRealPath(w.worktreePath)),
+  );
+
   for (const gwt of listGitWorktrees(repoRoot)) {
     // Guard 0: branchless (detached / bare) entries are retained by the parser
     // but carry no sentinal slug, so there is nothing here to own or reclaim.
     if (gwt.branch === null) continue;
+    // Guard 6 (D2): never a worktree another tool owns — even one placed in
+    // `.sentinal/worktrees` on a `sentinal/spec-` branch, which guards 1-2 pass.
+    if (externalPaths.has(resolveRealPath(gwt.path))) {
+      warnings?.push(
+        `Skipped ${gwt.path}: it is an external worktree (owned by another tool); ` +
+          `Sentinal never deletes it.`,
+      );
+      continue;
+    }
     // Guard 1: only sentinal-owned branches.
     if (!gwt.branch.startsWith(prefix)) continue;
     // Guard 2: only worktrees inside the target project — the main checkout,
@@ -292,8 +324,11 @@ function forceCleanupOrphans(
 
     // Reconcile the DB: mark the record abandoned if one exists (class 1);
     // no-op for git-only orphans (class 2).
+    // ⛔ D2: `resolveBySlug` also matches the V15 slug column, so it can return
+    // an external row at ANOTHER path; that row was not removed here.
     const rec = store.resolveBySlug(slug, repoRoot);
-    if (rec) store.updateStatus(rec.id, "abandoned");
+    if (rec && rec.owner !== "external")
+      store.updateStatus(rec.id, "abandoned");
 
     removed.push({
       path: gwt.path,

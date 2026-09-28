@@ -1057,6 +1057,28 @@ describe("SidecarClient forwards idempotency keys", () => {
       srv.stop(true);
     }
   });
+
+  it("returns the abandon payload (outcome, message, warnings) to the caller", async () => {
+    const payload = {
+      worktree_id: "wt-ext",
+      status: "abandoned",
+      outcome: "released",
+      message: "Released /w — left in place.",
+      warnings: ["kept .env"],
+    };
+    const srv = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ ok: true, data: payload }),
+    });
+    try {
+      const client = (SidecarClient as any).buildForTest(
+        `http://127.0.0.1:${srv.port}`,
+      );
+      expect(await client.abandonWorktree("wt-ext")).toEqual(payload);
+    } finally {
+      srv.stop(true);
+    }
+  });
 });
 
 // ─── SENTINAL_SIDECAR_TIMEOUT_MS (issue #9) ────────────────────────────────

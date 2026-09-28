@@ -88,8 +88,8 @@ const versions = (d: Database): number[] =>
   ).map((r) => r.version);
 
 describe("migrateV14 via runMigrations", () => {
-  it("SCHEMA_VERSION is 14", () => {
-    expect(DB_CONSTANTS.SCHEMA_VERSION).toBe(14);
+  it("SCHEMA_VERSION is at least 14 (V15 is covered in migrations-v15.test.ts)", () => {
+    expect(DB_CONSTANTS.SCHEMA_VERSION).toBeGreaterThanOrEqual(14);
   });
 
   it("rewrites every spec id to <canonical project>::<slug> and all five child references follow", () => {

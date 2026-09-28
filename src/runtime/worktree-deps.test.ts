@@ -33,6 +33,7 @@ const SITES = [
   "sidecar/worktree-routes.ts",
   "cli/commands/worktree.ts",
   "mcp/server.ts",
+  "cli/commands/worktree-adopt.ts",
 ];
 
 describe("runtimeWorktreeConfig", () => {
@@ -42,6 +43,7 @@ describe("runtimeWorktreeConfig", () => {
     expect(typeof cfg.stopOwnedRuntime).toBe("function");
     expect(typeof cfg.ownsLiveRuntime).toBe("function");
     expect(typeof cfg.unknownSentinalTokens).toBe("function");
+    expect(typeof cfg.runSetup).toBe("function");
   });
 
   it("wires the REAL token checker, not an inert stand-in", () => {
@@ -90,6 +92,33 @@ describe("runtimeWorktreeConfig", () => {
       expect(runtimeWorktreeConfig().sharedResourcesFor!(tmpDir)).toEqual([
         "database",
       ]);
+    });
+
+    it("runSetup runs the worktree's declared setup with its slot", async () => {
+      writeFileSync(
+        join(tmpDir, ".sentinal", "runtime.json"),
+        JSON.stringify({
+          setup: 'echo "slot=$SENTINAL_WORKTREE_SLOT" > s.out',
+        }),
+      );
+      const r = await runtimeWorktreeConfig().runSetup!(tmpDir, 4);
+      expect(r).toMatchObject({ ran: true, ok: true, exitCode: 0 });
+      expect(readFileSync(join(tmpDir, "s.out"), "utf-8").trim()).toBe(
+        "slot=4",
+      );
+    }, 20_000);
+
+    it("runSetup is an inert success with no contract", async () => {
+      const r = await runtimeWorktreeConfig().runSetup!(tmpDir, null);
+      expect(r).toMatchObject({ ran: false, ok: true });
+    });
+
+    it("runSetup reports an unusable contract instead of silently skipping", async () => {
+      writeFileSync(join(tmpDir, ".sentinal", "runtime.json"), "{ not json");
+      const r = await runtimeWorktreeConfig().runSetup!(tmpDir, 1);
+      expect(r.ran).toBe(false);
+      expect(r.ok).toBe(false);
+      expect(r.reason).toContain("runtime.json");
     });
 
     it("sharedResourcesFor is empty (never throws) with no contract", () => {
@@ -364,6 +393,75 @@ describe("every WorktreeManager construction site injects the runtime deps", () 
         "Shared with the main checkout",
       );
     });
+  });
+
+  /**
+   * `setup` (orca D5) end to end through the tools, with the REAL runner. The
+   * worktree-side tests only ever see a stub, for the no-module-cycle reason
+   * above.
+   */
+  describe("worktree_create / worktree_ensure run the declared setup", () => {
+    let tmpDir: string;
+    let repoDir: string;
+    let store: MemoryStore;
+
+    beforeEach(() => {
+      tmpDir = makeTmpDir();
+      repoDir = join(tmpDir, "repo");
+      mkdirSync(join(repoDir, ".sentinal"), { recursive: true });
+      Bun.spawnSync(["git", "init", "-b", "main"], { cwd: repoDir });
+      Bun.spawnSync(["git", "config", "user.email", "t@t.com"], {
+        cwd: repoDir,
+      });
+      Bun.spawnSync(["git", "config", "user.name", "T"], { cwd: repoDir });
+      writeFileSync(join(repoDir, "README.md"), "# t\n");
+      writeFileSync(
+        join(repoDir, ".sentinal", "runtime.json"),
+        JSON.stringify({ setup: "touch setup-ran.marker" }),
+      );
+      Bun.spawnSync(["git", "add", "-Af"], { cwd: repoDir });
+      Bun.spawnSync(["git", "commit", "-m", "init"], { cwd: repoDir });
+      store = new MemoryStore(join(tmpDir, "test.db"));
+    });
+
+    afterEach(() => {
+      store.close();
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function worktreePathFrom(text: string): string {
+      return /\*\*Path:\*\* (.+)/.exec(text)![1]!.trim();
+    }
+
+    it("worktree_create runs it once in the new worktree", async () => {
+      const tools = captureTools(registerWorktreeTools, {
+        store,
+        worktreeConfig: runtimeWorktreeConfig(),
+      });
+      const result = await tools.get("worktree_create")!({
+        plan_slug: "2026-09-28-create-setup",
+        project: repoDir,
+      });
+      const text = result.content[0]!.text;
+      const wtPath = worktreePathFrom(text);
+      expect(existsSync(join(wtPath, "setup-ran.marker"))).toBe(true);
+      expect(text).toContain("**Setup:** ran, ok");
+    }, 30_000);
+
+    it("worktree_ensure runs it once in the new worktree", async () => {
+      const tools = captureTools(registerWorktreeTools, {
+        store,
+        worktreeConfig: runtimeWorktreeConfig(),
+      });
+      const result = await tools.get("worktree_ensure")!({
+        plan_slug: "2026-09-28-ensure-setup",
+        project: repoDir,
+      });
+      const text = result.content[0]!.text;
+      const wtPath = worktreePathFrom(text);
+      expect(existsSync(join(wtPath, "setup-ran.marker"))).toBe(true);
+      expect(text).toContain("**Setup:** ran, ok");
+    }, 30_000);
   });
 
   it("worktree/mcp-tools.ts receives the config as a dep it cannot import", () => {

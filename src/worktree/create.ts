@@ -161,11 +161,106 @@ export function createWorktree(
   }
 }
 
+// ─── Setup step (orca D5) ────────────────────────────────────────────────────
+
+/**
+ * Outcome of the once-per-worktree `setup` command. Structurally identical to
+ * `src/runtime/setup.ts`'s `WorktreeSetupResult`, re-declared here because
+ * this directory may not import `src/runtime/` (`no-module-cycle.test.ts`).
+ */
+export interface WorktreeSetupOutcome {
+  ran: boolean;
+  ok: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  tail: string;
+  reason?: string;
+}
+
+/**
+ * Injected by the caller: loads the worktree's runtime contract and runs its
+ * `setup` (production: `runWorktreeSetup`). Returns `ok: true, ran: false`
+ * when nothing is declared.
+ */
+export type WorktreeSetupRunner = (
+  worktreePath: string,
+  slot: number | null,
+) => Promise<WorktreeSetupOutcome>;
+
+/**
+ * Run the injected setup ONCE, after seeding. ⛔ Never throws and never part of
+ * a rollback: a failure — reported or thrown — becomes a warning and the
+ * worktree stays (a half-installed tree is still the user's work).
+ */
+export async function runSetupNonFatally(
+  setup: WorktreeSetupRunner,
+  wt: Worktree,
+  warnings?: string[],
+): Promise<WorktreeSetupOutcome> {
+  let result: WorktreeSetupOutcome;
+  try {
+    result = await setup(wt.worktreePath, wt.slot ?? null);
+  } catch (err) {
+    result = {
+      ran: false,
+      ok: false,
+      exitCode: null,
+      timedOut: false,
+      tail: "",
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (!result.ok) {
+    const why = result.timedOut
+      ? "timed out"
+      : result.exitCode !== null
+        ? `exited ${result.exitCode}`
+        : "did not complete";
+    warnings?.push(
+      `setup ${why} in ${wt.worktreePath}` +
+        (result.reason ? `: ${result.reason}` : "") +
+        (result.tail ? `\n--- output tail ---\n${result.tail}` : "") +
+        `\nThe worktree was kept. Fix the cause and re-run the setup command by hand ` +
+        `(full output in .sentinal/runtime.log).`,
+    );
+  }
+  return result;
+}
+
+/**
+ * {@link createWorktree}, then the injected `setup` — OUTSIDE the rollback
+ * envelope, so a setup failure is a warning and never removes the worktree.
+ * Without `setup` this is exactly `createWorktree`.
+ */
+export async function createWorktreeWithSetup(
+  store: WorktreeStore,
+  config: WorktreeConfig,
+  specId: string | undefined,
+  projectPath: string,
+  baseBranch?: string,
+  warnings?: string[],
+  setup?: WorktreeSetupRunner,
+): Promise<{ worktree: Worktree; setup?: WorktreeSetupOutcome }> {
+  const worktree = createWorktree(
+    store,
+    config,
+    specId,
+    projectPath,
+    baseBranch,
+    warnings,
+  );
+  if (!setup) return { worktree };
+  return {
+    worktree,
+    setup: await runSetupNonFatally(setup, worktree, warnings),
+  };
+}
+
 /**
  * The commit `base` points at, verified. Throws a `GIT_ERROR` naming the base
  * when it does not resolve — before anything has been created.
  */
-function resolveBaseCommit(repoRoot: string, base: string): string {
+export function resolveBaseCommit(repoRoot: string, base: string): string {
   const r = gitExec(
     ["rev-parse", "--verify", "--quiet", `${base}^{commit}`],
     repoRoot,

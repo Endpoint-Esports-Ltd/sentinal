@@ -629,38 +629,24 @@ describe("WorktreeManager", () => {
       expect(git(["branch", "--show-current"], linked)).toBe("orca-support");
     }, 15_000);
 
-    it("gives a clear BASE_CHECKED_OUT error when base is checked out in another linked worktree", async () => {
-      const stops: string[] = [];
-      const m = new WorktreeManager(wtStore, {
-        ...testConfig,
-        stopOwnedRuntime: async (p: string) => {
-          stops.push(p);
-          return { ok: true, stopped: false, actions: [], warnings: [] };
-        },
-      });
-      const wt = m.create("2026-09-24-busy-base", linked, "orca-support");
+    // D3 (orca-orchestration Task 7) replaced the BASE_CHECKED_OUT refusal
+    // this case used to assert: a base held by a clean linked worktree is now
+    // merged INTO that worktree. BASE_CHECKED_OUT survives only for a holder
+    // that cannot receive the merge — see merge-guards.test.ts.
+    it("merges INTO the linked worktree that holds the base (D3)", async () => {
+      const wt = manager.create("2026-09-24-busy-base", linked, "orca-support");
       addAndCommit(wt.worktreePath, "feature.ts", "export {};\n", "feat");
-      const baseTip = git(["rev-parse", "orca-support"], repoDir);
+      const mainTip = git(["rev-parse", "main"], repoDir);
 
-      let caught: unknown;
-      try {
-        await m.squashMerge(wt.id);
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeInstanceOf(WorktreeError);
-      expect((caught as WorktreeError).code).toBe("BASE_CHECKED_OUT");
-      const msg = (caught as WorktreeError).message;
-      expect(msg).toContain("orca-support");
-      expect(msg).toContain(linked);
-      expect(msg).toContain("Nothing has been merged");
+      const result = await manager.squashMergeDetailed(wt.id);
 
-      // Refused BEFORE anything was done.
-      expect(stops).toEqual([]);
-      expect(git(["rev-parse", "orca-support"], repoDir)).toBe(baseTip);
+      expect(result.mergedIn).toBe(linked);
+      expect(git(["rev-parse", "orca-support"], repoDir)).toBe(result.commit);
+      expect(git(["branch", "--show-current"], linked)).toBe("orca-support");
+      expect(git(["rev-parse", "main"], repoDir)).toBe(mainTip);
       expect(git(["branch", "--show-current"], repoDir)).toBe("main");
-      expect(existsSync(wt.worktreePath)).toBe(true);
-      expect(wtStore.get(wt.id)!.status).toBe("active");
+      expect(existsSync(wt.worktreePath)).toBe(false);
+      expect(wtStore.get(wt.id)!.status).toBe("merged");
     }, 15_000);
 
     it("abandons a LEGACY linked-keyed row from the main checkout", async () => {
@@ -1524,4 +1510,75 @@ describe("WorktreeManager", () => {
       expect(manager.hasConflicts(wt.id)).toBe(true);
     });
   });
+});
+
+// ─── createWithSetup (orca Task 9) ──────────────────────────────────────────
+
+describe("WorktreeManager.createWithSetup", () => {
+  let tmpDir: string;
+  let repoDir: string;
+  let memoryStore: MemoryStore;
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    repoDir = join(tmpDir, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    mkdirSync(join(tmpDir, "db"), { recursive: true });
+    initRepo(repoDir);
+    memoryStore = new MemoryStore(join(tmpDir, "db", "test.db"));
+  });
+
+  afterEach(() => {
+    memoryStore.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("runs config.runSetup once after creating, and reports it", async () => {
+    const calls: Array<{ path: string; slot: number | null }> = [];
+    const manager = new WorktreeManager(new WorktreeStore(memoryStore), {
+      ...testConfig,
+      runSetup: async (path, slot) => {
+        calls.push({ path, slot });
+        return { ran: true, ok: true, exitCode: 0, timedOut: false, tail: "" };
+      },
+    });
+    const made = await manager.createWithSetup("2026-09-28-cws", repoDir);
+    expect(existsSync(made.worktree.worktreePath)).toBe(true);
+    expect(calls).toEqual([
+      { path: made.worktree.worktreePath, slot: made.worktree.slot ?? null },
+    ]);
+    expect(made.setup?.ran).toBe(true);
+  }, 30_000);
+
+  it("a failing setup is a warning and keeps the worktree", async () => {
+    const manager = new WorktreeManager(new WorktreeStore(memoryStore), {
+      ...testConfig,
+      runSetup: async () => ({
+        ran: true,
+        ok: false,
+        exitCode: 7,
+        timedOut: false,
+        tail: "boom",
+      }),
+    });
+    const warnings: string[] = [];
+    const made = await manager.createWithSetup(
+      "2026-09-28-cws-fail",
+      repoDir,
+      undefined,
+      warnings,
+    );
+    expect(existsSync(made.worktree.worktreePath)).toBe(true);
+    expect(warnings.join("\n")).toContain("exited 7");
+  }, 30_000);
+
+  it("without a runner it is create() with no setup field", async () => {
+    const manager = new WorktreeManager(
+      new WorktreeStore(memoryStore),
+      testConfig,
+    );
+    const made = await manager.createWithSetup("2026-09-28-cws-none", repoDir);
+    expect(made.setup).toBeUndefined();
+    expect(existsSync(made.worktree.worktreePath)).toBe(true);
+  }, 30_000);
 });

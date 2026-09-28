@@ -5,6 +5,8 @@
  */
 
 import { z } from "zod";
+// Type-only (erased at run time), so no `types` ↔ `create` module cycle.
+import type { WorktreeSetupRunner } from "./create.js";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,15 @@ export const LIVE_WORKTREE_STATUSES = ["active", "ready-to-merge"] as const;
 
 export type LiveWorktreeStatus = (typeof LIVE_WORKTREE_STATUSES)[number];
 
+/**
+ * Who may delete a worktree's directory and branch (migration V15, D1).
+ * `sentinal` = Sentinal created it (every pre-V15 row); `external` = another
+ * tool (e.g. Orca) created it and Sentinal only adopted it.
+ */
+export const WORKTREE_OWNERS = ["sentinal", "external"] as const;
+
+export type WorktreeOwner = (typeof WORKTREE_OWNERS)[number];
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 export const WorktreeSchema = z.object({
@@ -48,6 +59,14 @@ export const WorktreeSchema = z.object({
    * the developer's main checkout and is never allocated (D7).**
    */
   slot: z.number().int().nullable().optional(),
+  /**
+   * V15. Optional in the type only so pre-V15 payloads (an old sidecar) and
+   * existing callers stay valid: absent means `sentinal`. Rows read from the
+   * store always carry it.
+   */
+  owner: z.enum(WORKTREE_OWNERS).optional(),
+  /** V15. The plan slug the worktree was ensured under (slugified), if any. */
+  slug: z.string().optional(),
   createdAt: z.number(),
   mergedAt: z.number().nullable().optional(),
   mergeCommit: z.string().nullable().optional(),
@@ -176,7 +195,31 @@ export type WorktreeConfig = z.infer<typeof WorktreeConfigSchema> & {
    * unlike the two required fields above it cannot silently authorise anything.
    */
   ownsLiveRuntime?: (worktreePath: string) => RuntimeLiveVerdict;
+  /**
+   * The once-per-worktree `setup` runner (orca D5): loads the worktree's own
+   * `.sentinal/runtime.json` and runs its `setup`. Used by `ensureWorktree` and
+   * `WorktreeManager.createWithSetup` when no explicit runner is passed.
+   * Optional and inert when absent — setup is opt-in per project, and a
+   * failure is only ever a warning.
+   */
+  runSetup?: WorktreeSetupRunner;
 };
+
+/**
+ * The `POST /worktree/abandon` payload. `worktree_id` and `status` are the
+ * original fields; `outcome`/`message`/`warnings` (orca D2) are additive and
+ * OPTIONAL on the client side — an older sidecar answers without them, and a
+ * replayed pre-orca idempotency record lacks them too.
+ */
+export interface WorktreeAbandonResponse {
+  worktree_id: string;
+  status: "abandoned";
+  /** `removed`: directory + branch deleted. `released`: external, left in place. */
+  outcome?: "removed" | "released";
+  message?: string;
+  warnings?: string[];
+  replayed?: boolean;
+}
 
 /**
  * The **declared** opt-out from stop-on-exit: "this manager owns no runtime".

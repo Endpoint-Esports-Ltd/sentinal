@@ -12,7 +12,11 @@
 
 import type { SidecarContext } from "./server.js";
 import { WorktreeManager } from "../worktree/manager.js";
-import { WorktreeError, type ResolvedWorktree } from "../worktree/types.js";
+import {
+  WorktreeError,
+  type ResolvedWorktree,
+  type WorktreeAbandonResponse,
+} from "../worktree/types.js";
 // ⛔ The sidecar is OUTSIDE src/worktree/, so it may supply the runtime deps
 // directly. All three handlers construct through this — abandon needs
 // `stopOwnedRuntime` before it removes the directory, cleanup needs
@@ -168,17 +172,26 @@ async function handleAbandonWorktree(
   // cleanup, a second execution is NOT harmless, so the idempotency guard
   // matters more here than on the route that surfaced the bug.
   let replayed: boolean;
+  let result: WorktreeAbandonResponse;
   try {
     const outcome = await withIdempotencyAsync(
       ctx.store,
       "worktree-abandon",
       body.idempotencyKey,
-      async () => {
-        await manager.abandon(worktree_id);
-        return { worktree_id, status: "abandoned" as const };
+      async (): Promise<WorktreeAbandonResponse> => {
+        const r = await manager.abandon(worktree_id);
+        // Recorded as-is, so a replay reports released-vs-removed too (orca D2).
+        return {
+          worktree_id,
+          status: "abandoned",
+          outcome: r.outcome,
+          message: r.message,
+          warnings: r.warnings,
+        };
       },
     );
     replayed = outcome.replayed;
+    result = outcome.result;
   } catch (err) {
     // ⛔ This is the DEFAULT path for `worktree_abandon` (`mcp-tools.ts`
     // prefers `client.abandonWorktree`), so a designed refusal must arrive as
@@ -207,7 +220,9 @@ async function handleAbandonWorktree(
     `worktree_id=${worktree_id} path=${wt.worktreePath}` +
       (replayed ? " REPLAYED (idempotency key hit)" : ""),
   );
+  // `worktree_id` + `status` are the back-compat fields; the rest is additive.
   return ok({
+    ...result,
     worktree_id,
     status: "abandoned",
     ...(replayed ? { replayed: true } : {}),

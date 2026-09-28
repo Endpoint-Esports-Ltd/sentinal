@@ -10,14 +10,20 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { WorktreeStore } from "./store.js";
 import { WorktreeManager } from "./manager.js";
 import { registerWorktreeTools } from "./mcp-tools.js";
 import type { SidecarClient } from "../sidecar/client.js";
-import type { DiffSummary } from "./types.js";
+import { DEFAULT_WORKTREE_CONFIG, type DiffSummary } from "./types.js";
 import { makeTmpDir, captureTools, type ToolHandler } from "../test-helpers.js";
 
 // --- Helpers ---
@@ -138,6 +144,10 @@ describe("worktree_create MCP tool", () => {
 
   it("should be registered as a tool", () => {
     expect(tools.has("worktree_create")).toBe(true);
+  });
+
+  it("registers worktree_ensure alongside it (orca Task 9)", () => {
+    expect(tools.has("worktree_ensure")).toBe(true);
   });
 
   // Note: actual worktree creation requires a git repo, so we test error handling
@@ -357,12 +367,16 @@ describe("worktree_sync MCP tool", () => {
     });
 
     const origHasConflicts = WorktreeManager.prototype.hasConflicts;
-    const origSquashMerge = WorktreeManager.prototype.squashMerge;
+    const origSquashMerge = WorktreeManager.prototype.squashMergeDetailed;
     WorktreeManager.prototype.hasConflicts = function () {
       return false;
     };
-    WorktreeManager.prototype.squashMerge = async function () {
-      return "deadbeef1234567890";
+    WorktreeManager.prototype.squashMergeDetailed = async function () {
+      return {
+        commit: "deadbeef1234567890",
+        mergedIn: tmpDir,
+        outcome: "removed" as const,
+      };
     };
 
     try {
@@ -378,9 +392,61 @@ describe("worktree_sync MCP tool", () => {
       expect(text).toContain("deadbeef1234567890");
       expect(text).toContain("spec/merge-feature");
       expect(text).toContain("main");
+      expect(text).toContain(`**Merged in:** ${tmpDir}`);
+      expect(text).toContain("**Worktree:** removed");
     } finally {
       WorktreeManager.prototype.hasConflicts = origHasConflicts;
-      WorktreeManager.prototype.squashMerge = origSquashMerge;
+      WorktreeManager.prototype.squashMergeDetailed = origSquashMerge;
+    }
+  });
+
+  it("reports where the commit landed, an external release, and warnings (orca D3/D2)", async () => {
+    createSpec(tmpDir, store, "ext-merge");
+    mkdirSync(join(tmpDir, ".worktrees", "ext-merge"), { recursive: true });
+    new WorktreeStore(store).insert({
+      id: "wt-ext-merge",
+      specId: "ext-merge",
+      projectPath: tmpDir,
+      worktreePath: join(tmpDir, ".worktrees", "ext-merge"),
+      branchName: "spec/ext-merge",
+      baseBranch: "coord",
+      baseCommit: "abc123",
+      status: "active",
+      createdAt: Date.now(),
+    });
+
+    const origHasConflicts = WorktreeManager.prototype.hasConflicts;
+    const origDetailed = WorktreeManager.prototype.squashMergeDetailed;
+    WorktreeManager.prototype.hasConflicts = () => false;
+    WorktreeManager.prototype.squashMergeDetailed = async function (
+      _id: string,
+      _message?: string,
+      warnings?: string[],
+    ) {
+      warnings?.push("restored the holder's branch");
+      return {
+        commit: "cafe1234",
+        mergedIn: "/coordinator/checkout",
+        outcome: "released" as const,
+      };
+    };
+    try {
+      const mocked = captureTools(registerWorktreeTools, store);
+      const result = await mocked.get("worktree_sync")!({
+        plan_slug: "ext-merge",
+        project: tmpDir,
+      });
+      const text = result.content[0].text;
+      expect(text).toContain(
+        "Merged: cafe1234 (branch: spec/ext-merge → coord)",
+      );
+      expect(text).toContain("**Merged in:** /coordinator/checkout");
+      expect(text).toContain("**Worktree:** released");
+      expect(text).toContain("### Warnings");
+      expect(text).toContain("restored the holder's branch");
+    } finally {
+      WorktreeManager.prototype.hasConflicts = origHasConflicts;
+      WorktreeManager.prototype.squashMergeDetailed = origDetailed;
     }
   });
 });
@@ -589,6 +655,7 @@ describe("worktree_abandon MCP tool", () => {
         worktreeId,
         "abandoned",
       );
+      return { outcome: "removed" as const, message: "", warnings: [] };
     };
 
     try {
@@ -608,6 +675,58 @@ describe("worktree_abandon MCP tool", () => {
       WorktreeManager.prototype.abandon = origAbandon;
     }
   });
+
+  it("D2: an EXTERNAL worktree found by its slug is released — dir, branch and work survive", async () => {
+    const root = realpathSync(tmpDir);
+    const repo = join(root, "repo");
+    mkdirSync(repo, { recursive: true });
+    const git = (args: string[], cwd = repo) =>
+      Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    git(["init", "-b", "main"]);
+    git(["config", "user.email", "t@t.com"]);
+    git(["config", "user.name", "T"]);
+    writeFileSync(join(repo, "README.md"), "# t\n");
+    git(["add", "."]);
+    git(["commit", "-m", "init"]);
+    git([
+      "worktree",
+      "add",
+      "-b",
+      "feature-x",
+      join(root, "orca", "feature-x"),
+    ]);
+    const ext = realpathSync(join(root, "orca", "feature-x"));
+    writeFileSync(join(ext, "work.txt"), "uncommitted\n");
+    wtStore.insert({
+      id: "wt-ext-tool",
+      specId: null,
+      projectPath: repo,
+      worktreePath: ext,
+      branchName: "feature-x",
+      baseBranch: "main",
+      baseCommit: "HEAD",
+      status: "active",
+      slot: null,
+      owner: "external",
+      slug: "orca-feature",
+      createdAt: Date.now(),
+    });
+
+    const result = await tools.get("worktree_abandon")!({
+      plan_slug: "orca-feature",
+      project: repo,
+    });
+
+    expect(result.content[0].text).not.toMatch(/^Error/);
+    // Carry-over from Task 5: the result says it was RELEASED, not removed.
+    expect(result.content[0].text).toContain("**Outcome:** released");
+    expect(existsSync(join(ext, "work.txt"))).toBe(true);
+    expect(
+      git(["rev-parse", "--verify", "--quiet", "refs/heads/feature-x"])
+        .exitCode,
+    ).toBe(0);
+    expect(wtStore.get("wt-ext-tool")!.status).toBe("abandoned");
+  }, 20_000);
 });
 
 // --- worktree_cleanup tests ---
@@ -693,6 +812,55 @@ describe("worktree_cleanup MCP tool", () => {
     expect((received as { idempotencyKey?: string }).idempotencyKey).toBe(
       "abandon-key-1",
     );
+  });
+
+  it("surfaces the sidecar's abandon message, outcome and warnings", async () => {
+    const fakeClient = {
+      resolveWorktreeBySlug: async () => ({
+        id: "wt-ext",
+        branchName: "orca-x",
+        worktreePath: "/w/orca-x",
+      }),
+      abandonWorktree: async () => ({
+        worktree_id: "wt-ext",
+        status: "abandoned",
+        outcome: "released",
+        message: "Released /w/orca-x — left in place (owner external).",
+        warnings: ["kept .env: modified since seeding"],
+      }),
+    };
+    const clientTools = captureTools(registerWorktreeTools, {
+      client: fakeClient as any,
+      store,
+    });
+    const result = await clientTools.get("worktree_abandon")!({
+      plan_slug: "x",
+    });
+    const text = result.content[0].text as string;
+    expect(text).toContain("Worktree abandoned: orca-x");
+    expect(text).toContain("**Outcome:** released");
+    expect(text).toContain("Released /w/orca-x — left in place");
+    expect(text).toContain("kept .env: modified since seeding");
+  });
+
+  it("an OLD sidecar (no payload) still yields the classic line", async () => {
+    const fakeClient = {
+      resolveWorktreeBySlug: async () => ({
+        id: "wt-1",
+        branchName: "sentinal/spec-x",
+        worktreePath: "/w/x",
+      }),
+      abandonWorktree: async () => undefined,
+    };
+    const clientTools = captureTools(registerWorktreeTools, {
+      client: fakeClient as any,
+      store,
+    });
+    const result = await clientTools.get("worktree_abandon")!({
+      plan_slug: "x",
+    });
+    const text = result.content[0].text as string;
+    expect(text).toBe("Worktree abandoned: sentinal/spec-x (was at /w/x)");
   });
 
   // ── The acted-on set (issue #9) ─────────────────────────────────────────
@@ -1000,5 +1168,33 @@ describe("slot surfacing in MCP tool output", () => {
     });
 
     expect(result.content[0].text).toContain(".env.example");
+  });
+
+  it("worktree_create runs the injected setup and reports it (orca D5)", async () => {
+    const calls: string[] = [];
+    const withSetup = captureTools(registerWorktreeTools, {
+      store,
+      worktreeConfig: {
+        ...DEFAULT_WORKTREE_CONFIG,
+        runSetup: async (path: string) => {
+          calls.push(path);
+          return {
+            ran: true,
+            ok: true,
+            exitCode: 0,
+            timedOut: false,
+            tail: "",
+          };
+        },
+      },
+    });
+    const result = await withSetup.get("worktree_create")!({
+      plan_slug: "2026-09-28-create-setup",
+      project: repoDir,
+    });
+    const text = result.content[0].text;
+    expect(calls.length).toBe(1);
+    expect(text).toContain(`**Path:** ${calls[0]}`);
+    expect(text).toContain("**Setup:** ran, ok");
   });
 });

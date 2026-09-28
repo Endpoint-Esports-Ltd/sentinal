@@ -5,45 +5,23 @@
  * Follows the SpecStore pattern: takes MemoryStore, uses getRawDb().
  */
 
-import { resolveSpecKey, resolveSpecKeyForWrite } from "../memory/spec-key.js";
+import { resolveSpecKey } from "../memory/spec-key.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
 import { MemoryStore } from "../memory/store.js";
-import { resolveSlotScope } from "./slots.js";
+import {
+  LIVE,
+  canonicalPath,
+  deserializeWorktree,
+  insertWorktreeRow,
+  liveRowsBySlugColumn,
+  pickInScope,
+  type RawWorktree,
+} from "./store-rows.js";
 import {
   DEFAULT_WORKTREE_CONFIG,
   type Worktree,
   type WorktreeStatus,
 } from "./types.js";
-
-/** Canonicalize a path for scope comparison; falls back for missing paths. */
-function canonicalPath(p: string): string {
-  try {
-    return realpathSync(p);
-  } catch {
-    return resolve(p);
-  }
-}
-
-const LIVE = "status IN ('active', 'ready-to-merge')";
-
-// ─── Raw DB Row Type ────────────────────────────────────────────────────────
-
-interface RawWorktree {
-  id: string;
-  spec_id: string | null;
-  project_path: string;
-  worktree_path: string;
-  branch_name: string;
-  base_branch: string;
-  base_commit: string;
-  status: string;
-  created_at: number;
-  merged_at: number | null;
-  merge_commit: string | null;
-  slot: number | null;
-}
 
 // ─── Store ──────────────────────────────────────────────────────────────────
 
@@ -54,30 +32,12 @@ export class WorktreeStore {
     this.db = memoryStore.getRawDb();
   }
 
-  /** Insert a new worktree record. */
+  /**
+   * Insert a new worktree record. `owner` defaults to `sentinal`; `slug` is
+   * stored slugified (V15).
+   */
   insert(wt: Omit<Worktree, "mergedAt" | "mergeCommit">): Worktree {
-    this.db
-      .prepare(
-        `INSERT INTO worktrees (id, spec_id, project_path, worktree_path, branch_name, base_branch, base_commit, status, created_at, slot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        wt.id,
-        // D6: worktree rows keep the repo root, which is not necessarily the
-        // spec's canonical key — fall back to a unique slug before failing.
-        wt.specId
-          ? (resolveSpecKeyForWrite(this.db, wt.specId, wt.projectPath) ??
-              wt.specId)
-          : null,
-        wt.projectPath,
-        wt.worktreePath,
-        wt.branchName,
-        wt.baseBranch,
-        wt.baseCommit,
-        wt.status,
-        wt.createdAt,
-        wt.slot ?? null,
-      );
+    insertWorktreeRow(this.db, wt);
     return this.get(wt.id)!;
   }
 
@@ -314,9 +274,12 @@ export class WorktreeStore {
   /**
    * Resolve a plan slug to a worktree.
    * 1. Try exact match on spec_id (primary)
-   * 2. Fall back to an exact branch-name match (`<prefix><slug>` or legacy
-   *    `spec/<slug>`), scoped to `projectPath` when given — a scoped miss
-   *    returns null and never falls through to another project's worktree.
+   * 2. The V15 `slug` column (slugified like `create.ts`) — finds adopted
+   *    worktrees whose branch carries no Sentinal prefix
+   * 3. Fall back to an exact branch-name match (`<prefix><slug>` or legacy
+   *    `spec/<slug>`)
+   * Steps 2–3 are scoped to `projectPath` when given — a scoped miss returns
+   * null and never falls through to another project's worktree.
    * Returns null if no match.
    */
   resolveBySlug(slug: string, projectPath?: string): Worktree | null {
@@ -326,6 +289,13 @@ export class WorktreeStore {
       projectPath ? canonicalPath(projectPath) : undefined,
     );
     if (bySpec) return bySpec;
+
+    // V15: the slug the worktree was ensured under (same scoping as below).
+    const bySlug = pickInScope(
+      liveRowsBySlugColumn(this.db, slug),
+      projectPath,
+    );
+    if (bySlug) return this.deserialize(bySlug);
 
     // Branch names: the configured prefix (default "sentinal/spec-") plus
     // the legacy "spec/" prefix. Records often have spec_id=NULL because
@@ -347,51 +317,15 @@ export class WorktreeStore {
       )
       .all(...branches) as RawWorktree[];
 
-    // ⛔ When a project scope was given, a scoped miss is FINAL — falling
-    // through to a global match would silently return another project's
-    // worktree, which worktree_sync/abandon would then merge or delete there.
-    // Scope compares CANONICAL paths: rows store getRepoRoot() output (a
-    // realpath), while callers may pass a symlinked alias (macOS /var vs
-    // /private/var) — the old global fallback papered over that mismatch.
-    //
-    // Task 12: the scope is the caller's REPO, not its literal checkout. From
-    // a linked worktree the caller's identity is the main checkout, where
-    // canonically-keyed rows live; legacy rows keyed by any other checkout of
-    // the same repo match too. One `git worktree list` — no transaction here.
-    if (projectPath) {
-      const scope = resolveSlotScope(projectPath);
-      const wanted = new Set(scope?.roots ?? []);
-      wanted.add(canonicalPath(projectPath));
-      const row = rows.find(
-        (r) =>
-          wanted.has(canonicalPath(r.project_path)) ||
-          (scope !== null && wanted.has(canonicalPath(r.worktree_path))),
-      );
-      return row ? this.deserialize(row) : null;
-    }
-
-    // Global fallback: exact branch match, ONLY when no scope was given.
-    return rows.length > 0 ? this.deserialize(rows[0]) : null;
+    // ⛔ A scoped miss is FINAL (see pickInScope); the global fallback applies
+    // ONLY when no scope was given.
+    const row = pickInScope(rows, projectPath);
+    return row ? this.deserialize(row) : null;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────
 
   private deserialize(row: RawWorktree): Worktree {
-    return {
-      id: row.id,
-      specId: row.spec_id ?? undefined,
-      projectPath: row.project_path,
-      worktreePath: row.worktree_path,
-      branchName: row.branch_name,
-      baseBranch: row.base_branch,
-      baseCommit: row.base_commit,
-      status: row.status as WorktreeStatus,
-      createdAt: row.created_at,
-      mergedAt: row.merged_at ?? undefined,
-      mergeCommit: row.merge_commit ?? undefined,
-      // Explicit null (not undefined): "no slot assigned" is a real state that
-      // callers must render as such, not silently drop.
-      slot: row.slot ?? null,
-    };
+    return deserializeWorktree(row);
   }
 }

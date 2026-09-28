@@ -13,6 +13,7 @@
  *   sentinal worktree abandon-orphan <slug> [-p <path>] [--json]
  *   sentinal worktree detect  <slug> [--project <path>] [--json]
  *   sentinal worktree create  <slug> [--project <path>] [--base <branch>] [--json]
+ *   sentinal worktree ensure  <slug> [--path] [--base] [--owner] [--no-seed] [-p] [--json]
  *   sentinal worktree sync    <slug> [-m <msg>] [--json]
  */
 
@@ -26,6 +27,7 @@ import { formatSlot } from "../../worktree/slots.js";
 // directly rather than having them threaded down (see worktree-deps.ts).
 import { runtimeWorktreeConfig } from "../../runtime/worktree-deps.js";
 import { registerWorktreeCleanupCommands } from "./worktree-cleanup.js";
+import { registerWorktreeAdoptCommands } from "./worktree-adopt.js";
 
 /**
  * The slot fields every `--json` shape carries.
@@ -238,6 +240,7 @@ export function registerWorktreeCommand(program: Command): void {
   // DELETE things, so they carry the guard-wiring rationale together
   // (issue #9).
   registerWorktreeCleanupCommands(wt);
+  registerWorktreeAdoptCommands(wt); // ensure (create-or-adopt, orca)
 
   // ─── detect ───────────────────────────────────────────────────────────
 
