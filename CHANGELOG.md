@@ -1,3 +1,15 @@
+# [1.40.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.2...v1.40.0) (2026-09-28)
+
+
+### Bug Fixes
+
+* **tdd:** scope bulk transitions to the tests that ran; require a project on set ([a9ac441](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/a9ac441eb1348a47b3c674f151e7fb06a7b4449b))
+
+
+### Features
+
+* **release:** bake the release version into the Claude Code plugin.json ([d5c19b0](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/d5c19b09e92f616c859462082207e7eb288345ac))
+
 ## [1.39.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.39.1...v1.39.2) (2026-09-25)
 
 
