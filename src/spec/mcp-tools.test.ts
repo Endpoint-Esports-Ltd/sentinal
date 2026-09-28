@@ -455,6 +455,7 @@ describe("spec_config MCP tool", () => {
     "SENTINAL_SPEC_REVIEWER_ENABLED",
     "SENTINAL_WORKTREE_ENABLED",
     "SENTINAL_SESSION_ID",
+    "SENTINAL_ORCHESTRATION",
   ];
 
   beforeEach(() => {
@@ -499,6 +500,34 @@ describe("spec_config MCP tool", () => {
     expect(text).toContain("false");
     expect(text).toContain("disabled");
     expect(text).toContain("test-session-123");
+  });
+
+  it("lists SENTINAL_ORCHESTRATION with its auto default (D6)", async () => {
+    const text = (await tools.get("spec_config")!({})).content[0].text;
+    expect(text).toContain("- **orchestration:** unset (default: auto)");
+    expect(text).not.toContain("orchestration:** unset (default: enabled)");
+  });
+
+  it("shows a set orchestration value, and flags an invalid one", async () => {
+    process.env.SENTINAL_ORCHESTRATION = "orca";
+    let text = (await tools.get("spec_config")!({})).content[0].text;
+    expect(text).toContain("- **orchestration:** orca");
+
+    process.env.SENTINAL_ORCHESTRATION = "bogus";
+    text = (await tools.get("spec_config")!({})).content[0].text;
+    expect(text).toMatch(/orchestration:\*\* bogus \(invalid.*auto/);
+  });
+
+  it("spec_init renders the same orchestration line", async () => {
+    process.env.SENTINAL_ORCHESTRATION = "subagents";
+    const dir = makeTmpDir();
+    try {
+      const text = (await tools.get("spec_init")!({ project: dir })).content[0]
+        .text;
+      expect(text).toContain("- **orchestration:** subagents");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

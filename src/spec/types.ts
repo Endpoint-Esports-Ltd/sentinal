@@ -90,6 +90,8 @@ export const SpecSchema = z.object({
     .object({
       iterations: z.number().optional(),
       worktree: z.boolean().optional(),
+      /** D6: plan header `Orchestration: orca|subagents` (wins over env). */
+      orchestration: z.enum(["orca", "subagents"]).optional(),
     })
     .default({}),
 });

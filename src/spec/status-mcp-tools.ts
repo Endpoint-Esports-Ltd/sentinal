@@ -22,6 +22,10 @@ import type { SpecStore } from "./store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import type { SpecTask } from "./types.js";
 import { auditMasterPlan } from "./master-audit.js";
+import {
+  ORCHESTRATION_ENV,
+  describeOrchestrationSetting,
+} from "./orchestration-mode.js";
 
 // --- Master child aggregate ---
 
@@ -92,7 +96,27 @@ export const CONFIG_KEYS = [
   { env: "SENTINAL_SPEC_REVIEWER_ENABLED", label: "spec_reviewer_enabled" },
   { env: "SENTINAL_WORKTREE_ENABLED", label: "worktree_enabled" },
   { env: "SENTINAL_SESSION_ID", label: "session_id" },
+  // D6: auto|orca|subagents — not a boolean toggle, rendered by its own helper.
+  { env: ORCHESTRATION_ENV, label: "orchestration" },
 ] as const;
+
+/** One `- **label:** value` line per CONFIG_KEYS entry (spec_config + spec_init). */
+function configLines(): string[] {
+  return CONFIG_KEYS.map(({ env, label }) => {
+    const value = process.env[env];
+    let display: string;
+    if (label === "orchestration") {
+      display = describeOrchestrationSetting(value);
+    } else if (value === undefined || value === "") {
+      display = label === "session_id" ? "unset" : "unset (default: enabled)";
+    } else if (value === "false") {
+      display = `${value} (disabled)`;
+    } else {
+      display = value;
+    }
+    return `- **${label}:** ${display}`;
+  });
+}
 
 function registerSpecConfigTool(server: McpServer): void {
   server.tool(
@@ -100,22 +124,7 @@ function registerSpecConfigTool(server: McpServer): void {
     "Get all spec workflow toggle configuration from SENTINAL_* environment variables.",
     {},
     async () => {
-      const lines = ["## Spec Workflow Configuration", ""];
-
-      for (const { env, label } of CONFIG_KEYS) {
-        const value = process.env[env];
-        let display: string;
-        if (value === undefined || value === "") {
-          display =
-            label === "session_id" ? "unset" : "unset (default: enabled)";
-        } else if (value === "false") {
-          display = `${value} (disabled)`;
-        } else {
-          display = value;
-        }
-        lines.push(`- **${label}:** ${display}`);
-      }
-
+      const lines = ["## Spec Workflow Configuration", "", ...configLines()];
       return mcpText(lines.join("\n"));
     },
   );
@@ -212,21 +221,7 @@ function registerSpecInitTool(server: McpServer): void {
       const lines: string[] = ["## Spec Workflow Context", ""];
 
       // --- Configuration ---
-      lines.push("### Configuration", "");
-      for (const { env, label } of CONFIG_KEYS) {
-        const value = process.env[env];
-        let display: string;
-        if (value === undefined || value === "") {
-          display =
-            label === "session_id" ? "unset" : "unset (default: enabled)";
-        } else if (value === "false") {
-          display = `${value} (disabled)`;
-        } else {
-          display = value;
-        }
-        lines.push(`- **${label}:** ${display}`);
-      }
-      lines.push("");
+      lines.push("### Configuration", "", ...configLines(), "");
 
       // --- Active Plan ---
       // ⛔ `project` is a FILESYSTEM SEARCH ROOT here, NOT a storage key, and is

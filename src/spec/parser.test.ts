@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parsePlanContent, parsePlanFile, slugFromFilename } from "./parser.js";
-import type { Spec } from "./types.js";
+import { SpecSchema, type Spec } from "./types.js";
 
 describe("slugFromFilename", () => {
   it("should strip .md extension", () => {
@@ -639,6 +639,62 @@ Type: Feature
     const spec = parsePlanContent(regularContent, "/plans/regular.md");
     expect(spec.parent).toBeUndefined();
     expect(spec.wave).toBeUndefined();
+  });
+});
+
+describe("parsePlanContent — Orchestration header (D6)", () => {
+  const plan = (header: string) => `# Orca Plan
+
+Status: PENDING
+Type: Master
+${header}
+
+## Summary
+
+Orchestration: subagents
+`;
+
+  it("reads `Orchestration: orca` into metadata", () => {
+    const spec = parsePlanContent(plan("Orchestration: orca"), "/p/x.md");
+    expect(spec.metadata.orchestration).toBe("orca");
+  });
+
+  it("is case-insensitive in key and value", () => {
+    const spec = parsePlanContent(plan("orchestration: SubAgents"), "/p/x.md");
+    expect(spec.metadata.orchestration).toBe("subagents");
+  });
+
+  it("reads the old bold format too", () => {
+    const spec = parsePlanContent(plan("**Orchestration:** orca"), "/p/x.md");
+    expect(spec.metadata.orchestration).toBe("orca");
+  });
+
+  it("ignores an unknown value without error", () => {
+    const spec = parsePlanContent(plan("Orchestration: auto"), "/p/x.md");
+    expect(spec.metadata.orchestration).toBeUndefined();
+    expect(spec.status).toBe("PENDING");
+    expect(spec.type).toBe("master");
+  });
+
+  it("is absent when the header is missing (body lines do not count)", () => {
+    const spec = parsePlanContent(plan(""), "/p/x.md");
+    expect(spec.metadata.orchestration).toBeUndefined();
+    expect("orchestration" in spec.metadata).toBe(false);
+  });
+
+  it("a fenced Orchestration: line is documentation", () => {
+    const content = "# P\n\nStatus: PENDING\n\n```\nOrchestration: orca\n```\n";
+    const spec = parsePlanContent(content, "/p/x.md");
+    expect(spec.metadata.orchestration).toBeUndefined();
+  });
+
+  it("survives a SpecSchema round trip", () => {
+    const spec = parsePlanContent(plan("Orchestration: orca"), "/p/x.md");
+    const again = SpecSchema.parse(JSON.parse(JSON.stringify(spec)));
+    expect(again.metadata.orchestration).toBe("orca");
+    expect(() =>
+      SpecSchema.parse({ ...spec, metadata: { orchestration: "auto" } }),
+    ).toThrow();
   });
 });
 

@@ -13,15 +13,14 @@
 
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import type {
-  Spec,
-  SpecStatus,
-  SpecType,
-  SpecTask,
-  TaskStatus,
-} from "./types.js";
-import { SPEC_STATUSES } from "./types.js";
+import type { Spec, SpecType, SpecTask, TaskStatus } from "./types.js";
 import { markFencedLines, dedupeTasksByPosition } from "./parser-fences.js";
+import {
+  extractMetadata,
+  extractTitle,
+  normalizeStatus,
+} from "./parser-header.js";
+import { parseOrchestrationHeader } from "./orchestration-mode.js";
 
 // --- Public API ---
 
@@ -51,6 +50,7 @@ export function parsePlanContent(content: string, filePath: string): Spec {
   ) as SpecType;
   const approved =
     meta.approved?.toLowerCase() === "yes" || status === "APPROVED";
+  const orchestration = parseOrchestrationHeader(meta.orchestration);
 
   return {
     id,
@@ -66,6 +66,9 @@ export function parsePlanContent(content: string, filePath: string): Spec {
     metadata: {
       iterations: meta.iterations ? parseInt(meta.iterations, 10) : undefined,
       worktree: meta.worktree?.toLowerCase() === "yes" ? true : undefined,
+      // D6: key omitted (not `undefined`) unless the header is valid, so
+      // stored metadata JSON is unchanged for every existing plan.
+      ...(orchestration && { orchestration }),
     },
   };
 }
@@ -73,69 +76,6 @@ export function parsePlanContent(content: string, filePath: string): Spec {
 /** Derive a slug from a plan filename (strips path and .md extension). */
 export function slugFromFilename(filePath: string): string {
   return basename(filePath).replace(/\.md$/i, "");
-}
-
-// --- Metadata Extraction ---
-
-interface RawMetadata {
-  status?: string;
-  type?: string;
-  approved?: string;
-  created?: string;
-  iterations?: string;
-  worktree?: string;
-  parent?: string;
-  wave?: string;
-}
-
-/** Extract metadata from either new-format or old-format plan files. */
-function extractMetadata(lines: string[], fenced: boolean[]): RawMetadata {
-  const meta: RawMetadata = {};
-
-  // Scan the first 20 lines for metadata (both formats)
-  const scanLimit = Math.min(lines.length, 20);
-  for (let i = 0; i < scanLimit; i++) {
-    if (fenced[i]) continue; // A fenced `Status:` line is documentation.
-    const line = lines[i].trim();
-
-    // New format: `Key: Value`
-    const plainMatch = line.match(
-      /^(Status|Type|Approved|Created|Iterations|Worktree|Parent|Wave):\s*(.+)$/i,
-    );
-    if (plainMatch) {
-      const key = plainMatch[1].toLowerCase() as keyof RawMetadata;
-      meta[key] = plainMatch[2].trim();
-      continue;
-    }
-
-    // Old format: `**Key:** Value`
-    const boldMatch = line.match(
-      /^\*\*(Status|Type|Approved|Date|Created|Iterations|Worktree):\*\*\s*(.+)$/i,
-    );
-    if (boldMatch) {
-      let key = boldMatch[1].toLowerCase();
-      if (key === "date") key = "created";
-      meta[key as keyof RawMetadata] = boldMatch[2].trim();
-      continue;
-    }
-
-    // Stop at first heading after title (## Summary, ## Overview, etc.)
-    if (i > 1 && line.startsWith("## ")) break;
-  }
-
-  return meta;
-}
-
-// --- Title Extraction ---
-
-/** Extract the title from the first non-fenced `# heading` line. */
-function extractTitle(lines: string[], fenced: boolean[]): string {
-  for (let i = 0; i < Math.min(lines.length, 5); i++) {
-    if (fenced[i]) continue;
-    const match = lines[i].match(/^#\s+(.+)$/);
-    if (match) return match[1].trim();
-  }
-  return "Untitled";
 }
 
 // --- Task Extraction ---
@@ -382,18 +322,4 @@ function taskFromRaw(task: RawTask): SpecTask {
     ...(task.testStrategy && { testStrategy: task.testStrategy }),
     ...(task.definitionOfDone && { definitionOfDone: task.definitionOfDone }),
   };
-}
-
-function normalizeStatus(raw: string | undefined): SpecStatus {
-  if (!raw) return "PENDING";
-
-  const upper = raw.toUpperCase().replace(/\s+/g, "_");
-
-  // Direct match
-  if (SPEC_STATUSES.includes(upper as SpecStatus)) return upper as SpecStatus;
-
-  // Common aliases (IN_PROGRESS already covered by direct match above)
-  if (upper === "DONE" || upper === "FINISHED") return "VERIFIED";
-
-  return "PENDING";
 }
