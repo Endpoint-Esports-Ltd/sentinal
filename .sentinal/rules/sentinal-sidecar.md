@@ -27,14 +27,19 @@ src/sidecar/
 ├── server.ts             # Long-running HTTP server (startSidecar)
 ├── lifecycle.ts          # auto-start, status check, graceful stop
 ├── client.ts             # SidecarClient (used by hooks + MCP + plugin)
-├── client-routes.ts      # SidecarRoutes — one method per endpoint (SidecarClient extends it)
+├── client-routes.ts      # SidecarRoutes — worktree/notification/quality; extends the chain below
+├── client-routes-spec.ts # SidecarRoutesSpec   (extends …Memory)
+├── client-routes-memory.ts # SidecarRoutesMemory (extends …Base)
+├── client-routes-base.ts # SidecarRoutesBase — abstract get/post, health, sessions, config, TDD
+├── shutdown.ts           # session-aware shutdown, activity tracking, stopSidecar (re-exported by server.ts)
 ├── routes.ts             # handleSidecarRequest: /health, /ping + dispatch to the sub-handlers below
 ├── session-routes.ts     # /session, /session/:id/end, /session/active|touch|alive
 ├── memory-routes.ts      # /observation, /context, /memory/search|timeline|get|update|delete|stats
-├── tdd-routes.ts         # /tdd-state (GET/POST), /tdd-state/list, /tdd-state/transition
+├── tdd-routes.ts         # /tdd-state (GET/POST), /tdd-state/list, /tdd-state/transition (scoped)
+├── tdd-project-notify.ts # once-per-day global notice for a project-less /tdd-state set
 ├── spec-routes.ts        # /spec/sync, /spec/current, /spec/events, /spec/metrics
 ├── notification-routes.ts# POST /notification, GET /notifications/session, POST /notifications/read
-├── project-key.ts        # THE project-key normalizer (canonical / write / read / infer-from-file)
+├── project-key.ts        # THE project-key normalizer (canonical / write / read)
 ├── quality-routes.ts     # /quality-check (+ quality-runners.ts, quality-lint.ts, quality-summary.ts)
 ├── project-routes.ts     # /project-context
 ├── config-routes.ts      # Config snapshot endpoint
@@ -63,8 +68,11 @@ The handler list is built per request so `spyOn(module, …)` stubs still interc
 - **Read routes** (`/memory/search`, `/memory/timeline`, `/spec/current`, `GET /tdd-state`,
   `/tdd-state/list`, `/spec/metrics`, `/context`'s key) use `normalizeProjectFilter`: absent/blank
   = all projects, supplied = canonical. **Reads fail open.**
-- `POST /tdd-state` `set` **without** a project infers it from the file (`inferProjectFromFile`) and
-  logs it; a relative `filePath` is a 400. Hard 400 for an absent project is deferred.
+- `POST /tdd-state` `set` **without** a project is a 400 (D4), logged as
+  `tdd-state set REJECTED: missing projectPath`, with at most one global warning per day
+  (`tdd-project-notify.ts`). A relative `filePath` is also a 400.
+- `POST /tdd-state/transition` takes optional `testFiles`/`testDirs` (absolute) to scope the bulk
+  transition to the tests that ran; absent/empty = project-wide.
 - Never normalize `/project-context` or `/config/compaction` — they take **disk** paths.
 - ⛔ Never resolve a blank value: `resolveProjectIdentity("")` uses the sidecar's own cwd.
 
@@ -98,7 +106,7 @@ const status = await client.specStatus(projectPath);
 | `/ping`            | GET      | `routes.ts`              | Fast no-op                                                                                             |
 | `/session`         | POST     | `session-routes.ts`      | Create session record                                                                                  |
 | `/session/:id/end` | POST     | `session-routes.ts`      | End session                                                                                            |
-| `/tdd-state`       | GET/POST | `tdd-routes.ts`          | Read/update TDD cycle state; `set` without `projectPath` infers it (D4)                                |
+| `/tdd-state`       | GET/POST | `tdd-routes.ts`          | Read/update TDD cycle state; `set` without `projectPath` is a 400 (D4)                                 |
 | `/tdd-state/list`  | GET      | `tdd-routes.ts`          | Active cycles; optional `spec_id`, `project` (canonical; absent = all projects)                        |
 | `/observation`     | POST     | `memory-routes.ts`       | Add an observation — always the deduped path (D10)                                                     |
 | `/context`         | GET      | `memory-routes.ts`       | `?project=&semanticQuery=&workspace=` — key from `project`, shared memory from `workspace` (D8)        |
@@ -150,6 +158,6 @@ kill $(cat ~/.sentinal/sidecar.pid); rm ~/.sentinal/sidecar.{sock,port,pid}
 
 1. Create the handler in the appropriate `src/sidecar/*-routes.ts` file (or a new one if it's a new domain).
 2. Wire it in: either add the sub-handler to `handleSidecarRequest`'s list in `routes.ts` (gets its try/catch → 500 JSON), or to `server.ts`'s `fetchHandler` chain for a standalone handler. Normalize any project through `project-key.ts` (write vs read variant).
-3. Add the client method to `src/sidecar/client-routes.ts` (`SidecarRoutes`; `client.ts` is near its length limit). New params must be optional — old sidecars ignore them.
+3. Add the client method to the matching layer of the `SidecarRoutes` chain (`client-routes-base.ts` sessions/config/TDD, `-memory.ts`, `-spec.ts`, or `client-routes.ts` worktree/notification/quality; `client.ts` is near its length limit). New params must be optional — old sidecars ignore them.
 4. Write tests in `src/sidecar/<route>-routes.test.ts` — use `buildForTest(baseUrl)` for client construction against a test server.
 5. **Do NOT** import `bun:sqlite` (or anything pulling it in) into `client.ts` or `paths.ts` — hooks that only need the client shouldn't pay that cost. That's why `paths.ts` is factored out of `server.ts`.

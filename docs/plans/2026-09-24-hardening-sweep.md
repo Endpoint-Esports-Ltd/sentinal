@@ -206,7 +206,7 @@ Type: Bugfix
 
 ## Deferred Issues
 
-- **Concurrent agents lose TDD state.** During Wave 1 each parallel agent's `RED_CONFIRMED` states were reset to IDLE by another agent's test run/clear within seconds (project-wide GREEN/clear transitions). Workaround: set state immediately before each write. Not in #1–#10 scope.
+- **Concurrent agents lose TDD state.** During Wave 1 each parallel agent's `RED_CONFIRMED` states were reset to IDLE by another agent's test run/clear within seconds (project-wide GREEN/clear transitions). Workaround: set state immediately before each write. Not in #1–#10 scope. **Resolved** by `docs/plans/2026-09-28-deferred-items.md` (Task 1), together with the other deferred items (hard 400, CI gate, >400-line files, dead exports).
 
 ## Testing Strategy
 

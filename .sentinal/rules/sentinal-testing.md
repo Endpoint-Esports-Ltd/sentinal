@@ -70,6 +70,12 @@ Sentinal eats its own dog food. When editing `src/**/*.ts`:
   `.spec-e2e.ts`, `.spec.js`, `.test.js`. TDD guard (`isTestFile`, `src/utils/tdd.ts`) also
   recognises `.e2e.ts` and `.spec-e2e.ts` (plus `.tsx`/`.jsx` and other-language conventions), so
   an e2e file is never treated as an implementation needing a companion test.
+- **Parallel agents no longer reset each other's TDD state.** Auto-transitions are scoped to the
+  test files the command named (`src/utils/test-run-scope.ts`); a full `bun test` is still
+  project-wide, and a `-t`-filtered passing run never confirms GREEN. Still set `RED_CONFIRMED`
+  immediately before the write — a full-suite run by another agent legitimately clears it.
+- **CI runs** `bun run typecheck`, the plugin type-check, `bun run lint` and `bun run format:check`
+  before the tests, on pushes to `main` and on pull requests.
 
 ## File-Length Limits Apply to Sentinal Too
 

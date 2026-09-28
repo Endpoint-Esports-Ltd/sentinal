@@ -1,0 +1,89 @@
+{
+  "pass_summary": "D1–D6 are implemented as planned: the scope comes from the command only, `[]` counts as absent, a name-filtered run skips confirm_green, neither tracker downgrades RED, the missing-project set is a 400 with a log line and a once-per-day notice, and plugin.json is baked before embed and verified afterwards. The splits keep module state in one place. The main defect is in the command parser: a bare test filename (a bun/vitest substring filter such as `bun test x.test.ts` run from the repo root) is resolved against cwd to a path that does not exist. That produces a non-empty scope that matches nothing, so the transition never happens. The CI permissions could also be tighter.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 5,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "Bare test-file filters resolve to non-existent paths and scope the run to nothing",
+      "description": "src/utils/test-run-scope.ts:215-216 (scopeFromArgs) runs `resolve(cwd, a)` on each positional and accepts it as a test file when `isTestFile(abs)` is true. isTestFile only checks the name, not whether the file exists. bun (and vitest/jest) treat positionals as path SUBSTRING filters unless they start with ./ or /. So `bun test tdd-routes.test.ts` run from the repo root actually runs src/sidecar/tdd-routes.test.ts, but the parser returns files=[<root>/tdd-routes.test.ts]. That scope is non-empty, so isScoped() is true and the route never falls back to project-wide. rowMatchesTestScope matches nothing: the forward companion, the stored test_file_path and implCandidates(<root>/tdd-routes.test.ts)=<root>/tdd-routes.ts all miss. Result: a failing run never promotes TEST_WRITTEN→RED_CONFIRMED and a passing run never clears RED, so the agent stays blocked by the TDD guard. This is a regression from the old project-wide behaviour, and it breaks D2's promise that the scope is never empty. The same happens for any relative filter that is not the literal path from cwd (e.g. `bun test sidecar/tdd-routes.test.ts` from the root). The Task 1 fixture list has no case for this.",
+      "suggested_fix": "In scopeFromArgs (test-run-scope.ts:215-218), accept a positional as a file only if `statSync(abs).isFile()` succeeds. Otherwise treat it as a filter: either set `unknown = true` (→ project-wide, the conservative D2 fallback), or keep the raw token as a suffix filter and extend rowMatchesTestScope to match `t.endsWith(sep + token)` against the row's expected/stored test paths. Add fixtures to src/utils/test-run-scope.test.ts for `bun test x.test.ts` from the repo root where the file lives in src/…, and for `bun test sidecar/x.test.ts`, each asserting project-wide or a correct match. Also add a route-level test showing that a failing run still confirms RED."
+    },
+    {
+      "severity": "should_fix",
+      "category": "security",
+      "title": "Workflow-level `contents: write` now also applies to pull_request test runs",
+      "description": ".github/workflows/release.yml:9-10 grants `permissions: contents: write` to the whole workflow, and this change adds a `pull_request` trigger. For PRs from forks, GitHub downgrades GITHUB_TOKEN to read-only and withholds secrets, so there is no direct exfiltration path. For PRs from branches in the same repo, however, the `test` job now runs unmerged PR code (`bun install` lifecycle scripts, tests, eslint plugins) with a write-scoped token that actions/checkout persists into .git/config by default. Only the release job needs write access. The release gate itself is correct: `if: github.event_name == 'push'` (release.yml, release job) combined with `push: branches: [main]` means release never runs on a PR.",
+      "suggested_fix": "Set the top level to `permissions: { contents: read }`. Add `permissions: { contents: write, issues: write, pull-requests: write }` (whatever semantic-release needs) only on the `release` job. Optionally add `persist-credentials: false` to the test job's checkout, and a `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: ${{ github.event_name == 'pull_request' }} }` block."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Scoped transition selects outside the transaction and writes without the project/spec predicate",
+      "description": "src/sidecar/tdd-routes.ts scopedTransition (≈:95-138) runs the SELECT before `db.transaction(...)`, and the UPDATE/DELETE filter only on `file_path = ? AND state = ?`. This is safe today: tdd_cycles.file_path is UNIQUE (migrations-legacy.ts:200) and the state guard makes each write idempotent, so the project scope is never widened. It is fragile, though, if the uniqueness ever becomes (project_path, file_path).",
+      "suggested_fix": "Move the SELECT inside the transaction closure and add `AND project_path = ?${specClause}` (with scopeParams) to both write statements. That makes the project scope explicit in the write, not only in the selection."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "`cd` handling edge cases in the command parser",
+      "description": "src/utils/test-run-scope.ts:242-245 applies `cd` to every later segment. Two consequences: (1) a subshell `(cd sub && bun test a.test.ts); bun test b.test.ts` resolves b.test.ts under `sub`; (2) `cd -`, `cd ~/x` and `cd $DIR` resolve literally (`<cwd>/-`, `<cwd>/~/x`). Either way the paths are wrong, which leads to the empty-match failure described in the first issue.",
+      "suggested_fix": "Treat a `cd` target that starts with `-`, `~` or `$`, or that is not an existing directory, as unknown (return project-wide). Restore cwd at a closing `)` op by tracking a stack in the segment loop."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Plugin resolves relative test paths against the workspace root, not the shell's actual cwd",
+      "description": "targets/opencode/plugins/sentinal.ts:878-881 uses `projectWorkspace` when `args.workdir` is absent. When the OpenCode session directory is a subdirectory of the checkout, the bash tool runs there, so relative args resolve to the wrong absolute paths (again an empty match).",
+      "suggested_fix": "Use the plugin's session/instance directory (the `directory` passed to the plugin) as the base for `workdir`, falling back to projectWorkspace."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "A blank/null projectPath on `set` is rejected without the log line or notice",
+      "description": "src/sidecar/tdd-routes.ts handleSetTddState (≈:279-289) logs and notifies only when `body.projectPath === undefined`. A `null` or `\"\"` project gets a silent 400. This matches D4's wording (\"absent\") but would hide a buggy current client.",
+      "suggested_fix": "Always write the `MISSING_TDD_SET_PROJECT_LOG` line on a set-400, and call notifyMissingTddProjectOnce only when the field is absent. Tag the log line with `(blank)` vs `(absent)`."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "A passing `bun test <B's test>` leaves A's RED_CONFIRMED row intact (route, CC hook, plugin)",
+      "status": "verified",
+      "evidence": "The route calls scopedTransition + filterRowsByTestScope (tdd-routes.ts). The CC hook, tdd-tracker.ts Cases 2/3, filters via filterRowsByTestScope(listActiveTddStates, scope). The plugin sidecarTddTrack forwards toTestScopeInput(testRunScope({command,cwd})) (sentinal.ts:340-389), with the command and workdir plumbed at :876-889. Caveat: a bare-filename filter breaks this (see issue 1)."
+    },
+    {
+      "truth": "POST /tdd-state set without a project returns 400 and writes nothing",
+      "status": "verified",
+      "evidence": "tdd-routes.ts: `normalizeProjectKey(body.projectPath)`, then `fail(MISSING_PROJECT_PATH)` before any write. inferProjectFromFile is removed from project-key.ts. The log line and notifyMissingTddProjectOnce (day-keyed setting, claimed before insert) are present. The source is added to GLOBAL_NOTIFICATION_SOURCES."
+    },
+    {
+      "truth": "release.yml runs typecheck, lint, format:check in test; has a pull_request trigger; release runs only on push",
+      "status": "verified",
+      "evidence": "The diff adds `pull_request: branches: [main]` and the steps typecheck, typecheck:plugin, lint and format:check before the tests. The release job has `if: github.event_name == 'push'`. Bun is pinned to 1.3.10 and install uses --frozen-lockfile. The package.json scripts exist."
+    },
+    {
+      "truth": "prettier --check . and eslint . exit 0",
+      "status": "uncertain",
+      "evidence": "Not run, per the constraints. The orchestrator reports clean runs and a green simulated CI on a clean export."
+    },
+    {
+      "truth": "No non-test src file other than index.ts/embedded-assets.ts exceeds 400 lines",
+      "status": "uncertain",
+      "evidence": "Not measured here. The plan reports the post-split counts (store 275, service 340, capture 73, usage-stats 371, server 286, ownership 291, client-routes 148, etc.). server.ts lost about 230 lines to shutdown.ts, per the diff."
+    },
+    {
+      "truth": "release-build.mjs writes and verifies the version in plugin.json",
+      "status": "verified",
+      "evidence": "release-build.mjs calls bakePluginVersion(CC_PLUGIN_JSON, version) before buildOpencode/embed-assets, then verifyPluginVersion(version, shippedManifestPaths()) and exits 1 on problems. pre-release.mjs mirrors this. .releaserc.json lists plugin.json in the git assets, and plugin.json is set to 1.39.2."
+    },
+    {
+      "truth": "Removed functions have no remaining definition; src/index.ts exports unchanged",
+      "status": "verified",
+      "evidence": "inferProjectFromFile is deleted. The server.ts split re-exports every moved symbol (touchActivity, getLastActivityTime, stopSidecar, the constants, and the options type) from shutdown.ts, and server.ts imports touchActivity from the same module, so lastActivityTime has a single owner. Per the plan, src/index.ts is untouched. I did not grep independently for the other deleted functions."
+    }
+  ]
+}

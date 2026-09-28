@@ -21,9 +21,11 @@ Sentinal is a quality enforcement plugin for TypeScript, Angular, and NestJS pro
 - **Release:** `semantic-release` (automated versioning via `.releaserc.json`)
 - **Lint/format:** `eslint` 10.11.0 + `typescript-eslint` 8.70.1 + `prettier` 3.9.9, pinned
   devDependencies; flat config `eslint.config.mjs`, `.prettierignore` (CHANGELOG, `docs/**`,
-  `.sentinal/*.json`, generated/dist paths). **No CI gate** — run `bunx eslint <paths>` /
-  `bunx prettier --write <file>` on files you touch, never a repo-wide `--write`. `typescript` is
-  pinned `^5.7.0` (`bun add` would pick 7).
+  `.sentinal/*.json`, generated/dist paths). **CI gates them** (`.github/workflows/release.yml`,
+  push to `main` and pull requests): `check-embed-assets` → `bun run typecheck` → plugin
+  type-check → `bun run lint` → `bun run format:check` → tests. Run `bunx prettier --write <file>`
+  on files you touch (or `bun run format`), never commit unformatted files. `typescript` is pinned
+  `^5.7.0` (`bun add` would pick 7). Bun is pinned in CI (`1.3.10`).
 
 ## Directory Structure
 
@@ -139,10 +141,9 @@ import it):
 
 | Function                      | Line | Semantics                                                                                           |
 | ----------------------------- | ---- | --------------------------------------------------------------------------------------------------- |
-| `canonicalProjectKey(raw)`    | :55  | memoized `resolveProjectIdentity` (10 s TTL, 512 entries); blank returned unchanged, never resolved |
-| `normalizeProjectKey(raw)`    | :74  | **WRITE** — blank/absent → `null`, caller must 400 (`MISSING_PROJECT_PATH`)                         |
-| `normalizeProjectFilter(raw)` | :84  | **READ** — blank/absent → `undefined` = "all projects"; supplied → canonical                        |
-| `inferProjectFromFile(path)`  | :94  | D4 — identity of the nearest existing ancestor of `dirname(path)`; `null` for relative/blank paths  |
+| `canonicalProjectKey(raw)`    | :53  | memoized `resolveProjectIdentity` (10 s TTL, 512 entries); blank returned unchanged, never resolved |
+| `normalizeProjectKey(raw)`    | :72  | **WRITE** — blank/absent → `null`, caller must 400 (`MISSING_PROJECT_PATH`)                         |
+| `normalizeProjectFilter(raw)` | :82  | **READ** — blank/absent → `undefined` = "all projects"; supplied → canonical                        |
 
 ⛔ Never resolve a blank value: `resolveProjectIdentity("")` substitutes the
 sidecar's own `process.cwd()`, which is meaningless in a detached process.
@@ -156,10 +157,37 @@ per plan file) **and** on its project-keyed reads (`getCurrentSpec`,
 (`/var` vs `/private/var`). A raw subdirectory/symlink key was what made the
 Stop guard read a live plan as ownerless and block with "orphaned".
 
-**`/tdd-state` `set` without a project infers it (D4)** from the file via
-`inferProjectFromFile` and logs "inferred projectPath"; a relative `filePath`
-is a 400. ≤1.37.1 plugins and `tdd_set_state` send none. Making an absent
-project a hard 400 is deferred to a later release.
+**`/tdd-state` `set` without a project is a 400** (D4 of
+`docs/plans/2026-09-28-deferred-items.md`; inference was removed). The route
+also logs `tdd-state set REJECTED: missing projectPath` and raises at most one
+global warning per day (`notifyMissingTddProjectOnce`,
+`src/sidecar/tdd-project-notify.ts`, source `tdd-missing-project`, in
+`GLOBAL_NOTIFICATION_SOURCES`) — only a ≤1.37.1 client sends none, and it
+swallows the error, so the notice is what makes the breakage visible.
+
+### TDD bulk transitions are scoped to the tests that ran
+
+`bulkTddTransition` (`src/sidecar/tdd-routes.ts:57`) and the Claude Code
+tracker (`src/hooks/tdd-tracker.ts`, Cases 2/3) used to promote/clear **every**
+row in the project on any failing/passing test output, so one parallel agent's
+passing `bun test b.test.ts` deleted another agent's `RED_CONFIRMED` row.
+Now (D1/D2 of the deferred-items plan):
+
+- `testRunScope({command, cwd})` (`src/utils/test-run-scope.ts:233`, pure,
+  bundled into the plugin) derives `{files, dirs, nameFiltered}` from the
+  **command only** — never from output headers (a full run prints every file).
+  No test file/dir named, or an unrecognised command → `files: null` →
+  **project-wide** (a passing full suite means every RED test passed).
+  `-t`/`--test-name-pattern`/`--grep` → `nameFiltered`: `confirm_green` is
+  skipped.
+- `rowMatchesTestScope` / `filterRowsByTestScope` (same file) match a row by
+  `test_file_path`, `getExpectedTestPaths(file_path)`, reverse
+  `getImplPathForTest(test)`, or directory prefix. The route and the CC hook
+  use the same matcher.
+- `POST /tdd-state/transition` takes optional `testFiles`/`testDirs`; `[]`
+  means absent. Old sidecars ignore them (project-wide — acceptable).
+- Both auto-trackers never downgrade `RED_CONFIRMED` to `TEST_WRITTEN` when a
+  test file is re-edited (D3). Explicit `tdd_set_state` is unchanged.
 
 ### Restore splits key and workspace (D8) — formerly a conflation site
 
@@ -373,6 +401,14 @@ error, permission rejection, a plugin's own `tool.execute.before` throw) skip
 never `callID` (provider-issued; it repeats across parts).
 
 ## Release build
+
+The release also bakes the version into
+`targets/claude-code/.claude-plugin/plugin.json` (`scripts/cc-plugin-version.mjs`:
+`bakePluginVersion`, `verifyPluginVersion`) **before** `buildOpencode` /
+`embed-assets` (which embeds that file as `EMBEDDED_CC_PLUGIN_JSON`), and fails
+unless both the file and the embedded copy carry it. The file is in the
+`@semantic-release/git` assets. Claude Code uses the plugin version as its
+update/cache key; the committed file always equals `package.json`'s version.
 
 `.releaserc.json` runs `@semantic-release/exec` (`release-build.mjs`) **before**
 `@semantic-release/npm` bumps `package.json`. Anything that reads the version

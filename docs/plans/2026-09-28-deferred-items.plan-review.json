@@ -1,0 +1,91 @@
+{
+  "review_summary": "The plan covers every deferred item plus the plugin.json bake, and its central code claims check out: inferProjectFromFile has exactly one caller, the dead-export spot-checks hold, and check-embed-assets leaves embedded-assets.ts on disk. The main risks are in Task 1. The 'no file args → per-file headers' rule contradicts the DoD that a plain `bun test` stays project-wide. The command isn't threaded to sidecarTddTrack today. jest/vitest output isn't parsed, so users' Angular/NestJS projects keep the race. The `[]` versus `null` split can strand TEST_WRITTEN rows.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "definition_of_done",
+      "title": "D2 header fallback contradicts the DoD 'full bun test still transitions project-wide'",
+      "description": "D2 says: when the command names no test files, use the runner's per-file headers. The Task 1 DoD says: 'A full `bun test` (no args) still transitions project-wide'. A full bun run prints a header for every file, so under D2 it becomes a scoped transition that only matches rows through test_file_path or getExpectedTestPaths. That is not project-wide. Any row whose test lives outside the companion layout would never be promoted by confirm_red. A TEST_WRITTEN row that is never promoted to RED makes the TDD guard block the implementation edit, which is the failure this plan is meant to remove.",
+      "suggested_fix": "In testFilesFromRun, return null (project-wide) whenever the command names no test-file or directory argument (for example `bun test`, `bun test --timeout …`, `npm test` with no file args). Use headers only to resolve directory or pattern args. Add a unit test: `bun test` with headers present → null."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The command is not passed to sidecarTddTrack; 'available at :707/:897' is not proven at :842",
+      "description": "sidecarTddTrack(sidecar, tool, filePath, bashOutput, projectIdentity) (sentinal.ts:317, called at :842-848) takes no command. The only `args.command` read in this area is at :897, inside the memory-capture block after the tracker call. The plan does not show that `args` is in scope at :842. It also does not show that `args` is `input.args` rather than a local variable scoped to that block. Pre-Mortem 1 names this failure but no task step addresses it.",
+      "suggested_fix": "Task 1: add a `command?: string` parameter to sidecarTddTrack, read it from the tool-call args at the :842 call site (lift the args extraction above the TDD block if needed), and pass `testFilesFromRun(...)` into `transitionTddState(sidecar, action, projectPath, testFiles)`. The plugin test must go through `tool.execute.after` with a real args shape."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "jest/vitest outputs and npm/npx/nx wrappers are not parsed, so user projects keep the race",
+      "description": "Sentinal targets Angular/NestJS projects that mostly use jest or vitest (' PASS src/x.spec.ts', ' FAIL src/x.spec.ts', ' ✓ src/x.spec.ts (3 tests)', ' ❯ src/x.spec.ts'), run through `npx jest a.spec.ts`, `npm test -- a.spec.ts` or `nx test`. D2 mentions only bun's `path:` headers and `bun test` args. Every non-bun run would come back unknown, stay project-wide, and keep the race the user asked to fix.",
+      "suggested_fix": "Extend D2 to strip wrappers (npx/bunx/pnpm/yarn/`npm test --`/`npm run test --`) before reading file args, and to parse jest PASS/FAIL and vitest ✓/❯/FAIL/× header lines. Add unit tests using those real output shapes; the Testing Strategy already mentions vitest."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "`testFiles: []` → no transition is a silent-miss hazard; the CC failure path has truncated output",
+      "description": "The plan says '`testFiles: []` means nothing ran → no transition'. On Claude Code, a failing run arrives through PostToolUseFailure `error`, which may be middle-truncated, so headers can be missing. A parser that returns [] for 'no headers found' would never confirm RED. On the plugin side, an old sidecar ignores testFiles (project-wide), while a new sidecar given [] does nothing, so the two diverge.",
+      "suggested_fix": "Specify that testFilesFromRun never returns [] from missing evidence, only null. Have the route and bulkTddTransition treat an empty array the same as absent (project-wide), or reject it. Add a test: truncated failure output with no headers and no file args → project-wide confirm_red."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Matching through getExpectedTestPaths is unverified for __tests__/ and tests/ layouts and for set_state rows with no test_file_path",
+      "description": "D1 matches rows through test_file_path, or through getExpectedTestPaths(file_path) intersecting testFiles. Rows written by `tdd_set_state` without test_file_path depend entirely on getExpectedTestPaths (src/utils/tdd.ts:114-153). If that helper does not produce `__tests__/x.test.ts` or `tests/x.test.ts`, a scoped run of that test never transitions the row. The Risks table says 'Medium', but the mitigation is only 'tests with real layouts', which is not tied to any task.",
+      "suggested_fix": "In Task 1, add route tests for rows with test_file_path=NULL whose test lives in a sibling file, in `__tests__/`, in top-level `tests/`, and in `.spec.ts`. As a fallback, also match when getImplPathForTest(testFile) === row.file_path, so both mapping directions are tried."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Wave 1 tasks share generated build outputs",
+      "description": "Tasks 1, 3 and 5 all run `bun run build:opencode` and embed-assets, writing targets/opencode/dist/sentinal.mjs and src/cli/embedded-assets.ts, in one shared working directory (Worktree: No). Task 3 also rewrites targets/claude-code/.claude-plugin/plugin.json, which embed-assets reads. plan_impact checks only the declared Files, so concurrent rebuilds can give another task a stale or half-written bundle, and target-assets.test.ts results become order-dependent.",
+      "suggested_fix": "Either move Task 3 (or Task 5's bundle verification) to Wave 2, or add a wave note: only run build:opencode/embed-assets and target-assets.test.ts after the other Wave 1 tasks finish, and rebuild at the end of the wave."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "pre-release.mjs bake must not leave a dirty plugin.json; check how Claude Code treats the new version",
+      "description": "D6 has both release-build.mjs and pre-release.mjs write `version` into targets/claude-code/.claude-plugin/plugin.json. A local pre-release run would then leave that tracked file modified. The plan also does not check (a) whether `.claude-plugin/marketplace.json` has its own version field that would now disagree, or (b) Claude Code's update behaviour: once plugin.json has an explicit version, updates key off that version rather than the commit, so source/git installs between releases would not refresh. .releaserc.json:18 git assets currently list only package.json, VERSION, CHANGELOG.md, so adding plugin.json there is correct.",
+      "suggested_fix": "In pre-release.mjs, bake into a temp copy, or restore the file afterwards (verify with git status in a test). Grep `targets/claude-code/.claude-plugin/` for any other version field and keep them in sync. Record the CC update-detection behaviour change in Task 9 docs."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Check isErrorEvent and probeDashboardHealth against src/index.ts before dropping `export`",
+      "description": "src/index.ts re-exports named symbols from ./memory/capture.js (block ending at :46) and ./dashboard/lifecycle.js (block ending at :198). Grep confirms both functions are used only in their own files inside src/ (plus the generated embedded-assets.ts copy). I did not verify whether either name appears in those index.ts export lists. If one does, dropping `export` breaks the public API and tsc.",
+      "suggested_fix": "Task 8: before each change, run `rg -n '\\bisErrorEvent\\b|\\bprobeDashboardHealth\\b' src/index.ts`. For the whole list, compare the export surface of src/index.ts before and after (Truth 7)."
+    },
+    {
+      "severity": "consider",
+      "category": "untested_assumption",
+      "title": "bun `--test-name-pattern` and substring filters",
+      "description": "`bun test foo` treats a non-path arg as a path substring filter. `bun test -t name` runs a subset of tests while still printing file headers. A passing name-filtered run does not show that the RED tests passed, but D2 would still confirm_green every matching file.",
+      "suggested_fix": "In testFilesFromRun, return null (project-wide, today's behaviour) when -t/--test-name-pattern is present, or skip confirm_green for filtered runs. Cover this with a unit test."
+    },
+    {
+      "severity": "consider",
+      "category": "task_completeness",
+      "title": "CI step order has a redundant generate step and a plugin type-check that may not port",
+      "description": "check-embed-assets.mjs already runs `bun run embed-assets` (:36) and leaves src/cli/embedded-assets.ts on disk, so D5's separate 'embed-assets (generate)' step is redundant. The plugin type-check script lives in `.sentinal/skills/.../typecheck-plugin.sh`, and nothing verifies that it runs on ubuntu-latest (bash paths, a temp dir, any macOS-only tools).",
+      "suggested_fix": "Drop the extra generate step, or keep it and note that it duplicates check-embed-assets. Before Task 10 relies on typecheck-plugin.sh, run it in a Linux container (or read it for mac-isms), or expose it as a `typecheck:plugin` package script."
+    },
+    {
+      "severity": "consider",
+      "category": "task_completeness",
+      "title": "The new service-dedupe.ts would pair with an existing test that targets service.ts",
+      "description": "src/memory/service-dedupe.test.ts already exists and tests MemoryService through service.ts. Creating src/memory/service-dedupe.ts makes that test its companion by name, while the new file's own test coverage stays implicit. That misleads the TDD guard and companion-test checks.",
+      "suggested_fix": "Either name the new module something like `service-dedupe-path.ts`, or intentionally re-point service-dedupe.test.ts to import from the new module and state that in Task 4."
+    },
+    {
+      "severity": "consider",
+      "category": "task_completeness",
+      "title": "Removing inferProjectFromFile also means deleting its tests and doc references",
+      "description": "inferProjectFromFile is used only by tdd-routes.ts:18,210, so it can be removed. Its callers and references are tdd-routes.test.ts:478 (asserts the 'inferred projectPath' log), project-key.test.ts:71,123-134, project-key.ts:24 (doc comment), and the rule files sentinal-project.md:145,160 and sentinal-sidecar.md:66. Task 2 lists project-key.test.ts; it should also name the comment and the rows Task 9 must remove.",
+      "suggested_fix": "Task 2: delete the `inferProjectFromFile (D4)` describe block and the import, update the project-key.ts:24 header comment, and change tdd-routes.test.ts:478 to assert the REJECTED log. Task 9: remove the :94 table row and the D4 inference paragraph."
+    }
+  ]
+}
