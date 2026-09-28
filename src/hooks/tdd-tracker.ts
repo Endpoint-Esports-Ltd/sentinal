@@ -30,6 +30,11 @@ import {
   TEST_FAIL_INDICATORS,
   TEST_PASS_INDICATORS,
 } from "../memory/capture.js";
+import {
+  filterRowsByTestScope,
+  testRunScope,
+  toTestScopeInput,
+} from "../utils/test-run-scope.js";
 
 // Re-export for backwards compatibility (implementation moved to src/utils/tdd.ts)
 export { getImplPathForTest };
@@ -60,12 +65,19 @@ export interface TddTrackerInput {
   bashOutput?: string;
   sessionId?: string;
   cwd: string;
+  /**
+   * The Bash command (D2 of 2026-09-28-deferred-items): scopes both bulk
+   * transitions to the tests it ran. Absent/unrecognised → project-wide.
+   */
+  command?: string;
 }
 
 export async function processTddTracking(
   input: TddTrackerInput,
 ): Promise<void> {
-  const { toolName, filePath, bashOutput, sessionId, cwd } = input;
+  const { toolName, filePath, bashOutput, sessionId, cwd, command } = input;
+  const runScope = testRunScope({ command, cwd });
+  const scope = toTestScopeInput(runScope);
 
   // Storage key: the canonical identity (main checkout), so a cycle written
   // from a linked worktree is visible to — and only to — its own project.
@@ -82,6 +94,8 @@ export async function processTddTracking(
     // Case 1: Test file written/edited — transition to TEST_WRITTEN
     if (isEditTool(toolName) && filePath && isTestFile(filePath)) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
+      // D3 — never downgrade: re-editing the test of a RED impl keeps it RED.
+      if (store.getTddState(implPath)?.state === "RED_CONFIRMED") return;
       const task = spec ? specStore.getCurrentTask(specKey!) : null;
 
       store.setTddState({
@@ -112,8 +126,12 @@ export async function processTddTracking(
     // Case 2: Bash output shows test failure — transition TEST_WRITTEN → RED_CONFIRMED
     // ⛔ Both bulk cases read project-scoped: an unscoped read would transition
     // (and, via the project on the write, re-key) or delete OTHER projects' rows.
+    // D1 — and only the rows the run's tests cover (same matcher as the route).
     if (toolName === "Bash" && bashOutput && hasTestFailure(bashOutput)) {
-      const states = store.listActiveTddStates(specKey, project);
+      const states = filterRowsByTestScope(
+        store.listActiveTddStates(specKey, project),
+        scope,
+      );
       let transitioned = false;
 
       for (const cycle of states) {
@@ -139,9 +157,18 @@ export async function processTddTracking(
       return;
     }
 
-    // Case 3: Bash output shows test pass — cycle complete, reset to IDLE
-    if (toolName === "Bash" && bashOutput && hasTestPass(bashOutput)) {
-      const states = store.listActiveTddStates(specKey, project);
+    // Case 3: Bash output shows test pass — cycle complete, reset to IDLE.
+    // A `-t`-filtered run proves only some tests of those files: no GREEN.
+    if (
+      toolName === "Bash" &&
+      bashOutput &&
+      hasTestPass(bashOutput) &&
+      !runScope.nameFiltered
+    ) {
+      const states = filterRowsByTestScope(
+        store.listActiveTddStates(specKey, project),
+        scope,
+      );
       let completed = false;
 
       for (const cycle of states) {
@@ -187,6 +214,8 @@ export function trackerInputFromHook(input: HookInput): TddTrackerInput {
     bashOutput: toolName === "Bash" ? bashOutputOf(input) : undefined,
     sessionId: input.session_id,
     cwd: input.cwd,
+    command:
+      typeof toolInput.command === "string" ? toolInput.command : undefined,
   };
 }
 

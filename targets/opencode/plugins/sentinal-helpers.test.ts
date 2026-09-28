@@ -93,6 +93,27 @@ describe("transitionTddState", () => {
     expect(calledWith!).toEqual(["confirm_green", undefined, "/proj-a"]);
   });
 
+  it("forwards a non-empty test scope as the 4th arg (D1); an empty one is omitted", async () => {
+    const calls: unknown[][] = [];
+    const mockSidecar = {
+      tddTransition: async (...args: unknown[]) => {
+        calls.push(args);
+        return { count: 1 };
+      },
+    };
+    await transitionTddState(mockSidecar, "confirm_green", "/p", undefined, {
+      testFiles: ["/p/src/b.test.ts"],
+    });
+    await transitionTddState(mockSidecar, "confirm_green", "/p", undefined, {
+      testFiles: [],
+      testDirs: [],
+    });
+    expect(calls).toEqual([
+      ["confirm_green", undefined, "/p", { testFiles: ["/p/src/b.test.ts"] }],
+      ["confirm_green", undefined, "/p"],
+    ]);
+  });
+
   it("does not throw on sidecar error, returns null, and LOGS it to the plugin debug log", async () => {
     const failingSidecar = {
       tddTransition: async () => {

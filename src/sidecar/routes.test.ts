@@ -383,7 +383,7 @@ describe("projectPath normalization on /observation and /session", () => {
     expect(store.getTddState("/abs/blank.ts")).toBeNull();
   });
 
-  it("accepts an absent projectPath (back-compat) without un-scoping an already-scoped row", async () => {
+  it("rejects an absent projectPath (D4 hard 400) and leaves an already-scoped row untouched", async () => {
     const file = join(worktreePath, "src", "bar.ts");
     await call(ctx, "/tdd-state", {
       action: "set",
@@ -392,17 +392,17 @@ describe("projectPath normalization on /observation and /session", () => {
       projectPath: worktreePath,
     });
 
-    // A project-less caller (today: the OpenCode plugin and tdd_set_state)
-    // must still be able to transition the row, and COALESCE keeps its key.
+    // Only a ≤1.37.1 client omits the project; every current caller sends it.
     const r = await call(ctx, "/tdd-state", {
       action: "set",
       filePath: file,
       state: "RED_CONFIRMED",
     });
 
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/projectPath/i);
     const row = store.getTddState(file)!;
-    expect(row.state).toBe("RED_CONFIRMED");
+    expect(row.state).toBe("TEST_WRITTEN");
     expect(row.projectPath).toBe(mainRoot);
     expect(nullProjectRows()).toBe(0);
   }, 30_000);

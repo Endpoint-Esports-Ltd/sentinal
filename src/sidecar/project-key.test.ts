@@ -63,12 +63,12 @@ describe("MISSING_PROJECT_PATH", () => {
   });
 });
 
-// ─── Task 10: memoized canonicalization + D4 inference ───────────────────────
+// ─── Task 10: memoized canonicalization ──────────────────────────────────────
 
 import * as identityModule from "../project/identity.js";
 import { afterEach, spyOn } from "bun:test";
 import { mkdirSync, symlinkSync } from "node:fs";
-import { canonicalProjectKey, inferProjectFromFile } from "./project-key.js";
+import { canonicalProjectKey } from "./project-key.js";
 
 function gitFixture(prefix: string): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -114,26 +114,6 @@ describe("canonicalProjectKey (store-side canonicalization)", () => {
       expect(canonicalProjectKey(join(root, "."))).toBe(first);
       expect(canonicalProjectKey(first)).toBe(first);
       expect(spy.mock.calls.length).toBe(calls);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, 30_000);
-});
-
-describe("inferProjectFromFile (D4)", () => {
-  it("returns null for a relative or blank file path", () => {
-    expect(inferProjectFromFile("src/foo.ts")).toBeNull();
-    expect(inferProjectFromFile("")).toBeNull();
-    expect(inferProjectFromFile(undefined)).toBeNull();
-  });
-
-  it("resolves the identity of the nearest EXISTING ancestor of the file's directory", () => {
-    const root = gitFixture("pk-infer-");
-    try {
-      // `src/deep/` does not exist yet — the walk must climb to the repo root.
-      expect(inferProjectFromFile(join(root, "src", "deep", "x.ts"))).toBe(
-        root,
-      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

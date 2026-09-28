@@ -11,6 +11,10 @@ import { SKEW_NOTIFICATION_SOURCE } from "../sidecar/retire-notify.js";
 import { notifyVectorUnavailableOnce } from "../sidecar/vector-stats.js";
 import { MemoryStore } from "../memory/store.js";
 import {
+  TDD_MISSING_PROJECT_SOURCE,
+  notifyMissingTddProjectOnce,
+} from "../sidecar/tdd-project-notify.js";
+import {
   GLOBAL_NOTIFICATION_SOURCES,
   MAX_SESSION_NOTIFICATIONS,
   MAX_NOTIFICATION_MESSAGE_CHARS,
@@ -43,11 +47,34 @@ function notif(over: Partial<Notification> = {}): Notification {
 }
 
 describe("GLOBAL_NOTIFICATION_SOURCES", () => {
-  it("is a narrow allow-list: exactly the skew and vector-init sources", () => {
+  it("is a narrow allow-list: exactly the skew, vector-init and tdd-missing-project sources", () => {
     expect([...GLOBAL_NOTIFICATION_SOURCES]).toEqual([
       SKEW_NOTIFICATION_SOURCE,
       "vector-init",
+      TDD_MISSING_PROJECT_SOURCE,
     ]);
+  });
+
+  it("surfaces the REAL old-client TDD notification in every project's digest", async () => {
+    const store = new MemoryStore(":memory:");
+    try {
+      expect(notifyMissingTddProjectOnce({ store })).toBe(true);
+      const reader: SessionNotificationReader = {
+        listCandidates: (p, limit) =>
+          listSessionNotificationCandidates(store, p, limit),
+        markRead: () => {},
+      };
+      for (const project of [PROJECT, OTHER]) {
+        expect(await surfaceSessionNotifications(reader, project)).toContain(
+          "[warning] ",
+        );
+        expect(await surfaceSessionNotifications(reader, project)).toContain(
+          "1.37.1",
+        );
+      }
+    } finally {
+      store.close();
+    }
   });
 
   it("surfaces the REAL vector-unavailable notification in every project's digest", async () => {

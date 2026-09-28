@@ -15,10 +15,11 @@ import { logSidecar } from "../utils/file-log.js";
 import { ok, fail, readBody } from "./response.js";
 import {
   MISSING_PROJECT_PATH,
-  inferProjectFromFile,
   normalizeProjectFilter,
   normalizeProjectKey,
 } from "./project-key.js";
+import { notifyMissingTddProjectOnce } from "./tdd-project-notify.js";
+import { filterRowsByTestScope, isScoped } from "../utils/test-run-scope.js";
 
 // ─── Bulk Transition Logic ────────────────────────────────────────────────────
 
@@ -31,6 +32,13 @@ export interface TransitionScope {
   projectPath: string;
   /** Optional further narrowing to one spec. */
   specId?: string;
+  /**
+   * D1 — absolute test files / directories the run covered. When either is
+   * non-empty only the rows those tests cover transition (`rowMatchesTestScope`);
+   * both absent or empty → project-wide, as before.
+   */
+  testFiles?: string[];
+  testDirs?: string[];
 }
 
 /**
@@ -61,6 +69,10 @@ export function bulkTddTransition(
   const specClause = specId ? " AND spec_id = ?" : "";
   const scopeParams = specId ? [projectPath, specId] : [projectPath];
 
+  if (isScoped(scope)) {
+    return scopedTransition(store, action, scope, specClause, scopeParams);
+  }
+
   if (action === "confirm_red") {
     const result = db
       .prepare(
@@ -79,6 +91,61 @@ export function bulkTddTransition(
   return { count: result.changes };
 }
 
+/** D1 — select the project's candidate rows, keep those the run covered. */
+function scopedTransition(
+  store: MemoryStore,
+  action: "confirm_red" | "confirm_green",
+  scope: TransitionScope,
+  specClause: string,
+  scopeParams: string[],
+): TransitionResult {
+  const db = store.getRawDb();
+  const from = action === "confirm_red" ? "TEST_WRITTEN" : "RED_CONFIRMED";
+  const rows = db
+    .prepare(
+      `SELECT file_path, test_file_path FROM tdd_cycles WHERE state = ? AND project_path = ?${specClause}`,
+    )
+    .all(from, ...scopeParams) as Array<{
+    file_path: string;
+    test_file_path: string | null;
+  }>;
+  const targets = filterRowsByTestScope(
+    rows.map((r) => ({
+      filePath: r.file_path,
+      testFilePath: r.test_file_path,
+    })),
+    scope,
+  );
+  const stmt =
+    action === "confirm_red"
+      ? db.prepare(
+          "UPDATE tdd_cycles SET state = 'RED_CONFIRMED', updated_at = ? WHERE file_path = ? AND state = 'TEST_WRITTEN'",
+        )
+      : db.prepare(
+          "DELETE FROM tdd_cycles WHERE file_path = ? AND state = 'RED_CONFIRMED'",
+        );
+  let count = 0;
+  db.transaction(() => {
+    for (const t of targets) {
+      const r =
+        action === "confirm_red"
+          ? stmt.run(Date.now(), t.filePath)
+          : stmt.run(t.filePath);
+      count += r.changes;
+    }
+  })();
+  return { count };
+}
+
+/** Keep only non-blank strings; anything else (old/garbled client) → absent. */
+function stringList(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter(
+    (x): x is string => typeof x === "string" && x.trim() !== "",
+  );
+  return out.length > 0 ? out : undefined;
+}
+
 // ─── Route Handler ────────────────────────────────────────────────────────────
 
 /**
@@ -90,10 +157,16 @@ export function bulkTddTransition(
 export const MISSING_TRANSITION_PROJECT_LOG =
   "tdd-transition REJECTED: missing projectPath";
 
+/** `sidecar.log` marker for a per-file `set` rejected for lack of a project (D4). */
+export const MISSING_TDD_SET_PROJECT_LOG =
+  "tdd-state set REJECTED: missing projectPath";
+
 /**
  * Handle /tdd-state/transition requests. Returns null for non-matching paths.
  *
- * Body: `{ action: "confirm_red" | "confirm_green", projectPath: string, specId?: string }`.
+ * Body: `{ action: "confirm_red" | "confirm_green", projectPath: string, specId?: string,
+ * testFiles?: string[], testDirs?: string[] }` — the test scope (D1) is
+ * optional; absent/empty/garbled → project-wide, so old clients are unchanged.
  * A missing/blank `projectPath` is a 400 — never an unscoped sweep (D6).
  */
 export async function handleTddTransitionRequest(
@@ -109,6 +182,8 @@ export async function handleTddTransitionRequest(
       action?: string;
       specId?: string;
       projectPath?: unknown;
+      testFiles?: unknown;
+      testDirs?: unknown;
     };
     const { action, specId } = body;
 
@@ -131,6 +206,8 @@ export async function handleTddTransitionRequest(
     const result = bulkTddTransition(ctx.store, action, {
       projectPath,
       specId,
+      testFiles: stringList(body.testFiles),
+      testDirs: stringList(body.testDirs),
     });
     return ok(result);
   } catch (e) {
@@ -195,28 +272,20 @@ async function handleSetTddState(
     projectPath?: string;
   }>(req);
 
-  // Project on a `set`: present → normalized (blank/garbage is a 400, never an
-  // unscoped row). ABSENT → inferred (D4) from the file itself — the nearest
-  // existing ancestor of `dirname(filePath)` — because older callers (≤1.37.1
-  // plugin, `tdd_set_state`) send none. A relative filePath cannot be
-  // inferred without the sidecar's meaningless cwd: 400. COALESCE still keeps
-  // an already-scoped row's key if the inferred one were ever null.
-  const hasProject = body.projectPath !== undefined;
-  let projectPath = hasProject ? normalizeProjectKey(body.projectPath) : null;
-  if (body.action === "set" && hasProject && !projectPath) {
-    return fail(MISSING_PROJECT_PATH);
-  }
-  if (body.action === "set" && !hasProject) {
-    projectPath = inferProjectFromFile(body.filePath);
-    if (!projectPath) {
-      return fail(
-        "Missing 'projectPath' and 'filePath' is not absolute — cannot infer " +
-          "the project",
+  // A `set` needs a project (D4 hard 400 — no inference). Present → normalized
+  // (blank/garbage is a 400, never an unscoped row). ABSENT means a ≤1.37.1
+  // client (every current caller sends one): refuse, log, and raise a daily
+  // global notice, because that client swallows the error.
+  const projectPath = normalizeProjectKey(body.projectPath);
+  if (body.action === "set" && !projectPath) {
+    if (body.projectPath === undefined) {
+      logSidecar(
+        `${MISSING_TDD_SET_PROJECT_LOG} (file=${body.filePath ?? "none"}) — ` +
+          "an outdated client (≤1.37.1) is running; update and restart it",
       );
+      notifyMissingTddProjectOnce(ctx);
     }
-    logSidecar(
-      `tdd-state: set without projectPath — inferred projectPath ${projectPath} for ${body.filePath}`,
-    );
+    return fail(MISSING_PROJECT_PATH);
   }
 
   if (body.action === "clear" && body.filePath) {

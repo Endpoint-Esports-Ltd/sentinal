@@ -11,6 +11,10 @@ import {
   resolveWorkspaceRoot,
 } from "../../../src/project/identity.js";
 import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
+import {
+  isScoped,
+  type TestScopeInput,
+} from "../../../src/utils/test-run-scope.js";
 
 // ─── Project Root Resolution ──────────────────────────────────────────────────
 
@@ -256,6 +260,7 @@ interface TddTransitionSidecar {
     action: "confirm_red" | "confirm_green",
     specId: string | undefined,
     projectPath: string,
+    scope?: TestScopeInput,
   ): Promise<{ count: number }>;
 }
 
@@ -267,14 +272,22 @@ interface TddTransitionSidecar {
  * Never throws into OpenCode — but a failure (including that 400) is written
  * to the plugin debug log instead of being swallowed, so a plumbing miss is
  * visible. Returns the route's `{ count }`, or `null` on failure.
+ *
+ * `scope` (D1) narrows the transition to the rows covered by the tests that
+ * ran; it is forwarded only when non-empty, so an unscoped call is exactly
+ * the old 3-argument call.
  */
 export async function transitionTddState(
   sidecar: TddTransitionSidecar,
   action: "confirm_red" | "confirm_green",
   projectPath: string,
   specId?: string,
+  scope?: TestScopeInput,
 ): Promise<{ count: number } | null> {
   try {
+    if (scope && isScoped(scope)) {
+      return await sidecar.tddTransition(action, specId, projectPath, scope);
+    }
     return await sidecar.tddTransition(action, specId, projectPath);
   } catch (e) {
     logToFile(

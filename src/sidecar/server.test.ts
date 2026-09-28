@@ -183,6 +183,7 @@ describe("sidecar server", () => {
       action: "set",
       filePath: "/src/foo.ts",
       state: "RED_CONFIRMED",
+      projectPath: tmpDir,
     });
     const r = await get(base, "/tdd-state?file=/src/foo.ts");
     expect(r.data.state).toBe("RED_CONFIRMED");
@@ -193,6 +194,7 @@ describe("sidecar server", () => {
       action: "set",
       filePath: "/src/foo.ts",
       state: "TEST_WRITTEN",
+      projectPath: tmpDir,
     });
     await post(base, "/tdd-state", {
       action: "clear",
@@ -214,6 +216,7 @@ describe("sidecar server", () => {
         action: "set",
         filePath: "/src/foo.ts",
         state: "RED_CONFIRMED",
+        projectPath: tmpDir,
         specId: "non-existent-spec",
       }),
     });
@@ -294,11 +297,13 @@ describe("sidecar server", () => {
       action: "set",
       filePath: "/src/a.ts",
       state: "RED_CONFIRMED",
+      projectPath: tmpDir,
     });
     await post(base, "/tdd-state", {
       action: "set",
       filePath: "/src/b.ts",
       state: "TEST_WRITTEN",
+      projectPath: tmpDir,
     });
 
     const r = await get(base, "/tdd-state/list");

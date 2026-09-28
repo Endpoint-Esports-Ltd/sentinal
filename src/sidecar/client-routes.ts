@@ -106,8 +106,9 @@ export abstract class SidecarRoutes {
     testFilePath?: string;
     lastFailOutput?: string;
     /**
-     * Owning project. Normalized sidecar-side. Omitting it writes a
-     * NULL-project row that the project-scoped confirm_green never clears.
+     * Owning project, normalized sidecar-side. Required by v1.40+ sidecars:
+     * omitting it is a 400 (D4). Optional here only so the type matches the
+     * other actions' body.
      */
     projectPath?: string;
   }): Promise<void> {
@@ -145,8 +146,16 @@ export abstract class SidecarRoutes {
     action: "confirm_red" | "confirm_green",
     specId: string | undefined,
     projectPath: string,
+    /** D1 — tests the run covered; absent/empty = project-wide. Old sidecars ignore it. */
+    scope?: { testFiles?: string[]; testDirs?: string[] },
   ): Promise<{ count: number }> {
-    return this.post("/tdd-state/transition", { action, specId, projectPath });
+    return this.post("/tdd-state/transition", {
+      action,
+      specId,
+      projectPath,
+      ...(scope?.testFiles?.length ? { testFiles: scope.testFiles } : {}),
+      ...(scope?.testDirs?.length ? { testDirs: scope.testDirs } : {}),
+    });
   }
 
   // ─── Memory ────────────────────────────────────────────────────────────

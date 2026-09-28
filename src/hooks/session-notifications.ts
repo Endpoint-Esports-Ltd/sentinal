@@ -19,6 +19,7 @@
 
 import type { Notification } from "../memory/types.js";
 import { SKEW_NOTIFICATION_SOURCE } from "../sidecar/retire-notify.js";
+import { TDD_MISSING_PROJECT_SOURCE } from "../sidecar/tdd-project-notify.js";
 
 /**
  * NULL-project sources that are relevant to EVERY project. Keep narrow.
@@ -26,10 +27,13 @@ import { SKEW_NOTIFICATION_SOURCE } from "../sidecar/retire-notify.js";
  * (`src/sidecar/vector-stats.ts`), inlined rather than imported: that module
  * reaches native-deps, and this one is bundled into the OpenCode plugin. The
  * test drives the real producer, so a rename there fails here.
+ * `TDD_MISSING_PROJECT_SOURCE` — an outdated client's project-less TDD write
+ * (D4); it names no project, so the notice must reach every project.
  */
 export const GLOBAL_NOTIFICATION_SOURCES: readonly string[] = [
   SKEW_NOTIFICATION_SOURCE,
   "vector-init",
+  TDD_MISSING_PROJECT_SOURCE,
 ];
 
 export const MAX_SESSION_NOTIFICATIONS = 5;

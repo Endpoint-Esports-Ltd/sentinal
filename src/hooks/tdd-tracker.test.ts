@@ -668,3 +668,132 @@ describe("processTddTracking — spec lookup key (Task 10)", () => {
     }
   }, 30_000);
 });
+
+// ─── Task 1 (2026-09-28): transitions scoped to the tests that ran ──────────
+
+describe("processTddTracking — scoped to the tests that ran (D1/D2/D3)", () => {
+  let tmpDir: string;
+  let savedHome: string | undefined;
+  let project: string;
+  let A: string;
+  let B: string;
+  const PASS = " 1 pass\n 0 fail\nRan 1 tests across 1 file. [10.00ms]\n";
+  const FAIL = " 0 pass\n 1 fail\n";
+
+  const openStore = (): MemoryStore =>
+    new MemoryStore(join(tmpDir, "home", "memory.db"));
+
+  function seed(
+    state: "TEST_WRITTEN" | "RED_CONFIRMED",
+    withTestPath = true,
+  ): void {
+    const store = openStore();
+    for (const impl of [A, B]) {
+      store.setTddState({
+        filePath: impl,
+        state,
+        testFilePath: withTestPath
+          ? impl.replace(/\.ts$/, ".test.ts")
+          : undefined,
+        projectPath: project,
+      });
+    }
+    store.close();
+  }
+
+  function stateOf(file: string): string | null {
+    const store = openStore();
+    const row = store.getTddState(file);
+    store.close();
+    return row?.state ?? null;
+  }
+
+  function bash(command: string, stdout: string): HookInput {
+    return {
+      session_id: "s",
+      transcript_path: "",
+      cwd: tmpDir,
+      permission_mode: "default",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_response: { stdout, stderr: "", interrupted: false },
+    };
+  }
+
+  const run = (input: HookInput) =>
+    processTddTracking(trackerInputFromHook(input));
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    mkdirSync(join(tmpDir, "home"), { recursive: true });
+    mkdirSync(join(tmpDir, "src"), { recursive: true });
+    mkdirSync(join(tmpDir, "tests"), { recursive: true });
+    // Test-file args only narrow a run when the file exists.
+    for (const f of ["src/a.test.ts", "src/b.test.ts", "tests/b.test.ts"])
+      writeFileSync(join(tmpDir, f), "");
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = join(tmpDir, "home");
+    project = resolveProjectIdentity(tmpDir);
+    A = join(tmpDir, "src", "a.ts");
+    B = join(tmpDir, "src", "b.ts");
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("trackerInputFromHook carries tool_input.command", () => {
+    expect(trackerInputFromHook(bash("bun test x.test.ts", PASS)).command).toBe(
+      "bun test x.test.ts",
+    );
+  });
+
+  it("THE RACE (CC): a passing `bun test <B's test>` leaves A RED", async () => {
+    seed("RED_CONFIRMED");
+    await run(bash("bun test src/b.test.ts", PASS));
+    expect(stateOf(A)).toBe("RED_CONFIRMED");
+    expect(stateOf(B)).toBeNull();
+  }, 30_000);
+
+  it("a failing `bun test <B's test>` confirms RED only for B", async () => {
+    seed("TEST_WRITTEN");
+    await run(bash("bun test src/b.test.ts", FAIL));
+    expect(stateOf(A)).toBe("TEST_WRITTEN");
+    expect(stateOf(B)).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("a full `bun test` (no args) still clears project-wide", async () => {
+    seed("RED_CONFIRMED");
+    await run(bash("bun test", PASS));
+    expect(stateOf(A)).toBeNull();
+    expect(stateOf(B)).toBeNull();
+  }, 30_000);
+
+  it("a `-t`-filtered passing run does not confirm GREEN", async () => {
+    seed("RED_CONFIRMED");
+    await run(bash("bun test -t 'renders' src/b.test.ts", PASS));
+    expect(stateOf(A)).toBe("RED_CONFIRMED");
+    expect(stateOf(B)).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("tests/ layout, rows without test_file_path (tdd_set_state)", async () => {
+    seed("RED_CONFIRMED", false);
+    await run(bash("bun test tests/b.test.ts", PASS));
+    expect(stateOf(A)).toBe("RED_CONFIRMED");
+    expect(stateOf(B)).toBeNull();
+  }, 30_000);
+
+  it("D3: re-editing a test does not downgrade a RED impl to TEST_WRITTEN", async () => {
+    seed("RED_CONFIRMED");
+    await run({
+      ...bash("", ""),
+      tool_name: "Edit",
+      tool_input: { file_path: join(tmpDir, "src", "a.test.ts") },
+      tool_response: {},
+    });
+    expect(stateOf(A)).toBe("RED_CONFIRMED");
+  }, 30_000);
+});

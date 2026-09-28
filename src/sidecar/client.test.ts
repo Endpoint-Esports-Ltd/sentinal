@@ -118,6 +118,7 @@ describe("SidecarClient", () => {
     await client.setTddState({
       filePath: "/src/foo.ts",
       state: "RED_CONFIRMED",
+      projectPath: tmpDir,
     });
     const state = await client.getTddState("/src/foo.ts");
     expect(state.state).toBe("RED_CONFIRMED");
@@ -139,6 +140,7 @@ describe("SidecarClient", () => {
     await client.setTddState({
       filePath: "/src/foo.ts",
       state: "TEST_WRITTEN",
+      projectPath: tmpDir,
     });
     await client.clearTddState("/src/foo.ts");
     const state = await client.getTddState("/src/foo.ts");
@@ -172,6 +174,26 @@ describe("SidecarClient", () => {
 
     expect(store.getTddState("/proj-b/x.ts")!.state).toBe("TEST_WRITTEN");
     expect(store.getTddState("/proj-b/y.ts")!.state).toBe("RED_CONFIRMED");
+  });
+
+  it("tddTransition(…, {testFiles}) scopes the sweep to the tests that ran (D1)", async () => {
+    for (const n of ["a", "b"]) {
+      store.setTddState({
+        filePath: `/proj-a/src/${n}.ts`,
+        state: "RED_CONFIRMED",
+        testFilePath: `/proj-a/src/${n}.test.ts`,
+        projectPath: "/proj-a",
+      });
+    }
+    const green = await client.tddTransition(
+      "confirm_green",
+      undefined,
+      "/proj-a",
+      { testFiles: ["/proj-a/src/b.test.ts"] },
+    );
+    expect(green.count).toBe(1);
+    expect(store.getTddState("/proj-a/src/a.ts")!.state).toBe("RED_CONFIRMED");
+    expect(store.getTddState("/proj-a/src/b.ts")).toBeNull();
   });
 
   it("tddTransition with a blank project is rejected by the sidecar, not swept", async () => {
@@ -272,8 +294,16 @@ describe("SidecarClient", () => {
   // ─── TDD State — List & Clear for Spec ──────────────────────────────────
 
   it("should list active TDD states", async () => {
-    await client.setTddState({ filePath: "/src/a.ts", state: "RED_CONFIRMED" });
-    await client.setTddState({ filePath: "/src/b.ts", state: "TEST_WRITTEN" });
+    await client.setTddState({
+      filePath: "/src/a.ts",
+      state: "RED_CONFIRMED",
+      projectPath: tmpDir,
+    });
+    await client.setTddState({
+      filePath: "/src/b.ts",
+      state: "TEST_WRITTEN",
+      projectPath: tmpDir,
+    });
 
     const states = await client.listActiveTddStates();
     expect(states.length).toBe(2);
@@ -298,11 +328,13 @@ describe("SidecarClient", () => {
       filePath: "/src/a.ts",
       state: "RED_CONFIRMED",
       specId: "spec-1",
+      projectPath: tmpDir,
     });
     await client.setTddState({
       filePath: "/src/b.ts",
       state: "TEST_WRITTEN",
       specId: "spec-2",
+      projectPath: tmpDir,
     });
 
     const states = await client.listActiveTddStates("spec-1");
@@ -322,11 +354,13 @@ describe("SidecarClient", () => {
       filePath: "/src/a.ts",
       state: "RED_CONFIRMED",
       specId: "spec-x",
+      projectPath: tmpDir,
     });
     await client.setTddState({
       filePath: "/src/b.ts",
       state: "TEST_WRITTEN",
       specId: "spec-x",
+      projectPath: tmpDir,
     });
 
     await client.clearTddStatesForSpec("spec-x");

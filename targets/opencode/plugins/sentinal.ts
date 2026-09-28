@@ -81,13 +81,17 @@ import {
 } from "../../../src/opencode/workspace-adaptor.js";
 import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
 import {
+  testRunScope,
+  toTestScopeInput,
+} from "../../../src/utils/test-run-scope.js";
+import {
   existsSync,
   readFileSync,
   writeFileSync,
   mkdirSync,
   unlinkSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 // Type definitions for OpenCode plugin system
@@ -313,6 +317,12 @@ async function sidecarTddGuard(
  * `projectPath` is the canonical project IDENTITY (a storage key). It scopes
  * the written row and both bulk transitions — the transition route rejects an
  * unscoped request, so omitting it would silently break TDD tracking.
+ *
+ * `command` + `cwd` (D1/D2 of 2026-09-28-deferred-items) scope both bulk
+ * transitions to the tests the run named, so a parallel agent's
+ * `bun test b.test.ts` no longer clears another agent's RED row. An
+ * unrecognised or argument-less run stays project-wide; a `-t`-filtered run
+ * never confirms GREEN (only some tests of those files ran).
  */
 async function sidecarTddTrack(
   sidecar: SidecarClient,
@@ -320,15 +330,23 @@ async function sidecarTddTrack(
   filePath: string | undefined,
   bashOutput: string | undefined,
   projectPath: string,
+  command: string | undefined,
+  cwd: string,
 ): Promise<void> {
   try {
     const isEdit = ["write", "edit", "multiedit", "patch"].includes(
       toolName.toLowerCase(),
     );
+    const runScope = () => testRunScope({ command, cwd });
 
     // Case 1: Test file written → TEST_WRITTEN
     if (isEdit && filePath && isTestFile(filePath)) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
+      // D3 — never downgrade: re-editing the test of a RED impl keeps it RED.
+      const current = await sidecar
+        .getTddState(implPath, projectPath)
+        .catch(() => null);
+      if (current?.state === "RED_CONFIRMED") return;
       await sidecar.setTddState({
         filePath: implPath,
         state: "TEST_WRITTEN",
@@ -344,7 +362,13 @@ async function sidecarTddTrack(
       bashOutput &&
       TEST_FAIL_INDICATORS.some((r) => r.test(bashOutput))
     ) {
-      await transitionTddState(sidecar, "confirm_red", projectPath);
+      await transitionTddState(
+        sidecar,
+        "confirm_red",
+        projectPath,
+        undefined,
+        toTestScopeInput(runScope()),
+      );
       return;
     }
 
@@ -354,7 +378,15 @@ async function sidecarTddTrack(
       bashOutput &&
       TEST_PASS_INDICATORS.some((r) => r.test(bashOutput))
     ) {
-      await transitionTddState(sidecar, "confirm_green", projectPath);
+      const scope = runScope();
+      if (scope.nameFiltered) return;
+      await transitionTddState(
+        sidecar,
+        "confirm_green",
+        projectPath,
+        undefined,
+        toTestScopeInput(scope),
+      );
     }
   } catch (e) {
     // Non-fatal — never throw into OpenCode — but never silent either.
@@ -839,12 +871,22 @@ export const SentinalPlugin: Plugin = async ({
               typeof output.output === "string"
                 ? output.output
                 : undefined;
+            // The command scopes the transition (D2); OpenCode's bash tool
+            // may run it in `workdir`, else the local checkout.
+            const command =
+              typeof args.command === "string" ? args.command : undefined;
+            const workdir =
+              typeof args.workdir === "string" && args.workdir !== ""
+                ? resolve(projectWorkspace, args.workdir)
+                : projectWorkspace;
             await sidecarTddTrack(
               sidecar,
               input.tool,
               trackerFilePath,
               bashOutput,
               projectIdentity,
+              command,
+              workdir,
             );
           }
 

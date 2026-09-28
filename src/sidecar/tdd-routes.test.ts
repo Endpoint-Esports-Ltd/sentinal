@@ -372,8 +372,10 @@ describe("handleTddTransitionRequest", () => {
   });
 });
 
-// ─── Task 10: canonical keys on get/list; D4 inferred project on set ─────────
+// ─── Task 10: canonical keys on get/list; D4 hard 400 on a project-less set ──
 
+import { MISSING_PROJECT_PATH } from "./project-key.js";
+import { TDD_MISSING_PROJECT_SOURCE } from "./tdd-project-notify.js";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { MemoryService } from "../memory/service.js";
@@ -464,19 +466,66 @@ describe("per-file TDD routes — project canonicalization (D3/D4)", () => {
     expect(blank.data).toHaveLength(2);
   }, 30_000);
 
-  it("POST set WITHOUT a project stores the project inferred from the file (D4)", async () => {
-    // `src/new/` does not exist: inference climbs to the nearest existing dir.
+  it("POST set WITHOUT a project is a 400 that writes nothing and logs (D4 hard 400)", async () => {
     const file = join(alias, "new", "thing.ts");
     const r = await call("/tdd-state", {
       action: "set",
       filePath: file,
       state: "TEST_WRITTEN",
     });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(400);
+    expect(r.error).toBe(MISSING_PROJECT_PATH);
+    expect(store.getTddState(file)).toBeNull();
+    const log = readLastLines(join(logDir, SIDECAR_LOG_FILE), 20).join("\n");
+    expect(log).toContain(
+      `tdd-state set REJECTED: missing projectPath (file=${file})`,
+    );
+  }, 30_000);
+
+  it("POST set WITHOUT a project raises ONE global notification per day", async () => {
+    for (const f of ["a.ts", "b.ts"]) {
+      await call("/tdd-state", {
+        action: "set",
+        filePath: join(root, "src", f),
+        state: "TEST_WRITTEN",
+      });
+    }
+    const rows = store
+      .getRawDb()
+      .prepare("SELECT source, project_path FROM notifications")
+      .all() as Array<{ source: string; project_path: string | null }>;
+    expect(rows).toEqual([
+      { source: TDD_MISSING_PROJECT_SOURCE, project_path: null },
+    ]);
+  });
+
+  it("POST set WITH a project still succeeds and raises no notification", async () => {
+    const file = join(root, "src", "ok.ts");
+    const r = await call("/tdd-state", {
+      action: "set",
+      filePath: file,
+      state: "TEST_WRITTEN",
+      projectPath: alias,
+    });
     expect(r.ok).toBe(true);
     expect(store.getTddState(file)!.projectPath).toBe(root);
-    const log = readLastLines(join(logDir, SIDECAR_LOG_FILE), 20).join("\n");
-    expect(log).toContain("inferred projectPath");
+    expect(
+      store.getRawDb().prepare("SELECT * FROM notifications").all(),
+    ).toEqual([]);
   }, 30_000);
+
+  it("clear / clearForSpec without a project are unaffected", async () => {
+    const file = join(root, "src", "c.ts");
+    store.setTddState({
+      filePath: file,
+      state: "TEST_WRITTEN",
+      projectPath: root,
+    });
+    const r = await call("/tdd-state", { action: "clear", filePath: file });
+    expect(r.ok).toBe(true);
+    expect(store.getTddState(file)).toBeNull();
+  });
 
   it("POST set WITHOUT a project and with a RELATIVE filePath is a 400", async () => {
     const r = await call("/tdd-state", {
@@ -487,5 +536,152 @@ describe("per-file TDD routes — project canonicalization (D3/D4)", () => {
     expect(r.ok).toBe(false);
     expect(r.status).toBe(400);
     expect(store.getTddState("src/relative.ts")).toBeNull();
+  });
+});
+
+// ─── Task 1 (2026-09-28): transitions scoped to the tests that ran (D1) ─────
+
+describe("bulkTddTransition / route — scoped to the tests that ran (D1)", () => {
+  const P = "/proj-race";
+  const A_IMPL = `${P}/src/a.ts`;
+  const B_IMPL = `${P}/src/b.ts`;
+  const B_TEST = `${P}/src/b.test.ts`;
+  let store: MemoryStore;
+
+  const seed = (state: "RED_CONFIRMED" | "TEST_WRITTEN"): void => {
+    store.setTddState({
+      filePath: A_IMPL,
+      state,
+      testFilePath: `${P}/src/a.test.ts`,
+      projectPath: P,
+    });
+    store.setTddState({
+      filePath: B_IMPL,
+      state,
+      testFilePath: B_TEST,
+      projectPath: P,
+    });
+  };
+
+  const post = (body: unknown): Promise<Response | null> =>
+    handleTddTransitionRequest(
+      new Request("http://localhost/tdd-state/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      { store } as unknown as SidecarContext,
+    );
+
+  beforeEach(() => {
+    store = new MemoryStore(":memory:");
+  });
+  afterEach(() => store.close());
+
+  it("THE RACE: confirm_green with B's test leaves A RED (route)", async () => {
+    seed("RED_CONFIRMED");
+    const res = await post({
+      action: "confirm_green",
+      projectPath: P,
+      testFiles: [B_TEST],
+    });
+    const json = (await res!.json()) as { data: { count: number } };
+    expect(json.data.count).toBe(1);
+    expect(store.getTddState(A_IMPL)!.state).toBe("RED_CONFIRMED");
+    expect(store.getTddState(B_IMPL)).toBeNull();
+  });
+
+  it("confirm_red with B's test promotes only B", () => {
+    seed("TEST_WRITTEN");
+    const r = bulkTddTransition(store, "confirm_red", {
+      projectPath: P,
+      testFiles: [B_TEST],
+    });
+    expect(r.count).toBe(1);
+    expect(store.getTddState(A_IMPL)!.state).toBe("TEST_WRITTEN");
+    expect(store.getTddState(B_IMPL)!.state).toBe("RED_CONFIRMED");
+  });
+
+  it("a row from tdd_set_state WITHOUT test_file_path matches its companion", () => {
+    store.setTddState({
+      filePath: A_IMPL,
+      state: "RED_CONFIRMED",
+      projectPath: P,
+    });
+    store.setTddState({
+      filePath: B_IMPL,
+      state: "RED_CONFIRMED",
+      projectPath: P,
+    });
+    bulkTddTransition(store, "confirm_green", {
+      projectPath: P,
+      testFiles: [`${P}/src/__tests__/b.test.ts`],
+    });
+    expect(store.getTddState(A_IMPL)!.state).toBe("RED_CONFIRMED");
+    expect(store.getTddState(B_IMPL)).toBeNull();
+  });
+
+  it("testDirs scope by directory", () => {
+    store.setTddState({
+      filePath: A_IMPL,
+      state: "RED_CONFIRMED",
+      projectPath: P,
+    });
+    store.setTddState({
+      filePath: `${P}/lib/c.ts`,
+      state: "RED_CONFIRMED",
+      projectPath: P,
+    });
+    bulkTddTransition(store, "confirm_green", {
+      projectPath: P,
+      testDirs: [`${P}/lib`],
+    });
+    expect(store.getTddState(A_IMPL)!.state).toBe("RED_CONFIRMED");
+    expect(store.getTddState(`${P}/lib/c.ts`)).toBeNull();
+  });
+
+  it("empty testFiles/testDirs = absent = project-wide (old clients unchanged)", async () => {
+    seed("RED_CONFIRMED");
+    const res = await post({
+      action: "confirm_green",
+      projectPath: P,
+      testFiles: [],
+      testDirs: [],
+    });
+    expect(
+      ((await res!.json()) as { data: { count: number } }).data.count,
+    ).toBe(2);
+    seed("RED_CONFIRMED");
+    const old = await post({ action: "confirm_green", projectPath: P });
+    expect(
+      ((await old!.json()) as { data: { count: number } }).data.count,
+    ).toBe(2);
+  });
+
+  it("non-array / non-string testFiles are ignored, not a 500", async () => {
+    seed("RED_CONFIRMED");
+    const res = await post({
+      action: "confirm_green",
+      projectPath: P,
+      testFiles: ["", 42, B_TEST],
+      testDirs: "nope",
+    });
+    expect(res!.status).toBe(200);
+    expect(store.getTddState(A_IMPL)!.state).toBe("RED_CONFIRMED");
+  });
+
+  it("a scoped transition never touches another project's rows", () => {
+    store.setTddState({
+      filePath: "/other/src/b.ts",
+      state: "RED_CONFIRMED",
+      testFilePath: B_TEST,
+      projectPath: "/other",
+    });
+    seed("RED_CONFIRMED");
+    bulkTddTransition(store, "confirm_green", {
+      projectPath: P,
+      testFiles: [B_TEST],
+    });
+    expect(store.getTddState("/other/src/b.ts")!.state).toBe("RED_CONFIRMED");
   });
 });

@@ -555,6 +555,11 @@ describe("worktree-aware project roots", () => {
     git(mainRoot, "add", ".");
     git(mainRoot, "commit", "-q", "-m", "init");
     git(mainRoot, "worktree", "add", "-q", "-b", "feature", linkedRoot);
+    // Test-file args only narrow a run when the file exists (D2).
+    mkdirSync(join(linkedRoot, "src"), { recursive: true });
+    mkdirSync(join(linkedRoot, "pkg"), { recursive: true });
+    for (const f of ["src/a.test.ts", "src/b.test.ts", "pkg/x.test.ts"])
+      writeFileSync(join(linkedRoot, f), "");
   });
 
   afterAll(() => {
@@ -611,6 +616,10 @@ describe("worktree-aware project roots", () => {
     observations: Array<Record<string, unknown>>;
     /** When set, addObservation rejects (drives the offline-queue fallback). */
     addObservationError: Error | null;
+    /** What getTddState answers (default IDLE). */
+    tddStateResponse: { state: string; hasActiveSpec: boolean };
+    /** Every (filePath, project) passed to getTddState. */
+    tddStateQueries: unknown[][];
   }
 
   function makeRootsFake(): RootsFake {
@@ -628,6 +637,8 @@ describe("worktree-aware project roots", () => {
       listNotificationsError: null as Error | null,
       observations: [] as Array<Record<string, unknown>>,
       addObservationError: null as Error | null,
+      tddStateResponse: { state: "IDLE", hasActiveSpec: false },
+      tddStateQueries: [] as unknown[][],
     };
     const fake = {
       createSession: async (s: { projectPath: string }) => {
@@ -635,7 +646,10 @@ describe("worktree-aware project roots", () => {
       },
       endSession: async () => {},
       touchSession: async () => {},
-      getTddState: async () => ({ state: "IDLE", hasActiveSpec: false }),
+      getTddState: async (...args: unknown[]) => {
+        rf.tddStateQueries.push(args);
+        return rf.tddStateResponse;
+      },
       setTddState: async (s: Record<string, unknown>) => {
         if (rf.setTddStateError) throw rf.setTddStateError;
         rf.setTddStates.push(s);
@@ -727,6 +741,15 @@ describe("worktree-aware project roots", () => {
       },
       set addObservationError(v) {
         rf.addObservationError = v;
+      },
+      get tddStateResponse() {
+        return rf.tddStateResponse;
+      },
+      set tddStateResponse(v) {
+        rf.tddStateResponse = v;
+      },
+      get tddStateQueries() {
+        return rf.tddStateQueries;
       },
     };
   }
@@ -956,6 +979,8 @@ describe("worktree-aware project roots", () => {
       { title: "", output: "", metadata: {} } as never,
     );
 
+    // D3 reads the current state first, so the write lands a tick later.
+    await settle(() => rf.setTddStates.length > 0);
     const written = rf.setTddStates.find((s) => s.testFilePath === testFile);
     expect(written).toBeDefined();
     expect(written!.projectPath).toBe(mainRoot);
@@ -991,6 +1016,108 @@ describe("worktree-aware project roots", () => {
     ]);
   }, 30_000);
 
+  // ── Task 1 (2026-09-28): transitions scoped to the tests that ran (D1/D2) ──
+
+  const settle = async (cond: () => boolean): Promise<boolean> => {
+    const start = Date.now();
+    while (!cond() && Date.now() - start < 2000) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return cond();
+  };
+
+  const bash = (command: unknown, callID = "c1") =>
+    ({
+      tool: "bash",
+      sessionID: "s1",
+      callID,
+      args: { command },
+    }) as never;
+
+  it("THE RACE (plugin): a passing `bun test <B's test>` sends only B's test as the scope", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks["tool.execute.after"]!(
+      bash("bun test src/b.test.ts"),
+      afterOut("1 pass\n0 fail\nRan 1 tests across 1 files.", 0) as never,
+    );
+    expect(await settle(() => rf.tddTransitions.length > 0)).toBe(true);
+    expect(rf.tddTransitions).toEqual([
+      [
+        "confirm_green",
+        undefined,
+        mainRoot,
+        { testFiles: [join(linkedRoot, "src", "b.test.ts")], testDirs: [] },
+      ],
+    ]);
+  }, 30_000);
+
+  it("a failing scoped run confirms RED only for the named test; `cd x &&` moves the cwd", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks["tool.execute.after"]!(
+      bash("cd pkg && bun test x.test.ts"),
+      afterOut("1 tests failed\nexpect(received).toBe(expected)", 1) as never,
+    );
+    expect(await settle(() => rf.tddTransitions.length > 0)).toBe(true);
+    expect(rf.tddTransitions[0]).toEqual([
+      "confirm_red",
+      undefined,
+      mainRoot,
+      { testFiles: [join(linkedRoot, "pkg", "x.test.ts")], testDirs: [] },
+    ]);
+  }, 30_000);
+
+  it("a `-t`-filtered passing run does NOT confirm GREEN", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks["tool.execute.after"]!(
+      bash("bun test -t 'one case' src/b.test.ts"),
+      afterOut("All 12 tests passed", 0) as never,
+    );
+    // Sentinel: a later unfiltered run proves the async phase ran in order.
+    await hooks["tool.execute.after"]!(
+      bash("bun test", "c2"),
+      afterOut("1 tests failed\nexpect(received).toBe(expected)", 1) as never,
+    );
+    expect(await settle(() => rf.tddTransitions.length > 0)).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rf.tddTransitions).toEqual([["confirm_red", undefined, mainRoot]]);
+  }, 30_000);
+
+  it("a missing/non-string command stays project-wide (unchanged)", async () => {
+    const rf = makeRootsFake();
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks["tool.execute.after"]!(
+      bash(undefined),
+      afterOut("All 12 tests passed", 0) as never,
+    );
+    expect(await settle(() => rf.tddTransitions.length > 0)).toBe(true);
+    expect(rf.tddTransitions).toEqual([["confirm_green", undefined, mainRoot]]);
+  }, 30_000);
+
+  it("D3: re-editing a test whose impl is RED_CONFIRMED does not downgrade it", async () => {
+    const rf = makeRootsFake();
+    rf.tddStateResponse = { state: "RED_CONFIRMED", hasActiveSpec: true };
+    const hooks = await initAt(linkedRoot, rf.fake, []);
+    await hooks["tool.execute.after"]!(
+      {
+        tool: "edit",
+        sessionID: "s1",
+        callID: "c1",
+        args: { filePath: join(linkedRoot, "src", "foo.test.ts") },
+      } as never,
+      { title: "", output: "", metadata: {} } as never,
+    );
+    expect(await settle(() => rf.tddStateQueries.length > 0)).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rf.tddStateQueries[0]).toEqual([
+      join(linkedRoot, "src", "foo.ts"),
+      mainRoot,
+    ]);
+    expect(rf.setTddStates).toEqual([]);
+  }, 30_000);
+
   it("TDD tracking: a sidecar failure is written to the plugin debug log, never thrown", async () => {
     const logDir = realpathSync(
       mkdtempSync(join(tmpdir(), "sentinal-plugin-log-")),
@@ -1011,9 +1138,10 @@ describe("worktree-aware project roots", () => {
         { title: "", output: "", metadata: {} } as never,
       );
 
-      const logged = readLastLines(join(logDir, PLUGIN_LOG_FILE), 200).join(
-        "\n",
-      );
+      const readLog = () =>
+        readLastLines(join(logDir, PLUGIN_LOG_FILE), 200).join("\n");
+      await settle(() => readLog().includes("sidecar exploded"));
+      const logged = readLog();
       expect(logged).toContain("tdd-track");
       expect(logged).toContain("sidecar exploded");
     } finally {

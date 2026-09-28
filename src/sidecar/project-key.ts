@@ -21,13 +21,11 @@
  *   "all projects".
  *
  * Plus `canonicalProjectKey`, used by `SpecStore` on both its write point and
- * its project-keyed reads, and `inferProjectFromFile` (D4).
+ * its project-keyed reads.
  *
  * ⛔ Keep this module free of `bun:sqlite` — `SpecStore` and hooks import it.
  */
 
-import { existsSync } from "node:fs";
-import { dirname, isAbsolute } from "node:path";
 import * as identity from "../project/identity.js";
 
 /** The 400 message for a write route given no usable project. */
@@ -83,22 +81,4 @@ export function normalizeProjectKey(raw: unknown): string | null {
  */
 export function normalizeProjectFilter(raw: unknown): string | undefined {
   return normalizeProjectKey(raw) ?? undefined;
-}
-
-/**
- * D4 — infer the project of a file from the file itself: the canonical
- * identity of the nearest EXISTING ancestor of `dirname(filePath)` (the file,
- * and even its directory, may not exist yet). `null` for a relative or blank
- * path: resolving one would mean resolving against the sidecar's own cwd.
- */
-export function inferProjectFromFile(filePath: unknown): string | null {
-  if (typeof filePath !== "string" || filePath.trim() === "") return null;
-  if (!isAbsolute(filePath)) return null;
-  let dir = dirname(filePath);
-  while (!existsSync(dir)) {
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return normalizeProjectKey(dir);
 }
