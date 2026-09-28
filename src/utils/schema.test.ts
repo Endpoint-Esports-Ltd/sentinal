@@ -313,7 +313,7 @@ describe("required enum drift guard", () => {
     return found;
   }
 
-  it("finds the four known required enums (guard is actually looking)", () => {
+  it("finds the five known required enums (guard is actually looking)", () => {
     const ids = requiredEnumFields()
       .map((f) => `${f.tool}.${f.field}`)
       .sort();
@@ -321,6 +321,7 @@ describe("required enum drift guard", () => {
     expect(ids).toEqual([
       "memory_maintain.action",
       "memory_save.type",
+      "orca_status.scope",
       "spec_notify.type",
       "tdd_set_state.state",
     ]);

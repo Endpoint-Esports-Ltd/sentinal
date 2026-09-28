@@ -1,0 +1,38 @@
+{
+  "id": "82f46cbd-79be-4bfa-96f0-8262ef35e2e1",
+  "ok": true,
+  "result": {
+    "runId": "run_93672f816e9f",
+    "deliveryId": "delivery_aa54dfdecfad",
+    "messages": [
+      {
+        "id": "msg_1ce1800982fe",
+        "run_id": "run_93672f816e9f",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_8b179c01-3875-4f1d-b226-881e9b407c40",
+        "to_handle": "run:run_93672f816e9f",
+        "subject": "worker-a.txt created; test run 0 pass / 2 fail (no node_modules)",
+        "body": "Created spike/worker-a.txt containing exactly 'worker A ok' (git status shows only spike/ untracked; nothing committed or pushed). bun test src/utils/test-run-scope.test.ts reported 0 pass / 2 fail / 2 errors across 2 files, but every failure is environmental: this worktree has no node_modules, so 'zod' cannot be resolved (the pretest build:opencode step and the test imports both fail), and no test assertion actually ran. To get meaningful counts, run bun install in this worktree first; I did not, to stay within the single-file ownership constraint (note: I re-ran the test once more to capture the error head, same result).",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_8b3fb8fed05a\",\"dispatchId\":\"ctx_4c968df3149b\",\"outcome\":\"succeeded\",\"filesModified\":[\"spike/worker-a.txt\"]}",
+        "created_at": "2026-09-28T18:02:18Z",
+        "delivered_at": null
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "6398881b-b63d-476b-b2d6-f277d155bed4",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

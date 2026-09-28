@@ -1,0 +1,44 @@
+{
+  "id": "local-status",
+  "ok": true,
+  "result": {
+    "target": {
+      "kind": "local"
+    },
+    "app": {
+      "running": true,
+      "pid": 12345,
+      "desktopWindowStatus": "available"
+    },
+    "runtime": {
+      "state": "ready",
+      "reachable": true,
+      "connectionState": "connected",
+      "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977",
+      "appVersion": "1.4.215",
+      "remoteUpdateSupport": {
+        "installMode": "interactive",
+        "automatic": true,
+        "reason": "available"
+      },
+      "capabilities": [
+        "runtime.status.compat.v1",
+        "orchestration.federation.v1",
+        "orchestration.federation-control-mail.v1",
+        "orchestration.federation-lifecycle-settlement.v1",
+        "orchestration.worker-stop-verdict.v1",
+        "orchestration.worker-launch-preferences.v1",
+        "orchestration.federation-structured-read.v1",
+        "orchestration.federation-fleet-snapshot.v1",
+        "orchestration.federation-release-archive.v1",
+        "orchestration.contract.v1"
+      ]
+    },
+    "graph": {
+      "state": "ready"
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

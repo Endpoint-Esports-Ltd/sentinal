@@ -1,0 +1,30 @@
+{
+  "id": "eec3d5a2-02d7-407b-af8a-d2e4eda04c04",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_8b3fb8fed05a",
+      "run_id": "run_93672f816e9f",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_66fae77e-858c-4ad2-a392-99ab04b4cd13",
+      "created_by_pane_key": "1673150a-ba85-402d-82bc-5aeb2f6360fc:dcfca489-d2a7-4087-bf68-6da57bce8587",
+      "created_by_process_incarnation": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-support@@44640a4a:6edb34ca-c55f-42f4-93ce-c5b13e750b47",
+      "created_by_run_generation": 1,
+      "task_title": "spike A (Orca-owned worktree)",
+      "display_name": "spike A (Orca-owned worktree)",
+      "spec": "Target: this worktree only. Change: create the file spike/worker-a.txt containing exactly the line \"worker A ok\". Then run `bun test src/utils/test-run-scope.test.ts` once and note the pass/fail counts. Constraints: do not edit any other file, do not commit, do not push, do not run the full test suite. Ownership: only spike/worker-a.txt. Observable acceptance: the file exists with that line and the test counts are reported in worker_done (--outcome succeeded, --files-modified spike/worker-a.txt).",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-28 17:57:45",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "3e3d0699-c609-4398-9767-b4157f0635c4",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

@@ -1,0 +1,217 @@
+/**
+ * `orca_start` — start ONE supervised worker (registered by
+ * `registerOrcaTools` in `mcp-tools.ts`; direct-only like the rest).
+ *
+ * ## Start / replay design
+ *
+ * `worker-start` can take ~60 s (Orca's own readiness wait), longer than the
+ * MCP SDK's 60 s request timeout. `orca_start` therefore races `startTask`
+ * against a budget (default 45 s). On expiry it answers `pending` with the
+ * request id and leaves the start running in this process; calling
+ * `orca_start` again with that `request_id` JOINS the in-flight start (Orca
+ * sees one `worker-start`). If this process no longer has it (restart, or the
+ * CLI deadline killed the client → `orca_timeout`), the same id goes to Orca
+ * as `--retry-request`, which Orca replays or joins instead of starting a
+ * duplicate (recovery-and-cleanup reference: "pending → replay the original
+ * command with --retry-request").
+ *
+ * Limitation: a timeout during the ONE `--retry-of` attempt is reported as an
+ * error, not `pending` — that attempt's request id cannot be replayed through
+ * `startTask`, which only replays the first attempt.
+ */
+
+import { randomUUID } from "node:crypto";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { startTask, type StartTaskResult } from "./dispatch.js";
+import {
+  orcaFailure,
+  orcaResponse,
+  type OrcaToolState,
+  type OrcaToolsDeps,
+} from "./mcp-tools-shared.js";
+
+const DIRECT = "Direct-only: talks to the local `orca` CLI, never the sidecar.";
+/** Below the MCP SDK's 60 s request timeout, with room for the reply. */
+export const DEFAULT_START_BUDGET_MS = 45_000;
+const MAX_FINISHED = 50;
+const TITLE = "Orca start";
+
+function pending(requestId: string, taskId: string) {
+  return orcaResponse(
+    TITLE,
+    [
+      `- **Pending:** the worker for ${taskId} is still starting.`,
+      `- Call orca_start again with the same arguments and request_id=${requestId} (joins or replays; never starts a duplicate).`,
+    ],
+    { ok: true, status: "pending", task_id: taskId, request_id: requestId },
+  );
+}
+
+function formatStart(r: StartTaskResult, requestId: string, taskId: string) {
+  switch (r.status) {
+    case "started":
+      return orcaResponse(
+        TITLE,
+        [
+          `- **Started** ${taskId} as dispatch ${r.dispatchId}${r.retried ? " (after one retry)" : ""}`,
+          "- Next: orca_wait(run_id) until its worker_done arrives.",
+        ],
+        {
+          ok: true,
+          status: "started",
+          task_id: taskId,
+          dispatch_id: r.dispatchId,
+          request_id: r.requestId,
+          retried: r.retried,
+          failed_attempts: r.failedAttempts,
+        },
+      );
+    case "blocked":
+      return orcaResponse(
+        TITLE,
+        [
+          `- **Blocked:** ${r.message}`,
+          "- Call orca_start again without request_id once the dependencies reported worker_done (Orca recorded this request's refusal).",
+        ],
+        {
+          ok: false,
+          status: "blocked",
+          task_id: taskId,
+          unmet_dependencies: r.unmetDependencies,
+          task_status: r.taskStatus ?? null,
+          request_id: r.requestId,
+        },
+      );
+    case "refused":
+      return orcaResponse(TITLE, [`- **Refused:** ${r.message}`], {
+        ok: false,
+        status: "refused",
+        task_id: taskId,
+        auth: r.auth,
+      });
+    case "outcome_unknown":
+      return orcaResponse(
+        TITLE,
+        [
+          `- **Outcome unknown** for dispatch ${r.receipt?.dispatchId ?? "?"}: inspect (worker-show / worker-list) before choosing; never retry blind.`,
+          ...(r.receipt?.recovery
+            ? [`- Orca recovery: ${r.receipt.recovery}`]
+            : []),
+        ],
+        {
+          ok: false,
+          status: "outcome_unknown",
+          task_id: taskId,
+          dispatch_id: r.receipt?.dispatchId ?? null,
+          request_id: r.requestId,
+          receipt: r.receipt,
+        },
+      );
+    case "failed":
+      return orcaResponse(TITLE, [`- **Failed:** ${r.message}`], {
+        ok: false,
+        status: "failed",
+        task_id: taskId,
+        attempts: r.attempts,
+      });
+    case "error":
+      if (r.error.code === "orca_timeout" && r.failedAttempts.length === 0) {
+        return pending(requestId, taskId);
+      }
+      return orcaFailure(TITLE, r.error, {
+        status: "error",
+        task_id: taskId,
+        request_id: r.requestId ?? requestId,
+        failed_attempts: r.failedAttempts,
+      });
+  }
+}
+
+/** One `startTask` per request id in this process; late results are kept for the next call. */
+function trackStart(
+  state: OrcaToolState,
+  requestId: string,
+  run: () => Promise<StartTaskResult>,
+): Promise<StartTaskResult> {
+  const existing = state.inflightStarts.get(requestId);
+  if (existing) return existing;
+  const tracked = run()
+    .catch((e): StartTaskResult => ({
+      status: "error",
+      error: {
+        code: "orca_error",
+        message: e instanceof Error ? e.message : String(e),
+      },
+      failedAttempts: [],
+    }))
+    .then((r) => {
+      state.inflightStarts.delete(requestId);
+      state.finishedStarts.set(requestId, r);
+      while (state.finishedStarts.size > MAX_FINISHED) {
+        const oldest = state.finishedStarts.keys().next().value;
+        if (oldest === undefined) break;
+        state.finishedStarts.delete(oldest);
+      }
+      return r;
+    });
+  state.inflightStarts.set(requestId, tracked);
+  return tracked;
+}
+
+export function registerOrcaStartTool(
+  server: McpServer,
+  deps: OrcaToolsDeps,
+  state: OrcaToolState,
+): void {
+  server.tool(
+    "orca_start",
+    `Start ONE supervised worker for an Orca task (auth preflight, one --retry-of on a failed start, residual terminals closed). Answers within ~45 s: if the worker is still starting it returns status "pending" with a request_id — call orca_start again with the same request_id to join or replay it (never a duplicate). ${DIRECT}`,
+    {
+      task_id: z.string().min(1),
+      worktree: z.union([
+        z.literal("current"),
+        z.object({ path: z.string().min(1) }),
+      ]),
+      agent: z.string().min(1),
+      run_id: z.string().optional(),
+      request_id: z
+        .string()
+        .optional()
+        .describe("From a previous `pending` answer; omit for a new start"),
+    },
+    async (args) => {
+      const requestId = args.request_id ?? randomUUID();
+      const done = state.finishedStarts.get(requestId);
+      if (done) {
+        state.finishedStarts.delete(requestId);
+        return formatStart(done, requestId, args.task_id);
+      }
+      const p = trackStart(state, requestId, () =>
+        startTask({
+          taskId: args.task_id,
+          worktree: args.worktree,
+          agent: args.agent,
+          runId: args.run_id,
+          requestId,
+          runner: deps.runner,
+        }),
+      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const budget = new Promise<"pending">((resolve) => {
+        timer = setTimeout(
+          () => resolve("pending"),
+          deps.startBudgetMs ?? DEFAULT_START_BUDGET_MS,
+        );
+      });
+      try {
+        const r = await Promise.race([p, budget]);
+        if (r === "pending") return pending(requestId, args.task_id);
+        state.finishedStarts.delete(requestId);
+        return formatStart(r, requestId, args.task_id);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
+}

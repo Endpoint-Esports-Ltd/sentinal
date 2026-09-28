@@ -78,6 +78,30 @@ describe("createSentinalServer", () => {
   // A tool registered in its own domain module but never wired into the
   // factory is invisible to every client — the module's own unit tests still
   // pass, so nothing else catches it.
+  it("wires the orca_remove_worktree veto: the main checkout is refused", async () => {
+    const { server } = createSentinalServer({ store });
+    const tool = (
+      server as unknown as {
+        _registeredTools: Record<
+          string,
+          { handler: (a: unknown) => Promise<{ content: { text: string }[] }> }
+        >;
+      }
+    )._registeredTools["orca_remove_worktree"]!;
+    const main = Bun.spawnSync([
+      "git",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ])
+      .stdout.toString()
+      .trim()
+      .replace(/\/\.git$/, "");
+    const r = await tool.handler({ path: main });
+    expect(r.content[0]!.text).toContain("removal_refused");
+    expect(r.content[0]!.text).toContain("main checkout");
+  }, 30_000);
+
   it("registers the runtime domain tools", async () => {
     const { server } = createSentinalServer({ store });
     const names = Object.keys(
@@ -108,6 +132,28 @@ describe("createSentinalServer", () => {
     expect(names).toContain("impact_analysis");
     expect(names).toContain("quality_report");
     expect(names).toContain("plan_impact");
+  });
+
+  // The Orca domain splits its tools across `mcp-tools.ts` and the sibling
+  // `mcp-tools-settle.ts`; only this assertion proves the factory reaches both.
+  it("registers the orca domain tools", () => {
+    const { server } = createSentinalServer({ store });
+    const names = Object.keys(
+      (server as unknown as { _registeredTools: Record<string, unknown> })
+        ._registeredTools,
+    );
+    for (const tool of [
+      "orca_status",
+      "orca_dispatch",
+      "orca_start",
+      "orca_wait",
+      "orca_ack",
+      "orca_stop",
+      "orca_release",
+      "orca_remove_worktree",
+    ]) {
+      expect(names).toContain(tool);
+    }
   });
 });
 

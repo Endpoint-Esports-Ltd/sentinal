@@ -1,0 +1,22 @@
+{
+  "id": "3438051e-1a8c-49bc-81f5-92cf2154bc9c",
+  "ok": true,
+  "result": {
+    "run": {
+      "id": "run_93672f816e9f",
+      "objective": "Sentinal spike: can /spec waves dispatch through Orca workers",
+      "coordinator_handle": "term_66fae77e-858c-4ad2-a392-99ab04b4cd13",
+      "consumer_generation": 1,
+      "legacy": 0,
+      "created_at": "2026-09-28T17:57:33Z",
+      "updated_at": "2026-09-28T17:57:33Z"
+    },
+    "mutation": {
+      "requestId": "3e3ec9fa-1cdc-4684-afa1-f183c3e4f906",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

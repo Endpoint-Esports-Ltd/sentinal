@@ -1,0 +1,32 @@
+{
+  "id": "fd5c225a-3740-4419-b9c6-561d6ad29d58",
+  "ok": false,
+  "error": {
+    "code": "task_not_startable",
+    "message": "Task task_2f9e17ca318d is pending; only a ready Task can start. Orchestration mutation request ID: 1b871879-c0f3-44c4-9c9c-a02c8bedc825.",
+    "data": {
+      "taskId": "task_2f9e17ca318d",
+      "status": "pending",
+      "unmetDependencies": ["task_8b3fb8fed05a"],
+      "nextSteps": [
+        "Dependencies task_8b3fb8fed05a are not completed. Wait for running ones with orca orchestration check --wait --json; retry or unblock failed ones before dispatching again."
+      ],
+      "orchestrationRequestId": "1b871879-c0f3-44c4-9c9c-a02c8bedc825",
+      "originalCommand": [
+        "orca",
+        "orchestration",
+        "worker-start",
+        "--task",
+        "task_2f9e17ca318d",
+        "--worktree",
+        "path:/Users/dev/Projects/endpoint_esports/sentinal/.sentinal/worktrees/spec-2026-09-28-orca-spike-b-95e8f1a3",
+        "--agent",
+        "claude",
+        "--json"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

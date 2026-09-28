@@ -1,0 +1,87 @@
+{
+  "id": "14aad789-da4f-4cf5-aef3-abe8678c1b9d",
+  "ok": true,
+  "result": {
+    "runId": "run_93672f816e9f",
+    "taskId": "task_8b3fb8fed05a",
+    "dispatchId": "ctx_854b8828942e",
+    "state": "failed",
+    "stage": "agent_readiness",
+    "failedStage": "agent_readiness",
+    "lastError": "terminal_handle_stale",
+    "setup": {
+      "requested": "skip",
+      "effective": "skip",
+      "source": "explicit_request",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_configured"
+    },
+    "launch": {
+      "requested": {
+        "agent": "claude",
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": "claude",
+        "model": null,
+        "effort": null
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "created_child",
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-spike-a"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_d485e936-cfdf-4d58-b6cf-2f28478260e5",
+        "tabId": "aad2c405-5bcf-49a5-b4e2-debf6b513fcc",
+        "leafId": "4b00b947-317c-43ff-b245-104d1d81b554"
+      },
+      {
+        "kind": "setup",
+        "action": "skip",
+        "requested": "skip",
+        "effective": "skip",
+        "source": "explicit_request",
+        "hookFound": false,
+        "startupPolicy": "start-immediately",
+        "state": "not_configured"
+      }
+    ],
+    "residualResources": [
+      {
+        "kind": "worktree",
+        "action": "created_child",
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-spike-a"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_d485e936-cfdf-4d58-b6cf-2f28478260e5",
+        "tabId": "aad2c405-5bcf-49a5-b4e2-debf6b513fcc",
+        "leafId": "4b00b947-317c-43ff-b245-104d1d81b554"
+      }
+    ],
+    "recovery": "This start created a terminal that never ran the Task. Close it with: orca orchestration worker-release --dispatch ctx_854b8828942e",
+    "mutation": {
+      "requestId": "b1246a08-cec2-4516-b230-8a88e83ecc74",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

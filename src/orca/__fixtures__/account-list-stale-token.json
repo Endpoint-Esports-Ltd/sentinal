@@ -1,0 +1,155 @@
+{
+  "id": "3a66e021-1f93-4f44-82d4-de935682937a",
+  "ok": true,
+  "result": {
+    "claude": {
+      "accounts": [],
+      "activeAccountId": null,
+      "activeAccountIdsByRuntime": {
+        "host": null,
+        "wsl": {}
+      }
+    },
+    "codex": {
+      "accounts": [],
+      "activeAccountId": null,
+      "activeAccountIdsByRuntime": {
+        "host": null,
+        "wsl": {}
+      },
+      "systemDefault": {
+        "hasAuth": false,
+        "authKind": "none",
+        "email": null,
+        "providerAccountId": null,
+        "workspaceLabel": null
+      }
+    },
+    "rateLimits": {
+      "claude": {
+        "provider": "claude",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790618620112,
+        "error": "Claude OAuth token is stale. Run /login.",
+        "status": "error",
+        "usageMetadata": {
+          "attemptedSources": ["oauth"],
+          "failureKind": "stale-token",
+          "credentialSource": "legacy-keychain",
+          "authProvenance": "system"
+        }
+      },
+      "codex": {
+        "provider": "codex",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519998,
+        "error": "Codex not signed in",
+        "status": "unavailable"
+      },
+      "gemini": {
+        "provider": "gemini",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519998,
+        "error": "Gemini CLI OAuth is disabled in settings",
+        "status": "unavailable"
+      },
+      "opencodeGo": {
+        "provider": "opencode-go",
+        "session": {
+          "usedPercent": 0,
+          "windowMinutes": 300,
+          "resetsAt": 1790637520506,
+          "resetDescription": null
+        },
+        "weekly": {
+          "usedPercent": 0,
+          "windowMinutes": 10080,
+          "resetsAt": 1791158400000,
+          "resetDescription": null
+        },
+        "monthly": {
+          "usedPercent": 0,
+          "windowMinutes": 43200,
+          "resetsAt": 1791567320000,
+          "resetDescription": null
+        },
+        "updatedAt": 1790619520596,
+        "error": null,
+        "status": "ok",
+        "usageMetadata": {
+          "source": "web",
+          "credentialSource": "opencode-auth-file",
+          "lastSuccessfulSource": "web"
+        }
+      },
+      "kimi": {
+        "provider": "kimi",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519998,
+        "error": "Not signed in to Kimi Code",
+        "status": "unavailable"
+      },
+      "antigravity": {
+        "provider": "antigravity",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519998,
+        "error": "Antigravity usage is not available. Orca can only show shared Google Code Assist quota while a Gemini CLI sign-in is connected.",
+        "status": "unavailable"
+      },
+      "minimax": {
+        "provider": "minimax",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519998,
+        "error": "MiniMax session cookie not configured",
+        "status": "unavailable",
+        "usageMetadata": {
+          "failureKind": "missing-credentials",
+          "source": "web"
+        }
+      },
+      "grok": {
+        "provider": "grok",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619519997,
+        "error": "Not signed in to Grok \u2014 run grok login",
+        "status": "unavailable"
+      },
+      "cursor": {
+        "provider": "cursor",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1790619520022,
+        "error": "No Cursor sign-in on this computer \u2014 sign in with Cursor IDE or `cursor-agent login`",
+        "status": "unavailable",
+        "usageMetadata": {
+          "failureKind": "missing-credentials"
+        }
+      },
+      "minimaxCookieConfigured": false,
+      "minimaxApiKeyConfigured": false,
+      "opencodeGoApiKeyConfigured": true,
+      "grokAuthConfigured": false,
+      "cursorAuthConfigured": false,
+      "claudeTarget": {
+        "runtime": "host",
+        "wslDistro": null
+      },
+      "codexTarget": {
+        "runtime": "host",
+        "wslDistro": null
+      },
+      "inactiveClaudeAccounts": [],
+      "inactiveCodexAccounts": []
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}

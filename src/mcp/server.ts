@@ -20,6 +20,9 @@ import { registerAnalysisTools } from "../analysis/mcp-tools.js";
 import { registerProjectTools } from "../project/mcp-tools.js";
 import { registerRuntimeTools } from "../runtime/mcp-tools.js";
 import { runtimeWorktreeConfig } from "../runtime/worktree-deps.js";
+import { registerOrcaTools } from "../orca/mcp-tools.js";
+import { guardOrcaWorktreeRemoval } from "../worktree/removal-guard.js";
+import { WorktreeStore } from "../worktree/store.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
 
@@ -65,6 +68,22 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   // tool's own `project` argument, so the sidecar's warm state buys nothing.
   // See the docblock in src/runtime/mcp-tools.ts before adding a route.
   registerRuntimeTools(server, {});
+  // Direct-only too: Orca's state lives in Orca (see src/orca/mcp-tools.ts).
+  // The removal veto needs Sentinal's worktree rows: with the sidecar running
+  // `store` is null, so open the DB per check (same as the worktree tools do).
+  registerOrcaTools(server, {
+    guardWorktreeRemoval: async (path) => {
+      const own = store ?? new MemoryStore();
+      try {
+        return await guardOrcaWorktreeRemoval(path, {
+          cwd: process.cwd(),
+          store: new WorktreeStore(own),
+        });
+      } finally {
+        if (!store) own.close();
+      }
+    },
+  });
 
   return { server, store };
 }

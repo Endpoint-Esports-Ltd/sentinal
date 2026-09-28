@@ -1,0 +1,110 @@
+{
+  "id": "0e2618c7-a8e2-4170-9468-4a11c61483fc",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_f359d5e49a0b",
+    "source": "transcript",
+    "sourceIdentity": "PpBi62e7FliC5swiNoVflOFe4nB0cdOr",
+    "provider": "claude",
+    "transcript": {
+      "messages": [
+        {
+          "id": "6b5bbe1b-389d-4588-b65c-17ce4fc78bb6",
+          "role": "user",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "Please carry out this task from my Orca coordinator by following the brief I pasted below. You are working inside Orca, a multi-agent IDE. You are a dispatched worker.\nYour coordinator's terminal handle is: term_66fae77e-858c-4ad2-a392-99ab04b4cd13\nYour task ID is: task_8b3fb8fed05a\n\nThe coordinator cannot see this terminal, so reach it with the `orca orchestration`\ncommands below; a question or result left only in this terminal never gets to it.\nDon't post to Slack, GitHub, or other channels during the run; report through these commands.\n\n=== CLI COMMANDS ===\n\n```sh\n  # Report the task outcome (required, exactly once).\n  #\n  # --body must be a 3-sentence executive summary (what you did,\n  # what you found, what's left). Never send an empty body; the coordinator\n  # reads the body first and only opens artifacts if it needs more detail.\n  # Append --files-modified only when files changed, and append --report-path\n  # only when you produced a durable report. Always pass real values; do not\n  # send the example placeholders literally.\n  #\n  # Send worker_done exactly once. Use --outcome succeeded when the\n  # requested work is done, or replace it with --outcome failed when it is not.\n\n… (truncated)"
+            }
+          ],
+          "timestamp": 1790618361689,
+          "source": "transcript"
+        },
+        {
+          "id": "7bfd6410-cc4d-4384-aa50-9ccc4a098f60",
+          "role": "assistant",
+          "blocks": [
+            {
+              "type": "text",
+              "text": "Please run /login · API Error: 401 OAuth access token is invalid."
+            }
+          ],
+          "timestamp": 1790618364142,
+          "source": "transcript"
+        }
+      ],
+      "nextCursor": "owr1_eyJ2IjoxLCJkIjoiY3R4X2YzNTlkNWU0OWEwYiIsInMiOiJ0cmFuc2NyaXB0IiwiaSI6IlBwQmk2MmU3RmxpQzVzd2lOb1ZmbE9GZTRuQjBjZE9yIiwicCI6Mzk4OTUsImMiOiI5WVVENUhYYnl1Q0pMNTZuNGdSd0k0WE1HdjRHSHNjeCJ9",
+      "limited": true,
+      "returnedMessageCount": 2
+    },
+    "cursor": "owr1_eyJ2IjoxLCJkIjoiY3R4X2YzNTlkNWU0OWEwYiIsInMiOiJ0cmFuc2NyaXB0IiwiaSI6IlBwQmk2MmU3RmxpQzVzd2lOb1ZmbE9GZTRuQjBjZE9yIiwicCI6Mzk4OTUsImMiOiI5WVVENUhYYnl1Q0pMNTZuNGdSd0k0WE1HdjRHSHNjeCJ9",
+    "status": {
+      "worker": "ready",
+      "terminal": "running",
+      "liveness": "live"
+    },
+    "fallbackReason": null,
+    "warnings": [
+      "Dispatch capability tokens were redacted from transcript output.",
+      "Oversized transcript text was clipped."
+    ],
+    "sourceExact": true,
+    "contentComplete": false,
+    "clipping": ["transcript_payload"],
+    "projection": {
+      "id": "ctx_f359d5e49a0b",
+      "dispatchId": "ctx_f359d5e49a0b",
+      "taskId": "task_8b3fb8fed05a",
+      "runId": "run_93672f816e9f",
+      "role": "worker",
+      "parent": null,
+      "provider": {
+        "id": "claude",
+        "model": null
+      },
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-spike-a",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "done"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "live",
+        "observedAt": 1790618364177,
+        "source": "agent_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "fresh",
+        "lastObservedAt": 1790618364177
+      },
+      "resource": {
+        "state": "owned",
+        "id": "wtr_7ffe098b32a7",
+        "ownerDispatchId": "ctx_f359d5e49a0b",
+        "releaseState": "not_requested",
+        "terminalState": "active"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": [],
+        "requiresAction": false
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "613e1b46-dd34-49a9-8be8-f336f8d23977"
+  }
+}
