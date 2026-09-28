@@ -225,7 +225,7 @@ export function scoreRisk(
   return "LOW";
 }
 
-export function buildImpactOutput(
+function buildImpactOutput(
   risk: RiskLevel,
   changedFiles: ChangedFile[],
   specFiles: Set<string>,

@@ -162,7 +162,7 @@ const INLINE_VERB: PlanFileVerb = "modify";
  * shipped `[1 | 2 | ...]` placeholder, for `N/A`, and for anything else that
  * does not begin with a digit. Never `NaN`, never a throw.
  */
-export function parseWaveValue(raw: string): number | null {
+function parseWaveValue(raw: string): number | null {
   const match = /^\s*(\d+)\b/.exec(raw.replace(/`/g, ""));
   if (!match) return null;
   const n = Number.parseInt(match[1], 10);

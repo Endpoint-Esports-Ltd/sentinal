@@ -35,7 +35,7 @@ import {
 
 const NESTED_WORKTREE = /\/\.sentinal\/worktrees\/[^/]+(?:\/.*)?$/;
 
-export function canonicalizeSpecProject(projectPath: string): string {
+function canonicalizeSpecProject(projectPath: string): string {
   const stripped = projectPath.replace(NESTED_WORKTREE, "") || projectPath;
   try {
     return existsSync(stripped) ? realpathSync(stripped) : stripped;

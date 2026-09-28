@@ -84,11 +84,6 @@ export async function getBinaryVersion(): Promise<string | null> {
   }
 }
 
-/** Test hook: reset the version cache between tests. */
-export function resetBinaryVersionCache(): void {
-  _cachedBinaryVersion = undefined;
-}
-
 export interface EnsureDashboardOptions {
   currentVersion: string;
   probeFn?: () => Promise<{ version?: string; pid?: number } | null>;

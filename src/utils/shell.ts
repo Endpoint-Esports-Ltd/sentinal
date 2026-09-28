@@ -138,12 +138,6 @@ export function resolveAssetsDir(): string {
   throw new Error(`Cannot find targets/ directory. Looked at: ${targetsDir}`);
 }
 
-/** Check if we're running from a global (node_modules) install. */
-export function isGlobalInstall(): boolean {
-  const root = resolveSentinalRoot();
-  return root.includes("node_modules");
-}
-
 // ─── Filesystem helpers ─────────────────────────────────────────────────────
 
 /** Copy a directory recursively (including dotfiles), with optional exclusions. */

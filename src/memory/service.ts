@@ -24,32 +24,24 @@ import type {
   MemoryStats,
   AssistantType,
 } from "./types.js";
-import { SEARCH_CONSTANTS, SearchFiltersSchema } from "./types.js";
 import type { ObservationType } from "./types.js";
 import { sanitizeObservationFields } from "./sanitize.js";
-import { applyFreshness } from "./search/freshness.js";
-import { computeDedupeSignature, isAutoCapture } from "./dedupe-signature.js";
+import {
+  addObservationDeduped,
+  type DedupedObservationResult,
+} from "./observation-dedupe.js";
+import {
+  ftsFetch,
+  searchFtsOnly,
+  toTimelineEntry,
+} from "./observation-search.js";
 
-/**
- * D3: a signed error repeating within this window of its FIRST sighting is
- * counted on the existing row instead of inserted. Fixed, not sliding —
- * repeats never move the row's timestamp.
- */
-export const ERROR_DEDUP_WINDOW_MS = 30 * 60 * 1000;
-
-/** D10: the same fixed first-sight window, for every signed observation. */
-export const AUTO_CAPTURE_DEDUP_WINDOW_MS = ERROR_DEDUP_WINDOW_MS;
-
-/** D10: auto-captured `fix` rows also collapse on (project, title). */
-export const FIX_TITLE_DEDUP_WINDOW_MS = 5 * 60 * 1000;
-
-export interface DedupedObservationResult {
-  observation: Observation;
-  /** true when an existing row absorbed this sighting (no insert). */
-  deduplicated: boolean;
-  /** true when the observation was signed, i.e. eligible for dedupe. */
-  deduplicable: boolean;
-}
+export {
+  AUTO_CAPTURE_DEDUP_WINDOW_MS,
+  ERROR_DEDUP_WINDOW_MS,
+  FIX_TITLE_DEDUP_WINDOW_MS,
+  type DedupedObservationResult,
+} from "./observation-dedupe.js";
 
 export interface MemoryServiceOptions {
   store?: MemoryStore;
@@ -139,55 +131,9 @@ export class MemoryService {
    * Unsigned (manual) observations pass through unchanged.
    */
   addObservationDeduped(obs: CreateObservation): DedupedObservationResult {
-    const clientSignature = obs.metadata?.signature;
-    const signature =
-      obs.type === "error" &&
-      typeof clientSignature === "string" &&
-      clientSignature
-        ? clientSignature
-        : computeDedupeSignature(obs);
-    if (!signature) {
-      return {
-        observation: this.addObservation(obs),
-        deduplicated: false,
-        deduplicable: false,
-      };
-    }
-
-    const existing =
-      this.store.findRecentBySignature(
-        obs.projectPath,
-        obs.type,
-        signature,
-        obs.timestamp - AUTO_CAPTURE_DEDUP_WINDOW_MS,
-      ) ??
-      (obs.type === "fix" && isAutoCapture(obs.metadata)
-        ? this.store.findRecentAutoCaptureByTitle(
-            obs.projectPath,
-            "fix",
-            sanitizeObservationFields({ title: obs.title, content: "" }).title,
-            obs.timestamp - FIX_TITLE_DEDUP_WINDOW_MS,
-          )
-        : null);
-    if (existing) {
-      const repeated = this.store.recordRepeat(existing.id, obs.timestamp);
-      if (repeated) {
-        return {
-          observation: repeated,
-          deduplicated: true,
-          deduplicable: true,
-        };
-      }
-    }
-
-    return {
-      observation: this.addObservation({
-        ...obs,
-        metadata: { ...obs.metadata, signature, occurrences: 1 },
-      }),
-      deduplicated: false,
-      deduplicable: true,
-    };
+    return addObservationDeduped(this.store, obs, (o) =>
+      this.addObservation(o),
+    );
   }
 
   getObservation(id: number): Observation | null {
@@ -299,48 +245,12 @@ export class MemoryService {
     query: string,
     rawFilters?: Partial<SearchFilters>,
   ): SearchResult[] {
-    const filters = SearchFiltersSchema.parse(rawFilters ?? {});
-
-    // Explicit chronological ordering is passed straight through — no
-    // freshness re-rank, so `date_asc`/`date_desc` are preserved exactly.
-    if (filters.orderBy !== "relevance") {
-      return this.ftsFetch(query, filters).map((obs) => toSearchResult(obs));
-    }
-
-    // Relevance mode: over-fetch a larger candidate set (bm25 order), then
-    // re-rank by shared freshness (recency + quality) so a fresher/higher-
-    // quality item ranked just past the caller's limit CAN surface.
-    const candidateLimit = Math.max(filters.limit * 5, 50);
-    const candidates = this.ftsFetch(query, {
-      ...filters,
-      limit: candidateLimit,
-      offset: 0,
-    });
-
-    const now = Date.now();
-    const ranked = candidates
-      .map((obs, index) => ({
-        obs,
-        // Positional base score, mirroring FTSStrategy (`1 - index*0.05`).
-        score: applyFreshness(1.0 - index * 0.05, obs, now),
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    return ranked
-      .slice(filters.offset, filters.offset + filters.limit)
-      .map((r) => toSearchResult(r.obs));
+    return searchFtsOnly(this.store, query, rawFilters);
   }
 
   /** Raw FTS/filter fetch (no freshness re-rank), honoring the given filters. */
   private ftsFetch(query: string, filters: SearchFilters): Observation[] {
-    if (!query || query.trim() === "") {
-      return this.store.searchFilters(filters);
-    }
-    try {
-      return this.store.searchFTS(sanitizeFtsQuery(query), filters);
-    } catch {
-      return this.store.searchFilters(filters);
-    }
+    return ftsFetch(this.store, query, filters);
   }
 
   // ─── Timeline (Layer 2: context around anchor) ────────────────────────
@@ -427,43 +337,4 @@ export class MemoryService {
   getStore(): MemoryStore {
     return this.store;
   }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function toSearchResult(obs: Observation): SearchResult {
-  return {
-    id: obs.id,
-    title: obs.title,
-    type: obs.type,
-    timestamp: obs.timestamp,
-    score: 0,
-    estimatedTokens: Math.ceil(
-      (obs.title.length + obs.content.length) /
-        SEARCH_CONSTANTS.CHARS_PER_TOKEN_ESTIMATE,
-    ),
-    snippet: obs.content.slice(0, SEARCH_CONSTANTS.SNIPPET_LENGTH),
-    tags: obs.tags,
-    filePaths: obs.filePaths,
-  };
-}
-
-function toTimelineEntry(obs: Observation, isAnchor: boolean): TimelineEntry {
-  return {
-    id: obs.id,
-    type: obs.type,
-    title: obs.title,
-    timestamp: obs.timestamp,
-    isAnchor,
-    snippet: obs.content.slice(0, SEARCH_CONSTANTS.SNIPPET_LENGTH),
-  };
-}
-
-function sanitizeFtsQuery(query: string): string {
-  return query
-    .replace(/['"]/g, "")
-    .split(/\s+/)
-    .filter((term) => term.length > 0)
-    .map((term) => `"${term}"`)
-    .join(" ");
 }

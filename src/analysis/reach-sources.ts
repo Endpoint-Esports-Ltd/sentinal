@@ -159,7 +159,7 @@ export function selectPrimaryIndex(sources: NormalizedSource[]): number {
 }
 
 /** How a source is named in prose: its own name, or its position. */
-export function sourceLabel(src: NormalizedSource): string {
+function sourceLabel(src: NormalizedSource): string {
   return src.name ?? `source ${src.position}`;
 }
 

@@ -21,7 +21,7 @@ export function specificationsView(specs: Spec[]): string {
   `;
 }
 
-export function specsListFragment(specs: Spec[]): string {
+function specsListFragment(specs: Spec[]): string {
   if (specs.length === 0)
     return emptyState(
       "No specifications found. Register a plan with 'sentinal register-plan <path>'.",

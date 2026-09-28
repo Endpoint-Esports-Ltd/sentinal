@@ -193,7 +193,7 @@ function readLivePidFromFile(): number | null {
  * Probe the running dashboard's /api/health endpoint.
  * Returns null on any network error (not running).
  */
-export async function probeDashboardHealth(): Promise<DashboardHealthData | null> {
+async function probeDashboardHealth(): Promise<DashboardHealthData | null> {
   try {
     const resp = await fetch("http://127.0.0.1:41778/api/health", {
       signal: AbortSignal.timeout(1000),

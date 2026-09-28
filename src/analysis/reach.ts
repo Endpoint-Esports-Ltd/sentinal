@@ -43,7 +43,7 @@ export interface ReachProvider {
  * Ask the provider, tolerating absence, deferral and failure.
  * Returns `null` whenever the built-in resolver should answer.
  */
-export async function providerReach(
+async function providerReach(
   provider: ReachProvider | null,
   relPath: string,
   project: string,
@@ -60,7 +60,7 @@ export async function providerReach(
   }
 }
 
-export async function providerModuleCount(
+async function providerModuleCount(
   provider: ReachProvider | null,
   project: string,
   fallback: number,

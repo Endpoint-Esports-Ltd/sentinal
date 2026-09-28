@@ -79,7 +79,7 @@ export interface ReadinessResult {
  * the first several seconds of any boot. Distinguishing it from a status keeps
  * the caller from treating "not yet" as "broken".
  */
-export async function probeHttp(target: string): Promise<number | null> {
+async function probeHttp(target: string): Promise<number | null> {
   try {
     const res = await fetch(target, {
       method: "GET",
@@ -93,7 +93,7 @@ export async function probeHttp(target: string): Promise<number | null> {
 }
 
 /** Exit code of `target` run through `sh`. Non-zero (or a throw) is "not yet". */
-export async function probeExec(target: string, cwd?: string): Promise<number> {
+async function probeExec(target: string, cwd?: string): Promise<number> {
   try {
     const proc = Bun.spawn(["sh", "-c", target], {
       cwd,

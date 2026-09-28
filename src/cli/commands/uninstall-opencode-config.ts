@@ -70,7 +70,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Recursive structural equality — key-order-insensitive for objects. */
-export function deepEquals(a: unknown, b: unknown): boolean {
+function deepEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((v, i) => deepEquals(v, b[i]));

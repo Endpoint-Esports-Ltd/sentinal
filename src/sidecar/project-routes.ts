@@ -65,8 +65,3 @@ export async function handleProjectContextRequest(
     return fail(`Analysis failed: ${msg}`, 500);
   }
 }
-
-/** Clear the cache (for testing) */
-export function clearProjectContextCache(): void {
-  projectContextCache.clear();
-}
