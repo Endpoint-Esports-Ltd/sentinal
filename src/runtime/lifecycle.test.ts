@@ -158,6 +158,29 @@ describe("runtimeUp", () => {
     expect(spawn.calls).toHaveLength(0);
   });
 
+  it("reports 'no `up` declared' for a setup-only contract, even when setup's slot token survived", async () => {
+    // D5: `setup` runs at worktree creation, never from runtime_up. A slotless
+    // main checkout must not see runtime_up FAIL over a token in a command it
+    // will never run.
+    const spawn = fakeSpawn();
+    const r = await runtimeUp(wt, {
+      loadConfig: () =>
+        loaded(
+          RuntimeConfigSchema.parse({
+            setup: "./deps ${SENTINAL_WORKTREE_SLOT}",
+          }),
+          { slot: null, unsubstitutedTokens: ["SENTINAL_WORKTREE_SLOT"] },
+        ),
+      spawn: spawn.fn,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.configured).toBe(true);
+    expect(r.started).toBe(false);
+    expect(r.reason).toBeUndefined();
+    expect(r.actions.join("\n")).toContain("no `up`");
+    expect(spawn.calls).toHaveLength(0);
+  });
+
   // ── Surviving-token refusal ──────────────────────────────────────────────
 
   /**

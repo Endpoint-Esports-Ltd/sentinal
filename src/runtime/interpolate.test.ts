@@ -22,11 +22,12 @@ describe("closed namespace", () => {
     expect([...SENTINAL_TOKENS]).toEqual(["SENTINAL_WORKTREE_SLOT"]);
   });
 
-  it("interpolates exactly up, down and readiness.target", () => {
+  it("interpolates exactly up, down, readiness.target and setup", () => {
     expect([...INTERPOLATED_FIELDS]).toEqual([
       "up",
       "down",
       "readiness.target",
+      "setup",
     ]);
   });
 });

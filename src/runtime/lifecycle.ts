@@ -114,22 +114,26 @@ export interface RuntimeStopDeps {
   stop?: (projectPath: string) => Promise<StopResult>;
 }
 
-// ─── Failure helper ─────────────────────────────────────────────────────────
+// ─── Result helpers ─────────────────────────────────────────────────────────
 
-function fail(
-  reason: string,
-  over: Partial<RuntimeUpResult> = {},
-): RuntimeUpResult {
+/** A configured success that started and reused nothing, unless overridden. */
+function result(over: Partial<RuntimeUpResult>): RuntimeUpResult {
   return {
-    ok: false,
+    ok: true,
     configured: true,
     started: false,
     reused: false,
     actions: [],
     warnings: [],
-    reason,
     ...over,
   };
+}
+
+function fail(
+  reason: string,
+  over: Partial<RuntimeUpResult> = {},
+): RuntimeUpResult {
+  return result({ ok: false, reason, ...over });
 }
 
 /**
@@ -178,22 +182,32 @@ export async function runtimeUp(
   // ── Inert: no contract at all. NOT an error — a project that never adopted
   // the contract must behave exactly as it did before it existed.
   if (!loaded.configured) {
-    return {
-      ok: true,
+    return result({
       configured: false,
-      started: false,
-      reused: false,
       warnings: loaded.warnings,
       actions: [
         `No ${loaded.relPath} in ${projectPath}. Nothing was started — start and stop the ` +
           `project however you normally would, or run \`runtime_init\` to draft a contract.`,
       ],
-    };
+    });
   }
 
   if (loaded.error || !loaded.config) {
     return fail(loaded.error ?? "the runtime contract could not be parsed", {
       warnings: loaded.warnings,
+    });
+  }
+
+  // No `up` (e.g. a setup-only contract, orca D5): nothing to spawn, so a token
+  // surviving in `setup`/`down` cannot misdirect anything here — checked first.
+  const config = loaded.config;
+  if (!config.up) {
+    const why = config.setup ? " (`setup` runs once at worktree creation)" : "";
+    return result({
+      warnings: loaded.warnings,
+      actions: [
+        `${loaded.relPath} declares no \`up\` command, so there is nothing for Sentinal to start${why}.`,
+      ],
     });
   }
 
@@ -215,20 +229,6 @@ export async function runtimeUp(
     );
   }
 
-  const config = loaded.config;
-  if (!config.up) {
-    return {
-      ok: true,
-      configured: true,
-      started: false,
-      reused: false,
-      warnings: loaded.warnings,
-      actions: [
-        `${loaded.relPath} declares no \`up\` command, so there is nothing for Sentinal to start.`,
-      ],
-    };
-  }
-
   const pre = await preflight(projectPath, config, deps);
   if (pre.kind === "fail") {
     return fail(pre.reason, {
@@ -237,16 +237,14 @@ export async function runtimeUp(
     });
   }
   if (pre.kind === "reuse") {
-    return {
-      ok: true,
-      configured: true,
-      started: false,
+    const { pid, pgid, actions } = pre;
+    return result({
       reused: true,
-      pid: pre.pid,
-      pgid: pre.pgid,
-      actions: pre.actions,
+      pid,
+      pgid,
+      actions,
       warnings: loaded.warnings,
-    };
+    });
   }
 
   // ── Claim (M4c) ──────────────────────────────────────────────────────────
@@ -260,16 +258,13 @@ export async function runtimeUp(
   if (claim.kind === "held") {
     const re = await preflight(projectPath, config, deps);
     if (re.kind === "reuse") {
-      return {
-        ok: true,
-        configured: true,
-        started: false,
+      return result({
         reused: true,
         pid: re.pid,
         pgid: re.pgid,
         actions: [...pre.actions, ...re.actions],
         warnings: loaded.warnings,
-      };
+      });
     }
     if (re.kind === "fail") {
       return fail(re.reason, {
@@ -353,16 +348,8 @@ export async function runtimeUp(
           : ``) +
         `.`,
     );
-    return {
-      ok: true,
-      configured: true,
-      started: true,
-      reused: false,
-      pid: spawned.pid,
-      pgid: spawned.pgid,
-      actions,
-      warnings,
-    };
+    const { pid, pgid } = spawned;
+    return result({ started: true, pid, pgid, actions, warnings });
   }
 
   // ⛔ A partial start still started things. Compensating teardown is mandatory

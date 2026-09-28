@@ -103,6 +103,30 @@ describe("loading a real config", () => {
     expect(r.config?.readiness?.target).toBe("http://localhost:3040/health");
   });
 
+  it("interpolates the slot into `setup` too (D5)", () => {
+    writeSlot(6);
+    writeConfig(
+      JSON.stringify({
+        setup: "./deps install --slot ${SENTINAL_WORKTREE_SLOT}",
+      }),
+    );
+    const r = loadRuntimeConfig(root);
+
+    expect(r.error).toBeNull();
+    expect(r.config?.setup).toBe("./deps install --slot 6");
+    expect(r.unsubstitutedTokens).toEqual([]);
+  });
+
+  it("loads a setup-only contract without error", () => {
+    writeConfig(JSON.stringify({ setup: "bun install --frozen-lockfile" }));
+    const r = loadRuntimeConfig(root);
+
+    expect(r.configured).toBe(true);
+    expect(r.error).toBeNull();
+    expect(r.config?.setup).toBe("bun install --frozen-lockfile");
+    expect(r.warnings).toEqual([]);
+  });
+
   it("leaves non-SENTINAL shell expansion untouched", () => {
     writeSlot(2);
     writeConfig(
@@ -220,6 +244,15 @@ describe("unsubstitutedTokens — the machine-readable half of the warning", () 
     expect(loadRuntimeConfig(root).unsubstitutedTokens).toEqual([
       "SENTINAL_WORKTREE_SLOT",
     ]);
+  });
+
+  it("finds a token that survives ONLY in setup, and warns about the slot", () => {
+    writeConfig(JSON.stringify({ setup: "./deps ${SENTINAL_WORKTREE_SLOT}" }));
+    const r = loadRuntimeConfig(root);
+
+    expect(r.config?.setup).toBe("./deps ${SENTINAL_WORKTREE_SLOT}");
+    expect(r.unsubstitutedTokens).toEqual(["SENTINAL_WORKTREE_SLOT"]);
+    expect(r.warnings.join("\n")).toContain("slot");
   });
 
   it("stays empty — never undefined — on a config that failed to parse", () => {

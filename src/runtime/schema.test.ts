@@ -54,11 +54,12 @@ describe("constants", () => {
     expect([...SENTINAL_TOKENS]).toEqual(["SENTINAL_WORKTREE_SLOT"]);
   });
 
-  it("interpolates exactly up, down and readiness.target", () => {
+  it("interpolates exactly up, down, readiness.target and setup", () => {
     expect([...INTERPOLATED_FIELDS]).toEqual([
       "up",
       "down",
       "readiness.target",
+      "setup",
     ]);
   });
 
@@ -185,6 +186,56 @@ describe("RuntimeConfigSchema — validation rules", () => {
   it("accepts exactly the 10-minute graceMs cap", () => {
     const cfg = parse({ shutdown: { signal: "SIGTERM", graceMs: 600_000 } });
     expect(cfg.shutdown.graceMs).toBe(600_000);
+  });
+});
+
+// ─── setup (orca-orchestration D5) ──────────────────────────────────────────
+
+describe("RuntimeConfigSchema — `setup`", () => {
+  it("parses a contract that declares ONLY `setup` (no up, no readiness)", () => {
+    const cfg = parse({ setup: "bun install --frozen-lockfile" });
+    expect(cfg.setup).toBe("bun install --frozen-lockfile");
+    expect(cfg.up).toBeUndefined();
+    expect(cfg.readiness).toBeUndefined();
+  });
+
+  it("parses `setup` beside `isolation` alone", () => {
+    const cfg = parse({ setup: "make deps", isolation: { ports: "none" } });
+    expect(cfg.setup).toBe("make deps");
+  });
+
+  it("leaves `setup` undefined when absent — opt-in, inert", () => {
+    expect(parse({}).setup).toBeUndefined();
+  });
+
+  it("rejects an empty `setup`", () => {
+    expect(err({ setup: "" })).toBeTruthy();
+  });
+
+  it("rejects a non-string `setup`", () => {
+    expect(err({ setup: ["bun", "install"] })).toBeTruthy();
+  });
+
+  it("rejects an unknown ${SENTINAL_*} token in `setup`, naming the field", () => {
+    const msg = err({ setup: "./deps ${SENTINAL_WORKTREE_SLOTT}" });
+    expect(msg).toContain("SENTINAL_WORKTREE_SLOTT");
+    expect(msg).toContain("`setup`");
+  });
+
+  it("accepts the slot token in `setup`", () => {
+    expect(parse({ setup: "./deps ${SENTINAL_WORKTREE_SLOT}" }).setup).toBe(
+      "./deps ${SENTINAL_WORKTREE_SLOT}",
+    );
+  });
+
+  it("still requires `readiness` for `up` when `setup` is present", () => {
+    expect(err({ setup: "bun install", up: "npm start" })).toContain(
+      "readiness",
+    );
+  });
+
+  it("still rejects the cut `bootstrap` key even beside `setup`", () => {
+    expect(err({ setup: "bun install", bootstrap: "./setup.sh" })).toBeTruthy();
   });
 });
 

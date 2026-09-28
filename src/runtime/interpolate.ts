@@ -12,7 +12,7 @@
  *
  * Sentinal owns the `SENTINAL_` prefix and **nothing else**:
  *
- * | In `up` / `down` / `readiness.target` | Behaviour                        |
+ * | In any of {@link INTERPOLATED_FIELDS} | Behaviour                        |
  * | ------------------------------------- | -------------------------------- |
  * | `${SENTINAL_WORKTREE_SLOT}`           | substituted by Sentinal          |
  * | any other `${SENTINAL_*}`             | **validation error naming it**   |
@@ -53,8 +53,16 @@ export const SLOT_TOKEN = "SENTINAL_WORKTREE_SLOT";
 export const SENTINAL_TOKENS = [SLOT_TOKEN] as const;
 export type SentinalToken = (typeof SENTINAL_TOKENS)[number];
 
-/** The fields subject to interpolation — exactly these three. */
-export const INTERPOLATED_FIELDS = ["up", "down", "readiness.target"] as const;
+/**
+ * The fields subject to interpolation — exactly these four. `setup` (orca D5)
+ * runs once per worktree, in the same worktree, so it takes the same slot.
+ */
+export const INTERPOLATED_FIELDS = [
+  "up",
+  "down",
+  "readiness.target",
+  "setup",
+] as const;
 
 /**
  * Matches `${SENTINAL_...}` and nothing else.

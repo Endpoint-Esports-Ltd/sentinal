@@ -262,6 +262,13 @@ export const RuntimeConfigSchema = z
     detached: z.boolean().default(false),
     readiness: ReadinessSchema.optional(),
     shutdown: ShutdownSchema.default({ signal: "SIGTERM", graceMs: 10000 }),
+    /**
+     * Run ONCE per worktree, after create/adopt + seeding (orca D5) — never by
+     * `runtime_up`, never part of a rollback. The lifecycle position Phase 3
+     * demanded before re-adding the cut `bootstrap`; that name stays rejected.
+     * Standalone: a contract may declare only `setup`, with no `up`/`readiness`.
+     */
+    setup: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -289,6 +296,7 @@ export const RuntimeConfigSchema = z
     }
     checkTokens(v.up, "up", ctx, ["up"]);
     checkTokens(v.down, "down", ctx, ["down"]);
+    checkTokens(v.setup, "setup", ctx, ["setup"]);
     checkTokens(v.readiness?.target, "readiness.target", ctx, [
       "readiness",
       "target",

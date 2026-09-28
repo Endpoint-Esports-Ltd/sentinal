@@ -70,7 +70,9 @@ export interface LoadedRuntimeConfig {
   /**
    * ⛔ The MACHINE-READABLE half of the slotless condition: the NAMES (no
    * braces, de-duplicated) of `${SENTINAL_*}` tokens that survived
-   * interpolation in `up`, `down` or `readiness.target`. Empty when clean, and
+   * interpolation in `up`, `down`, `readiness.target` or `setup` (all of
+   * INTERPOLATED_FIELDS — so `runtime_up` checks it only once it has an `up`
+   * to spawn, and `runWorktreeSetup` re-checks `setup` itself). Empty when clean, and
    * empty — never `undefined` — when there is no file, no config, or an error.
    *
    * It exists because a surviving token is NOT cosmetic. `interpolateStrict`
@@ -196,12 +198,20 @@ export function loadRuntimeConfig(projectPath: string): LoadedRuntimeConfig {
   // ── Substitution, once the slot is known ────────────────────────────────
   const slot = readSlotFromWorktree(projectPath);
   const config = result.data;
-  const before = [config.up, config.down, config.readiness?.target];
+  const before = [
+    config.up,
+    config.down,
+    config.readiness?.target,
+    config.setup,
+  ];
 
   config.up = config.up ? interpolateStrict(config.up, slot) : config.up;
   config.down = config.down
     ? interpolateStrict(config.down, slot)
     : config.down;
+  config.setup = config.setup
+    ? interpolateStrict(config.setup, slot)
+    : config.setup;
   if (config.readiness) {
     config.readiness.target = interpolateStrict(config.readiness.target, slot);
   }
@@ -220,8 +230,8 @@ export function loadRuntimeConfig(projectPath: string): LoadedRuntimeConfig {
   // covers, so "still present" means "was not replaced" and nothing else.
   const unsubstitutedTokens = [
     ...new Set(
-      [config.up, config.down, config.readiness?.target].flatMap((v) =>
-        v ? sentinalTokenNames(v) : [],
+      [config.up, config.down, config.readiness?.target, config.setup].flatMap(
+        (v) => (v ? sentinalTokenNames(v) : []),
       ),
     ),
   ];
