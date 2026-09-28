@@ -45,7 +45,8 @@ src/                       # Shared TypeScript (consumed by BOTH targets)
 ├── spec/                  # Spec workflow engine + MCP tools (spec_*)
 ├── tdd/                   # TDD cycle state + MCP tools
 ├── utils/                 # hook-output, file-length, tdd, git, shell
-└── worktree/              # Git worktree management + MCP tools
+├── orca/                  # Orca CLI adapter, dispatch engine, orca_* MCP tools
+└── worktree/              # Git worktree management (create/adopt/ownership) + MCP tools
 
 targets/                   # Target-specific wrappers (SHIPPED TO USERS — see sentinal-targets-vs-src.md)
 ├── claude-code/           # Compiled hooks, rules, commands, agents, .mcp.json
@@ -336,6 +337,45 @@ every reader and writer of the slot pool uses the canonical project:
   `sentinal/spec-`) still refuses foreign worktrees such as Orca's.
 - Writing the worktree directory under the identity root is a deliberate
   exception to "identity → storage keys only".
+
+### Worktree ownership and adoption (V15 — `docs/plans/2026-09-28-orca-orchestration.md`)
+
+Creating a git worktree is now separate from the rest of Sentinal's worktree processing, so a
+worktree another tool made (Orca) can be adopted:
+
+- **`worktrees.owner`** (`sentinal` | `external`, default `sentinal`) and **`worktrees.slug`**
+  (non-unique index `(project_path, slug)`), migration V15. `resolveBySlug` looks up `spec_id` →
+  slug column → branch prefix, same project scoping. `Worktree.owner` is optional in the type:
+  absent means `sentinal`, so always test `owner === "external"`.
+- **`ensureWorktree`** (`src/worktree/adopt.ts`): no `path` → reconcile-or-create (today's
+  behaviour); with a `path` → validate it is a worktree of this repo (not the main checkout, branch
+  ≠ base), `baseCommit = merge-base`, insert with owner + slug + slot, `seedNonFatally`, then
+  `setup`. Failures during seeding delete only the row — never the directory. Idempotent by slug.
+- **External exits never delete**: abandon releases (`src/worktree/abandon.ts`), cleanup's default
+  pass skips `branch -D`, force guard 6 skips any external path, merge keeps dir and branch
+  (`src/worktree/merge.ts`). The only deletion sites are `abandon.ts` (Sentinal-owned branch),
+  `cleanup.ts` (Sentinal-owned), `create.ts` rollback (create path only) and
+  `merge-guards.ts` `removeMergedWorktree` (Sentinal-owned only).
+- **Merge location**: the worktree holding the base branch, else the main checkout.
+- **`setup`** in `.sentinal/runtime.json` (`src/runtime/setup.ts`, `runWorktreeSetup`): run once
+  after create/adopt + seeding, slot-interpolated like `up`, output appended to
+  `<worktree>/.sentinal/runtime.log`, a failure is a warning (never a rollback). A contract may
+  declare only `setup`. This repo's is `bun install --frozen-lockfile`.
+
+### Orca orchestration
+
+`/spec` can run waves as Orca supervised workers (`src/orca/`; MCP tools in `sentinal-mcp-servers.md`).
+`resolveOrchestrationMode` (`src/spec/orchestration-mode.ts`): plan header
+`Orchestration: orca|subagents` wins; else `SENTINAL_ORCHESTRATION=auto|orca|subagents`
+(default `auto`: Orca only when `ORCA_TERMINAL_HANDLE` is set, `orca status` is ready and
+advertises `orchestration.contract.v1`). **Master plans** use Orca under `auto`: Orca creates each
+phase's worktree (no agent), Sentinal adopts it as `external` and runs `setup`, then the worker
+starts in it (`--worktree path:`). **Single plans** use Orca only with the header. Workers run the
+coordinator's agent (`claude` / `opencode`). Verified in the spike: Orca enforces task
+dependencies; a worker whose agent cannot log in goes silent (no `worker_done`), so `orca_wait`
+reports stalls and the skill asks the user; the first `worker-start` can fail at
+`agent_readiness` and one `--retry-of` recovers it; Orca child worktrees have no `node_modules`
+until `setup` runs.
 
 ## Auto-capture, dedupe and notifications (hardening sweep)
 

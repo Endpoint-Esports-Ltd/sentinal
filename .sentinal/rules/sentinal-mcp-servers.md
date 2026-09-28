@@ -1,6 +1,6 @@
 # Sentinal MCP Server (Self-Hosted)
 
-The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **37 tools across 7 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
+The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **46 tools across 8 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
 > ⚠️ This count was previously stated as "28 tools across 6 domains" and was already wrong before the runtime domain existed — the real pre-Phase-3 figure was **31 across 6** (the Memory table below was missing `memory_update`, `memory_delete` and `memory_share`). `src/mcp/server.test.ts` now asserts registration, so a domain that is never wired in is caught; the COUNT is still hand-maintained.
 
@@ -94,15 +94,16 @@ sidecar over-reports rather than going silently empty. The OpenCode native
 `sentinal_tdd_status` tool scopes the same way from `context.directory`. Do not
 make `project` required — that is the write-side rule (`bulkTddTransition`), not this one.
 
-### Worktree Domain (`src/worktree/mcp-tools.ts`) — 6 tools
+### Worktree Domain (`src/worktree/mcp-tools.ts` + `adopt-mcp-tool.ts`) — 7 tools
 
 | Tool               | Purpose                                          |
 | ------------------ | ------------------------------------------------ |
 | `worktree_detect`  | Find worktree for a plan slug                    |
-| `worktree_create`  | Create a git worktree for a plan                 |
+| `worktree_create`  | Create a git worktree for a plan (runs `setup`)  |
+| `worktree_ensure`  | Create-or-**adopt** a worktree (another tool's)  |
 | `worktree_diff`    | Summarize file changes, insertions, deletions    |
 | `worktree_sync`    | Squash-merge worktree back to base (destructive) |
-| `worktree_abandon` | Remove worktree from disk and mark abandoned     |
+| `worktree_abandon` | Remove (Sentinal-owned) or release (external)    |
 | `worktree_cleanup` | Clean up all stale worktrees missing from disk   |
 
 ⛔ **A transport failure on a destructive route is NOT evidence the work did not happen** (issue #9).
@@ -155,6 +156,50 @@ accuracy of the plan's `Files:` prediction and is rendered as a hint.
 for a file that does not exist, and half this repo's plan corpus uses an inline `**Files:**` form
 that states no verb at all — keying on `Create:` would score a plan of mostly-new files as LOW.
 Non-existent targets are reported separately and explicitly unscored.
+
+⛔ **Worktree ownership (`worktrees.owner`, V15).** `sentinal` rows (everything `worktree_create`
+makes, and every pre-V15 row) behave as before. `external` rows — adopted with
+`worktree_ensure({path, base, owner: "external"})`, e.g. an Orca worktree — are **never deleted by
+Sentinal**: `worktree_abandon` _releases_ them (Sentinal's own runtime stopped, only files Sentinal
+seeded removed — `worktree.env` unless tracked, `.env` only if untracked and byte-identical to the
+rendered template, Sentinal's `.gitignore` entries only under its header — then `abandoned`);
+cleanup's default pass marks them terminal without `branch -D`; the force pass skips any path with
+an external row in any status (guard 6); `worktree_sync` merges, strips seeded files and marks
+`merged` without removing dir or branch. Deleting one needs an explicit takeover
+(`worktree_ensure --owner sentinal --path`). `worktree_ensure` is direct (no sidecar route), like
+`worktree_create`, and is idempotent by slug; the same path under another slug/owner is
+`ALREADY_EXISTS`, never a silent re-own. Setup runs through the injected `WorktreeConfig.runSetup`
+(`runtimeWorktreeConfig()`), because `src/worktree` must not import `src/runtime`.
+
+⛔ **Merge location (D3 of `docs/plans/2026-09-28-orca-orchestration.md`).** `worktree_sync`
+squash-merges in the worktree that has the base branch checked out (e.g. an Orca coordinator's
+checkout), else the main checkout as before; the chosen checkout must be clean for tracked files
+(`DIRTY_MAIN_CHECKOUT` names the files). The tool reports `Merged in:`. `manager.squashMerge` still
+returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outcome}`.
+
+### Orca Domain (`src/orca/mcp-tools*.ts`) — 8 tools
+
+| Tool                   | Purpose                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing  |
+| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays)     |
+| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls; no ack    |
+| `orca_ack`             | Acknowledge a delivery                                                           |
+| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait` |
+| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                            |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                              |
+
+⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
+`{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
+document — mutations print pretty JSON, `check --wait` streams NDJSON keepalives on stderr; never
+throws). Tests never run the real `orca` binary: inject the runner and replay
+`src/orca/__fixtures__/`. ⛔ **Never stop, release or remove on absence** — `unverifiable` liveness
+authorizes nothing; `orca_stop` refuses without a stall verdict (auth error, `exited`, or idle past
+10 min without `worker_done`). Every mutation sends a UUID `--retry-request`. The MCP server
+inherits `ORCA_TERMINAL_HANDLE` from the agent's Orca terminal; `ensureRun` refuses a Run bound to
+another coordinator. MCP tool calls must stay under ~60 s, which is why start and wait are split and
+bounded.
 
 ### Runtime Domain (`src/runtime/mcp-tools.ts` + `lifecycle-mcp-tools.ts`) — 4 tools
 

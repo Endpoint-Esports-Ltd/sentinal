@@ -1,0 +1,103 @@
+{
+  "pass_summary": "D1–D9 are implemented, and the deletion paths I audited check ownership correctly for owner=\"external\" rows: cleanup's default pass, force guard 6 (any status), abandon's release branch, the merge.ts external branch, and abandon-orphan, which goes through the force pass. Remaining gaps: orca_remove_worktree has no path guard beyond isAbsolute; worktree_ensure(owner:\"sentinal\", path) can take over any foreign worktree that has no row, or one whose external row was already released, and after that abandon will delete it; orca_release does not check that the worker has settled. The time budgets for orca_wait and orca_start could not be fully confirmed statically.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "partial",
+  "truths_verified": 2,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "security",
+      "title": "orca_remove_worktree can target the main checkout, the coordinator's own checkout, or a worktree that still has a live row",
+      "description": "src/orca/mcp-tools-settle.ts:311-335 checks only isAbsolute(args.path) and then runs `orca worktree rm`. Without --force, Orca only refuses dirty trees. A clean coordinator checkout (the Orca worktree this session runs in, e.g. /Users/evan/orca/workspaces/sentinal/orca-support) or the repo's main checkout would be removed if an agent passed the wrong path, for example after mixing up the path in step 5 of spec-master-execute. The tool also does not enforce its own precondition, 'call worktree_abandon first': a worktree whose Sentinal row is still active can be removed, and its slot then leaks until cleanup runs.",
+      "suggested_fix": "In registerRemoveWorktree, before calling removeChildWorktree: (1) resolve realpath(args.path) and refuse if it equals realpath(process.cwd()), realpath(ORCA_TERMINAL_HANDLE's worktree) if known, or any ancestor of cwd (the coordinator stands inside it); (2) run resolveSlotScope(args.path) and refuse if the path is scope.key (main checkout) or not in scope.roots; (3) refuse with code `live_row` if a WorktreeStore row in LIVE_WORKTREE_STATUSES exists for the path (inject a lookup via OrcaToolsDeps so src/orca stays free of bun:sqlite; production can call the sidecar's /worktree resolve). Add tests for each refusal with the fake runner, asserting that the runner was never called."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "worktree_ensure(owner:\"sentinal\", path) silently takes over foreign worktrees, which abandon later deletes",
+      "description": "src/worktree/adopt.ts:175-219 blocks a takeover while the external row is LIVE: the bySlug owner-mismatch check at :192 and the live-holder check at :204-216 handle this, which answers the reviewer's question with yes, it is refused. It does not block (a) a linked worktree with NO row at all, such as the coordinator's own Orca checkout or another Orca child that was never adopted, or (b) a path whose external row was already released (status abandoned or merged). Either can be adopted as owner 'sentinal' with no explicit takeover flag and with `base` defaulted by detectBaseBranch. The next worktree_abandon then runs `git worktree remove --force` + rmSync + `branch -D` on the Orca branch (abandon.ts:124-160). Guard 6 protects only cleanup --force; neither abandon nor removeMergedWorktree (merge-guards.ts:272-298) consults 'an external row exists for this path in any status'. D2 describes the takeover as 'explicit', but nothing in the API makes it explicit.",
+      "suggested_fix": "In adopt.ts, when opts.path is set and owner === 'sentinal': refuse with ALREADY_EXISTS if any row (any status) with owner 'external' has realpath == target, unless a new `takeover: true` option (worktree_ensure `takeover` param, CLI `--takeover`) is passed. Also refuse, without takeover, any branch that does not start with config.branchPrefix. In abandon.ts (before line 124) and merge-guards.ts removeMergedWorktree, add the guard-6 equivalent: if store.listAll().some(r => r.owner==='external' && realpath(r.worktreePath)===realpath(wt.worktreePath)) and the row was not created via takeover, release instead of removing. Add real-git tests: an unrecorded foreign worktree plus ensure(sentinal, path) is refused; with takeover:true followed by abandon, the directory is removed."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_mitigation",
+      "title": "orca_release does not verify the worker has settled",
+      "description": "src/orca/mcp-tools-settle.ts:280-306: orca_release is flagged DESTRUCTIVE and documented as 'only after its worker_done (or stop) was recorded', but it accepts any dispatch_id. Releasing a running worker closes its terminal mid-task, which is the same positive-evidence concern that orca_stop enforces through evidence_id.",
+      "suggested_fix": "Record settled dispatch ids in OrcaToolState: add them in orca_wait from workerDone.dispatchId and in orca_stop on success. Refuse orca_release with code `release_refused` unless the id is in that set or Orca's worker-show reports a terminal state (completed/failed/stopped). Add a fake-runner test for the refusal."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "orca_wait worst-case duration is not bounded as a whole",
+      "description": "src/orca/dispatch.ts:252-253 gives `check --wait` a runner timeout of wait + WAIT_SLACK_MS, so up to 45 s plus slack. waitForSettlement then computes stall verdicts, and the Orca tool list states that orca_wait returns 'worker_done payloads + stall verdicts', which is based on worker-list + worker-read. Each of those is a separate runner call with its own timeout, run after the wait. With timeout_ms=45000 and several active dispatches, total time can exceed the MCP SDK's 60 s request timeout that D7 was designed to stay under. I could not confirm statically that the stall phase shares a deadline.",
+      "suggested_fix": "Give waitForSettlement one overall deadline, for example start + min(timeoutMs, MAX_WAIT_MS) + 10 s. Pass the remaining time to every subsequent runner call (worker-list, worker-read) and skip the stall checks that do not fit, reporting them as `stall_error: deadline` rather than as a verdict. Also cap MAX_WAIT_MS + WAIT_SLACK_MS + stall budget at ≤ 50 s. Add a test with a slow fake runner that asserts the total elapsed time stays under 50 s."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "orca_start's 45 s budget may not cover its pre-start calls",
+      "description": "src/orca/mcp-tools-start.ts:201-208 races only the start promise `p` against DEFAULT_START_BUDGET_MS (45 s). If the auth preflight (agentAuth via `account list`, DETECT_TIMEOUT_MS in detect.ts:59/159) or run resolution is awaited before `p` is created, those timeouts add to the 45 s, and worst-case time can approach or exceed 60 s.",
+      "suggested_fix": "Start the budget timer at handler entry and include the preflight inside the raced promise, or subtract the preflight's elapsed time from the budget. Add a test in which a fake preflight takes DETECT_TIMEOUT_MS and the start never returns, asserting `pending` within 45 s + ε."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Confirm prose parameter names against the zod schemas (worktree_ensure plan_slug/path/base/owner, orca_start worktree union)",
+      "description": "targets/*/spec-master-execute uses `worktree_ensure({ plan_slug, ... })` (claude-code/commands/spec-master-execute.md:167, opencode SKILL.md:164) and `orca_start({ task_id, worktree: { path }, agent })` (:170/:167). spec-implement uses `worktree: \"current\"` (:187/:183). orca_wait/ack/stop/release use run_id, delivery_id, dispatch_id and evidence_id, and these match the schemas in mcp-tools-settle.ts:73-74, 182-186, 238-239 and 284. I did not open the orca_start and worktree_ensure schemas (review budget), so their param names are unverified.",
+      "suggested_fix": "Add a parity test (src/cli/target-parity.test.ts or a new prose-schema test) that extracts every `tool({ key... })` call from both targets' spec-master-execute and spec-implement, and asserts that each key exists in the registered tool's inputSchema. Per the sentinal-schema-prose-drift skill, check against the registered zod shape, not against source text."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "adopt: MAX_ACTIVE check is outside the insert transaction",
+      "description": "src/worktree/adopt.ts:268-273 calls store.countActive before insertWithSlot (:276). Two concurrent ensure calls, one per parallel master phase, could both pass the check. insertWithSlot receives config.maxActive, so it may already enforce the limit inside BEGIN IMMEDIATE; if it does, this pre-check only produces the error message.",
+      "suggested_fix": "Confirm that insertWithSlot enforces maxActive transactionally and add a comment saying so. If it does not, move the count inside the allocator's transaction."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "findExisting abandons a dead slug row without owner-aware messaging",
+      "description": "src/worktree/adopt.ts:202 marks a bySlug row whose directory is gone as 'abandoned' and emits no warning. This is safe because nothing is deleted, but unlike cleanup.ts:151-157 an external row is released silently.",
+      "suggested_fix": "Push a warning such as `Released stale row <id> (<owner>, directory gone)` onto `warnings`."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "An external worktree survives worktree_abandon, worktree_cleanup (default and force) and worktree_sync",
+      "status": "verified",
+      "evidence": "abandon.ts:122 routes external rows to releaseExternal before any remove, rmSync or branch -D. cleanup.ts:151-157 does not run branch -D or prune for external rows. cleanup.ts:256-275 implements guard 6 (any status) and runs it before guards 1-5. cleanup.ts:330 does not mark an external row found by resolveBySlug. merge.ts:131 checks for external before removeMergedWorktree at :143. abandon-orphan (cli/commands/worktree-cleanup.ts:172) reuses the guarded force pass. workspace-adaptor.ts and plugins/sentinal.ts contain no remove, rmSync or branch -D. create.ts:154 rollback is reached only through createWorktree, which adopt never calls with a path. Caveat: the sentinal takeover path is covered in issue 2."
+    },
+    {
+      "truth": "worktree_ensure on an Orca-style worktree yields a live slotted row owner=external, seeded, idempotent on the second call",
+      "status": "uncertain",
+      "evidence": "adopt.ts:222-318 inserts via insertWithSlot with owner and slug and calls seedNonFatally, and findExisting returns ensureSlot(bySlug) on the repeat call. Tests were not run in this review."
+    },
+    {
+      "truth": "worktree_sync of a child whose base is checked out in a clean linked worktree commits there",
+      "status": "uncertain",
+      "evidence": "Implementation notes for Wave 3 describe resolveMergeCheckout and a rewritten test. I did not read merge-guards.ts in this review."
+    },
+    {
+      "truth": "orca_wait returns worker_done payloads from NDJSON output and a stall verdict for a 401 transcript",
+      "status": "uncertain",
+      "evidence": "mcp-tools-settle.ts:77-166 maps workerDone and stalls, each with an evidence_id. The NDJSON parser and the auth-error patterns were not inspected."
+    },
+    {
+      "truth": "With ORCA_TERMINAL_HANDLE unset, auto resolves to subagents; spec_config lists SENTINAL_ORCHESTRATION",
+      "status": "uncertain",
+      "evidence": "orchestration-mode.ts is present per the plan notes, but I did not inspect it."
+    },
+    {
+      "truth": "spec-master-execute in both targets calls orca_dispatch/orca_wait in Orca mode and keeps the subagent path",
+      "status": "verified",
+      "evidence": "claude-code/commands/spec-master-execute.md:31,150,167-183 and opencode/skills/spec-master-execute/SKILL.md:29,147-180 show the order orca_status → orca_dispatch → worktree_ensure → orca_start → orca_wait loop → worktree_sync → orca_release → worktree_abandon → orca_remove_worktree, which matches D8 as revised."
+    },
+    {
+      "truth": "Live two-phase master plan completes through Orca with no leftovers",
+      "status": "uncertain",
+      "evidence": "Requires the separate live e2e run."
+    }
+  ]
+}

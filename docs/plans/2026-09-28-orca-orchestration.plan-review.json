@@ -1,0 +1,77 @@
+{
+  "review_summary": "The plan covers the user's decisions (adopt/ensure, external ownership, setup, auto enablement with a switch, stall → ask, coordinator's agent) and the destructive-site audit is complete for src/. Two central flows would fail as written, though. First, in D8 the worker starts before adoption, seeding and setup have run. Second, in D3 the coordinator's own checkout is always dirty from plan-checkbox edits, so every merge would be refused. There are also gaps in the runtime.json loader, spec_id FK and MCP-environment/timeout assumptions.",
+  "alignment_score": "high",
+  "risk_level": "high",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "D8 race: worker starts before worktree_ensure seeds .env and runs setup",
+      "description": "D8/Task 11 run `worker-start --worktree new-child ... --setup skip` and only afterwards call `worktree_ensure(external)`, which does the seeding and the `setup` step (`bun install`). worker-start creates the worktree AND launches the agent in one step, and the spike measured `ready`/`input_accepted` right after start (S2). So the worker's `/spec` begins in a worktree with no node_modules, which is exactly S6 ('zod unresolved'), and with no slot `.env`. `setup` has a 10-minute timeout, so the race is not theoretical. The user asked that adoption 'applies Sentinal's slots/seeding'. That treatment has to be in place before the worker runs, not after.",
+      "suggested_fix": "Split creation from start. Preferred: create the Orca worktree first without an agent (check whether `orca worktree create`/`orca worktree add` exists in `orca --help`; it is not in the plan's command list), run `worktree_ensure(path, owner=external, base)` including setup, then `worker-start --worktree path:<dir>`. S3 showed `path:` works. Fallback: `task-create` → start the worker with a spec whose first instruction is 'call worktree_ensure on your cwd and wait for setup before /spec'. Put this ordering in D8 and Task 11, and add a Truth: 'node_modules exists before the worker's first turn'."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "D3 merge into the coordinator's checkout is refused every time: the coordinator edits the master plan",
+      "description": "D3 says 'if the base holder is clean, squash-merge there (e.g. the coordinator's checkout)'. In Orca master mode the base holder IS the coordinator's checkout, because every phase uses `--base-branch <coordinator branch>`. The coordinator updates master-plan Progress Tracking checkboxes (a tracked `docs/plans/*.md`) between phases. The existing dirty check (`merge-guards.ts:141`, `git status --porcelain`, only `??` filtered) treats any modified tracked file as dirty, so every `worktree_sync` would throw. That code is also DIRTY_MAIN_CHECKOUT/DIRTY_WORKTREE, not BASE_CHECKED_OUT as D3 states. Merging into a checkout where a live agent is editing also races with its writes. H3 is not the problem: the holder already has the base checked out, so no branch switch or restore is needed. The flow breaks on the dirty check.",
+      "suggested_fix": "(a) In Task 11, have the coordinator commit its plan-file edits (`git commit -- <master plan>`) immediately before each `worktree_sync` and never edit files while a sync runs. (b) Also add to Task 7: when the holder is the caller's own checkout, allow the merge if the dirty paths are disjoint from the squash's changed paths (`git diff --name-only base...branch`). `git merge --squash` refuses to overwrite local changes anyway, so disjoint dirt is safe. Name the error code in D3 (DIRTY_MAIN_CHECKOUT vs a new DIRTY_BASE_HOLDER) and add a test: holder dirty only in the plan file → merge succeeds and the plan edit survives."
+    },
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "Task 3 misses loader.ts (interpolation/validation) and runtime_up's up/readiness assumption",
+      "description": "Task 3 says `setup` is 'interpolated like up' and modifies only `schema.ts`. Slot interpolation and unknown-token scanning live in `src/runtime/loader.ts:199-223` (`[config.up, config.down, config.readiness?.target]`), so `${SENTINAL_WORKTREE_SLOT}` in `setup` would stay un-interpolated and un-validated. The schema also has a refinement ('rejects `up` without `readiness`', `schema.test.ts:146`), and `lifecycle.ts:338` uses `config.readiness!`. A setup-only contract (this repo's `bun install --frozen-lockfile`) therefore has to be proven to parse. `runtime_up`/`runtime_config` must also handle 'no up declared' gracefully instead of hitting the non-null assertion.",
+      "suggested_fix": "Add `src/runtime/loader.ts` and `loader.test.ts` to Task 3 Files: include `setup` in the interpolate/scan lists. In schema.ts make `up` optional when `setup` is present, keeping the up⇒readiness refinement. Make `runtime_up` return an inert 'no up declared' result for a setup-only contract (add a test in `lifecycle-mcp-tools.test.ts`). DoD: `{ \"setup\": \"bun install --frozen-lockfile\" }` parses and is interpolated; `{ \"bootstrap\": … }` is still rejected."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "ORCA_TERMINAL_HANDLE in the MCP server process, and which terminal run-create binds to",
+      "description": "D6/D7/Task 10 run `orca` from the MCP server process and read `ORCA_TERMINAL_HANDLE` there. The spike ran the CLI from the agent's shell, not from an MCP stdio child. Whether Claude Code (.mcp.json) and OpenCode (opencode.json `environment`) pass the parent env to MCP children is unverified. If they do not, `auto` silently resolves to subagents. If Orca binds `run-create` by the caller's env handle, an MCP process with a missing handle (or one inherited from a different terminal) binds the Run to the wrong coordinator. That is Pre-Mortem 3. Tools must also never route through the sidecar: it is detached and shared across sessions and terminals. The plan says direct-only, which is correct, but that must be enforced.",
+      "suggested_fix": "Add a first step to Task 2: from a real MCP tool call on both targets, log `process.env.ORCA_TERMINAL_HANDLE` and compare it with the agent shell's value, then record the result in the Spike table. Add an optional `terminal_handle` argument to `orca_status`/`orca_dispatch` that the skill fills from `echo $ORCA_TERMINAL_HANDLE`. Pass it explicitly to Orca (e.g. `--terminal`/env on the spawn, if the CLI supports it). Test: env and arg disagree → refuse with the reason."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "orca_wait ≤100 s probably exceeds MCP client request timeouts",
+      "description": "D7 lets `orca_wait` block up to 100 s. The MCP TypeScript SDK's default request timeout is 60 s, and OpenCode's MCP tool-call timeout is configured separately from Claude Code's (`MCP_TOOL_TIMEOUT`). If the client times out first, the skill sees a tool error, not a checkpoint. It may then retry or abort, and the 'user decides on stall' loop breaks, most likely on OpenCode, which is the default worker/coordinator agent.",
+      "suggested_fix": "Default `orca_wait` to ≤45 s, and make it a parameter capped by a constant documented next to both targets' timeout settings. Treat Orca's `timedOut:true` as 'call again' (as planned). Add a Task 10 DoD item: a live call of `orca_wait` with the maximum timeout succeeds from both a Claude Code and an OpenCode session."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "V15 slug/owner vs worktrees.spec_id FK and idx/unifyLiveKeys",
+      "description": "(1) `worktree_ensure(external)` runs before the worker has synced the child plan, so the `<project>::<slug>` spec row may not exist yet. `resolveSpecKeyForWrite` then passes the raw value and the FK to `specs(id)` fails loudly (V14 notes). (2) D4 idempotency ('existing live row by slug → return it') needs a uniqueness rule. If V15 makes `(project_path, slug)` a UNIQUE index for live rows, `store.unifyLiveKeys` (`store.ts:265`, re-keys `project_path` inside the allocator txn) can raise it the same way it raises `idx_wt_slot_live`, which `isSlotRace` then retries forever. The plan says '+ index' without saying whether it is unique, or how re-keying handles slug collisions. (3) `resolveBySlug` ordering (spec_id `store.ts:101` → new slug → branch `:346`) is fine, but a slug hit should be restricted to the canonical project.",
+      "suggested_fix": "In D1/D4: keep the `(project_path, slug)` index NON-unique and enforce 'one live row per slug' in `ensureWorktree` inside the `BEGIN IMMEDIATE` allocator transaction. Write `spec_id` only when `resolveSpecKey` finds a row, else NULL (confirm the column is nullable in migrations-legacy.ts:150), and let a later `syncFromPlanFile` backfill it by slug. Add tests: ensure before the spec row exists; unifyLiveKeys with two same-slug live rows under different keys."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Orca new-child flag combination and `orca worktree rm` behaviour are unverified",
+      "description": "D8 relies on `worker-start --worktree new-child --name … --base-branch … --setup skip` accepting all three creation flags together, and on `orca worktree rm` deleting the dir (and branch?) after Sentinal marks the row merged. The spike used new-child with `--setup skip` but does not record `--name`/`--base-branch`. This review could not run the CLI. If the Stop/Skip path removes the worktree through Orca without a Sentinal release, the external row stays live with its slot until someone runs cleanup. Reconcile only self-heals on lookup, so that slot leaks.",
+      "suggested_fix": "Record `orca orchestration worker-start --help` and `orca worktree rm --help` output as Task 2 fixtures and add rows to the Spike table (flags accepted together; whether rm deletes the branch). In Task 11, on Skip/Stop, call `worktree_abandon` (external → release, frees the slot) BEFORE `orca worktree rm`, and after rm run `worktree_cleanup` (default pass marks dir-gone external rows terminal only)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Destructive-site audit result: all in src/worktree; record it in the plan",
+      "description": "Grep over src/, src/opencode/workspace-adaptor.ts and targets/opencode/plugins found non-test destructive calls only at: `create.ts:154` (rollback), `manager.ts:336-365` (abandon: remove --force, rmSync, prune, branch -D), `cleanup.ts:149-151` (default pass prune + branch -D), `cleanup.ts:280-291` (force pass), and `merge-guards.ts:231-255` (removeMergedWorktree). `workspace-adaptor.ts` and the plugin have none. Tasks 5/7/8 cover all five. Note the `git worktree prune` at `cleanup.ts:149` and `manager.ts:343`: it is repo-wide and prunes metadata of ANY missing worktree, including Orca's. That is harmless for a dir that is already gone, but worth stating.",
+      "suggested_fix": "Paste this list into Task 5's 'grep audit' DoD so it is checked rather than re-derived. Add a mutation test per site: remove the owner check → an external-worktree test fails."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Coordinator agent detection is not specified",
+      "description": "'Workers run the coordinator's agent (Claude Code → claude, OpenCode → opencode)' has no mechanism in Tasks 2/10. The MCP server does not know which host spawned it.",
+      "suggested_fix": "Have each target's skill/command pass `agent` explicitly to `orca_dispatch` (hard-coded per target file). Fall back to env detection (e.g. `CLAUDECODE`/`OPENCODE` vars) in `orca_status`, and test both."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "parser.ts extraction is safe for the plugin bundle",
+      "description": "No `spec/parser` import was found directly in targets/opencode/plugins, so extracting `parser-header.ts` should not affect the self-contained bundle. Transitive imports were not checked.",
+      "suggested_fix": "Keep `parser-header.ts` free of zod and bun:sqlite, and run `src/cli/target-assets.test.ts` in Task 4's Verify."
+    }
+  ]
+}
