@@ -9,9 +9,11 @@ description: |
   a staged file suddenly has a syntax error (e.g. TS1109) the worktree doesn't,
   (4) a commit verifies green in the worktree but you need proof it is green
   alone, (5) an exported-index check fails with TS2307 on embedded-assets.js or
-  findGitRoot/isInsideGitRepo tests fail only in the export.
+  findGitRoot/isInsideGitRepo tests fail only in the export, (6) a commit is
+  "formatting only" and you must prove it changes no behaviour, (7) a long
+  background run dies or its timings jump by ~15 minutes.
 author: Claude Code
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Logical Commits, Each Verified Standalone
@@ -76,7 +78,48 @@ It exports the index (`git checkout-index`), symlinks `node_modules`, then:
   and `bun test`. Exit 0 only if all pass.
 
 A full run is ~4.5 min — longer than a tool call's timeout — so drive all
-commits from a `nohup` script that stops at the first red and polls a log.
+commits with `scripts/drive-commits.sh <dir>` (groups.txt, msg/NN, optional
+blobs/NN; see its header), detached:
+
+```bash
+(nohup caffeinate -ims .sentinal/skills/sentinal-logical-commits/scripts/drive-commits.sh /tmp/lc </dev/null >/dev/null 2>&1 &)
+grep -E "COMMITTED|STOP|FAIL|===|tests|DONE" /tmp/lc/drive.log | tail -4   # poll
+```
+
+`verify-index.sh` also runs `eslint .` and `prettier --check .` whenever the
+commit's `package.json` defines `format:check` (the CI gate), and uses the
+committed `tsconfig.plugin.json` when present.
+
+⛔ Long-run gotchas (all hit in practice):
+
+- **`caffeinate -ims` is mandatory.** Without it the Mac sleeps mid-suite:
+  `date` jumps ~15 min inside a `sleep 60`, and tests fail with ~900 000 ms
+  timings that are pure artefacts.
+- **Launch with `( … &)`, not `nohup … &` + `disown`.** The tool kills the
+  shell's process group on timeout; the subshell form survives it.
+- **Never `pkill -f <pattern>` that appears in your own command line** — it
+  kills the shell running the pkill.
+- **Poll one `sleep ≤118; grep` per call, and vary the command text.**
+  Several identical polls in one message run concurrently / return instantly.
+- `timeout` does not exist on macOS; use the tool's own timeout.
+
+### Formatting-only commits
+
+Prettier is **not** whitespace-only (trailing commas, dropped parens, leading
+`|` on unions, `*`→`_` emphasis), so `diff -w` cannot prove a format commit is
+behaviour-free. Compare the transpiled output instead — identical bytes means
+identical behaviour:
+
+```bash
+for f in $(git diff --name-only -- '*.ts' '*.mjs'); do
+  a=$(git show HEAD:"$f" > /tmp/before.ts && bun build --no-bundle --minify-whitespace --minify-syntax /tmp/before.ts | md5)
+  b=$(bun build --no-bundle --minify-whitespace --minify-syntax "$f" | md5)
+  [ "$a" = "$b" ] || echo "BEHAVIOUR CHANGE? $f"
+done
+```
+
+Put formatting in its own commit, before the commit that turns on a
+`format:check` CI gate, so the gate starts green.
 Commit only after a green verify; never commit then check.
 
 ### 5. Finish
@@ -100,7 +143,8 @@ Commit only after a green verify; never commit then check.
 
 ## Example
 
-v1.39.0: 50 changed files → 11 commits, each verified standalone
+v1.40.0: 6 commits incl. a 38-file Prettier commit proven by transpiled
+output; v1.41.0: 6 commits via `drive-commits.sh`. v1.39.0: 50 changed files → 11 commits, each verified standalone
 (3485 → 3721 pass). v1.38.0: 7 files split across commits via blobs; three blob
 line counts matched the tasks' reported sizes exactly.
 
