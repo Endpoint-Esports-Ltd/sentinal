@@ -1,3 +1,11 @@
+# [1.42.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.41.1...v1.42.0) (2026-09-29)
+
+
+### Features
+
+* **orca:** detect never-started workers and recover them with retry_of ([4c5a963](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4c5a9634b1645cf598579a6329ad7d25c9e982d8))
+* **spec:** Orca Mode recovers dropped briefs and defers to Orca's guide ([71e6eb3](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/71e6eb34460e6c577c592cce822c81a75a2d1978))
+
 ## [1.41.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.41.0...v1.41.1) (2026-09-28)
 
 
