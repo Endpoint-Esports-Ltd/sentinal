@@ -2,11 +2,17 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { OrcaRunner, OrcaRunOutput } from "./cli.js";
-import { collectStalls, stallVerdict, DEFAULT_MAX_IDLE_MS } from "./stall.js";
+import {
+  collectStalls,
+  stallVerdict,
+  DEFAULT_MAX_IDLE_MS,
+  DEFAULT_NEVER_STARTED_MS,
+} from "./stall.js";
 import type {
   OrcaTranscriptMessage,
   OrcaWorkerListRow,
   OrcaWorkerReadResult,
+  OrcaWorkerShowResult,
 } from "./types.js";
 
 const FIXTURES = join(import.meta.dir, "__fixtures__");
@@ -368,5 +374,271 @@ describe("collectStalls", () => {
     const r = await collectStalls({ runId: "run_1", runner, now: Date.now() });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("invalid_argument");
+  });
+});
+
+// ------------------------------------------------ terminal-tail verdicts (#12)
+
+const HOME_ID = "ctx_c8a313c725e8";
+const homeRead = (): OrcaWorkerReadResult =>
+  JSON.parse(fixture("worker-read-terminal-home.json")).result;
+const startedRead = (): OrcaWorkerReadResult =>
+  JSON.parse(fixture("worker-read-terminal-started.json")).result;
+const showDispatched = (): OrcaWorkerShowResult =>
+  JSON.parse(fixture("worker-show-dispatched.json")).result;
+/** `dispatchedAt` "2026-09-29 21:46:28" is UTC without a zone. */
+const DISPATCHED = Date.parse("2026-09-29T21:46:28Z");
+
+describe("stallVerdict — terminal tail", () => {
+  const home = (extra: Partial<Parameters<typeof stallVerdict>[0]> = {}) =>
+    stallVerdict({
+      workerListRow: row(HOME_ID, "live"),
+      transcript: homeRead(),
+      show: showDispatched(),
+      now: DISPATCHED + 4 * MIN,
+      ...extra,
+    });
+
+  it("stalls a worker whose home screen is still visible 4 min after dispatch", () => {
+    const v = home();
+    expect(v).toMatchObject({
+      dispatchId: HOME_ID,
+      stalled: true,
+      reason: "never-started",
+    });
+    expect(v.evidence).toContain("240 s");
+    expect(v.evidence).toContain("no heartbeat");
+    expect(v.evidence).toContain("home screen visible");
+    expect(v.evidence).toContain("dispatch id never shown");
+    expect(v.taskId).toBe(`task_${HOME_ID}`);
+    expect(DEFAULT_NEVER_STARTED_MS).toBe(3 * MIN);
+  });
+
+  it("does not stall at 2 min, or when neverStartedMs is larger", () => {
+    expect(home({ now: DISPATCHED + 2 * MIN }).stalled).toBe(false);
+    expect(home({ neverStartedMs: 5 * MIN }).stalled).toBe(false);
+  });
+
+  it("does not stall once a heartbeat was recorded", () => {
+    const show = showDispatched();
+    show.dispatch.lastHeartbeatAt = "2026-09-29 21:47:00";
+    const v = home({ show });
+    expect(v.stalled).toBe(false);
+    expect(v.evidence).toContain("heartbeat");
+  });
+
+  it("does not stall when the dispatch id is in the tail", () => {
+    const read = homeRead();
+    read.terminal!.tail = [
+      ...read.terminal!.tail!,
+      `  ┃  dispatch ${HOME_ID.slice(0, 8)}`,
+      `  ┃  ${HOME_ID.slice(8)}`,
+    ];
+    const v = home({ transcript: read });
+    expect(v.stalled).toBe(false);
+    expect(v.evidence).toContain("dispatch id");
+  });
+
+  it("does not stall when the dispatch id is unknown (the tail check cannot run)", () => {
+    const read = {
+      ...homeRead(),
+      dispatchId: undefined,
+    } as unknown as OrcaWorkerReadResult;
+    const v = home({ workerListRow: null, transcript: read });
+    expect(v.dispatchId).toBeNull();
+    expect(v.stalled).toBe(false);
+    expect(v.evidence).toContain("dispatch id unknown");
+  });
+
+  it("does not stall the started fixture, which has no home screen", () => {
+    const v = home({ transcript: startedRead() });
+    expect(v.stalled).toBe(false);
+  });
+
+  it("never stalls on unverifiable liveness", () => {
+    const read = { ...homeRead(), projection: undefined };
+    const v = home({
+      workerListRow: row(HOME_ID, "unverifiable"),
+      transcript: read,
+    });
+    expect(v.stalled).toBe(false);
+    expect(v.reason).toBeNull();
+  });
+
+  it("has no verdict without worker-show, or with an unparsable dispatchedAt", () => {
+    expect(home({ show: null }).stalled).toBe(false);
+    expect(home({ show: undefined }).stalled).toBe(false);
+    const bad = showDispatched();
+    bad.dispatch.dispatchedAt = "not a date";
+    expect(home({ show: bad }).stalled).toBe(false);
+    const none = showDispatched();
+    delete none.dispatch.dispatchedAt;
+    expect(home({ show: none }).stalled).toBe(false);
+  });
+
+  it("accepts a dispatchedAt that already carries a zone", () => {
+    const show = showDispatched();
+    show.dispatch.dispatchedAt = "2026-09-29T21:46:28Z";
+    expect(home({ show }).reason).toBe("never-started");
+  });
+
+  it("stalls on an auth error in the tail, redacting capabilities", () => {
+    const read = homeRead();
+    read.terminal!.tail = [
+      "  $ orca … --dispatch-capability dcap_SECRET123",
+      "  API Error: 401 Please run /login dcap_SECRET123",
+    ];
+    const v = home({ transcript: read, show: null, now: DISPATCHED });
+    expect(v).toMatchObject({ stalled: true, reason: "auth-error" });
+    expect(v.evidence).toContain("401");
+    expect(v.evidence).not.toContain("dcap_SECRET123");
+  });
+
+  it("keeps the transcript path first when a transcript is present", () => {
+    const v = stallVerdict({
+      workerListRow: row("ctx_f359d5e49a0b", "live"),
+      transcript: authRead(),
+      show: showDispatched(),
+      now: AUTH_TS + 5_000,
+    });
+    expect(v.reason).toBe("auth-error");
+  });
+});
+
+describe("collectStalls — never-started", () => {
+  const readOut = (name: string): OrcaRunOutput => ({
+    exitCode: 0,
+    stdout: fixture(name),
+    stderr: "",
+  });
+
+  it("confirms a home-screen suspect with worker-show and reports never-started", async () => {
+    const { runner, calls } = scripted([
+      ["orchestration worker-list", ok({ workers: [row(HOME_ID, "live")] })],
+      ["orchestration worker-read", readOut("worker-read-terminal-home.json")],
+      ["orchestration worker-show", readOut("worker-show-dispatched.json")],
+    ]);
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      now: DISPATCHED + 4 * MIN,
+    });
+    expect(r.ok && r.stalls.map((s) => [s.dispatchId, s.reason])).toEqual([
+      [HOME_ID, "never-started"],
+    ]);
+    expect(calls.at(-1)).toEqual([
+      "orchestration",
+      "worker-show",
+      "--dispatch",
+      HOME_ID,
+      "--json",
+    ]);
+  });
+
+  it("passes neverStartedMs through", async () => {
+    const { runner } = scripted([
+      ["orchestration worker-list", ok({ workers: [row(HOME_ID, "live")] })],
+      ["orchestration worker-read", readOut("worker-read-terminal-home.json")],
+      ["orchestration worker-show", readOut("worker-show-dispatched.json")],
+    ]);
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      now: DISPATCHED + 4 * MIN,
+      neverStartedMs: 10 * MIN,
+    });
+    expect(r.ok && r.stalls).toEqual([]);
+  });
+
+  it("never calls worker-show for a started worker", async () => {
+    const { runner, calls } = scripted([
+      ["orchestration worker-list", ok({ workers: [row(HOME_ID, "live")] })],
+      [
+        "orchestration worker-read",
+        readOut("worker-read-terminal-started.json"),
+      ],
+    ]);
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      now: DISPATCHED + 60 * MIN,
+    });
+    expect(r.ok && r.stalls).toEqual([]);
+    expect(calls.some((c) => c[1] === "worker-show")).toBe(false);
+  });
+
+  it("treats a failed worker-show as absence", async () => {
+    const { runner, calls } = scripted([
+      ["orchestration worker-list", ok({ workers: [row(HOME_ID, "live")] })],
+      ["orchestration worker-read", readOut("worker-read-terminal-home.json")],
+      [
+        "orchestration worker-show",
+        {
+          exitCode: 1,
+          stdout: fixture("worker-show-not-found.json"),
+          stderr: "",
+        },
+      ],
+    ]);
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      now: DISPATCHED + 60 * MIN,
+    });
+    expect(r.ok && r.stalls).toEqual([]);
+    expect(r.ok && r.verdicts.length).toBe(1);
+    expect(calls.some((c) => c[1] === "worker-show")).toBe(true);
+  });
+
+  it("lists reclaimable terminals, settled rows included, from the one worker-list call", async () => {
+    const workers = [
+      row("ctx_done", undefined, {
+        workerState: "completed",
+        dispatchStatus: "completed",
+        terminalState: "reclaimable",
+        agentTerminalHandle: "term_done",
+        projection: { outcome: "succeeded" },
+      }),
+      row("ctx_active", "unverifiable"),
+    ];
+    const { runner, calls } = scripted([
+      ["orchestration worker-list", ok({ workers })],
+      ["orchestration worker-read", ok({ transcript: { messages: [] } })],
+    ]);
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      now: Date.now(),
+      settledDispatchIds: ["ctx_done"],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.reclaimable).toEqual([
+      {
+        dispatchId: "ctx_done",
+        taskId: "task_ctx_done",
+        terminal: "term_done",
+      },
+    ]);
+    expect(calls.filter((c) => c[1] === "worker-list").length).toBe(1);
+  });
+
+  it("reports reclaimable even when the reads run out of budget", async () => {
+    let clock = 0;
+    const workers = [row("ctx_r", "live", { terminalState: "reclaimable" })];
+    const runner: OrcaRunner = async (args) => {
+      clock += 20_000;
+      if (args[1] !== "worker-list") throw new Error("no reads expected");
+      return ok({ workers });
+    };
+    const r = await collectStalls({
+      runId: "run_1",
+      runner,
+      budgetMs: 10_000,
+      clock: () => clock,
+    });
+    expect(r.ok && r.reclaimable).toEqual([
+      { dispatchId: "ctx_r", taskId: "task_ctx_r" },
+    ]);
   });
 });

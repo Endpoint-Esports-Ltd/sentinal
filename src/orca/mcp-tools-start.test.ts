@@ -164,6 +164,35 @@ describe("orca_start", () => {
     expect(f.called("orchestration worker-start").length).toBe(1);
   });
 
+  it("a pending retry_of start names retry_of in its replay hint and structured result", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const f = fakeOrca([
+      [
+        "orchestration worker-start",
+        async () => {
+          await gate;
+          return readyReceipt("ctx_new");
+        },
+      ],
+    ]);
+    const { call } = capture({
+      runner: f.runner,
+      env: ORCA_ENV,
+      startBudgetMs: 30,
+    });
+    const first = await call("orca_start", {
+      task_id: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      retry_of: "ctx_old",
+    });
+    release();
+    expect(first.data.status).toBe("pending");
+    expect(first.data.retry_of).toBe("ctx_old");
+    expect(first.text).toContain('retry_of="ctx_old"');
+  });
+
   it("replays through Orca (--retry-request) when no start is in flight here", async () => {
     const f = fakeOrca([["orchestration worker-start", readyReceipt()]]);
     const { call } = capture({ runner: f.runner, env: ORCA_ENV });
@@ -211,6 +240,60 @@ describe("orca_start", () => {
     expect(r.data.status).toBe("blocked");
     expect(r.data.unmet_dependencies.length).toBeGreaterThan(0);
     expect(r.text).toContain("without request_id");
+  });
+
+  it("passes retry_of through as --retry-of, keeping the request id", async () => {
+    const f = fakeOrca([["orchestration worker-start", readyReceipt()]]);
+    const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+    const rid = "11111111-2222-3333-4444-555555555555";
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      request_id: rid,
+      retry_of: "ctx_old",
+    });
+    expect(r.data.status).toBe("started");
+    const ws = f.called("orchestration worker-start")[0]!;
+    expect(flag(ws, "--retry-of")).toBe("ctx_old");
+    expect(flag(ws, "--retry-request")).toBe(rid);
+  });
+
+  it("reports delivery_confirmed: true for a confirmed receipt", async () => {
+    const f = fakeOrca([["orchestration worker-start", readyReceipt()]]);
+    const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: "current",
+      agent: "opencode",
+    });
+    expect(r.data.delivery_confirmed).toBe(true);
+    expect(r.text).not.toContain("cannot confirm");
+  });
+
+  it("reports delivery_confirmed: false and the never-started hint when Orca cannot observe delivery", async () => {
+    const f = fakeOrca([
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+    const r = await call("orca_start", {
+      task_id: "task_8b3fb8fed05a",
+      worktree: "current",
+      agent: "opencode",
+    });
+    expect(r.data.delivery_confirmed).toBe(false);
+    expect(r.text).toContain(
+      "Orca cannot confirm this agent received the brief; orca_wait reports a never-started stall if it did not.",
+    );
+  });
+
+  it("describes retry_of and no longer claims to close terminals", () => {
+    const f = fakeOrca([]);
+    const { tools } = capture({ runner: f.runner, env: ORCA_ENV });
+    const d = tools.get("orca_start")!.description;
+    expect(d).toContain("retry_of");
+    expect(d).toContain("residual terminals reported");
+    expect(d).not.toContain("residual terminals closed");
   });
 
   it("refuses an agent whose login is stale", async () => {

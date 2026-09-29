@@ -8,25 +8,43 @@
  *   - a live agent whose final transcript turn is an assistant turn carrying an
  *     auth failure (the spike's `401 … Please run /login`);
  *   - a live agent whose final assistant turn ended more than `maxIdleMs` ago
- *     without a `worker_done`.
+ *     without a `worker_done`;
+ *   - with no transcript (OpenCode: terminal fallback), a terminal tail showing
+ *     an auth failure, or the agent's empty home screen with the dispatch id
+ *     never echoed, no heartbeat, and a dispatch older than `neverStartedMs`
+ *     (`never-started`, issue #12 — the brief was dropped).
  */
 
 import { runOrca, type OrcaError, type OrcaRunner } from "./cli.js";
+import {
+  AUTH_PATTERNS,
+  authErrorInTail,
+  mentionsDispatch,
+  redactCapabilities,
+  showsHomeScreen,
+  terminalTail,
+} from "./stall-terminal.js";
 import type {
   OrcaTranscriptMessage,
   OrcaWorkerListResult,
   OrcaWorkerListRow,
   OrcaWorkerProjection,
   OrcaWorkerReadResult,
+  OrcaWorkerShowResult,
 } from "./types.js";
 
 export const DEFAULT_MAX_IDLE_MS = 10 * 60_000;
+/** A home screen older than this, with no heartbeat, never got its brief. */
+export const DEFAULT_NEVER_STARTED_MS = 180_000;
 const READ_LIMIT = 20;
 
-export type StallReason = "exited" | "auth-error" | "idle-no-report";
+export type StallReason =
+  "exited" | "auth-error" | "idle-no-report" | "never-started";
 
 export interface StallVerdict {
   dispatchId: string | null;
+  /** The Task, when the `worker-list` row names it (for a `retry_of` start). */
+  taskId?: string;
   stalled: boolean;
   reason: StallReason | null;
   /** Human-readable facts behind the verdict (also why it is NOT a stall). */
@@ -40,15 +58,10 @@ export interface StallInput {
   maxIdleMs?: number;
   /** The dispatch already reported `worker_done` — never a stall. */
   workerDoneSent?: boolean;
+  /** `worker-show` for a home-screen suspect; absent → no `never-started`. */
+  show?: OrcaWorkerShowResult | null;
+  neverStartedMs?: number;
 }
-
-const AUTH_PATTERNS: RegExp[] = [
-  /please run \/login/i,
-  /oauth access token is invalid/i,
-  /\bnot logged in\b/i,
-  /\bAPI Error:?\s*401\b/i,
-  /\b401\b[^\n]{0,40}\b(unauthori[sz]ed|oauth|token|auth\w*)/i,
-];
 
 function projectionOf(
   row: OrcaWorkerListRow | null | undefined,
@@ -83,6 +96,71 @@ function clip(s: string): string {
   return t.length > 160 ? `${t.slice(0, 160)}…` : t;
 }
 
+/**
+ * Orca prints `dispatchedAt` as "YYYY-MM-DD HH:MM:SS" in UTC with no zone.
+ * Returns epoch ms, or `null` when missing or unparsable (absence).
+ */
+export function parseDispatchedAt(v: unknown): number | null {
+  if (typeof v !== "string" || v.trim() === "") return null;
+  let s = v.trim().replace(" ", "T");
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) s += "Z";
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+}
+
+type Verdict = (reason: StallReason | null, evidence: string) => StallVerdict;
+
+/** The terminal-tail path: auth error, else never-started, else why not. */
+function tailVerdict(
+  tail: string[],
+  dispatchId: string | null,
+  input: StallInput,
+  verdict: Verdict,
+): StallVerdict {
+  const auth = authErrorInTail(tail);
+  if (auth) {
+    return verdict(
+      "auth-error",
+      `terminal tail shows an auth failure: "${auth}"`,
+    );
+  }
+  if (!showsHomeScreen(tail)) {
+    return verdict(null, "live; terminal tail shows no home screen");
+  }
+  if (!dispatchId) {
+    return verdict(null, "live; home screen visible, dispatch id unknown");
+  }
+  if (mentionsDispatch(tail, dispatchId)) {
+    return verdict(null, "live; the dispatch id is in the terminal tail");
+  }
+  const d = input.show?.dispatch;
+  if (!d)
+    return verdict(null, "live; home screen visible, worker-show unavailable");
+  if (d.lastHeartbeatAt != null) {
+    return verdict(
+      null,
+      "live; home screen visible but a heartbeat was recorded",
+    );
+  }
+  const at = parseDispatchedAt(d.dispatchedAt);
+  if (at === null) {
+    return verdict(null, "live; home screen visible, dispatchedAt unknown");
+  }
+  const age = input.now - at;
+  const limit = input.neverStartedMs ?? DEFAULT_NEVER_STARTED_MS;
+  const secs = `${Math.round(age / 1000)} s`;
+  if (age > limit) {
+    return verdict(
+      "never-started",
+      `dispatched ${secs} ago (> ${Math.round(limit / 1000)} s), no heartbeat, home screen visible, dispatch id never shown`,
+    );
+  }
+  return verdict(
+    null,
+    `live; home screen visible but dispatched only ${secs} ago`,
+  );
+}
+
 /** Pure verdict for one dispatch. Never throws. */
 export function stallVerdict(input: StallInput): StallVerdict {
   const row = input.workerListRow;
@@ -90,11 +168,12 @@ export function stallVerdict(input: StallInput): StallVerdict {
   const dispatchId =
     row?.dispatchId ??
     (typeof read?.dispatchId === "string" ? read.dispatchId : null);
-  const verdict = (reason: StallReason | null, evidence: string) => ({
+  const verdict: Verdict = (reason, evidence) => ({
     dispatchId,
+    ...(typeof row?.taskId === "string" ? { taskId: row.taskId } : {}),
     stalled: reason !== null,
     reason,
-    evidence,
+    evidence: redactCapabilities(evidence),
   });
 
   if (input.workerDoneSent) {
@@ -116,7 +195,12 @@ export function stallVerdict(input: StallInput): StallVerdict {
   }
 
   const last = finalMessage(read);
-  if (!last) return verdict(null, "live; no transcript turn to judge");
+  if (!last) {
+    const tail = terminalTail(read);
+    return tail
+      ? tailVerdict(tail, dispatchId, input, verdict)
+      : verdict(null, "live; no transcript turn to judge");
+  }
   if (last.role !== "assistant") {
     return verdict(null, "live; the final turn is not an assistant turn");
   }
@@ -156,8 +240,20 @@ export function isActiveRow(row: OrcaWorkerListRow): boolean {
   return states.length > 0 && !states.some((s) => settled.test(s));
 }
 
+/** A dispatch whose terminal Orca reports as reclaimable (release it). */
+export interface ReclaimableTerminal {
+  dispatchId: string;
+  taskId?: string;
+  terminal?: string;
+}
+
 export type CollectStallsResult =
-  | { ok: true; stalls: StallVerdict[]; verdicts: StallVerdict[] }
+  | {
+      ok: true;
+      stalls: StallVerdict[];
+      verdicts: StallVerdict[];
+      reclaimable: ReclaimableTerminal[];
+    }
   | { ok: false; error: OrcaError };
 
 export interface CollectStallsOptions {
@@ -165,6 +261,7 @@ export interface CollectStallsOptions {
   runner?: OrcaRunner;
   now?: number;
   maxIdleMs?: number;
+  neverStartedMs?: number;
   /** Dispatches whose `worker_done` is in hand — skipped. */
   settledDispatchIds?: string[];
   /**
@@ -183,7 +280,10 @@ const MIN_CALL_MS = 1_000;
 /**
  * Verdicts for every still-active dispatch of a Run: `worker-list --run`, then
  * `worker-read --source auto --limit 20` per active row. A failed read is
- * absence: only `exited` liveness can still make that row a stall.
+ * absence: only `exited` liveness can still make that row a stall. A read
+ * whose tail shows the home screen without the dispatch id is confirmed with
+ * `worker-show` (failure = absence). `reclaimable` comes from the same list,
+ * settled rows included.
  */
 export async function collectStalls(
   opts: CollectStallsOptions,
@@ -197,9 +297,13 @@ export async function collectStalls(
   );
   if (!list.ok) return { ok: false, error: list.error };
   const settled = new Set(opts.settledDispatchIds ?? []);
-  const rows = (Array.isArray(list.result?.workers) ? list.result.workers : [])
-    .filter((r) => typeof r?.dispatchId === "string")
-    .filter((r) => !settled.has(r.dispatchId) && isActiveRow(r));
+  const all = (
+    Array.isArray(list.result?.workers) ? list.result.workers : []
+  ).filter((r) => typeof r?.dispatchId === "string");
+  const reclaimable = all
+    .filter((r) => r.terminalState === "reclaimable")
+    .map(reclaimableOf);
+  const rows = all.filter((r) => !settled.has(r.dispatchId) && isActiveRow(r));
   const now = opts.now ?? Date.now();
 
   const verdicts: StallVerdict[] = [];
@@ -218,14 +322,45 @@ export async function collectStalls(
       ],
       { runner: opts.runner, timeoutMs: left() },
     );
+    const transcript = read.ok ? read.result : null;
+    const tail = terminalTail(transcript);
+    let show: OrcaWorkerShowResult | null = null;
+    if (
+      tail &&
+      showsHomeScreen(tail) &&
+      !mentionsDispatch(tail, row.dispatchId) &&
+      left() >= MIN_CALL_MS
+    ) {
+      const s = await runOrca<OrcaWorkerShowResult>(
+        ["orchestration", "worker-show", "--dispatch", row.dispatchId],
+        { runner: opts.runner, timeoutMs: left() },
+      );
+      show = s.ok ? s.result : null;
+    }
     verdicts.push(
       stallVerdict({
         workerListRow: row,
-        transcript: read.ok ? read.result : null,
+        transcript,
+        show,
         now,
         maxIdleMs: opts.maxIdleMs,
+        neverStartedMs: opts.neverStartedMs,
       }),
     );
   }
-  return { ok: true, stalls: verdicts.filter((v) => v.stalled), verdicts };
+  return {
+    ok: true,
+    stalls: verdicts.filter((v) => v.stalled),
+    verdicts,
+    reclaimable,
+  };
+}
+
+function reclaimableOf(r: OrcaWorkerListRow): ReclaimableTerminal {
+  const out: ReclaimableTerminal = { dispatchId: r.dispatchId };
+  if (typeof r.taskId === "string") out.taskId = r.taskId;
+  if (typeof r.agentTerminalHandle === "string") {
+    out.terminal = r.agentTerminalHandle;
+  }
+  return out;
 }

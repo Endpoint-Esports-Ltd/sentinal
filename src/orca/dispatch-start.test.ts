@@ -128,7 +128,7 @@ describe("startTask", () => {
     expect(flag(calls[0], "--worktree")).toBe("current");
   });
 
-  it("failed → closes the residual terminal → one --retry-of into the same worktree → ready", async () => {
+  it("failed → reports (never closes) the retained terminal → one --retry-of into the same worktree → ready", async () => {
     const { runner, calls, remaining } = queue([
       [
         "orchestration worker-start",
@@ -136,9 +136,11 @@ describe("startTask", () => {
       ],
       [
         `orchestration worker-release --dispatch ${FAILED_DISPATCH}`,
-        release(FAILED_DISPATCH, "retained", { reason: "user_takeover" }),
+        release(FAILED_DISPATCH, "retained", {
+          reason: "user_takeover",
+          recovery: "inspect the terminal",
+        }),
       ],
-      [`terminal close --terminal ${FAILED_TERMINAL}`, ok({ closed: true })],
       [`orchestration worker-start`, out(fixture("worker-start-ready.json"))],
     ]);
     const r = await startTask({
@@ -153,11 +155,15 @@ describe("startTask", () => {
     expect(r.status).toBe("started");
     if (r.status !== "started") return;
     expect(r.retried).toBe(true);
-    expect(r.failedAttempts[0].cleanup.closedTerminals).toEqual([
-      FAILED_TERMINAL,
+    expect(calls.some((c) => c[0] === "terminal")).toBe(false);
+    const cleanup = r.failedAttempts[0].cleanup;
+    expect(cleanup.closedTerminals).toEqual([]);
+    expect(cleanup.unclosedTerminals).toEqual([
+      { id: FAILED_TERMINAL, reason: "retained: user_takeover" },
     ]);
+    expect(cleanup.recovery).toBe("inspect the terminal");
 
-    const [first, , , retry] = calls;
+    const [first, , retry] = calls;
     expect(flag(first, "--worktree")).toBe("new-child");
     expect(flag(first, "--name")).toBe("spec-a");
     expect(flag(first, "--base-branch")).toBe("main");
@@ -172,14 +178,13 @@ describe("startTask", () => {
     );
   });
 
-  it("retry failure: both attempts' terminals closed, exactly one retry, error returned", async () => {
+  it("retry failure: both attempts' terminals reported unclosed, exactly one retry, error returned", async () => {
     const { runner, calls, remaining } = queue([
       [
         "orchestration worker-start",
         failedReceipt(FAILED_DISPATCH, FAILED_TERMINAL),
       ],
       ["orchestration worker-release", release(FAILED_DISPATCH, "retained")],
-      [`terminal close --terminal ${FAILED_TERMINAL}`, ok({})],
       [
         "orchestration worker-start",
         failedReceipt("ctx_second", "term_second"),
@@ -188,7 +193,6 @@ describe("startTask", () => {
         "orchestration worker-release --dispatch ctx_second",
         release("ctx_second", "retained"),
       ],
-      ["terminal close --terminal term_second", ok({})],
     ]);
     const r = await startTask({
       taskId: "task_8b3fb8fed05a",
@@ -204,12 +208,104 @@ describe("startTask", () => {
       FAILED_DISPATCH,
       "ctx_second",
     ]);
-    expect(r.attempts.flatMap((a) => a.cleanup.closedTerminals)).toEqual([
-      FAILED_TERMINAL,
-      "term_second",
+    expect(r.attempts.flatMap((a) => a.cleanup.closedTerminals)).toEqual([]);
+    expect(r.attempts.flatMap((a) => a.cleanup.unclosedTerminals)).toEqual([
+      { id: FAILED_TERMINAL, reason: "retained: retained" },
+      { id: "term_second", reason: "retained: retained" },
     ]);
+    expect(calls.some((c) => c[0] === "terminal")).toBe(false);
     expect(calls.filter((c) => c.includes("worker-start")).length).toBe(2);
-    expect(flag(calls[3], "--worktree")).toBe("path:/wt/b");
+    expect(flag(calls[2], "--worktree")).toBe("path:/wt/b");
+  });
+
+  it("retryOf: the first attempt carries --retry-of AND keeps --retry-request", async () => {
+    const rid = "1112c03b-c129-4ba1-82eb-9578ed8cf571";
+    const { runner, calls } = queue([
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const r = await startTask({
+      taskId: "t",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      retryOf: "ctx_old",
+      requestId: rid,
+      runner,
+    });
+    expect(r.status).toBe("started");
+    expect(flag(calls[0], "--retry-of")).toBe("ctx_old");
+    expect(flag(calls[0], "--retry-request")).toBe(rid);
+  });
+
+  it("retryOf + failed first attempt: the automatic retry retries the failed dispatch", async () => {
+    const { runner, calls, remaining } = queue([
+      [
+        "orchestration worker-start",
+        failedReceipt(FAILED_DISPATCH, FAILED_TERMINAL),
+      ],
+      ["orchestration worker-release", release(FAILED_DISPATCH, "released")],
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const r = await startTask({
+      taskId: "t",
+      worktree: "current",
+      agent: "opencode",
+      retryOf: "ctx_old",
+      requestId: "1112c03b-c129-4ba1-82eb-9578ed8cf571",
+      runner,
+    });
+    expect(remaining.length).toBe(0);
+    expect(r.status).toBe("started");
+    expect(flag(calls[0], "--retry-of")).toBe("ctx_old");
+    expect(flag(calls[2], "--retry-of")).toBe(FAILED_DISPATCH);
+    expect(flag(calls[2], "--retry-request")).not.toBe(
+      "1112c03b-c129-4ba1-82eb-9578ed8cf571",
+    );
+  });
+
+  it("deliveryConfirmed is false when Orca cannot observe the turn (ready fixture)", async () => {
+    const { runner } = queue([
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const r = await startTask({
+      taskId: "t",
+      worktree: "current",
+      agent: "opencode",
+      preflight: false,
+      runner,
+    });
+    expect(r.status).toBe("started");
+    if (r.status === "started") expect(r.deliveryConfirmed).toBe(false);
+  });
+
+  it("deliveryConfirmed is false when only prompt.observation is unsupported", async () => {
+    const doc = json("worker-start-ready.json");
+    doc.result.turnStart = "confirmed";
+    const { runner } = queue([["orchestration worker-start", envelope(doc)]]);
+    const r = await startTask({
+      taskId: "t",
+      worktree: "current",
+      agent: "opencode",
+      preflight: false,
+      runner,
+    });
+    if (r.status !== "started") throw new Error(r.status);
+    expect(r.deliveryConfirmed).toBe(false);
+  });
+
+  it("deliveryConfirmed is true when the turn start is confirmed", async () => {
+    const doc = json("worker-start-ready.json");
+    doc.result.turnStart = "confirmed";
+    doc.result.prompt.observation = "observed";
+    const { runner } = queue([["orchestration worker-start", envelope(doc)]]);
+    const r = await startTask({
+      taskId: "t",
+      worktree: "current",
+      agent: "opencode",
+      preflight: false,
+      runner,
+    });
+    if (r.status !== "started") throw new Error(r.status);
+    expect(r.deliveryConfirmed).toBe(true);
   });
 
   it("does not close terminals when release already closed them or is uncertain", async () => {

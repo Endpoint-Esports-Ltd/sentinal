@@ -173,6 +173,148 @@ describe("orca_wait", () => {
   });
 });
 
+/** A dispatch whose brief never reached OpenCode (issue #12), and a settled one. */
+const HOME = "ctx_c8a313c725e8";
+const RECLAIM = "ctx_b72731025b9f";
+const HOME_DISPATCHED = Date.parse("2026-09-29T21:46:28Z");
+
+function neverStartedRoutes() {
+  return fakeOrca([
+    [
+      "orchestration check",
+      ok({ runId: RUN, deliveryId: null, messages: [], timedOut: true }),
+    ],
+    [
+      "orchestration worker-list",
+      ok({
+        workers: [
+          {
+            dispatchId: HOME,
+            taskId: "task_home",
+            projection: {
+              outcome: "in_progress",
+              liveness: { verdict: "live" },
+            },
+          },
+          {
+            dispatchId: RECLAIM,
+            taskId: "task_done",
+            terminalState: "reclaimable",
+            agentTerminalHandle: "term_done",
+            projection: { outcome: "succeeded", liveness: { verdict: "live" } },
+          },
+        ],
+      }),
+    ],
+    [
+      "orchestration worker-read",
+      out(fixture("worker-read-terminal-home.json")),
+    ],
+    ["orchestration worker-show", out(fixture("worker-show-dispatched.json"))],
+    [
+      "orchestration worker-stop",
+      (args) => ok({ dispatchId: flag(args, "--dispatch"), state: "stopped" }),
+    ],
+    [
+      "orchestration worker-release",
+      (args) =>
+        ok({
+          dispatchId: flag(args, "--dispatch"),
+          state: "retained",
+          reason: "external_terminal",
+        }),
+    ],
+  ]);
+}
+
+describe("orca_wait — never-started and reclaimable (issue #12)", () => {
+  it("reports a never-started stall whose Next hint is stop then orca_start retry_of", async () => {
+    const f = neverStartedRoutes();
+    const call = capture({
+      runner: f.runner,
+      env: {},
+      now: () => HOME_DISPATCHED + 4 * 60_000,
+    });
+    const r = await call("orca_wait", { run_id: RUN });
+    expect(r.data.stalls).toEqual([
+      expect.objectContaining({ dispatch_id: HOME, reason: "never-started" }),
+    ]);
+    expect(r.text).toContain("retry_of");
+    expect(r.text).toContain("dispatch-show --preamble");
+    expect(r.text).not.toMatch(/dcap_(?!REDACTED)/);
+  });
+
+  it("names orca_start retry_of after stopping a never-started worker", async () => {
+    const f = neverStartedRoutes();
+    const call = capture({
+      runner: f.runner,
+      env: {},
+      now: () => HOME_DISPATCHED + 4 * 60_000,
+    });
+    const w = await call("orca_wait", { run_id: RUN });
+    const stop = await call("orca_stop", {
+      dispatch_id: HOME,
+      evidence_id: w.data.stalls[0].evidence_id,
+    });
+    expect(stop.data.ok).toBe(true);
+    expect(stop.text).toContain(`retry_of: "${HOME}"`);
+    expect(stop.text).toContain("task_home");
+  });
+
+  it("lists reclaimable terminals until this session released them (any answer, retained included)", async () => {
+    const f = neverStartedRoutes();
+    const call = capture({
+      runner: f.runner,
+      env: {},
+      now: () => HOME_DISPATCHED + 60_000,
+    });
+    const first = await call("orca_wait", { run_id: RUN });
+    expect(first.data.reclaimable).toEqual([
+      expect.objectContaining({ dispatch_id: RECLAIM, task_id: "task_done" }),
+    ]);
+    expect(first.text).toContain("reclaimable");
+    expect(first.text).toContain(RECLAIM);
+    await call("orca_release", { dispatch_id: RECLAIM });
+    const again = await call("orca_wait", { run_id: RUN });
+    expect(again.data.reclaimable).toEqual([]);
+  });
+
+  it("says reclaimable is UNKNOWN (not empty) when the stall check failed", async () => {
+    const f = fakeOrca([
+      [
+        "orchestration check",
+        ok({ runId: RUN, deliveryId: null, messages: [], timedOut: true }),
+      ],
+      [
+        "orchestration worker-list",
+        out(
+          JSON.stringify({
+            id: "x",
+            ok: false,
+            error: { code: "runtime_error", message: "boom" },
+          }),
+          1,
+        ),
+      ],
+    ]);
+    const call = capture({ runner: f.runner, env: {} });
+    const r = await call("orca_wait", { run_id: RUN });
+    expect(r.data.reclaimable_unknown).toBe(true);
+    expect(r.text).toContain("reclaimable terminals unknown");
+  });
+
+  it("describes the never-started stall kind in the tool description", async () => {
+    const server = new McpServer({ name: "t", version: "0" });
+    const descs = new Map<string, string>();
+    server.tool = ((...a: unknown[]) => {
+      descs.set(a[0] as string, a[1] as string);
+    }) as typeof server.tool;
+    registerOrcaTools(server, { env: {} });
+    expect(descs.get("orca_wait")).toContain("never reached the agent");
+    expect(descs.get("orca_wait")).toContain("reclaimable");
+  });
+});
+
 describe("orca_stop", () => {
   it("refuses without a verdict from orca_wait", async () => {
     const f = settleRoutes();

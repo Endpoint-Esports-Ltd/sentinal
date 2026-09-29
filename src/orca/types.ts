@@ -76,7 +76,10 @@ export interface OrcaWorkerStartReceipt {
   stage: string;
   failedStage?: string;
   lastError?: string;
+  /** `"unsupported"` when the provider cannot report that a turn began (OpenCode). */
   turnStart?: string;
+  /** Prompt delivery receipt; `observation: "unsupported"` = delivery unconfirmable. */
+  prompt?: { stages?: string[]; provider?: string; observation?: string };
   launch?: { requested: OrcaAgentLaunch; effective: OrcaAgentLaunch };
   effects?: OrcaResource[];
   residualResources: OrcaResource[];
@@ -156,6 +159,27 @@ export interface OrcaWorkerReadResult {
     returnedMessageCount?: number;
   };
   cursor?: string | null;
+  /** Why there is no transcript (`provider_unsupported` for OpenCode, 1.4.216). */
+  fallbackReason?: string;
+  /** Present when `source === "terminal"`: the bounded terminal tail. */
+  terminal?: { handle?: string; status?: string; tail?: string[] };
+  [key: string]: unknown;
+}
+
+/**
+ * `orchestration worker-show --dispatch <id>` (recorded 1.4.216).
+ * `dispatchedAt` is `"YYYY-MM-DD HH:MM:SS"` in UTC WITHOUT a zone.
+ */
+export interface OrcaWorkerShowResult {
+  dispatch: {
+    id: string;
+    status?: string;
+    dispatchedAt?: string | null;
+    lastHeartbeatAt?: string | null;
+    [key: string]: unknown;
+  };
+  worker?: { state?: string; stage?: string; [key: string]: unknown };
+  projection?: OrcaWorkerProjection | null;
   [key: string]: unknown;
 }
 

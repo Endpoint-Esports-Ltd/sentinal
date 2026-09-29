@@ -1,0 +1,216 @@
+{
+  "id": "f3692572-1f8e-4e21-907b-42b427709e74",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_c8a313c725e8",
+      "runId": "run_cc22fefdbc3f",
+      "taskId": "task_2b47d9bd563a",
+      "task_id": "task_2b47d9bd563a",
+      "contractVersion": 1,
+      "assigneeHandle": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+      "assigneePaneKey": "c2853608-741b-471a-ade2-04991e20964c:25b76dcb-1cc8-4705-8904-bba3fef666d4",
+      "processIncarnation": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1@@6b12bff4:0d95a220-c077-4180-b672-91d5022a8da5",
+      "capabilityRevokedAt": null,
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": {
+        "kind": "local",
+        "hostId": "local"
+      },
+      "status": "dispatched",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-09-29 21:46:28",
+      "completedAt": null,
+      "createdAt": "2026-09-29 21:46:28",
+      "lastHeartbeatAt": null
+    },
+    "worker": {
+      "dispatchId": "ctx_c8a313c725e8",
+      "runtimeEpoch": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667",
+      "state": "stop_unknown",
+      "stage": "stop_outcome_unknown",
+      "worktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+      "agentTerminalHandle": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+      "setupState": "not_applicable",
+      "effects": [
+        {
+          "kind": "worktree",
+          "action": "reused",
+          "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1"
+        },
+        {
+          "kind": "setup",
+          "action": "not_applicable",
+          "state": "not_applicable"
+        },
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "created",
+          "id": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+          "surface": "visible"
+        },
+        {
+          "kind": "dispatch_input",
+          "role": "agent",
+          "id": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+          "state": "accepted"
+        }
+      ],
+      "residualResources": [
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "created",
+          "id": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+          "surface": "visible"
+        }
+      ],
+      "startOptions": {
+        "worktree": "path:/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+        "mode": {
+          "mode": "terminal",
+          "preferred": "terminal",
+          "reason": "user_default",
+          "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+        },
+        "resolvedWorktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+        "name": null,
+        "repo": null,
+        "baseBranch": null,
+        "terminal": null,
+        "agent": "opencode",
+        "launch": {
+          "requested": {
+            "agent": "opencode",
+            "model": null,
+            "effort": null
+          },
+          "effective": {
+            "agent": "opencode",
+            "model": null,
+            "effort": null
+          }
+        },
+        "timeoutMs": 60000,
+        "setup": "not_applicable",
+        "setupSource": "existing_worktree"
+      },
+      "lastError": "The worker terminal is user_owned; no terminal was closed.",
+      "createdAt": "2026-09-29 21:46:28",
+      "updatedAt": "2026-09-29T21:47:04.824Z"
+    },
+    "projection": {
+      "id": "ctx_c8a313c725e8",
+      "dispatchId": "ctx_c8a313c725e8",
+      "taskId": "task_2b47d9bd563a",
+      "runId": "run_cc22fefdbc3f",
+      "role": "worker",
+      "parent": null,
+      "provider": {
+        "id": "opencode",
+        "model": null
+      },
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "stop_unknown",
+        "dispatch": "dispatched",
+        "detail": "stop_outcome_unknown",
+        "activity": "done"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "live",
+        "observedAt": 1790718282241,
+        "source": "agent_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "fresh",
+        "lastObservedAt": 1790718427243
+      },
+      "resource": {
+        "state": "owned",
+        "id": "wtr_48b659e80598",
+        "ownerDispatchId": "ctx_c8a313c725e8",
+        "releaseState": "not_requested",
+        "terminalState": "reclaimable"
+      },
+      "attention": {
+        "categories": [],
+        "requiresAction": false
+      },
+      "nextAction": {
+        "kind": "inspect",
+        "argv": [
+          "orchestration",
+          "worker-show",
+          "--dispatch",
+          "ctx_c8a313c725e8"
+        ]
+      }
+    },
+    "terminal": {
+      "handle": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+      "ptyId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1@@6b12bff4",
+      "incarnationId": "0d95a220-c077-4180-b672-91d5022a8da5",
+      "orphaned": false,
+      "worktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+      "worktreePath": "/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+      "branch": "refs/heads/e2e-drop-r2-1",
+      "tabId": "c2853608-741b-471a-ade2-04991e20964c",
+      "leafId": "25b76dcb-1cc8-4705-8904-bba3fef666d4",
+      "title": "OC | Orca liveness probe setup",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1790718427277,
+      "preview": "┃\n┃\n┃\n┃  Build · Claude Opus 5.5 Anthropic\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1                             98.5K (10%) · $0.52  ctrl+p commands",
+      "executionHostId": "local",
+      "agentIdentity": "opencode",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": null
+    },
+    "terminalResource": {
+      "id": "wtr_48b659e80598",
+      "ownershipState": "owned",
+      "releaseState": "not_requested",
+      "retainedReason": null,
+      "terminalHandle": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+      "worktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+      "endpointId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667",
+      "endpointIncarnation": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1@@6b12bff4:0d95a220-c077-4180-b672-91d5022a8da5",
+      "originDispatchId": "ctx_c8a313c725e8",
+      "ownerDispatchId": "ctx_c8a313c725e8",
+      "releaseRequestedAt": null,
+      "releaseCompletedAt": null,
+      "releaseError": null,
+      "recoveryAttemptCount": 0,
+      "lastRecoveryAt": null,
+      "archive": {
+        "source": null,
+        "status": null
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  },
+  "_provenance": "Derived from the recorded worker-show fixture; worker/projection set to the stop_unknown state observed LIVE on 2026-09-29 (Orca 1.4.216) after worker-stop on a terminal Orca had marked user_owned/user_takeover (plan 2026-09-29-orca-dropped-prompt, Task 7)."
+}

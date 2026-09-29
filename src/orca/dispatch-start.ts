@@ -4,9 +4,12 @@
  * re-exports the public API, so import from there.
  *
  * Start: optional auth preflight (`agentAuth`, refuse on `ok === false`) →
- * `worker-start` → on `failed`, close the attempt's residual terminals and make
- * exactly ONE `--retry-of` with explicit placement. `task_not_startable` is
- * `blocked` (not an error); `outcome_unknown` is returned untouched.
+ * `worker-start` → on `failed`, release the attempt (residual terminals are
+ * reported, never closed) and make exactly ONE `--retry-of` with explicit
+ * placement. `task_not_startable` is `blocked` (not an error);
+ * `outcome_unknown` is returned untouched. A caller's `retryOf` (replacing a
+ * stopped/failed attempt) goes on the FIRST `worker-start` together with its
+ * `--retry-request`, so a pending replay still works.
  */
 
 import { randomUUID } from "node:crypto";
@@ -62,6 +65,7 @@ export type Placement = "current" | "new-child" | { path: string };
 
 export interface AttemptCleanup {
   release: OrcaWorkerReleaseResult["state"] | "error" | "not_needed";
+  /** Back-compat only: always `[]` — Sentinal never closes a terminal. */
   closedTerminals: string[];
   unclosedTerminals: Array<{ id: string; reason: string }>;
   /** Worktrees the attempt created; never removed here. */
@@ -81,6 +85,8 @@ export type StartTaskResult =
       receipt: OrcaWorkerStartReceipt;
       requestId: string;
       retried: boolean;
+      /** False when Orca cannot observe the prompt landing (`unsupported`). */
+      deliveryConfirmed: boolean;
       failedAttempts: FailedAttempt[];
     }
   | {
@@ -117,6 +123,8 @@ export interface StartTaskOptions extends Base {
   preflight?: boolean;
   /** Runner deadline for one `worker-start` (Orca's own readiness wait is ~60 s). */
   timeoutMs?: number;
+  /** Dispatch id of a stopped/failed attempt this start replaces (`--retry-of`). */
+  retryOf?: string;
 }
 
 const START_TIMEOUT_MS = 75_000;
@@ -131,11 +139,12 @@ function placementArgs(p: Placement, o: StartTaskOptions): string[] {
 }
 
 /**
- * Close what a failed attempt left behind: `worker-release` its dispatch, and
- * only when Orca answers `retained` (spike S5: `user_takeover` on a terminal
- * that never ran the Task) `terminal close` the exact terminals listed in its
- * `residualResources`. `release_pending`/`release_unknown` are uncertain — we
- * never substitute `terminal close` there, only report the recovery.
+ * Settle what a failed attempt left behind: `worker-release` its dispatch.
+ * Orca's recovery guide says never substitute `terminal close` for release, so
+ * when the release answers anything but released/already_released (`retained`,
+ * e.g. `user_takeover` / `external_terminal`, or the uncertain
+ * `release_pending`/`release_unknown`) every residual terminal is REPORTED in
+ * `unclosedTerminals` with Orca's `recovery` text — never closed.
  */
 async function cleanupAttempt(
   receipt: OrcaWorkerStartReceipt,
@@ -167,19 +176,17 @@ async function cleanupAttempt(
   if (recovery) cleanup.recovery = recovery;
   if (state === "released" || state === "already_released") return cleanup;
 
-  for (const id of terminals) {
-    if (state !== "retained") {
-      cleanup.unclosedTerminals.push({ id, reason: `release ${state}` });
-      continue;
-    }
-    const closed = await runOrca(["terminal", "close", "--terminal", id], {
-      runner,
-    });
-    if (closed.ok) cleanup.closedTerminals.push(id);
-    else cleanup.unclosedTerminals.push({ id, reason: closed.error.message });
-  }
+  const reason =
+    state === "retained"
+      ? `retained: ${(rel.ok ? rel.result?.reason : undefined) || state}`
+      : `release ${state}`;
+  for (const id of terminals) cleanup.unclosedTerminals.push({ id, reason });
   return cleanup;
 }
+
+/** Orca says `unsupported` when it cannot observe the prompt landing. */
+const deliveryConfirmed = (r: OrcaWorkerStartReceipt): boolean =>
+  r.turnStart !== "unsupported" && r.prompt?.observation !== "unsupported";
 
 /** Retry placement: a failed `new-child` start reuses the child it created (S5). */
 function retryPlacement(
@@ -194,18 +201,24 @@ function retryPlacement(
   return path ? { path } : p;
 }
 
+/**
+ * One `worker-start`. The first attempt carries the caller's `retryOf` (if
+ * any) AND its request id, so a pending replay still works; the automatic
+ * retry (`auto`) retries the failed attempt's dispatch with a fresh request id.
+ */
 async function startOnce(
   o: StartTaskOptions,
   placement: Placement,
-  retryOf?: string,
+  auto?: string,
 ) {
+  const retryOf = auto ?? o.retryOf;
   const args = ["worker-start", "--task", o.taskId];
   if (o.runId) args.push("--run", o.runId);
   args.push(...placementArgs(placement, o), "--agent", o.agent);
   if (retryOf) args.push("--retry-of", retryOf);
   return mutate<OrcaWorkerStartReceipt>(args, {
     runner: o.runner,
-    requestId: retryOf ? undefined : o.requestId,
+    requestId: auto ? undefined : o.requestId,
     timeoutMs: o.timeoutMs ?? START_TIMEOUT_MS,
   });
 }
@@ -261,6 +274,7 @@ export async function startTask(o: StartTaskOptions): Promise<StartTaskResult> {
         receipt,
         requestId: r.requestId,
         retried: retryOf !== undefined,
+        deliveryConfirmed: deliveryConfirmed(receipt),
         failedAttempts,
       };
     }

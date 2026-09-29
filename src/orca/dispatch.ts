@@ -22,7 +22,11 @@ import {
   type Failure,
   type Ok,
 } from "./dispatch-start.js";
-import { collectStalls, type StallVerdict } from "./stall.js";
+import {
+  collectStalls,
+  type ReclaimableTerminal,
+  type StallVerdict,
+} from "./stall.js";
 import type {
   OrcaCheckResult,
   OrcaMessage,
@@ -258,6 +262,7 @@ export async function waitForSettlement(o: {
   runner?: OrcaRunner;
   now?: number;
   maxIdleMs?: number;
+  neverStartedMs?: number;
 }): Promise<
   | Ok<{
       timedOut: boolean;
@@ -265,6 +270,8 @@ export async function waitForSettlement(o: {
       messages: SettledMessage[];
       stalls: StallVerdict[];
       verdicts: StallVerdict[];
+      /** Terminals Orca reports reclaimable ([] when stall collection failed). */
+      reclaimable: ReclaimableTerminal[];
       stallError?: OrcaError;
     }>
   | Failure
@@ -291,6 +298,7 @@ export async function waitForSettlement(o: {
     runner: o.runner,
     now: o.now,
     maxIdleMs: o.maxIdleMs,
+    neverStartedMs: o.neverStartedMs,
     settledDispatchIds: settled,
   });
   return {
@@ -300,6 +308,7 @@ export async function waitForSettlement(o: {
     messages,
     stalls: s.ok ? s.stalls : [],
     verdicts: s.ok ? s.verdicts : [],
+    reclaimable: s.ok ? s.reclaimable : [],
     ...(s.ok ? {} : { stallError: s.error }),
   };
 }

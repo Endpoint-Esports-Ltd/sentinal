@@ -8,6 +8,8 @@
  *                     `pending` + request id when slower (call again to join/replay)
  *   - orca_wait / orca_ack / orca_stop / orca_release / orca_remove_worktree
  *                   — `mcp-tools-settle.ts`
+ *   - orca_abandon  — `mcp-tools-abandon.ts`: the recovery for a stop Orca
+ *                     could not prove (`stop_unknown`), gated on worker-show
  *
  * ## ⛔ Direct-only, on purpose
  *
@@ -26,6 +28,7 @@ import {
 } from "../spec/orchestration-mode.js";
 import { agentAuth, detectOrca } from "./detect.js";
 import { createTask, ensureRun, prepareChildWorktree } from "./dispatch.js";
+import { registerOrcaAbandonTool } from "./mcp-tools-abandon.js";
 import { registerOrcaSettleTools } from "./mcp-tools-settle.js";
 import { registerOrcaStartTool } from "./mcp-tools-start.js";
 import {
@@ -48,6 +51,7 @@ export function registerOrcaTools(
   registerDispatchTool(server, deps);
   registerOrcaStartTool(server, deps, state);
   registerOrcaSettleTools(server, deps, state);
+  registerOrcaAbandonTool(server, deps);
 }
 
 // ------------------------------------------------------------- orca_status

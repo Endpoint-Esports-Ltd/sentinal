@@ -381,6 +381,87 @@ describe("waitForSettlement", () => {
     ]);
   });
 
+  it("returns reclaimable terminals and a never-started stall", async () => {
+    const id = "ctx_c8a313c725e8";
+    const { runner, calls } = queue([
+      ["orchestration check", out(fixture("check-wait-timeout.ndjson"))],
+      [
+        "orchestration worker-list",
+        ok({
+          workers: [
+            {
+              dispatchId: id,
+              taskId: "task_2b47d9bd563a",
+              projection: {
+                outcome: "in_progress",
+                liveness: { verdict: "live" },
+              },
+            },
+            {
+              dispatchId: "ctx_done",
+              taskId: "task_done",
+              terminalState: "reclaimable",
+              agentTerminalHandle: "term_done",
+              projection: { outcome: "succeeded" },
+            },
+          ],
+        }),
+      ],
+      [
+        `orchestration worker-read --dispatch ${id}`,
+        out(fixture("worker-read-terminal-home.json")),
+      ],
+      [
+        `orchestration worker-show --dispatch ${id}`,
+        out(fixture("worker-show-dispatched.json")),
+      ],
+    ]);
+    const now = Date.parse("2026-09-29T21:46:28Z") + 4 * 60_000;
+    const r = await waitForSettlement({ runId: "r", runner, now });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stalls.map((s) => [s.dispatchId, s.reason])).toEqual([
+      [id, "never-started"],
+    ]);
+    expect(r.reclaimable).toEqual([
+      { dispatchId: "ctx_done", taskId: "task_done", terminal: "term_done" },
+    ]);
+    expect(calls.length).toBe(4);
+
+    const later = queue([
+      ["orchestration check", out(fixture("check-wait-timeout.ndjson"))],
+      [
+        "orchestration worker-list",
+        ok({
+          workers: [
+            {
+              dispatchId: id,
+              projection: {
+                outcome: "in_progress",
+                liveness: { verdict: "live" },
+              },
+            },
+          ],
+        }),
+      ],
+      [
+        "orchestration worker-read",
+        out(fixture("worker-read-terminal-home.json")),
+      ],
+      [
+        "orchestration worker-show",
+        out(fixture("worker-show-dispatched.json")),
+      ],
+    ]);
+    const r2 = await waitForSettlement({
+      runId: "r",
+      runner: later.runner,
+      now,
+      neverStartedMs: 10 * 60_000,
+    });
+    expect(r2.ok && r2.stalls).toEqual([]);
+  });
+
   it("keeps the messages when stall collection fails", async () => {
     const { runner } = queue([
       ["orchestration check", out(fixture("check-worker-done.json"))],
@@ -391,6 +472,7 @@ describe("waitForSettlement", () => {
     if (!r.ok) return;
     expect(r.messages.length).toBe(1);
     expect(r.stallError?.code).toBe("invalid_argument");
+    expect(r.reclaimable).toEqual([]);
   });
 
   it("returns the check error", async () => {

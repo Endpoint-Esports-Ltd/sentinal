@@ -83,6 +83,7 @@ describe("registerOrcaTools", () => {
   it("registers every orca_* tool", () => {
     const { tools } = capture({ runner: fakeOrca([]).runner, env: {} });
     expect([...tools.keys()].sort()).toEqual([
+      "orca_abandon",
       "orca_ack",
       "orca_dispatch",
       "orca_release",
@@ -96,7 +97,12 @@ describe("registerOrcaTools", () => {
 
   it("labels destructive tools and states the domain is direct-only", () => {
     const { tools } = capture({ runner: fakeOrca([]).runner, env: {} });
-    for (const name of ["orca_stop", "orca_release", "orca_remove_worktree"]) {
+    for (const name of [
+      "orca_stop",
+      "orca_release",
+      "orca_remove_worktree",
+      "orca_abandon",
+    ]) {
       expect(tools.get(name)!.description).toContain("DESTRUCTIVE");
     }
     for (const name of ["orca_status", "orca_dispatch", "orca_wait"]) {

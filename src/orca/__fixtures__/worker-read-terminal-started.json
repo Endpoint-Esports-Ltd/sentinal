@@ -1,0 +1,114 @@
+{
+  "id": "efc50b95-5e6d-4282-b9d8-422b9a48282a",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_c8a313c725e8",
+    "source": "terminal",
+    "sourceIdentity": "sOuEdOW9SSOMaLreTOo_GT5cDrtJ_ZKT",
+    "terminal": {
+      "handle": "term_030efee8-1d82-4cba-93a2-d0ce4bb2f158",
+      "status": "running",
+      "tail": [
+        "  ┃  ok' using the exact command from your preamble, then stop.",
+        "  ┃",
+        "  ┃",
+        "  ┃  $ orca orchestration send --from term_030efee8-1d82-4cba-93a2-d0ce4bb2f158 --dispatch-capability dcap_REDACTED",
+        "  ┃  EV8TeiUh_baMfpzH5dk8Eartb28jtXpBPJIq1Q --type worker_done --subject \"probe 1 ok\" --body \"Received liveness probe",
+        "  ┃  1 and responded immediately. No investigation or changes were performed. Nothing remains.\" --task-id",
+        "  ┃  task_2b47d9bd563a --dispatch-id ctx_c8a313c725e8 --outcome succeeded",
+        "  ┃",
+        "  ┃  Sent msg_8f28956a2f62",
+        "  ┃",
+        "     I sent the worker_done report for liveness probe 1 with outcome \"succeeded\" and subject \"probe 1 ok\"; Orca",
+        "     accepted it as message msg_8f28956a2f62. As the task asked, I did nothing else and made no changes, and I'm now",
+        "     stopped.",
+        "     ▣  Build · Claude Opus 5.5 · 23.7s",
+        "  ┃",
+        "  ┃",
+        "  ┃",
+        "  ┃  Build · Claude Opus 5.5 Anthropic",
+        "  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "   /Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1                             98.5K (10%) · $0.52  ctrl+p commands"
+      ],
+      "truncated": true,
+      "limited": true,
+      "oldestCursor": "0",
+      "nextCursor": "1",
+      "latestCursor": "1",
+      "returnedLineCount": 20,
+      "source": "screen"
+    },
+    "cursor": "owr1_eyJ2IjoxLCJkIjoiY3R4X2M4YTMxM2M3MjVlOCIsInMiOiJ0ZXJtaW5hbCIsImkiOiJzT3VFZE9XOVNTT01hTHJlVE9vX0dUNWNEcnRKX1pLVCIsInAiOjF9",
+    "status": {
+      "worker": "succeeded",
+      "terminal": "running",
+      "liveness": "live"
+    },
+    "fallbackReason": "provider_unsupported",
+    "warnings": [],
+    "sourceExact": false,
+    "contentComplete": false,
+    "clipping": ["terminal_buffer", "terminal_fallback"],
+    "projection": {
+      "id": "ctx_c8a313c725e8",
+      "dispatchId": "ctx_c8a313c725e8",
+      "taskId": "task_2b47d9bd563a",
+      "runId": "run_cc22fefdbc3f",
+      "role": "worker",
+      "parent": null,
+      "provider": {
+        "id": "opencode",
+        "model": null
+      },
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-r2-1",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "succeeded",
+        "dispatch": "completed",
+        "detail": "settled",
+        "activity": "done"
+      },
+      "outcome": "succeeded",
+      "liveness": {
+        "verdict": "live",
+        "observedAt": 1790718427243,
+        "source": "agent_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "fresh",
+        "lastObservedAt": 1790718427243
+      },
+      "resource": {
+        "state": "owned",
+        "id": "wtr_48b659e80598",
+        "ownerDispatchId": "ctx_c8a313c725e8",
+        "releaseState": "not_requested",
+        "terminalState": "reclaimable"
+      },
+      "nextAction": {
+        "kind": "release",
+        "argv": [
+          "orchestration",
+          "worker-release",
+          "--dispatch",
+          "ctx_c8a313c725e8"
+        ]
+      },
+      "attention": {
+        "categories": ["root_completion"],
+        "requiresAction": false
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  },
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216, OpenCode 1.18.33: worker-read --source auto of a worker whose brief LANDED (terminal fallback, no transcript). Capability tokens redacted, home path anonymised."
+}

@@ -68,7 +68,7 @@ function registerWait(
 ): void {
   server.tool(
     "orca_wait",
-    `Wait (bounded, default 35 s, max 40 s; plus ≤10 s of stall checks) for a Run's workers: returns worker_done payloads, escalations/questions, and stall verdicts (each with an evidence_id for orca_stop). Does NOT acknowledge — process everything, then orca_ack(delivery_id). A timeout is a checkpoint: call again. ${DIRECT}`,
+    `Wait (bounded, default 35 s, max 40 s; plus ≤10 s of stall checks) for a Run's workers: returns worker_done payloads, escalations/questions, stall verdicts (exited, auth error, idle, or a brief that never reached the agent — each with an evidence_id for orca_stop), and reclaimable terminals still to release. Does NOT acknowledge — process everything, then orca_ack(delivery_id). A timeout is a checkpoint: call again. ${DIRECT}`,
     {
       run_id: z.string().min(1),
       timeout_ms: z.number().int().positive().max(MAX_WAIT_MS).optional(),
@@ -99,11 +99,21 @@ function registerWait(
         }
         return {
           dispatch_id: v.dispatchId,
+          task_id: v.taskId ?? null,
           reason: v.reason,
           evidence: v.evidence,
           evidence_id: evidenceId,
         };
       });
+      // Terminals owing a release decision; any release answer (retained
+      // included) settles one for this session, so the list cannot loop.
+      const reclaimable = r.reclaimable
+        .filter((t) => !state.released.has(t.dispatchId))
+        .map((t) => ({
+          dispatch_id: t.dispatchId,
+          task_id: t.taskId ?? null,
+          terminal: t.terminal ?? null,
+        }));
       if (r.deliveryId) state.deliveries.set(r.deliveryId, args.run_id);
 
       const workerDone = r.messages.flatMap((m) =>
@@ -139,9 +149,15 @@ function registerWait(
           (s) =>
             `- **STALL** ${s.dispatch_id} (${s.reason}): ${s.evidence} — evidence_id ${s.evidence_id}`,
         ),
+        ...reclaimable.map(
+          (t) =>
+            `- **reclaimable** ${t.dispatch_id}${t.task_id ? ` (${t.task_id})` : ""}: settled, its terminal awaits orca_release`,
+        ),
       ];
       if (r.stallError) {
-        lines.push(`- Stall check failed: ${r.stallError.message}`);
+        lines.push(
+          `- Stall check failed: ${r.stallError.message} — reclaimable terminals unknown this round`,
+        );
       }
       const next: string[] = [];
       if (r.messages.length) {
@@ -149,9 +165,19 @@ function registerWait(
           `process every message (verify completion yourself), then orca_ack(delivery_id=${r.deliveryId})`,
         );
       }
-      if (stalls.length) {
+      if (stalls.some((s) => s.reason === "never-started")) {
         next.push(
-          "for each stall: orca_stop(dispatch_id, evidence_id), then ask the user Retry / Skip / Stop",
+          "for a never-started stall (the brief never reached the agent): orca_stop(dispatch_id, evidence_id), then orca_start({task_id, worktree, agent, retry_of: dispatch_id}) for a fresh capability; never resend the brief by hand (dispatch-show --preamble omits the capability)",
+        );
+      }
+      if (stalls.some((s) => s.reason !== "never-started")) {
+        next.push(
+          "for each other stall: orca_stop(dispatch_id, evidence_id), then ask the user Retry / Skip / Stop",
+        );
+      }
+      if (reclaimable.length) {
+        next.push(
+          "orca_release each reclaimable dispatch once its worker_done is processed; do not end the coordinator turn while any remain",
         );
       }
       if (!next.length) next.push("call orca_wait again");
@@ -165,8 +191,11 @@ function registerWait(
         worker_done: workerDone,
         messages: other,
         stalls,
+        reclaimable,
         active_dispatches: r.verdicts.length,
-        ...(r.stallError ? { stall_error: r.stallError } : {}),
+        ...(r.stallError
+          ? { stall_error: r.stallError, reclaimable_unknown: true }
+          : {}),
       });
     },
   );
@@ -255,9 +284,17 @@ function registerStop(
         runner: deps.runner,
       });
       if (!r.ok) {
-        return orcaFailure("Orca stop", r.error, {
-          dispatch_id: args.dispatch_id,
-        });
+        const unknown = r.error.code === "stop_unknown";
+        return orcaFailure(
+          "Orca stop",
+          r.error,
+          { dispatch_id: args.dispatch_id },
+          unknown
+            ? [
+                `- Orca could not prove the stop, so a retry is refused until the attempt is fenced. Next: ask the user, then orca_abandon({ dispatch_id: "${args.dispatch_id}" }), then orca_start({ task_id: "${entry.verdict.taskId ?? "<task_id>"}", worktree, agent, retry_of: "${args.dispatch_id}" }).`,
+              ]
+            : [],
+        );
       }
       state.verdicts.delete(args.dispatch_id);
       return orcaResponse(
@@ -265,7 +302,9 @@ function registerStop(
         [
           `- Stopped ${args.dispatch_id} (${entry.verdict.reason}: ${entry.verdict.evidence}).`,
           ...(r.result?.warning ? [`- Warning: ${r.result.warning}`] : []),
-          "- Next: ask the user Retry / Skip / Stop.",
+          entry.verdict.reason === "never-started"
+            ? `- Next: the brief never reached the agent — start a replacement with a fresh capability: orca_start({ task_id: "${entry.verdict.taskId ?? "<task_id>"}", worktree, agent, retry_of: "${args.dispatch_id}" }).`
+            : "- Next: ask the user Retry / Skip / Stop.",
         ],
         {
           ok: true,

@@ -36,25 +36,42 @@ const DIRECT = "Direct-only: talks to the local `orca` CLI, never the sidecar.";
 export const DEFAULT_START_BUDGET_MS = 45_000;
 const MAX_FINISHED = 50;
 const TITLE = "Orca start";
+const UNCONFIRMED =
+  "- Orca cannot confirm this agent received the brief; orca_wait reports a never-started stall if it did not.";
 
-function pending(requestId: string, taskId: string) {
+function pending(requestId: string, taskId: string, retryOf?: string) {
+  const same = retryOf
+    ? `the same arguments (including retry_of="${retryOf}")`
+    : "the same arguments";
   return orcaResponse(
     TITLE,
     [
       `- **Pending:** the worker for ${taskId} is still starting.`,
-      `- Call orca_start again with the same arguments and request_id=${requestId} (joins or replays; never starts a duplicate).`,
+      `- Call orca_start again with ${same} and request_id=${requestId} (joins or replays; never starts a duplicate).`,
     ],
-    { ok: true, status: "pending", task_id: taskId, request_id: requestId },
+    {
+      ok: true,
+      status: "pending",
+      task_id: taskId,
+      request_id: requestId,
+      ...(retryOf ? { retry_of: retryOf } : {}),
+    },
   );
 }
 
-function formatStart(r: StartTaskResult, requestId: string, taskId: string) {
+function formatStart(
+  r: StartTaskResult,
+  requestId: string,
+  taskId: string,
+  retryOf?: string,
+) {
   switch (r.status) {
     case "started":
       return orcaResponse(
         TITLE,
         [
           `- **Started** ${taskId} as dispatch ${r.dispatchId}${r.retried ? " (after one retry)" : ""}`,
+          ...(r.deliveryConfirmed ? [] : [UNCONFIRMED]),
           "- Next: orca_wait(run_id) until its worker_done arrives.",
         ],
         {
@@ -64,6 +81,7 @@ function formatStart(r: StartTaskResult, requestId: string, taskId: string) {
           dispatch_id: r.dispatchId,
           request_id: r.requestId,
           retried: r.retried,
+          delivery_confirmed: r.deliveryConfirmed,
           failed_attempts: r.failedAttempts,
         },
       );
@@ -117,7 +135,7 @@ function formatStart(r: StartTaskResult, requestId: string, taskId: string) {
       });
     case "error":
       if (r.error.code === "orca_timeout" && r.failedAttempts.length === 0) {
-        return pending(requestId, taskId);
+        return pending(requestId, taskId, retryOf);
       }
       return orcaFailure(TITLE, r.error, {
         status: "error",
@@ -166,7 +184,7 @@ export function registerOrcaStartTool(
 ): void {
   server.tool(
     "orca_start",
-    `Start ONE supervised worker for an Orca task (auth preflight, one --retry-of on a failed start, residual terminals closed). Answers within ~45 s: if the worker is still starting it returns status "pending" with a request_id — call orca_start again with the same request_id to join or replay it (never a duplicate). ${DIRECT}`,
+    `Start ONE supervised worker for an Orca task (auth preflight, one --retry-of on a failed start, residual terminals reported). Answers within ~45 s: if the worker is still starting it returns status "pending" with a request_id — call orca_start again with the same request_id to join or replay it (never a duplicate). To replace a stopped or failed attempt (after orca_stop), pass retry_of=<its dispatch id>. ${DIRECT}`,
     {
       task_id: z.string().min(1),
       worktree: z.union([
@@ -179,13 +197,19 @@ export function registerOrcaStartTool(
         .string()
         .optional()
         .describe("From a previous `pending` answer; omit for a new start"),
+      retry_of: z
+        .string()
+        .optional()
+        .describe(
+          "Dispatch id of a STOPPED or FAILED attempt of this task (after orca_stop): starts a replacement with a fresh capability",
+        ),
     },
     async (args) => {
       const requestId = args.request_id ?? randomUUID();
       const done = state.finishedStarts.get(requestId);
       if (done) {
         state.finishedStarts.delete(requestId);
-        return formatStart(done, requestId, args.task_id);
+        return formatStart(done, requestId, args.task_id, args.retry_of);
       }
       const p = trackStart(state, requestId, () =>
         startTask({
@@ -193,6 +217,7 @@ export function registerOrcaStartTool(
           worktree: args.worktree,
           agent: args.agent,
           runId: args.run_id,
+          retryOf: args.retry_of,
           requestId,
           runner: deps.runner,
         }),
@@ -206,9 +231,10 @@ export function registerOrcaStartTool(
       });
       try {
         const r = await Promise.race([p, budget]);
-        if (r === "pending") return pending(requestId, args.task_id);
+        if (r === "pending")
+          return pending(requestId, args.task_id, args.retry_of);
         state.finishedStarts.delete(requestId);
-        return formatStart(r, requestId, args.task_id);
+        return formatStart(r, requestId, args.task_id, args.retry_of);
       } finally {
         clearTimeout(timer);
       }
