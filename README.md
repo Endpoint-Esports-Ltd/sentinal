@@ -56,7 +56,7 @@ Both assistants can be used simultaneously — Sentinal detects which environmen
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
 - **Persistent Semantic Memory** — Vector-based knowledge storage with automatic capture/restore and hybrid keyword+semantic search
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (46 tools across 8 domains)
+- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (47 tools across 8 domains)
 - **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
 - **Long-Running Sidecar** — Background process holding a warm DB + embeddings; hooks connect via Unix socket for sub-15ms response times
 
@@ -684,7 +684,7 @@ These are preferred over built-in web tools. In Claude Code, the `tool-redirect`
 
 ### Sentinal MCP Tool Catalog
 
-The `sentinal` MCP server exposes **46 tools across 8 domains**:
+The `sentinal` MCP server exposes **47 tools across 8 domains**:
 
 | Domain       | Count | Tools                                                                                                                                                              |
 | ------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -695,7 +695,7 @@ The `sentinal` MCP server exposes **46 tools across 8 domains**:
 | **Analysis** | 4     | `check_diagnostics`, `impact_analysis`, `plan_impact`, `quality_report`                                                                                            |
 | **Runtime**  | 4     | `runtime_config`, `runtime_init`, `runtime_up`, `runtime_stop`                                                                                                     |
 | **Project**  | 1     | `project_context`                                                                                                                                                  |
-| **Orca**     | 8     | `orca_status`, `orca_dispatch`, `orca_start`, `orca_wait`, `orca_ack`, `orca_stop`, `orca_release`, `orca_remove_worktree`                                         |
+| **Orca**     | 9     | `orca_status`, `orca_dispatch`, `orca_start`, `orca_wait`, `orca_ack`, `orca_stop`, `orca_abandon`, `orca_release`, `orca_remove_worktree`                         |
 
 ## Development
 

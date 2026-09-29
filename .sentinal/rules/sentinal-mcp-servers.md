@@ -1,6 +1,6 @@
 # Sentinal MCP Server (Self-Hosted)
 
-The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **46 tools across 8 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
+The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **47 tools across 8 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
 > ⚠️ This count was previously stated as "28 tools across 6 domains" and was already wrong before the runtime domain existed — the real pre-Phase-3 figure was **31 across 6** (the Memory table below was missing `memory_update`, `memory_delete` and `memory_share`). `src/mcp/server.test.ts` now asserts registration, so a domain that is never wired in is caught; the COUNT is still hand-maintained.
 
@@ -177,29 +177,64 @@ checkout), else the main checkout as before; the chosen checkout must be clean f
 (`DIRTY_MAIN_CHECKOUT` names the files). The tool reports `Merged in:`. `manager.squashMerge` still
 returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outcome}`.
 
-### Orca Domain (`src/orca/mcp-tools*.ts`) — 8 tools
+### Orca Domain (`src/orca/mcp-tools*.ts`) — 9 tools
 
-| Tool                   | Purpose                                                                          |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth |
-| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing  |
-| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays)     |
-| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls; no ack    |
-| `orca_ack`             | Acknowledge a delivery                                                           |
-| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait` |
-| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                            |
-| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                              |
+| Tool                   | Purpose                                                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                         |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                          |
+| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); `retry_of` replaces a stopped/failed attempt; reports `delivery_confirmed` |
+| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `reclaimable` terminals; no ack                          |
+| `orca_ack`             | Acknowledge a delivery                                                                                                                                   |
+| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                         |
+| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                        |
+| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                                                                                                    |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                      |
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
 document — mutations print pretty JSON, `check --wait` streams NDJSON keepalives on stderr; never
 throws). Tests never run the real `orca` binary: inject the runner and replay
 `src/orca/__fixtures__/`. ⛔ **Never stop, release or remove on absence** — `unverifiable` liveness
-authorizes nothing; `orca_stop` refuses without a stall verdict (auth error, `exited`, or idle past
-10 min without `worker_done`). Every mutation sends a UUID `--retry-request`. The MCP server
-inherits `ORCA_TERMINAL_HANDLE` from the agent's Orca terminal; `ensureRun` refuses a Run bound to
-another coordinator. MCP tool calls must stay under ~60 s, which is why start and wait are split and
-bounded.
+authorizes nothing; `orca_stop` refuses without a stall verdict (auth error, `exited`, idle past
+10 min without `worker_done`, or `never-started`). Every mutation sends a UUID `--retry-request`.
+The MCP server inherits `ORCA_TERMINAL_HANDLE` from the agent's Orca terminal; `ensureRun` refuses a
+Run bound to another coordinator. MCP tool calls must stay under ~60 s, which is why start and wait
+are split and bounded.
+
+⛔ **OpenCode has no transcript** (issue #12, `docs/plans/2026-09-29-orca-dropped-prompt.md`):
+`worker-read --source auto` answers `source: "terminal"`, `fallbackReason: "provider_unsupported"`,
+and only a terminal tail. Stall evidence for such workers comes from that tail
+(`src/orca/stall-terminal.ts`): an auth failure on screen is `auth-error`, and `never-started` (the
+brief was dropped) needs ALL of — live liveness, no `worker_done`, the agent's home screen visible,
+the dispatch id absent from the joined tail, no heartbeat, and `dispatchedAt` (zone-less UTC,
+`parseDispatchedAt`) older than `DEFAULT_NEVER_STARTED_MS` (3 min). `worker-show` is called only for
+home-screen suspects. Only OpenCode's home-screen signature was verified live; it needs BOTH the splash logo's top row and the input box's `┃  Ask anything…` placeholder, each at a line start, so an agent that merely prints or quotes the phrase is never taken for the home screen. A tail `auth-error` counts only in the provider's own wording, in the last 8 non-blank lines (the terminal's "final turn"). Every
+evidence string is redacted (`redactCapabilities`), because the echoed preamble shows the `dcap_…`
+capability. Recovery is `orca_stop`, then `orca_start({…, retry_of: <stopped dispatch>})`.
+`orca_start` reports `delivery_confirmed: false` when the receipt says `turnStart`/
+`prompt.observation` `unsupported` (OpenCode). `orca_wait` lists `reclaimable` dispatches (from the
+same `worker-list`, `terminalState: "reclaimable"`), minus any this session already released.
+
+⛔ **`stop_unknown` → `orca_abandon`** (Task 9 of `docs/plans/2026-09-29-orca-dropped-prompt.md`, verified
+live on 1.4.216): `worker-stop` answers `stop_unknown` when Orca has marked the worker's terminal
+`user_owned`/`user_takeover` (seen on an idle OpenCode worker nobody typed into; cause unknown). The
+dispatch stays `dispatched`, a second stop is `dispatch_inactive`, and `--retry-of` is refused.
+`orca_stop` then names the recovery: ask the user → `orca_abandon` → `orca_start({…, retry_of})`.
+`orca_abandon` (`src/orca/mcp-tools-abandon.ts`) is gated on Orca's own `worker-show`
+(`worker.state === "stop_unknown"` or stage `stop_outcome_unknown`) — never on absence — so it cannot
+abandon a healthy worker, and the gate survives a new session. Abandon fences the dispatch as
+`failed` without touching processes or files; the old terminal stays retained.
+
+A failed start's `cleanupAttempt` (`src/orca/dispatch-start.ts`) releases the attempt and **no
+longer runs `orca terminal close`** — Orca's guide says never substitute it for release; terminals of
+a `retained` release are reported in `unclosedTerminals` (`closedTerminals` stays, always `[]`).
+
+The `orca_*` tools stay Sentinal's own (rather than prose telling agents to run `orca`) because they
+enforce the safety floor in code and integrate adoption, VERIFIED and merge. Shipped prose defers
+every generic Orca rule (retry, release, stop, the worker contract) to the version-matched guide the
+binary serves — `orca skills get orchestration [--reference <file>]` — which needs no installed
+skill files.
 
 ### Runtime Domain (`src/runtime/mcp-tools.ts` + `lifecycle-mcp-tools.ts`) — 4 tools
 

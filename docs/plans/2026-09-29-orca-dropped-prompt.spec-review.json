@@ -1,0 +1,87 @@
+{
+  "pass_summary": "All 9 tasks are implemented and wired: never-started and tail auth verdicts, worker-show only for suspects, retry_of with --retry-request kept, no terminal close, reclaimable scoped per run and per session, and orca_abandon gated on Orca's own worker-show stop_unknown. Prose is symmetric across the 12 files and the fixtures hold no real dcap_ tokens. The main risk is false positives in the terminal-tail heuristics: both match anywhere in the 20-line tail, which could stop a healthy worker.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 8,
+  "truths_total": 8,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "never-started home-screen signature matches 'Ask anything' anywhere in the tail, including content a healthy worker is displaying",
+      "description": "src/orca/stall-terminal.ts:32-59: showsHomeScreen is `tail.some(line => /Ask anything/.test(line))`, with no anchor to OpenCode's input-box frame. The other conditions are weak for a long-running OpenCode worker. Its preamble (and so the ctx_ id) scrolls out of a 20-line tail. The plan's own live facts say lastHeartbeatAt is routinely null. Age > 3 min is true for any real task. So a healthy worker whose last 20 lines show text containing 'Ask anything' satisfies every condition, for example while reading or editing stall-terminal.ts, its tests, the fixtures or this plan, all of which live in this repo. The prose then stops it and retries it WITHOUT asking (spec-master-execute step 6, spec-implement). The Risk-table argument ('a home-screen worker has done no work') assumes the signature only matches the real home screen. No test covers a working tail that quotes the phrase.",
+      "suggested_fix": "Anchor the signature to the TUI frame, e.g. `/^\\s*[┃│]\\s*Ask anything/`, and/or require a second home-screen marker (the splash logo lines from race-screen.json) or restrict the check to the bottom ~8 lines where the prompt box sits. Add stall-terminal/stall tests where a working tail quotes 'Ask anything' in file content (no frame) and produces no verdict."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "Tail-derived auth-error can fire on ordinary tool output, and orca_wait says to stop before asking",
+      "description": "src/orca/stall.ts tailVerdict checks authErrorInTail(tail) first, before any home-screen or dispatch gate. It matches any of the 20 lines against AUTH_PATTERNS, e.g. `401 ... Unauthorized`, `not logged in` or `Please run /login`. The transcript path only judged the final assistant turn. A terminal tail, by contrast, also contains test output, grep results and diffs, so a worker testing HTTP 401 handling, or working in this repo on AUTH_PATTERNS itself, gets an auth-error stall. mcp-tools-settle.ts's hint for non-never-started stalls is 'orca_stop(dispatch_id, evidence_id), then ask the user Retry / Skip / Stop', so the healthy worker is stopped before the user is consulted.",
+      "suggested_fix": "Narrow the tail auth check to agent-rendered errors: restrict it to the last few lines, or require the line to look like an agent error banner (e.g. start with 'API Error' / an OpenCode error frame) rather than any substring. Alternatively, for tail-derived auth-error make the hint 'ask the user before orca_stop'. Add a test with a working tail containing `expect(res.status).toBe(401) // Unauthorized` that produces no stall."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "reclaimable is [] when stall collection fails, so 'nothing reclaimable' can be read as done",
+      "description": "src/orca/dispatch.ts waitForSettlement returns `reclaimable: s.ok ? s.reclaimable : []`. The prose (spec-master-execute step 8, both targets) ends a wave when nothing is reclaimable, but a failed worker-list yields an empty list together with stall_error. Absence is treated as evidence.",
+      "suggested_fix": "When stall collection fails, return `reclaimable: null` or add a `reclaimable_unknown: true` flag in orca_wait's structured output and text. The prose should then require a successful list before declaring the wave done."
+    },
+    {
+      "severity": "suggestion",
+      "category": "security",
+      "title": "Realistic-looking capability token in a test file",
+      "description": "src/orca/stall-terminal.test.ts:95 uses `dcap_spAp-EV8Te_iUh`, which looks like a real capture rather than a synthetic value. The truth-6 check only scans fixtures and the plan, so it misses this. The dispatch has long since settled, so the risk is low.",
+      "suggested_fix": "Replace it with an obviously synthetic token (e.g. `dcap_TEST-token_1`) and extend the Truth 6 rg to `src/orca/`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "A pending replay without retry_of reuses the request id with a different argv",
+      "description": "src/orca/mcp-tools-start.ts: when a start with retry_of returns `pending`, the coordinator re-calls with request_id. If that call omits retry_of (the pending text only names request_id), a replay that reaches Orca sends the same --retry-request without --retry-of. Orca may reject that as a payload mismatch or treat it as a different start.",
+      "suggested_fix": "Record retry_of in the pending/in-flight state keyed by request_id and reuse it on replay, or have the pending text say to repeat every original argument, retry_of included."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "stall.ts StallReason contains \"never-started\"",
+      "status": "verified",
+      "evidence": "The diff adds `\"exited\" | \"auth-error\" | \"idle-no-report\" | \"never-started\"`."
+    },
+    {
+      "truth": "The composite home fixture, age > 3 min and a null heartbeat give never-started; the dispatch id in the tail gives no stall",
+      "status": "verified",
+      "evidence": "tailVerdict implements the gates in order. stall.test.ts and dispatch.test.ts:384 ('returns reclaimable terminals and a never-started stall') cover it, and the full suite is green per the orchestrator."
+    },
+    {
+      "truth": "dispatch-start.ts no longer contains \"terminal\", \"close\"",
+      "status": "verified",
+      "evidence": "Grep over the repo finds no `\"terminal\", \"close\"`. cleanupAttempt reports unclosedTerminals with a `retained: <reason>` reason."
+    },
+    {
+      "truth": "The orca_start schema has retry_of and a test asserts --retry-of reaches worker-start",
+      "status": "verified",
+      "evidence": "mcp-tools-start.ts passes `retryOf: args.retry_of`. mcp-tools-start.test.ts:216 and dispatch-start.test.ts:221 assert --retry-of together with the kept --retry-request, and dispatch-start.test.ts:259 shows the automatic retry still uses the failed dispatch."
+    },
+    {
+      "truth": "The 'never dispatch-show --preamble' rule is in both spec-master-execute files",
+      "status": "verified",
+      "evidence": "targets/claude-code/commands/spec-master-execute.md:204 and targets/opencode/skills/spec-master-execute/SKILL.md:201."
+    },
+    {
+      "truth": "No unredacted dcap_ token in the fixtures or the plan",
+      "status": "verified",
+      "evidence": "The token grep finds only dcap_REDACTED in src/orca/__fixtures__ and the plan. Test files contain synthetic or real-looking tokens, which is outside the truth's scope (see suggestion)."
+    },
+    {
+      "truth": "mcp-tools-settle.ts contains reclaimable and a test asserts orca_wait lists a settled, unreleased dispatch",
+      "status": "verified",
+      "evidence": "mcp-tools-settle.test.ts:264 covers listing until released, retained included, and filtering uses state.released. The list comes from the run-scoped worker-list."
+    },
+    {
+      "truth": "There is no --outcome/--files-modified in targets/, and 'Supervised Orca worker' is in all 12 /spec phase files",
+      "status": "verified",
+      "evidence": "Grep finds no lifecycle flags in targets/. There are 12 files with 'Supervised Orca worker' (6 per target), and 'first user message' appears in both spec.md files."
+    }
+  ]
+}

@@ -375,7 +375,10 @@ coordinator's agent (`claude` / `opencode`). Verified in the spike: Orca enforce
 dependencies; a worker whose agent cannot log in goes silent (no `worker_done`), so `orca_wait`
 reports stalls and the skill asks the user; the first `worker-start` can fail at
 `agent_readiness` and one `--retry-of` recovers it; Orca child worktrees have no `node_modules`
-until `setup` runs.
+until `setup` runs. A brief OpenCode dropped while booting (issue #12) surfaces as a
+`never-started` stall read from the terminal tail; recovery is `orca_stop`, then
+`orca_start({…, retry_of})`. Generic Orca rules are not restated in Sentinal's prose: it defers
+to the version-matched guide, `orca skills get orchestration [--reference <file>]`.
 
 ## Auto-capture, dedupe and notifications (hardening sweep)
 

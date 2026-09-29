@@ -76,7 +76,7 @@ UPDATE_PARITY_BASELINES=1 bun test src/cli/target-parity.test.ts
 
 ```
 spec-bugfix-plan 1 · spec-implement 4 · spec-master-execute 3
-spec-plan 1 · spec 2 · sync 1
+spec-plan 1 · spec 3 · sync 1
 learn / pause / quick / spec-bugfix-verify / spec-master-plan / spec-verify → 0 hunks, 0 bytes
 ```
 

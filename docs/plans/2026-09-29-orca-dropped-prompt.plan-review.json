@@ -1,0 +1,77 @@
+{
+  "review_summary": "The plan covers issue #12, the clarifications and all five fan-out items, and its waves have no file overlaps. Four problems need fixing: the plan contradicts itself on whether a never-started stop needs the user; the reclaimable/stall data has to pass through dispatch.ts, which no task edits; the worker ask-routing rule sits only in the spec.md dispatcher, where the phase skills' '⛔ ALWAYS AskUserQuestion' text overrides it and its trigger can fire in non-Orca sessions; and a 'do not end the turn while any remain' rule can deadlock on retained terminals.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "risk_quality",
+      "title": "Contradiction: never-started stop is automatic in the prose but 'user-invoked' in the risk mitigation",
+      "description": "Risks table, false-positive row: \"`orca_stop` stays user-invoked by the skill\". Task 5 Recovery: \"A `never-started` stall → `orca_stop`, then `orca_start({ …, retry_of })`, **without asking**, once per task.\" The main mitigation for a false-positive stop is therefore not what Task 5 will ship. A wrong home-screen match (for example an OpenCode worker that hit /new or reset its session, or a wrapped or scrolled tail) kills a working worker with no human in the loop.",
+      "suggested_fix": "Pick one behaviour and state it in both places. Either (a) keep auto stop+retry and rewrite the risk row to name the real mitigation (age > 3 min + no heartbeat + home screen + no dispatch id, once per task, second occurrence asks), or (b) have Task 5 ask Retry/Skip/Stop with 'Retry (recommended)' preselected. Add a Task 5 DoD grep that checks the chosen wording."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "collectStalls is called from src/orca/dispatch.ts, which no task modifies",
+      "description": "`collectStalls(` is called at `src/orca/dispatch.ts:289`. `mcp-tools-settle.ts` does not call it directly. Task 2 adds `reclaimable` to the collectStalls result and `neverStartedMs` to its options. Task 4 says `orca_wait` 'prints and returns `reclaimable`'. The wrapper in dispatch.ts that sits between them is in no task's Files list, so Task 4's tests may pass against mocks while the real wait path drops `reclaimable`. The new `never-started` reason could also be lost if the wrapper filters or maps stall reasons.",
+      "suggested_fix": "Add `Modify: src/orca/dispatch.ts` (+ `dispatch.test.ts`) to Task 4, or to Task 2 (same wave as Task 3, no overlap), so `reclaimable` and `neverStartedMs` pass through the wrapper. Add a DoD test that drives `orca_wait` through the real dispatch.ts path with a fixture runner and asserts `reclaimable` appears in the structured content."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The worker ask-routing rule lives only in spec.md, and the phase skills say '⛔ ALWAYS use AskUserQuestion'",
+      "description": "User item 2: 'dispatched workers route questions through the preamble's ask rather than local question tools'. Task 5 puts the rule only in `targets/*/commands/spec.md`. The phase skills a worker actually runs carry stronger, later-loaded instructions: spec-plan.md:56 '⛔ ALWAYS use the `AskUserQuestion` tool', plan approval at spec-plan.md:427, spec-verify.md:449 'AskUserQuestion: Yes, squash merge', and spec-bugfix-plan. The dispatcher's rule is easily overridden once `Skill()` loads the phase. A worker may also be briefed to invoke `spec-implement` directly and skip spec.md altogether. 'Plan approval is already given by the brief' also conflicts with the `SENTINAL_PLAN_APPROVAL_ENABLED` flow.",
+      "suggested_fix": "Put one short, identical 'Supervised worker' clause in every phase file that calls AskUserQuestion (spec-plan, spec-bugfix-plan, spec-verify, spec-bugfix-verify, spec-implement, spec-master-plan) in both targets, or reference it from each. At minimum cover the approval and merge prompts (worker: treat approval as given and never squash-merge; the coordinator owns merge). Add DoD greps per file. Extend Task 7 (b3) so a briefed worker that hits a question calls `ask` rather than hanging."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "The worker-detection trigger could fire in non-Orca /spec sessions",
+      "description": "Task 5 trigger: 'If this conversation contains a live Orca dispatch preamble (a Task ID, a Dispatch ID and a `--dispatch-capability`)'. A coordinator or plain /spec session that reads this plan, the orca-cli skill, fixtures or `dispatch-show` output also 'contains' those strings. For example, this plan's own Context section mentions `--dispatch-capability dcap_…`. Such a session would suppress all local questions and try an `ask` with no capability. That breaks non-Orca /spec runs, which the user explicitly asked about.",
+      "suggested_fix": "Narrow the trigger: the preamble must be the session's first user message (the injected launch prompt) and carry a concrete `dcap_` token plus 'You are a supervised worker' or equivalent preamble text. Say explicitly that quoted or documented preamble text in files or tool output does not count, and that a session with no such first message behaves as before. Add a Task 5 DoD grep for 'first message' (or the chosen qualifier)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The 'do not end the turn while any reclaimable remain' rule can deadlock on retained terminals",
+      "description": "Context: '`worker-release` after a start on a caller-created terminal → `retained` / `external_terminal`'. Task 5: 'Before the wave ends, `orca_wait`'s `reclaimable` list must be empty.' If a retained terminal keeps `terminalState: reclaimable`, the list never empties unless the dispatch goes into `state.released`. `state.released.add` (settle.ts:301) is only proven on the success path. If `retained` or an error skips the add, the coordinator loops forever. `state.released` is also per-session, so after a coordinator restart (run_id resume) already-released dispatches reappear if Orca still lists them.",
+      "suggested_fix": "In Task 4, count any `worker-release` answer (released / already_released / retained) as settled for the reclaimable filter, and test the `retained` case. Scope `reclaimable` to the current run's `worker-list`. In Task 5, word the rule as 'release each once; a `retained` answer is reported, not retried'. In Task 7, confirm that `terminalState` after `retained` is not `reclaimable`, or record that it is."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Removing the --outcome guidance is verified only for OpenCode workers",
+      "description": "Task 5 drops 'Report with worker_done exactly once: --outcome …' from the briefs. Task 7 (b3) proves that reporting still works only for `--agent opencode`. The Orca Mode notes say workers run the coordinator's agent (`claude` / `opencode`). If a Claude worker's preamble does not show the flag syntax as clearly, it may never send `worker_done`, and the wave hangs until a stall that `idle-no-report` is out of scope to detect.",
+      "suggested_fix": "Keep one line in the brief: 'Report with the worker_done command from your preamble (outcome succeeded|failed)'. This names the verb but not the flags, and still passes the `--outcome` grep. Alternatively, add a Task 7 step with `--agent claude` if it is logged in, or record it as unverified under Live Verification."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Capability redaction has gaps: live-capture artefacts, the plan record, and a filtered DoD grep",
+      "description": "The redaction covers evidence strings and fixtures. Task 7 also says 'Record the `worker-read` capture for Pre-Mortem 1 and 3' and writes results into this plan, which is committed. Nothing requires those to be redacted. The Task 1 DoD `rg \"dcap_[A-Za-z0-9]\" … | rg -v REDACTED` also hides a real token on any line that also contains `dcap_REDACTED`. Separately, the orca_wait structured output could carry raw tail lines if Task 2/4 returns more than the evidence string.",
+      "suggested_fix": "Change the DoD check to `rg -o \"dcap_[A-Za-z0-9_-]+\" src/orca/__fixtures__ | rg -v \"dcap_REDACTED$\"` (per match, not per line). Require Task 7 to pass every recorded capture and plan excerpt through `redactCapabilities`, and to `rg dcap_` the plan before finishing. Add a Task 4 test that the `orca_wait` text and structured content contain no `dcap_` token other than REDACTED when the tail had one."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "The READ_LIMIT tail-window risk is only checked live, after all the code is written",
+      "description": "stall.ts:24 has `READ_LIMIT = 20`. The positive case rests entirely on the composite fixture (Task 7c admits a real drop cannot be reproduced). If `race-screen.json`'s `Ask anything` line is more than 20 lines from the bottom, the real `worker-read --limit 20` never shows it, and the feature silently does nothing. Unit tests would still pass against a composite built from the full screen.",
+      "suggested_fix": "Add to Task 1's DoD: the composite `worker-read-terminal-home.json` tail is exactly the last `READ_LIMIT` lines of `race-screen.json`, and a test asserts that `showsHomeScreen` is true on that slice. If it is false, raise READ_LIMIT in Task 2 (Wave 2) and don't wait for Task 7."
+    },
+    {
+      "severity": "suggestion",
+      "category": "hidden_dependency",
+      "title": "The sentinal-orca-cli skill path may not match the loaded copies",
+      "description": "Task 6 edits `.sentinal/skills/sentinal-orca-cli/SKILL.md`. The skill the agent actually loads is `.opencode/skills/sentinal-orca-cli/SKILL.md`, and the sibling skills also live under `.claude/skills/`. If those are copies rather than symlinks, the trim will not reach the loaded skill.",
+      "suggested_fix": "Before Task 6, confirm which path is canonical and whether the `.opencode/` and `.claude/` copies are symlinks. If they are copies, list them in the Files list and in the DoD greps."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "mentionsDispatch is a per-line substring test on a wrapped TUI",
+      "description": "The TUI may wrap a long preamble line in the middle of the `ctx_…` id, so a per-line substring test would miss it. On its own that is fail-safe only because the home-screen signature is also required. That coupling is not documented.",
+      "suggested_fix": "Join the tail lines (with and without newlines) before the substring test, and add a test where the dispatch id is split across two lines."
+    }
+  ]
+}
