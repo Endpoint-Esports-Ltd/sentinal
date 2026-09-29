@@ -30,6 +30,7 @@ If you haven't completed Step 1.2, you cannot propose fixes. Symptom fixes are f
 - **Right-size the plan** — small bugs get lean plans. Don't over-engineer.
 - **Plan file is source of truth** — survives across auto-compaction cycles
 - **ALWAYS use `AskUserQuestion` tool** for clarifications — never list numbered questions in plain text
+- **Supervised Orca worker?** See `/spec` → Supervised Orca worker: questions go through the preamble's `ask` command, never this tool.
 - **⛔ If `SENTINAL_PLAN_QUESTIONS_ENABLED` is `"false"` (from Step 0),** skip all `AskUserQuestion` calls. Make reasonable default assumptions and document them in the plan. Continue autonomously.
 
 ---

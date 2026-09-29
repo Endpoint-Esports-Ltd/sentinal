@@ -92,6 +92,8 @@ Explore the codebase systematically to understand:
 
 Present wave ordering options with trade-offs. Use `AskUserQuestion`.
 
+**Supervised Orca worker?** See `/spec` → Supervised Orca worker: questions go through the preamble's `ask` command, never this tool.
+
 Key decisions:
 
 - How to split work into phases

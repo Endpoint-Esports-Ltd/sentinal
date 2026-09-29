@@ -55,6 +55,8 @@ Reference these values throughout: Steps 1.2/1.3b/1.4 (questions), 1.7 (reviewer
 
 **⛔ ALWAYS use the `AskUserQuestion` tool** (when questions are enabled) — never list numbered questions in plain text.
 
+**Supervised Orca worker?** See `/spec` → Supervised Orca worker: questions go through the preamble's `ask` command, never this tool.
+
 **⛔ Default is to ASK, not skip.** Every plan benefits from at least one round of user alignment.
 
 **Questions batched into max 2 interactions:** Batch 1 (before exploration) clarifies task/scope/priorities. Batch 2 (after exploration) resolves architecture/design decisions.

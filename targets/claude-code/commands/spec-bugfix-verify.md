@@ -106,6 +106,9 @@ Verify:
    Show diff: `sentinal worktree diff --json <plan_slug>`
 
 6. Notify + AskUserQuestion: "Yes, squash merge" | "No, keep worktree" | "Discard all changes"
+
+   **Supervised Orca worker?** See `/spec` → Supervised Orca worker: questions go through the preamble's `ask` command, never this tool.
+
 7. Handle:
 
    **Preferred:** Use `worktree_sync` MCP tool.

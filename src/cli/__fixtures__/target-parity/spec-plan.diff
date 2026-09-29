@@ -1,4 +1,4 @@
-@@ -82,7 +82,7 @@
+@@ -84,7 +84,7 @@
     sentinal worktree detect --json <plan_slug>
     # If not found:
     sentinal worktree create --json <plan_slug>

@@ -140,7 +140,10 @@ Agent(
 
 Each child plan runs as a supervised **Orca worker** in its own Orca worktree, which Sentinal
 adopts. You coordinate through the `orca_*` and `worktree_*` MCP tools; never call the `orca` CLI
-for lifecycle steps yourself.
+for lifecycle steps yourself. The tools wrap the lifecycle and enforce its safety rules in code.
+For any Orca step they do not wrap, load Orca's version-matched guide with
+`orca skills get orchestration` (and `--reference recovery-and-cleanup` for a failed, stopped or
+uncertain attempt). The `orca` binary serves that guide itself, so it needs no installed skill.
 
 **Per wave:**
 
@@ -150,16 +153,22 @@ for lifecycle steps yourself.
 2. **Dispatch.** `orca_dispatch({ objective, agent, tasks })` with one task per child plan:
    `key` = the phase, `title` = the phase title, `worktree: "prepare-child"`,
    `name: "spec-<child-plan-slug>"`, `base_branch` = this session's branch, `deps` = the task keys
-   (or ids) of the phases this one depends on. The `spec` text must be self-contained:
+   (or ids) of the phases this one depends on. The `spec` text must be self-contained and follow
+   Orca's Task-spec contract:
 
    ```
-   Target: this worktree only. Run the spec workflow for <child-plan-path> (Phase N of master
-   plan <master-plan-path>): read the plan; PENDING + Approved: Yes or IN_PROGRESS → run
-   /spec <child-plan-path> to completion; COMPLETE → run verification only; VERIFIED → nothing
-   to do. Constraints: work only in this worktree; commit your work on this branch; do not
-   merge, push, or edit the master plan. Observable acceptance: the child plan file reads
-   Status: VERIFIED. Report with worker_done exactly once: --outcome succeeded when the plan
-   reads VERIFIED, otherwise --outcome failed with the plan's Status and the blocker.
+   Target: this worktree only; child plan <child-plan-path> (Phase N of master plan
+   <master-plan-path>).
+   Change: run the spec workflow for the child plan. PENDING + Approved: Yes or IN_PROGRESS →
+   run /spec <child-plan-path> to completion; COMPLETE → run verification only; VERIFIED →
+   nothing to do.
+   Constraints: work only in this worktree; commit your work on this branch; do not merge,
+   push, or edit the master plan. Questions: use your preamble's `ask` command, never a local
+   question prompt.
+   Ownership: this worktree and its branch.
+   Observable acceptance: the child plan file reads Status: VERIFIED. Report completion through
+   your Orca preamble: succeeded only when the plan reads VERIFIED, otherwise failed with the
+   plan's Status and the blocker; list the files you changed.
    ```
 
    The reply returns each task's `task_id` and the prepared worktree `path`; nothing is started yet.
@@ -170,6 +179,8 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
 4. **Start.** `orca_start({ task_id, worktree: { path }, agent })` for each task. If it returns
    `pending`, call it again with the same `request_id`; if `blocked`, its dependencies are still
    running — start it once they settle; if `refused` or `failed`, treat the phase as failed.
+   `delivery_confirmed: false` is normal for agents whose delivery Orca cannot observe
+   (OpenCode); a brief that never landed shows up later as a `never-started` stall.
 5. **Wait.** Loop `orca_wait({ run_id })` (it returns within ~50 s; a timeout is a checkpoint, not
    a failure). For each `worker_done` that is not marked `replayed` (a replayed one was
    already settled — Orca re-sends a batch until it is acked; skip it):
@@ -181,11 +192,30 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    - Otherwise treat it as a failed phase (below).
      Then `orca_ack({ delivery_id })` before the next `orca_wait` (an un-acked batch is re-sent). Start
      any task that has become ready.
-6. **Stalls.** If `orca_wait` reports a stall (the worker's agent exited, hit a login error, or went
-   idle without reporting): `orca_stop({ dispatch_id, evidence_id })`, then handle it as a failed
-   phase and ask the user. Never stop, release or remove a worker on anything weaker than a
-   reported stall.
-7. The wave is done when every task in it has settled; update progress (Step 4) and continue.
+6. **Stalls.** `orca_wait` reports a stall only on positive evidence, each with an `evidence_id`:
+   - **`never-started`** (the brief never reached the agent: its empty home screen is still showing,
+     with no heartbeat, minutes after dispatch). The worker has done no work, so recover without
+     asking, **once per task**: `orca_stop({ dispatch_id, evidence_id })`, then
+     `orca_start({ task_id, worktree: { path }, agent, retry_of: <stopped dispatch_id> })`, which
+     starts a replacement with a fresh capability. A second `never-started` stall on the same task
+     is a failed phase.
+   - **Any other stall** (the agent exited, hit a login error, or went idle without reporting):
+     `orca_stop({ dispatch_id, evidence_id })`, then handle it as a failed phase and ask the user.
+   - ⛔ Never resend a brief by hand with `orca orchestration dispatch-show --preamble` or
+     `orca terminal send`: the regenerated preamble omits the dispatch capability, so that worker
+     can never report and the dispatch never settles.
+   - If `orca_stop` answers **`stop_unknown`** (Orca could not prove the stop, e.g. it considers the
+     terminal taken over), a retry is refused until the attempt is fenced: ask the user, then
+     `orca_abandon({ dispatch_id })` (refused unless Orca itself reports `stop_unknown`), then
+     `orca_start({ …, retry_of: <that dispatch_id> })`.
+   - Never stop, release or remove a worker on anything weaker than a reported stall.
+7. **Terminals.** `orca_wait` lists `reclaimable` dispatches — settled workers whose terminal still
+   awaits `orca_release`. Release each once its `worker_done` is processed; any release answer,
+   `retained` included, clears it. A failed start's leftover terminal is reported by `orca_start`,
+   never closed by hand.
+8. The wave is done when every task in it has settled and nothing is `reclaimable` (if a wait
+   reports `reclaimable_unknown`, wait again before deciding); update
+   progress (Step 4) and continue.
 
 **Resuming** in a new session: a Run is bound to the terminal that created it. Pass the Run's
 id (`run_id`, from the earlier `orca_dispatch` reply) to `orca_dispatch` to bind it to this

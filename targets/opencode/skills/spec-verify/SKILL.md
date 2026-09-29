@@ -446,6 +446,8 @@ Re-run full test suite + TypeScript + linter + build one final time. Cheap insur
 
    AskUserQuestion: "Yes, squash merge" (Recommended) | "No, keep worktree" | "Discard all changes"
 
+   **Supervised Orca worker?** See `/spec` → Supervised Orca worker: questions go through the preamble's `ask` command, never this tool.
+
 8. **Handle choice:**
 
    **Squash merge:**
