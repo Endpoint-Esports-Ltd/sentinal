@@ -1,3 +1,10 @@
+# [1.43.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.42.1...v1.43.0) (2026-09-30)
+
+
+### Features
+
+* **orca:** pre-warmed start for OpenCode, orca_reply and orca_rebind ([80d1247](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/80d1247ce02bc4311855b9f0cd18d67c2678be26))
+
 ## [1.42.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.42.0...v1.42.1) (2026-09-30)
 
 
