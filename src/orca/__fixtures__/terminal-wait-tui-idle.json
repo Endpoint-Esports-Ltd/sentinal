@@ -1,0 +1,17 @@
+{
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216 (macOS), #12 live test of the gated start: orca terminal wait --terminal <h> --for tui-idle --json.",
+  "id": "2b28470b-8ea7-4bd3-93ee-6df5db19fe17",
+  "ok": true,
+  "result": {
+    "wait": {
+      "handle": "term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c",
+      "condition": "tui-idle",
+      "satisfied": true,
+      "status": "running",
+      "exitCode": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  }
+}

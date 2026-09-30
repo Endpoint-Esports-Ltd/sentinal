@@ -152,6 +152,8 @@ describe("createSentinalServer", () => {
       "orca_release",
       "orca_remove_worktree",
       "orca_abandon",
+      "orca_reply",
+      "orca_rebind",
     ]) {
       expect(names).toContain(tool);
     }

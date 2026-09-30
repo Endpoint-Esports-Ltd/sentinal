@@ -1,0 +1,31 @@
+{
+  "_provenance": "Recorded live 2026-09-30, Orca 1.4.217 (macOS): orca terminal show of a live (coordinator) terminal.",
+  "id": "5ab45e99-7278-4fb0-9feb-2d1cd66041de",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_66fae77e-858c-4ad2-a392-99ab04b4cd13",
+      "ptyId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-support@@44640a4a",
+      "incarnationId": "6edb34ca-c55f-42f4-93ce-c5b13e750b47",
+      "orphaned": false,
+      "worktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/orca-support",
+      "worktreePath": "/Users/dev/orca/workspaces/sentinal/orca-support",
+      "branch": "refs/heads/orca-support",
+      "tabId": "1673150a-ba85-402d-82bc-5aeb2f6360fc",
+      "leafId": "dcfca489-d2a7-4087-bf68-6da57bce8587",
+      "title": "OC | Leveraging Orca with Sentinal",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1790807916411,
+      "preview": "rca-support\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n⬝■■■■■■⬝  esc interrupt                                                                      610.0K (61%) · $499.34  ctrl+p commands    • OpenCode 1.18.33",
+      "executionHostId": "local",
+      "agentIdentity": "opencode",
+      "paneRuntimeId": 1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "b2ab5bdf-4cb0-4c95-8232-d9a8ee40ea44"
+  }
+}

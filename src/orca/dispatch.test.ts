@@ -299,7 +299,7 @@ describe("waitForSettlement", () => {
       "run_93672f816e9f",
       "--wait",
       "--types",
-      "worker_done,escalation,question",
+      "worker_done,escalation,question,heartbeat",
       "--timeout-ms",
       "35000",
       "--json",

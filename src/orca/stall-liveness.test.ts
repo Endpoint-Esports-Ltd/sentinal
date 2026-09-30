@@ -221,3 +221,39 @@ describe("unverifiableAttention", () => {
     expect(unverifiableAttention({ ...base(), now: AT + MIN })).toBeNull();
   });
 });
+
+describe("real #13 d11 stall-time capture (Orca 1.4.209, wide screen)", () => {
+  const read = () => load<OrcaWorkerReadResult>("worker-read-d11-wide.json");
+  const show = () => load<OrcaWorkerShowResult>("worker-show-d11-stall.json");
+  const at = Date.parse("2026-09-30T17:40:00Z");
+
+  it("ties the live terminal to the dispatch through observation AND through read status + handle", () => {
+    expect(ownTerminalLive({ read: null, show: show() })).toBe(true);
+    const s = show();
+    delete s.observation;
+    expect(ownTerminalLive({ read: read(), show: s })).toBe(true);
+  });
+
+  it("raises never-started-unverifiable at +4 min, not at +1 min", () => {
+    const row: OrcaWorkerListRow = {
+      dispatchId: "ctx_d130000000b1",
+      taskId: "task_d130000000b1",
+      projection: {
+        outcome: "in_progress",
+        liveness: { verdict: "unverifiable", reason: "missing_status" },
+        attention: { categories: ["unverifiable"], requiresAction: true },
+      },
+    };
+    expect(
+      unverifiableAttention({
+        row,
+        read: read(),
+        show: show(),
+        now: at + 4 * MIN,
+      })?.kind,
+    ).toBe("never-started-unverifiable");
+    expect(
+      unverifiableAttention({ row, read: read(), show: show(), now: at + MIN }),
+    ).toBeNull();
+  });
+});

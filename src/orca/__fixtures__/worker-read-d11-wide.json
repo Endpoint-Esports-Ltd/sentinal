@@ -1,0 +1,97 @@
+{
+  "id": "<uuid-7>",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_d130000000b1",
+    "source": "terminal",
+    "sourceIdentity": "<source-identity>",
+    "terminal": {
+      "handle": "term_d13-worker",
+      "status": "running",
+      "tail": [
+        "                                                                                                              ▄",
+        "                                                                             █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",
+        "                                                                             █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀",
+        "                                                                             ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀",
+        "                                                           ┃",
+        "                                                           ┃  Ask anything… \"<placeholder>\"",
+        "                                                           ┃",
+        "                                                           ┃  Build · Claude Opus 5.5 Anthropic",
+        "                                                           ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "                                                                                                           tab agents  ctrl+p commands",
+        "                                                                      ● Tip Press shift+enter to add newlines in your prompt",
+        "  /home/dev/repo/.worktrees/phase-7:<branch-1>  ⊙ 7 MCP /status                                                  1.18.33"
+      ],
+      "truncated": true,
+      "limited": false,
+      "oldestCursor": "0",
+      "nextCursor": "1",
+      "latestCursor": "1",
+      "returnedLineCount": 12,
+      "source": "screen"
+    },
+    "cursor": "<cursor-1>",
+    "status": {
+      "worker": "ready",
+      "terminal": "running",
+      "liveness": "live"
+    },
+    "fallbackReason": "session_not_reported",
+    "warnings": [],
+    "sourceExact": false,
+    "contentComplete": false,
+    "clipping": ["terminal_buffer", "terminal_fallback"],
+    "projection": {
+      "id": "ctx_d130000000b1",
+      "dispatchId": "ctx_d130000000b1",
+      "taskId": "task_d130000000b1",
+      "runId": "run_d13",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "missing_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "unavailable",
+        "lastObservedAt": null
+      },
+      "resource": {
+        "state": "user_owned",
+        "id": "<resource-1>",
+        "ownerDispatchId": "ctx_d130000000b1",
+        "releaseState": "retained",
+        "terminalState": "retained"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": ["unverifiable"],
+        "requiresAction": true
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "<uuid-6>"
+  },
+  "_provenance": "REAL (issue #13 comment 1): worker-read --source auto of the same dispatch at stall time; 160-column screen."
+}

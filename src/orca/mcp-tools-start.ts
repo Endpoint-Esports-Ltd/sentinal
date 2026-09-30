@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { prewarmAgents } from "./dispatch-prewarm.js";
 import { startTask, type StartTaskResult } from "./dispatch.js";
 import {
   orcaFailure,
@@ -71,7 +72,20 @@ function formatStart(
         TITLE,
         [
           `- **Started** ${taskId} as dispatch ${r.dispatchId}${r.retried ? " (after one retry)" : ""}`,
-          ...(r.deliveryConfirmed ? [] : [UNCONFIRMED]),
+          ...(r.prewarm
+            ? [
+                `- Pre-warmed: started in Sentinal's terminal ${r.prewarm.terminal} once the agent's input box was drawn${r.prewarm.readyMs !== undefined ? ` (${r.prewarm.readyMs} ms)` : ""}.`,
+              ]
+            : []),
+          ...(r.fallbackReason
+            ? [`- Pre-warm fell back to --agent: ${r.fallbackReason}.`]
+            : []),
+          ...(r.retrySkipped
+            ? [
+                "- retry_of was refused because the task is already ready (its previous attempt settled); started it plainly.",
+              ]
+            : []),
+          ...(r.deliveryConfirmed || r.prewarm ? [] : [UNCONFIRMED]),
           "- Next: orca_wait(run_id) until its worker_done arrives.",
         ],
         {
@@ -82,6 +96,15 @@ function formatStart(
           request_id: r.requestId,
           retried: r.retried,
           delivery_confirmed: r.deliveryConfirmed,
+          start_path: r.startPath,
+          ...(r.prewarm ? { prewarm: r.prewarm } : {}),
+          ...(r.fallbackReason ? { fallback_reason: r.fallbackReason } : {}),
+          ...(r.retrySkipped
+            ? {
+                retry_of_skipped: true,
+                retry_of_refusal: r.retrySkipMessage ?? null,
+              }
+            : {}),
           failed_attempts: r.failedAttempts,
         },
       );
@@ -184,7 +207,7 @@ export function registerOrcaStartTool(
 ): void {
   server.tool(
     "orca_start",
-    `Start ONE supervised worker for an Orca task (auth preflight, one --retry-of on a failed start, residual terminals reported). Answers within ~45 s: if the worker is still starting it returns status "pending" with a request_id — call orca_start again with the same request_id to join or replay it (never a duplicate). To replace a stopped or failed attempt (after orca_stop), pass retry_of=<its dispatch id>. ${DIRECT}`,
+    `Start ONE supervised worker for an Orca task (auth preflight, one --retry-of on a failed start, residual terminals reported). Answers within ~45 s: if the worker is still starting it returns status "pending" with a request_id — call orca_start again with the same request_id to join or replay it (never a duplicate). To replace a stopped or failed attempt (after orca_stop), pass retry_of=<its dispatch id>. Agents in SENTINAL_ORCA_PREWARM_AGENTS (default opencode) are pre-warmed: Sentinal starts the agent in its own terminal and runs worker-start --terminal once the agent's input box is drawn, so the brief is not lost. ${DIRECT}`,
     {
       task_id: z.string().min(1),
       worktree: z.union([
@@ -211,6 +234,10 @@ export function registerOrcaStartTool(
         state.finishedStarts.delete(requestId);
         return formatStart(done, requestId, args.task_id, args.retry_of);
       }
+      // A request id this process is not running and never finished: a
+      // replay after a restart (pre-warm then asks request-show instead).
+      const replay =
+        args.request_id !== undefined && !state.inflightStarts.has(requestId);
       const p = trackStart(state, requestId, () =>
         startTask({
           taskId: args.task_id,
@@ -220,6 +247,30 @@ export function registerOrcaStartTool(
           retryOf: args.retry_of,
           requestId,
           runner: deps.runner,
+          prewarmAgents: prewarmAgents(deps.env ?? process.env),
+          terminal: state.startTerminals.get(requestId),
+          replay,
+          onTerminalCreated: (h) => state.startTerminals.set(requestId, h),
+          onTerminalClosed: (h) => {
+            if (state.startTerminals.get(requestId) === h) {
+              state.startTerminals.delete(requestId);
+            }
+          },
+          onRetrySkipped: (id) => state.startSkips.set(requestId, id),
+          skipRequestId: state.startSkips.get(requestId),
+          ...(deps.prewarmClock ? { prewarmClock: deps.prewarmClock } : {}),
+        }).then((r) => {
+          if (r.status === "started" && r.prewarm) {
+            state.createdTerminals.set(r.dispatchId, r.prewarm.terminal);
+          }
+          // Keep the handle only while a replay may still need it.
+          const timedOut =
+            r.status === "error" && r.error.code === "orca_timeout";
+          if (!timedOut) {
+            state.startTerminals.delete(requestId);
+            state.startSkips.delete(requestId);
+          }
+          return r;
         }),
       );
       let timer: ReturnType<typeof setTimeout> | undefined;

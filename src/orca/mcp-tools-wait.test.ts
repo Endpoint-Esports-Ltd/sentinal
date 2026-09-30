@@ -214,3 +214,160 @@ describe("orca_wait — attention entries", () => {
     expect(tools.get("orca_wait")!.desc).toContain("attention");
   });
 });
+
+// ------------------------------------------------- heartbeats (Task 3 of
+// docs/plans/2026-09-30-orca-prewarmed-start.md)
+
+const TIMEOUT = ok({
+  runId: "run_hb",
+  deliveryId: null,
+  messages: [],
+  timedOut: true,
+});
+const fenced = out(
+  JSON.stringify({
+    id: "x",
+    ok: false,
+    error: { code: "consumer_fenced", message: "consumer fenced" },
+  }),
+  1,
+);
+
+/** Replays `checks` in order for each `check --wait`; acks and stall reads are canned. */
+function checkSeq(checks: OrcaRunOutput[]) {
+  const calls: string[][] = [];
+  let i = 0;
+  const runner: OrcaRunner = async (args) => {
+    calls.push(args);
+    const line = args.join(" ");
+    if (line.startsWith("orchestration check") && args.includes("--ack")) {
+      return ok({ runId: "run_hb", deliveryId: null, messages: [] });
+    }
+    if (line.startsWith("orchestration check")) {
+      return checks[Math.min(i++, checks.length - 1)]!;
+    }
+    if (line.startsWith("orchestration worker-list"))
+      return ok({ workers: [] });
+    throw new Error(`unexpected orca call: ${line}`);
+  };
+  const waits = () =>
+    calls.filter((c) => c[1] === "check" && c.includes("--wait")).length;
+  return { runner, calls, waits };
+}
+
+function withMessages(base: string, extra: Record<string, unknown>[]) {
+  const doc = JSON.parse(base) as {
+    result: { messages: Record<string, unknown>[] };
+  };
+  doc.result.messages.push(...extra);
+  return out(JSON.stringify(doc));
+}
+
+const HEARTBEAT = {
+  id: "msg_hbx",
+  run_id: "run_93672f816e9f",
+  subject: "alive",
+  body: "",
+  type: "heartbeat",
+  payload: '{"taskId":"task_hb","dispatchId":"ctx_hb","phase":"implementing"}',
+  created_at: "2026-09-30 22:00:01",
+};
+
+describe("orca_wait — heartbeats", () => {
+  it("acks a heartbeat-only delivery and renders a timed-out checkpoint", async () => {
+    const s = checkSeq([out(fixture("check-heartbeat-only.json")), TIMEOUT]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb", timeout_ms: 5_000 });
+    const ack = s.calls.find((c) => c.includes("--ack"));
+    expect(ack?.slice(0, 6)).toEqual([
+      "orchestration",
+      "check",
+      "--run",
+      "run_hb",
+      "--ack",
+      "delivery_hb0001",
+    ]);
+    expect(r.data).toMatchObject({
+      ok: true,
+      timed_out: true,
+      messages: [],
+      worker_done: [],
+      heartbeats_acked: 2,
+      delivery_id: null,
+    });
+    expect(r.text).toContain("timed out (checkpoint)");
+    expect(r.text).toContain("call orca_wait again");
+  });
+
+  it("keeps waiting after a heartbeat-only delivery and returns a later worker_done", async () => {
+    const s = checkSeq([
+      out(fixture("check-heartbeat-only.json")),
+      out(fixture("check-worker-done.json")),
+    ]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb", timeout_ms: 5_000 });
+    expect(s.waits()).toBe(2);
+    expect(r.data.timed_out).toBe(false);
+    expect(r.data.heartbeats_acked).toBe(2);
+    expect(r.data.delivery_id).toBe("delivery_aa54dfdecfad");
+    expect(r.data.worker_done).toEqual([
+      expect.objectContaining({ dispatch_id: "ctx_4c968df3149b" }),
+    ]);
+  });
+
+  it("never loops more than 3 times on repeated heartbeat-only deliveries", async () => {
+    const s = checkSeq([out(fixture("check-heartbeat-only.json"))]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb", timeout_ms: 5_000 });
+    expect(s.waits()).toBe(3);
+    expect(r.data.timed_out).toBe(true);
+    expect(r.data.heartbeats_acked).toBe(6);
+  });
+
+  it("does not auto-ack a mixed delivery and counts its heartbeats", async () => {
+    const s = checkSeq([
+      withMessages(fixture("check-worker-done.json"), [HEARTBEAT]),
+    ]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb" });
+    expect(s.calls.some((c) => c.includes("--ack"))).toBe(false);
+    expect(r.data.heartbeats).toBe(1);
+    expect(r.data.messages).toEqual([]);
+    expect(r.data.worker_done.length).toBe(1);
+    expect(r.data.delivery_id).toBe("delivery_aa54dfdecfad");
+    expect(r.text).toContain("orca_ack(delivery_id=delivery_aa54dfdecfad)");
+    expect(r.text).not.toContain("**heartbeat**");
+  });
+
+  it("names orca_reply for a question", async () => {
+    const q = JSON.parse(fixture("check-worker-done.json")) as {
+      result: { messages: Record<string, unknown>[] };
+    };
+    q.result.messages = [
+      {
+        ...HEARTBEAT,
+        id: "msg_q1",
+        type: "question",
+        subject: "Which base branch?",
+        payload: null,
+      },
+    ];
+    const s = checkSeq([out(JSON.stringify(q))]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb" });
+    expect(r.text).toMatch(
+      /Next:.*orca_reply\(\{ ?run_id, message_id, body ?\}\)/,
+    );
+  });
+
+  it("hints orca_rebind on consumer_fenced", async () => {
+    const s = checkSeq([fenced]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb" });
+    expect(r.data.ok).toBe(false);
+    expect(r.data.error.code).toBe("consumer_fenced");
+    expect(r.text).toContain(
+      "This Run is bound to another coordinator terminal (e.g. after an Orca restart). If that terminal is gone, call orca_rebind({ run_id }) to bind it here.",
+    );
+  });
+});

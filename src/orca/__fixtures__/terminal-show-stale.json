@@ -1,0 +1,12 @@
+{
+  "_provenance": "Recorded live 2026-09-30, Orca 1.4.217 (macOS): orca terminal show of a closed terminal (error envelope).",
+  "id": "d6fd04e5-4494-4e27-81f9-39033dc33231",
+  "ok": false,
+  "error": {
+    "code": "terminal_handle_stale",
+    "message": "terminal_handle_stale"
+  },
+  "_meta": {
+    "runtimeId": "b2ab5bdf-4cb0-4c95-8232-d9a8ee40ea44"
+  }
+}

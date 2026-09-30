@@ -316,3 +316,48 @@ export interface OrcaAccountListResult {
   rateLimits?: Record<string, OrcaRateLimitEntry | unknown>;
   [key: string]: unknown;
 }
+
+/** `orca terminal create --json` (recorded 1.4.216). */
+export interface OrcaTerminalCreateResult {
+  terminal: { handle: string; [key: string]: unknown };
+}
+
+/** `orca terminal wait --for tui-idle|exit --json`. */
+export interface OrcaTerminalWaitResult {
+  wait: {
+    handle?: string;
+    condition?: string;
+    satisfied?: boolean;
+    status?: string;
+    exitCode?: number | null;
+  };
+}
+
+/** `orca terminal read --screen --json`. */
+export interface OrcaTerminalReadResult {
+  terminal: { handle?: string; status?: string; tail?: string[] };
+}
+
+/** `orca terminal show --json`: `connected` is true while the terminal is live. */
+export interface OrcaTerminalShowResult {
+  terminal?: { handle?: string; connected?: boolean; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+/** `orca orchestration request-show --request <id> --json`. */
+export interface OrcaRequestShowResult {
+  requestId: string;
+  state: "completed" | "pending" | "absent" | (string & {});
+  method?: string;
+  receipt?: unknown;
+  interpretation?: string;
+}
+
+/** `orca orchestration run-show --id <run> --json`. */
+export interface OrcaRunShowResult {
+  run: {
+    id: string;
+    coordinator_handle?: string | null;
+    [key: string]: unknown;
+  };
+}

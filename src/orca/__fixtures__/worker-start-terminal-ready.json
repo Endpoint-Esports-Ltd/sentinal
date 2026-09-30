@@ -1,0 +1,83 @@
+{
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216 (macOS), #12 live test of the gated start: orca orchestration worker-start --terminal <h> (brief delivered, worker_done accepted).",
+  "id": "4c7e259f-d001-4336-9927-c3fc3d20d2b9",
+  "ok": true,
+  "result": {
+    "runId": "run_67336763f7dd",
+    "taskId": "task_cfcb258797e8",
+    "dispatchId": "ctx_4dd3e7a6fe41",
+    "state": "ready",
+    "stage": "input_accepted",
+    "turnStart": "unsupported",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": null,
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": null,
+        "model": null,
+        "effort": null
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "timeoutMs": 60000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-3"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "reused",
+        "id": "term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c",
+        "state": "accepted"
+      }
+    ],
+    "prompt": {
+      "requestId": "3931B148-D3A4-4654-8D20-17C48CAC6D69",
+      "stages": ["input_accepted"],
+      "provider": "unsupported",
+      "observation": "unsupported",
+      "processIncarnation": "2ba6d83a-0717-4b65-8a81-ce472321e497",
+      "generation": 44,
+      "baselineWorkingSequence": 0,
+      "baselineExplicitWorkingStartedAt": null,
+      "baselinePermissionSequence": 0
+    },
+    "residualResources": [],
+    "mutation": {
+      "requestId": "3931B148-D3A4-4654-8D20-17C48CAC6D69",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  }
+}

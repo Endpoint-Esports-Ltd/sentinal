@@ -10,7 +10,11 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OrcaRunner, OrcaRunOutput } from "./cli.js";
 import { registerOrcaStartTool } from "./mcp-tools-start.js";
-import { createOrcaToolState, type OrcaToolsDeps } from "./mcp-tools-shared.js";
+import {
+  createOrcaToolState,
+  type OrcaToolState,
+  type OrcaToolsDeps,
+} from "./mcp-tools-shared.js";
 
 const FIXTURES = join(import.meta.dir, "__fixtures__");
 const fixture = (name: string): string =>
@@ -54,7 +58,10 @@ type Handler = (
   args: Record<string, unknown>,
 ) => Promise<{ content: { type: string; text: string }[] }>;
 
-function capture(deps: OrcaToolsDeps) {
+function capture(
+  deps: OrcaToolsDeps,
+  state: OrcaToolState = createOrcaToolState(),
+) {
   const server = new McpServer({ name: "test", version: "0.0.1" });
   const tools = new Map<string, { description: string; handler: Handler }>();
   server.tool = ((...args: unknown[]) => {
@@ -63,7 +70,7 @@ function capture(deps: OrcaToolsDeps) {
       handler: args[3] as Handler,
     });
   }) as typeof server.tool;
-  registerOrcaStartTool(server, deps, createOrcaToolState());
+  registerOrcaStartTool(server, deps, state);
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await tools.get(name)!.handler(args);
     const text = r.content[0]!.text;
@@ -73,7 +80,11 @@ function capture(deps: OrcaToolsDeps) {
   return { tools, call };
 }
 
-const ORCA_ENV = { ORCA_TERMINAL_HANDLE: COORD };
+/** Pre-warm off: these tests exercise the plain `--agent` start. */
+const ORCA_ENV = {
+  ORCA_TERMINAL_HANDLE: COORD,
+  SENTINAL_ORCA_PREWARM_AGENTS: "none",
+};
 
 // ------------------------------------------------------------- orca_start
 
@@ -308,5 +319,177 @@ describe("orca_start", () => {
     });
     expect(r.data.status).toBe("refused");
     expect(f.called("orchestration worker-start")).toEqual([]);
+  });
+});
+
+// ------------------------------------------------ orca_start, pre-warmed
+
+describe("orca_start — pre-warmed (issue #13)", () => {
+  const HANDLE = "term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c";
+  const fx = (name: string): OrcaRunOutput => out(fixture(name));
+  const instant = {
+    clock: (() => {
+      let t = 0;
+      return () => (t += 1);
+    })(),
+    sleep: async () => {},
+  };
+
+  it("pre-warms opencode by default, starts with --terminal and records the terminal Sentinal created", async () => {
+    const f = fakeOrca([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+      ["orchestration worker-start", fx("worker-start-terminal-ready.json")],
+    ]);
+    const state = createOrcaToolState();
+    const { call } = capture(
+      {
+        runner: f.runner,
+        env: { ORCA_TERMINAL_HANDLE: COORD },
+        prewarmClock: instant,
+      },
+      state,
+    );
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+    });
+    expect(r.data).toMatchObject({
+      status: "started",
+      start_path: "prewarmed",
+      prewarm: { terminal: HANDLE },
+    });
+    const ws = f.called("orchestration worker-start")[0]!;
+    expect(flag(ws, "--terminal")).toBe(HANDLE);
+    expect(ws).not.toContain("--agent");
+    expect(state.createdTerminals.get(r.data.dispatch_id)).toBe(HANDLE);
+  });
+
+  it("a pending join never creates a second terminal", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const f = fakeOrca([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+      [
+        "orchestration worker-start",
+        async () => {
+          await gate;
+          return fx("worker-start-terminal-ready.json");
+        },
+      ],
+    ]);
+    const { call } = capture({
+      runner: f.runner,
+      env: { ORCA_TERMINAL_HANDLE: COORD },
+      startBudgetMs: 30,
+      prewarmClock: instant,
+    });
+    const first = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+    });
+    expect(first.data.status).toBe("pending");
+    release();
+    const second = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      request_id: first.data.request_id,
+    });
+    expect(second.data.status).toBe("started");
+    expect(f.called("terminal create").length).toBe(1);
+  });
+});
+
+describe("orca_start — retry_of on a ready task (issue #13)", () => {
+  it("reports that retry_of was skipped and the task started plainly", async () => {
+    let n = 0;
+    const f = fakeOrca([
+      [
+        "orchestration worker-start",
+        () =>
+          n++ === 0
+            ? out(
+                JSON.stringify({
+                  id: "x",
+                  ok: false,
+                  error: {
+                    code: "task_not_startable",
+                    message: "Task task_1 cannot retry from Dispatch ctx_old.",
+                    data: { status: "ready", unmetDependencies: [] },
+                  },
+                }),
+                1,
+              )
+            : readyReceipt("ctx_new"),
+      ],
+    ]);
+    const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      retry_of: "ctx_old",
+    });
+    expect(r.data).toMatchObject({
+      status: "started",
+      dispatch_id: "ctx_new",
+      retry_of_skipped: true,
+    });
+    expect(r.text).toContain("already ready");
+  });
+});
+
+describe("orca_start — in-process replay after a timeout (review should_fix)", () => {
+  const fx = (name: string): OrcaRunOutput => out(fixture(name));
+  const instant = { clock: () => 0, sleep: async () => {} };
+
+  it("reuses the recorded pre-warmed terminal under the same request id", async () => {
+    let n = 0;
+    const f = fakeOrca([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+      [
+        "orchestration worker-start",
+        () =>
+          n++ === 0
+            ? { exitCode: 137, stdout: "", stderr: "", timedOut: true }
+            : fx("worker-start-terminal-ready.json"),
+      ],
+    ]);
+    const state = createOrcaToolState();
+    const { call } = capture(
+      {
+        runner: f.runner,
+        env: { ORCA_TERMINAL_HANDLE: COORD },
+        prewarmClock: instant,
+      },
+      state,
+    );
+    const first = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+    });
+    expect(first.data.status).toBe("pending");
+    expect(state.startTerminals.size).toBe(1);
+    const second = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      request_id: first.data.request_id,
+    });
+    expect(second.data.status).toBe("started");
+    expect(f.called("terminal create").length).toBe(1);
+    const [a, b] = f.called("orchestration worker-start");
+    expect(flag(b!, "--terminal")).toBe(flag(a!, "--terminal"));
+    expect(flag(b!, "--retry-request")).toBe(first.data.request_id);
+    expect(state.startTerminals.size).toBe(0);
   });
 });

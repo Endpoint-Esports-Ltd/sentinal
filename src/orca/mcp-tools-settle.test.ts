@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OrcaRunner, OrcaRunOutput } from "./cli.js";
 import { registerOrcaTools, type OrcaToolsDeps } from "./mcp-tools.js";
+import { registerOrcaSettleTools } from "./mcp-tools-settle.js";
+import { createOrcaToolState, type OrcaToolState } from "./mcp-tools-shared.js";
 
 const FIXTURES = join(import.meta.dir, "__fixtures__");
 const fixture = (name: string): string =>
@@ -48,13 +50,16 @@ type Handler = (
   args: Record<string, unknown>,
 ) => Promise<{ content: { type: string; text: string }[] }>;
 
-function capture(deps: OrcaToolsDeps) {
+function capture(
+  deps: OrcaToolsDeps,
+  state: OrcaToolState = createOrcaToolState(),
+) {
   const server = new McpServer({ name: "test", version: "0.0.1" });
   const tools = new Map<string, Handler>();
   server.tool = ((...args: unknown[]) => {
     tools.set(args[0] as string, args[3] as Handler);
   }) as typeof server.tool;
-  registerOrcaTools(server, deps);
+  registerOrcaSettleTools(server, deps, state);
   return async (name: string, args: Record<string, unknown>) => {
     const r = await tools.get(name)!(args);
     const text = r.content[0]!.text;
@@ -436,6 +441,85 @@ describe("orca_ack", () => {
   });
 });
 
+const EXT = "ctx_4dd3e7a6fe41";
+const TERM = "term_sentinal_prewarm";
+
+describe("orca_release — Sentinal-created terminals (pre-warmed start)", () => {
+  function releaseRoutes(release: Reply, close: Reply) {
+    return fakeOrca([
+      ["orchestration worker-release", release],
+      ["terminal close", close],
+    ]);
+  }
+
+  it("closes Sentinal's own terminal once after a retained release and forgets it", async () => {
+    const f = releaseRoutes(
+      out(fixture("worker-release-external-terminal.json")),
+      ok({ closed: true }),
+    );
+    const state = createOrcaToolState();
+    state.createdTerminals.set(EXT, TERM);
+    const call = capture({ runner: f.runner, env: {} }, state);
+    const r = await call("orca_release", { dispatch_id: EXT });
+    expect(r.data).toMatchObject({
+      ok: true,
+      state: "retained",
+      closed_terminal: TERM,
+    });
+    const closes = f.called("terminal close");
+    expect(closes.length).toBe(1);
+    expect(flag(closes[0]!, "--terminal")).toBe(TERM);
+    expect(r.text).toContain(`Closed Sentinal's own terminal ${TERM}`);
+    expect(r.text).not.toContain("Orca kept the terminal");
+    expect(state.createdTerminals.has(EXT)).toBe(false);
+    expect(state.released.has(EXT)).toBe(true);
+  });
+
+  it("closes after released / already_released too", async () => {
+    for (const s of ["released", "already_released"]) {
+      const f = releaseRoutes(
+        ok({ dispatchId: EXT, state: s }),
+        ok({ closed: true }),
+      );
+      const state = createOrcaToolState();
+      state.createdTerminals.set(EXT, TERM);
+      const call = capture({ runner: f.runner, env: {} }, state);
+      const r = await call("orca_release", { dispatch_id: EXT });
+      expect(r.data).toMatchObject({
+        ok: true,
+        state: s,
+        closed_terminal: TERM,
+      });
+      expect(f.called("terminal close").length).toBe(1);
+      expect(state.createdTerminals.has(EXT)).toBe(false);
+    }
+  });
+
+  it("keeps the release ok and reports close_error when the close fails", async () => {
+    const f = releaseRoutes(
+      out(fixture("worker-release-external-terminal.json")),
+      out(
+        JSON.stringify({
+          id: "x",
+          ok: false,
+          error: { code: "terminal_not_found", message: "no such terminal" },
+        }),
+        1,
+      ),
+    );
+    const state = createOrcaToolState();
+    state.createdTerminals.set(EXT, TERM);
+    const call = capture({ runner: f.runner, env: {} }, state);
+    const r = await call("orca_release", { dispatch_id: EXT });
+    expect(r.data.ok).toBe(true);
+    expect(r.data.state).toBe("retained");
+    expect(r.data.closed_terminal).toBeUndefined();
+    expect(r.data.close_error).toContain("no such terminal");
+    expect(r.text).toContain("no such terminal");
+    expect(state.createdTerminals.has(EXT)).toBe(false);
+  });
+});
+
 describe("orca_release / orca_remove_worktree", () => {
   it("releases a dispatch", async () => {
     const f = settleRoutes();
@@ -458,6 +542,38 @@ describe("orca_release / orca_remove_worktree", () => {
     const r = await call("orca_release", { dispatch_id: DONE });
     expect(r.data.ok).toBe(false);
     expect(r.data.error.message).toContain("run X");
+  });
+
+  it("keeps the retained line and never closes a terminal Sentinal did not create", async () => {
+    const f = fakeOrca([
+      [
+        "orchestration worker-release",
+        out(fixture("worker-release-external-terminal.json")),
+      ],
+    ]);
+    const call = capture({ runner: f.runner, env: {} });
+    const r = await call("orca_release", { dispatch_id: EXT });
+    expect(r.data).toMatchObject({ ok: true, state: "retained" });
+    expect(r.data.closed_terminal).toBeUndefined();
+    expect(r.text).toContain("Orca kept the terminal");
+    expect(f.called("terminal close")).toEqual([]);
+  });
+
+  it("does not close, and keeps the entry, when the release fails", async () => {
+    const f = fakeOrca([
+      [
+        "orchestration worker-release",
+        ok({ dispatchId: EXT, state: "release_unknown", recovery: "run X" }),
+      ],
+      ["terminal close", ok({ closed: true })],
+    ]);
+    const state = createOrcaToolState();
+    state.createdTerminals.set(EXT, TERM);
+    const call = capture({ runner: f.runner, env: {} }, state);
+    const r = await call("orca_release", { dispatch_id: EXT });
+    expect(r.data.ok).toBe(false);
+    expect(f.called("terminal close")).toEqual([]);
+    expect(state.createdTerminals.get(EXT)).toBe(TERM);
   });
 
   it("removes an absolute worktree path and refuses a relative one", async () => {

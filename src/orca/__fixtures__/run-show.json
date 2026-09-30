@@ -1,0 +1,19 @@
+{
+  "_provenance": "Recorded live 2026-09-30, Orca 1.4.217 (macOS): orca orchestration run-show --id <run>.",
+  "id": "18ca42e8-48f6-454b-875b-e63e9d46ca72",
+  "ok": true,
+  "result": {
+    "run": {
+      "id": "run_f74310f49e3b",
+      "objective": "issue-13 first-start probe",
+      "coordinator_handle": "term_66fae77e-858c-4ad2-a392-99ab04b4cd13",
+      "consumer_generation": 1,
+      "legacy": 0,
+      "created_at": "2026-09-30T22:04:54Z",
+      "updated_at": "2026-09-30T22:04:54Z"
+    }
+  },
+  "_meta": {
+    "runtimeId": "b2ab5bdf-4cb0-4c95-8232-d9a8ee40ea44"
+  }
+}

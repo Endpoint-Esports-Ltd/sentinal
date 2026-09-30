@@ -1,0 +1,38 @@
+{
+  "_provenance": "SYNTHESIZED from the OrcaMessage shape (type heartbeat, typed payload per the worker contract): a check result carrying only heartbeats.",
+  "id": "x",
+  "ok": true,
+  "result": {
+    "runId": "run_hb",
+    "deliveryId": "delivery_hb0001",
+    "count": 2,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "messages": [
+      {
+        "id": "msg_hb1",
+        "run_id": "run_hb",
+        "from_handle": "term_w",
+        "to_handle": "term_c",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "payload": "{\"taskId\": \"task_hb\", \"dispatchId\": \"ctx_hb\", \"phase\": \"implementing\"}",
+        "created_at": "2026-09-30 22:00:01"
+      },
+      {
+        "id": "msg_hb2",
+        "run_id": "run_hb",
+        "from_handle": "term_w",
+        "to_handle": "term_c",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "payload": "{\"taskId\": \"task_hb\", \"dispatchId\": \"ctx_hb\", \"phase\": \"implementing\"}",
+        "created_at": "2026-09-30 22:00:02"
+      }
+    ]
+  }
+}

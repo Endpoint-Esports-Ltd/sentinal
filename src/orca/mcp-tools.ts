@@ -10,6 +10,9 @@
  *                   — `mcp-tools-settle.ts`
  *   - orca_abandon  — `mcp-tools-abandon.ts`: the recovery for a stop Orca
  *                     could not prove (`stop_unknown`), gated on worker-show
+ *   - orca_reply / orca_rebind — `mcp-tools-coord.ts`: answer a worker's
+ *                     question; rebind a fenced Run to this terminal (refuses
+ *                     a Run held by another live coordinator unless force)
  *
  * ## ⛔ Direct-only, on purpose
  *
@@ -29,6 +32,7 @@ import {
 import { agentAuth, detectOrca } from "./detect.js";
 import { createTask, ensureRun, prepareChildWorktree } from "./dispatch.js";
 import { registerOrcaAbandonTool } from "./mcp-tools-abandon.js";
+import { registerOrcaCoordTools } from "./mcp-tools-coord.js";
 import { registerOrcaSettleTools } from "./mcp-tools-settle.js";
 import { registerOrcaStartTool } from "./mcp-tools-start.js";
 import {
@@ -52,6 +56,7 @@ export function registerOrcaTools(
   registerOrcaStartTool(server, deps, state);
   registerOrcaSettleTools(server, deps, state);
   registerOrcaAbandonTool(server, deps);
+  registerOrcaCoordTools(server, deps);
 }
 
 // ------------------------------------------------------------- orca_status

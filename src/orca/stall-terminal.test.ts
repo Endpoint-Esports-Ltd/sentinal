@@ -10,7 +10,13 @@ import {
   showsHomeScreen,
   terminalTail,
 } from "./stall-terminal.js";
-import type { OrcaWorkerReadResult, OrcaWorkerShowResult } from "./types.js";
+import type {
+  OrcaTerminalCreateResult,
+  OrcaTerminalReadResult,
+  OrcaTerminalWaitResult,
+  OrcaWorkerReadResult,
+  OrcaWorkerShowResult,
+} from "./types.js";
 
 const FIXTURES = join(import.meta.dir, "__fixtures__");
 const load = <T>(name: string): T =>
@@ -189,5 +195,31 @@ describe("worker-show fixture", () => {
     expect(s.dispatch.status).toBe("dispatched");
     expect(s.dispatch.lastHeartbeatAt).toBeNull();
     expect(s.dispatch.dispatchedAt).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
+  });
+});
+
+describe("terminal-read fixtures (pre-warm readiness signal)", () => {
+  const tailOf = (name: string): string[] =>
+    load<OrcaTerminalReadResult>(name).terminal.tail ?? [];
+
+  it("recognises the drawn input box on a real home screen and on the wide 160-column d11 screen", () => {
+    expect(showsHomeScreen(tailOf("terminal-read-home.json"))).toBe(true);
+    const wide = terminalTail(
+      load<OrcaWorkerReadResult>("worker-read-d11-wide.json"),
+    )!;
+    expect(showsHomeScreen(wide)).toBe(true);
+  });
+
+  it("does not see the home screen once a conversation is on screen", () => {
+    expect(showsHomeScreen(tailOf("terminal-read-conversation.json"))).toBe(
+      false,
+    );
+  });
+
+  it("reads the created handle and the tui-idle verdict from the real captures", () => {
+    const c = load<OrcaTerminalCreateResult>("terminal-create.json");
+    expect(c.terminal.handle).toMatch(/^term_/);
+    const w = load<OrcaTerminalWaitResult>("terminal-wait-tui-idle.json");
+    expect(w.wait.satisfied).toBe(true);
   });
 });

@@ -1,0 +1,19 @@
+{
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216 (macOS), #12 live test of the gated start: worker-release of that dispatch: retained / external_terminal.",
+  "id": "20e48498-b0c7-44ac-8560-629fced75049",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_4dd3e7a6fe41",
+    "state": "retained",
+    "reason": "external_terminal",
+    "processAction": "none",
+    "archive": null,
+    "mutation": {
+      "requestId": "1a5e5162-5d70-43f7-bfeb-030d98fb510c",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  }
+}

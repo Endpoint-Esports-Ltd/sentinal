@@ -1,0 +1,35 @@
+{
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216 (macOS), #12 live test of the gated start: orca terminal read --screen of an OpenCode terminal showing its home screen (input box drawn, nothing entered).",
+  "id": "e9fcdd6f-031e-407b-95e9-512c94a73196",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_f8b9555e-4a0f-4a25-833e-4265af06f9d0",
+      "status": "running",
+      "tail": [
+        "                                                                          ▄",
+        "                                         █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",
+        "                                         █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀",
+        "                                         ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀",
+        "                       ┃",
+        "                       ┃  Ask anything… \"What is the tech stack of this project?\"",
+        "                       ┃",
+        "                       ┃  Build · Claude Opus 5.5 Anthropic",
+        "                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "                                                                       tab agents  ctrl+p commands",
+        "                               ● Tip Run opencode auth list to see all configured providers",
+        "  ~/orca/workspaces/sentinal/e2e-drop-1:e2e-drop-1  ⊙ 7 MCP /status                                            1.18.33"
+      ],
+      "truncated": false,
+      "limited": false,
+      "oldestCursor": "0",
+      "nextCursor": "2",
+      "latestCursor": "2",
+      "returnedLineCount": 12,
+      "source": "screen"
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  }
+}

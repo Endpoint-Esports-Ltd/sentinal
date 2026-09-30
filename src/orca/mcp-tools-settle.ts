@@ -8,7 +8,14 @@
  *   - orca_stop            — DESTRUCTIVE; only with an evidence id from the
  *                            latest orca_wait of that Run (absence never
  *                            authorizes a stop)
- *   - orca_release         — DESTRUCTIVE; close a settled worker's terminal
+ *   - orca_release         — DESTRUCTIVE; close a settled worker's terminal.
+ *                            After a `retained` / `released` /
+ *                            `already_released` answer it also closes a
+ *                            terminal SENTINAL created for a pre-warmed start
+ *                            (`state.createdTerminals`) and forgets it; a
+ *                            close failure is reported, the release stays ok.
+ *                            Orca-created terminals are never closed; a failed
+ *                            release closes nothing and keeps the entry.
  *   - orca_remove_worktree — DESTRUCTIVE; `orca worktree rm` of a child
  */
 
@@ -21,6 +28,7 @@ import {
   removeChildWorktree,
   stopWorker,
 } from "./dispatch.js";
+import { closeTerminal } from "./dispatch-prewarm.js";
 import {
   orcaFailure,
   orcaResponse,
@@ -180,20 +188,70 @@ function registerRelease(
       }
       const s = r.result?.state ?? null;
       state.released.add(args.dispatch_id);
+      const own = await closeOwnTerminal(args.dispatch_id, s, deps, state);
       return orcaResponse(
         "Orca release",
         [
           `- ${args.dispatch_id}: ${s}${r.result?.reason ? ` (${r.result.reason})` : ""}`,
-          ...(s === "retained"
-            ? [
-                "- Orca kept the terminal (not owned by this dispatch, or taken over).",
-              ]
-            : []),
+          ...(own
+            ? own.lines
+            : s === "retained"
+              ? [
+                  "- Orca kept the terminal (not owned by this dispatch, or taken over).",
+                ]
+              : []),
         ],
-        { ok: true, dispatch_id: args.dispatch_id, state: s },
+        {
+          ok: true,
+          dispatch_id: args.dispatch_id,
+          state: s,
+          ...(own?.data ?? {}),
+        },
       );
     },
   );
+}
+
+/** Release answers after which the dispatch no longer holds the terminal. */
+const CLOSABLE_AFTER = new Set(["retained", "released", "already_released"]);
+
+/**
+ * Close the terminal Sentinal itself created for a pre-warmed start of this
+ * dispatch, once Orca's release no longer holds it. Only handles recorded in
+ * `state.createdTerminals` are ever closed — Orca's own terminals never are.
+ * The entry is forgotten whether or not the close worked. Returns `null` when
+ * there is nothing of Sentinal's to close.
+ */
+async function closeOwnTerminal(
+  dispatchId: string,
+  releaseState: string | null,
+  deps: OrcaToolsDeps,
+  state: OrcaToolState,
+): Promise<{ lines: string[]; data: Record<string, string> } | null> {
+  const handle = state.createdTerminals.get(dispatchId);
+  if (!handle || !releaseState || !CLOSABLE_AFTER.has(releaseState)) {
+    return null;
+  }
+  state.createdTerminals.delete(dispatchId);
+  const c = await closeTerminal(handle, deps.runner);
+  if (c.ok) {
+    return {
+      lines: [
+        `- Closed Sentinal's own terminal ${handle} (it created it for the pre-warmed start).`,
+      ],
+      data: { closed_terminal: handle },
+    };
+  }
+  const note =
+    releaseState === "released"
+      ? " Orca may already have closed it with the release, so this is informative only."
+      : "";
+  return {
+    lines: [
+      `- Could not close Sentinal's own terminal ${handle}: ${c.message}.${note}`,
+    ],
+    data: { close_error: c.message },
+  };
 }
 
 // ---------------------------------------------------- orca_remove_worktree

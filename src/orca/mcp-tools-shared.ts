@@ -9,6 +9,7 @@ import { mcpText } from "../mcp/helpers.js";
 import type { MemoryStore } from "../memory/store.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import type { OrcaError, OrcaRunner } from "./cli.js";
+import type { PrewarmClock } from "./dispatch-prewarm.js";
 import type { StartTaskResult } from "./dispatch.js";
 import type { StallVerdict } from "./stall.js";
 
@@ -25,6 +26,8 @@ export interface OrcaToolsDeps {
   now?: () => number;
   /** How long one `orca_start` call may wait before answering `pending`. */
   startBudgetMs?: number;
+  /** Tests: an instant clock for the pre-warm readiness poll. */
+  prewarmClock?: PrewarmClock;
   /**
    * Veto for `orca_remove_worktree`: refuse the main checkout, the calling
    * session's own checkout, and any worktree Sentinal still holds live. The
@@ -60,6 +63,12 @@ export interface OrcaToolState {
   released: Set<string>;
   /** `<dispatch>:<kind>` attention entries this session already reported (once each). */
   attentionReported: Set<string>;
+  /** request_id → the terminal a pre-warmed start created (join/replay reuse it). */
+  startTerminals: Map<string, string>;
+  /** dispatch_id → the terminal SENTINAL created for it (closed after release). */
+  createdTerminals: Map<string, string>;
+  /** request_id → the request id of its plain start after a skipped `retry_of`. */
+  startSkips: Map<string, string>;
 }
 
 export function createOrcaToolState(): OrcaToolState {
@@ -70,6 +79,9 @@ export function createOrcaToolState(): OrcaToolState {
     deliveries: new Map(),
     released: new Set(),
     attentionReported: new Set(),
+    startTerminals: new Map(),
+    createdTerminals: new Map(),
+    startSkips: new Map(),
   };
 }
 

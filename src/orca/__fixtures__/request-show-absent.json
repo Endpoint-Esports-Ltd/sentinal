@@ -1,0 +1,13 @@
+{
+  "_provenance": "Recorded live 2026-09-30, Orca 1.4.217 (macOS): orca orchestration request-show of an unknown request id.",
+  "id": "8b947fb3-bd94-4af1-bb51-69eefe9cd33e",
+  "ok": true,
+  "result": {
+    "requestId": "9AD186C7-FED5-4610-B667-CAECC9E36FDC",
+    "state": "absent",
+    "interpretation": "No receipt for request 9AD186C7-FED5-4610-B667-CAECC9E36FDC under this caller identity. It never reached this Orca runtime, failed before recording anything, or its receipt was pruned. Absent is not proof that nothing happened."
+  },
+  "_meta": {
+    "runtimeId": "b2ab5bdf-4cb0-4c95-8232-d9a8ee40ea44"
+  }
+}

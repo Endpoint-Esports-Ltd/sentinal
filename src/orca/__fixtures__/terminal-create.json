@@ -1,0 +1,22 @@
+{
+  "_provenance": "Recorded live 2026-09-29, Orca 1.4.216 (macOS), #12 live test of the gated start: orca terminal create --worktree path:<wt> --command opencode --json.",
+  "id": "b4031bf5-e7a2-419a-93e6-92be0dfed477",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c",
+      "tabId": "363f99df-33de-43a1-903c-f46f376b1484",
+      "paneKey": "363f99df-33de-43a1-903c-f46f376b1484:da0d5a2e-bea1-4555-a22e-50d63e0c46ec",
+      "ptyId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-3@@c245a190",
+      "worktreeId": "c96dc697-8633-4a49-be5a-7849ca0f4489::/Users/dev/orca/workspaces/sentinal/e2e-drop-3",
+      "title": null,
+      "executionHostId": "local",
+      "incarnationId": "2ba6d83a-0717-4b65-8a81-ce472321e497",
+      "hostPlatform": "darwin",
+      "surface": "visible"
+    }
+  },
+  "_meta": {
+    "runtimeId": "d1bd15da-f95e-46d3-b17b-d4f38c2a9667"
+  }
+}

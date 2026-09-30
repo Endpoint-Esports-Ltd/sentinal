@@ -1,0 +1,207 @@
+{
+  "id": "<uuid-1>",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_d130000000b1",
+      "runId": "run_d13",
+      "taskId": "task_d130000000b1",
+      "task_id": "task_d130000000b1",
+      "contractVersion": 1,
+      "assigneeHandle": "term_d13-worker",
+      "assigneePaneKey": "<uuid-2>:<uuid-3>",
+      "processIncarnation": "<uuid-4>::/home/dev/repo/.worktrees/phase-7@@<incarnation-1>:<uuid-5>",
+      "capabilityRevokedAt": null,
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": {
+        "kind": "local",
+        "hostId": "local"
+      },
+      "status": "dispatched",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-09-30 17:40:00",
+      "completedAt": null,
+      "createdAt": "2026-09-30 17:40:00",
+      "lastHeartbeatAt": null
+    },
+    "worker": {
+      "dispatchId": "ctx_d130000000b1",
+      "runtimeEpoch": "<uuid-6>",
+      "state": "ready",
+      "stage": "input_accepted",
+      "worktreeId": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+      "agentTerminalHandle": "term_d13-worker",
+      "setupState": "not_applicable",
+      "effects": [
+        {
+          "kind": "worktree",
+          "action": "reused",
+          "id": "<uuid-4>::/home/dev/repo/.worktrees/phase-7"
+        },
+        {
+          "kind": "setup",
+          "action": "not_applicable",
+          "state": "not_applicable"
+        },
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "created",
+          "id": "term_d13-worker",
+          "surface": "visible"
+        },
+        {
+          "kind": "dispatch_input",
+          "role": "agent",
+          "id": "term_d13-worker",
+          "state": "accepted"
+        }
+      ],
+      "residualResources": [
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "created",
+          "id": "term_d13-worker",
+          "surface": "visible"
+        }
+      ],
+      "startOptions": {
+        "worktree": "path:/home/dev/repo/.worktrees/phase-7",
+        "mode": {
+          "mode": "terminal",
+          "preferred": "terminal",
+          "reason": "user_default",
+          "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+        },
+        "resolvedWorktreeId": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+        "name": null,
+        "repo": null,
+        "baseBranch": null,
+        "terminal": null,
+        "agent": "opencode",
+        "launch": {
+          "requested": {
+            "agent": "opencode",
+            "model": null,
+            "effort": null
+          },
+          "effective": {
+            "agent": "opencode",
+            "model": null,
+            "effort": null
+          }
+        },
+        "timeoutMs": 60000,
+        "setup": "not_applicable",
+        "setupSource": "existing_worktree"
+      },
+      "lastError": null,
+      "createdAt": "2026-09-30 17:40:00",
+      "updatedAt": "2026-09-30 17:40:00"
+    },
+    "projection": {
+      "id": "ctx_d130000000b1",
+      "dispatchId": "ctx_d130000000b1",
+      "taskId": "task_d130000000b1",
+      "runId": "run_d13",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "missing_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "unavailable",
+        "lastObservedAt": null
+      },
+      "resource": {
+        "state": "user_owned",
+        "id": "<resource-1>",
+        "ownerDispatchId": "ctx_d130000000b1",
+        "releaseState": "retained",
+        "terminalState": "retained"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": ["unverifiable"],
+        "requiresAction": true
+      }
+    },
+    "terminal": {
+      "handle": "term_d13-worker",
+      "ptyId": "<uuid-4>::/home/dev/repo/.worktrees/phase-7@@<incarnation-1>",
+      "incarnationId": "<uuid-5>",
+      "orphaned": false,
+      "worktreeId": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+      "worktreePath": "/home/dev/repo/.worktrees/phase-7",
+      "branch": "refs/heads/<branch-2>",
+      "tabId": "<uuid-2>",
+      "leafId": "<uuid-3>",
+      "title": "OpenCode",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": "<epoch-ms-1>",
+      "preview": "<terminal preview omitted>",
+      "executionHostId": "local",
+      "agentIdentity": "opencode",
+      "paneRuntimeId": 1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": null
+    },
+    "terminalResource": {
+      "id": "<resource-1>",
+      "ownershipState": "user_owned",
+      "releaseState": "retained",
+      "retainedReason": "user_takeover",
+      "terminalHandle": "term_d13-worker",
+      "worktreeId": "<uuid-4>::/home/dev/repo/.worktrees/phase-7",
+      "endpointId": "<uuid-6>",
+      "endpointIncarnation": "<uuid-4>::/home/dev/repo/.worktrees/phase-7@@<incarnation-1>:<uuid-5>",
+      "originDispatchId": "ctx_d130000000b1",
+      "ownerDispatchId": "ctx_d130000000b1",
+      "releaseRequestedAt": null,
+      "releaseCompletedAt": null,
+      "releaseError": null,
+      "recoveryAttemptCount": 0,
+      "lastRecoveryAt": null,
+      "archive": {
+        "source": null,
+        "status": null
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "<uuid-6>"
+  },
+  "_provenance": "REAL (issue #13 comment 1, 2026-09-30; Orca 1.4.209, Linux, OpenCode 1.18.33): worker-show of dispatch <d11> at stall time (brief dropped). Placeholders mapped to concrete ids; every <time-N> mapped to one dispatchedAt."
+}

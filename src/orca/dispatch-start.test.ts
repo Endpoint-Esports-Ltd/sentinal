@@ -396,3 +396,208 @@ describe("startTask", () => {
       expect(r.requestId).toBe("1112c03b-c129-4ba1-82eb-9578ed8cf571");
   });
 });
+
+// ------------------------------------------ retry_of on a ready task (#13)
+
+describe("startTask — retry_of refused because the task is already ready", () => {
+  /** Orca's refusal once the old attempt settled and the task is `ready` again. */
+  const readyRefusal = (status = "ready", unmet: string[] = []) =>
+    envelope(
+      {
+        id: "x",
+        ok: false,
+        error: {
+          code: "task_not_startable",
+          message: "Task task_1 cannot retry from Dispatch ctx_old.",
+          data: { taskId: "task_1", status, unmetDependencies: unmet },
+        },
+      },
+      1,
+    );
+
+  it("retries once without --retry-of, with a fresh request id, and reports it", async () => {
+    const rid = "11111111-2222-3333-4444-555555555555";
+    const { runner, calls, remaining } = queue([
+      ["orchestration worker-start", readyRefusal()],
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const r = await startTask({
+      taskId: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      retryOf: "ctx_old",
+      requestId: rid,
+      preflight: false,
+      runner,
+    });
+    expect(remaining.length).toBe(0);
+    expect(r.status).toBe("started");
+    if (r.status !== "started") return;
+    expect(r.retrySkipped).toBe(true);
+    const [first, second] = calls;
+    expect(flag(first!, "--retry-of")).toBe("ctx_old");
+    expect(second).not.toContain("--retry-of");
+    expect(flag(second!, "--retry-request")).not.toBe(rid);
+    expect(flag(second!, "--retry-request")).toMatch(UUID);
+  });
+
+  it("stays blocked when the task is not ready or has unmet dependencies", async () => {
+    for (const [status, unmet] of [
+      ["pending", ["task_dep"]],
+      ["ready", ["task_dep"]],
+    ] as const) {
+      const { runner, calls } = queue([
+        ["orchestration worker-start", readyRefusal(status, [...unmet])],
+      ]);
+      const r = await startTask({
+        taskId: "task_1",
+        worktree: "current",
+        agent: "opencode",
+        retryOf: "ctx_old",
+        preflight: false,
+        runner,
+      });
+      expect(r.status).toBe("blocked");
+      expect(calls.length).toBe(1);
+    }
+  });
+
+  it("reuses the pre-warmed terminal for the plain start (one create, no close)", async () => {
+    const { runner, calls, remaining } = queue([
+      ["terminal create", out(fixture("terminal-create.json"))],
+      ["terminal wait", out(fixture("terminal-wait-tui-idle.json"))],
+      ["terminal read", out(fixture("terminal-read-home.json"))],
+      ["orchestration worker-start", readyRefusal()],
+      [
+        "orchestration worker-start",
+        out(fixture("worker-start-terminal-ready.json")),
+      ],
+    ]);
+    const r = await startTask({
+      taskId: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      retryOf: "ctx_old",
+      preflight: false,
+      prewarmAgents: ["opencode"],
+      prewarmClock: { clock: () => 0, sleep: async () => {} },
+      runner,
+    });
+    expect(remaining.length).toBe(0);
+    expect(r.status === "started" && r.retrySkipped).toBe(true);
+    expect(calls.filter((c) => c[1] === "create").length).toBe(1);
+    expect(calls.some((c) => c[1] === "close")).toBe(false);
+    const handle = flag(calls[3]!, "--terminal");
+    expect(flag(calls[4]!, "--terminal")).toBe(handle);
+  });
+});
+
+describe("startTask — review should_fixes (terminal tracking, skip request id)", () => {
+  const home = () =>
+    [
+      ["terminal create", out(fixture("terminal-create.json"))],
+      ["terminal wait", out(fixture("terminal-wait-tui-idle.json"))],
+    ] as Array<[string, OrcaRunOutput]>;
+  const instant = { clock: () => 0, sleep: async () => {} };
+
+  it("reports every terminal it closes through onTerminalClosed (fallback)", async () => {
+    let t = 0;
+    const steps = home();
+    for (let i = 0; i < 61; i++) {
+      steps.push([
+        "terminal read",
+        out(fixture("terminal-read-conversation.json")),
+      ]);
+    }
+    steps.push(["terminal close", ok({ closed: true })]);
+    steps.push([
+      "orchestration worker-start",
+      out(fixture("worker-start-ready.json")),
+    ]);
+    const { runner } = queue(steps);
+    const closed: string[] = [];
+    const r = await startTask({
+      taskId: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      preflight: false,
+      prewarmAgents: ["opencode"],
+      prewarmClock: {
+        clock: () => t,
+        sleep: async (ms: number) => {
+          t += ms;
+        },
+      },
+      onTerminalClosed: (h) => closed.push(h),
+      runner,
+    });
+    expect(r.status === "started" && r.startPath).toBe("agent-fallback");
+    expect(closed).toEqual(["term_f7d0cbc5-a48b-42ed-89b1-2c2a1a1cbd7c"]);
+  });
+
+  it("keeps its terminal when worker-start fails without an Orca refusal (bad output)", async () => {
+    const { runner, calls } = queue([
+      ...home(),
+      ["terminal read", out(fixture("terminal-read-home.json"))],
+      ["orchestration worker-start", out("not json at all")],
+    ]);
+    const r = await startTask({
+      taskId: "task_1",
+      worktree: { path: "/wt/a" },
+      agent: "opencode",
+      preflight: false,
+      prewarmAgents: ["opencode"],
+      prewarmClock: instant,
+      runner,
+    });
+    expect(r.status).toBe("error");
+    expect(calls.some((c) => c[1] === "close")).toBe(false);
+  });
+
+  it("announces the skip's request id, and a replay with skipRequestId starts plainly under it", async () => {
+    const refusal = envelope(
+      {
+        id: "x",
+        ok: false,
+        error: {
+          code: "task_not_startable",
+          message: "cannot retry",
+          data: { status: "ready", unmetDependencies: [] },
+        },
+      },
+      1,
+    );
+    const a = queue([
+      ["orchestration worker-start", refusal],
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    let announced: string | undefined;
+    await startTask({
+      taskId: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      retryOf: "ctx_old",
+      preflight: false,
+      onRetrySkipped: (id) => (announced = id),
+      runner: a.runner,
+    });
+    expect(announced).toMatch(UUID);
+    expect(flag(a.calls[1]!, "--retry-request")).toBe(announced);
+
+    const b = queue([
+      ["orchestration worker-start", out(fixture("worker-start-ready.json"))],
+    ]);
+    const r = await startTask({
+      taskId: "task_1",
+      worktree: "current",
+      agent: "opencode",
+      retryOf: "ctx_old",
+      preflight: false,
+      skipRequestId: announced,
+      runner: b.runner,
+    });
+    expect(r.status === "started" && r.retrySkipped).toBe(true);
+    expect(b.calls[0]).not.toContain("--retry-of");
+    expect(flag(b.calls[0]!, "--retry-request")).toBe(announced);
+  });
+});

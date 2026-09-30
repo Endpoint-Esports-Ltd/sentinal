@@ -1,0 +1,30 @@
+{
+  "_provenance": "Recorded live 2026-09-30, Orca 1.4.217 (macOS): orca orchestration request-show of a completed request.",
+  "id": "ba4b49a3-4137-45f0-957d-477bf82776f1",
+  "ok": true,
+  "result": {
+    "requestId": "d8d22501-60af-4caf-8719-5b8193bac6a8",
+    "state": "completed",
+    "method": "orchestration.check",
+    "createdAt": "2026-09-30 22:07:56",
+    "updatedAt": "2026-09-30 22:07:56",
+    "receipt": {
+      "runId": "run_f74310f49e3b",
+      "deliveryId": null,
+      "messages": [],
+      "count": 0,
+      "acknowledged": "delivery_92edfebe5343",
+      "timedOut": false,
+      "cancelled": false,
+      "connectionLost": false,
+      "mutation": {
+        "requestId": "d8d22501-60af-4caf-8719-5b8193bac6a8",
+        "replayed": false
+      }
+    },
+    "interpretation": "Request d8d22501-60af-4caf-8719-5b8193bac6a8 already took effect (orchestration.check). Replaying it with --retry-request d8d22501-60af-4caf-8719-5b8193bac6a8 returns the recorded outcome and starts nothing new."
+  },
+  "_meta": {
+    "runtimeId": "b2ab5bdf-4cb0-4c95-8232-d9a8ee40ea44"
+  }
+}

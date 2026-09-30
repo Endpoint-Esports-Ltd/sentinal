@@ -8,13 +8,15 @@
  * `state.verdicts`, so `orca_stop` refuses them. A `never-started-unverifiable`
  * entry is a dropped brief while Orca cannot verify the agent — Orca's guide
  * forbids stop/abandon/retry/release there; the coordinator tells the user.
- * Never acks.
+ * Acks only a heartbeat-only delivery (then keeps waiting, ≤3 rounds, within
+ * the caller's timeout); anything else is left for `orca_ack`.
  */
 
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  ackDelivery,
   DEFAULT_WAIT_MS,
   MAX_WAIT_MS,
   waitForSettlement,
@@ -30,6 +32,12 @@ import {
 import type { AttentionEntry } from "./stall.js";
 
 const DIRECT = "Direct-only: talks to the local `orca` CLI, never the sidecar.";
+/** Heartbeat-only rounds per call (each round also collects stalls once). */
+const MAX_ROUNDS = 3;
+/** `waitForSettlement` clamps below this, so a shorter remainder ends the call. */
+const MIN_ROUND_MS = 1_000;
+const FENCED_HINT =
+  "This Run is bound to another coordinator terminal (e.g. after an Orca restart). If that terminal is gone, call orca_rebind({ run_id }) to bind it here.";
 
 function messageRow(m: SettledMessage) {
   return {
@@ -48,21 +56,57 @@ export function registerOrcaWaitTool(
 ): void {
   server.tool(
     "orca_wait",
-    `Wait (bounded, default 35 s, max 40 s; plus ≤10 s of stall checks) for a Run's workers: returns worker_done payloads, escalations/questions, stall verdicts (exited, auth error, idle, or a brief that never reached the agent — each with an evidence_id for orca_stop), attention entries (no evidence_id: report them to the user; never a stop), and reclaimable terminals still to release. Does NOT acknowledge — process everything, then orca_ack(delivery_id). A timeout is a checkpoint: call again. ${DIRECT}`,
+    `Wait (bounded, default 35 s, max 40 s; plus ≤10 s of stall checks) for a Run's workers: returns worker_done payloads, escalations/questions, stall verdicts (exited, auth error, idle, or a brief that never reached the agent — each with an evidence_id for orca_stop), attention entries (no evidence_id: report them to the user; never a stop), and reclaimable terminals still to release. Heartbeat-only deliveries are acknowledged automatically and the wait continues; anything else is NOT acknowledged — process everything, then orca_ack(delivery_id). A timeout is a checkpoint: call again. ${DIRECT}`,
     {
       run_id: z.string().min(1),
       timeout_ms: z.number().int().positive().max(MAX_WAIT_MS).optional(),
     },
     async (args) => {
-      const r = await waitForSettlement({
-        runId: args.run_id,
-        timeoutMs: args.timeout_ms ?? DEFAULT_WAIT_MS,
-        runner: deps.runner,
-        now: deps.now?.(),
-      });
-      if (!r.ok) {
-        return orcaFailure("Orca wait", r.error, { run_id: args.run_id });
+      // Heartbeat-only deliveries are acked here and the wait continues with
+      // the time left, so a heartbeat never ends the wait (or nags) early.
+      const budget = args.timeout_ms ?? DEFAULT_WAIT_MS;
+      const started = Date.now();
+      const left = () => budget - (Date.now() - started);
+      let heartbeatsAcked = 0;
+      let acked: boolean;
+      let r: Awaited<ReturnType<typeof waitForSettlement>>;
+      for (let round = 1; ; round++) {
+        r = await waitForSettlement({
+          runId: args.run_id,
+          timeoutMs: round === 1 ? budget : left(),
+          runner: deps.runner,
+          now: deps.now?.(),
+        });
+        if (!r.ok) {
+          return orcaFailure(
+            "Orca wait",
+            r.error,
+            {
+              run_id: args.run_id,
+              ...(heartbeatsAcked ? { heartbeats_acked: heartbeatsAcked } : {}),
+            },
+            r.error.code === "consumer_fenced" ? [FENCED_HINT] : [],
+          );
+        }
+        acked = false;
+        if (!r.deliveryId || !r.messages.length) break;
+        if (!r.messages.every((m) => m.type === "heartbeat")) break;
+        const a = await ackDelivery({
+          runId: args.run_id,
+          deliveryId: r.deliveryId,
+          runner: deps.runner,
+        });
+        if (!a.ok) break; // left pending: the normal orca_ack covers it
+        acked = true;
+        heartbeatsAcked += r.messages.length;
+        if (round >= MAX_ROUNDS || left() < MIN_ROUND_MS) break;
       }
+      const timedOut = r.timedOut || acked;
+      const deliveryId = acked ? null : r.deliveryId;
+      const heartbeats = acked
+        ? 0
+        : r.messages.filter((m) => m.type === "heartbeat").length;
+      const messages = r.messages.filter((m) => m.type !== "heartbeat");
 
       // Only the latest wait's verdicts authorize a stop.
       for (const [id, v] of state.verdicts) {
@@ -94,9 +138,9 @@ export function registerOrcaWaitTool(
           task_id: t.taskId ?? null,
           terminal: t.terminal ?? null,
         }));
-      if (r.deliveryId) state.deliveries.set(r.deliveryId, args.run_id);
+      if (deliveryId) state.deliveries.set(deliveryId, args.run_id);
 
-      const workerDone = r.messages.flatMap((m) =>
+      const workerDone = messages.flatMap((m) =>
         m.workerDone
           ? [
               {
@@ -113,7 +157,7 @@ export function registerOrcaWaitTool(
             ]
           : [],
       );
-      const other = r.messages.filter((m) => !m.workerDone).map(messageRow);
+      const other = messages.filter((m) => !m.workerDone).map(messageRow);
 
       const attention = r.attention
         .filter(
@@ -127,7 +171,7 @@ export function registerOrcaWaitTool(
       }
 
       const lines: string[] = [
-        `- **Run:** ${args.run_id} — ${r.timedOut ? "timed out (checkpoint)" : `${r.messages.length} message(s)`}`,
+        `- **Run:** ${args.run_id} — ${timedOut ? "timed out (checkpoint)" : `${messages.length} message(s)`}`,
         ...workerDone.map(
           (d) =>
             `- **worker_done** ${d.task_id} / ${d.dispatch_id}: ${d.outcome} — ${d.subject}` +
@@ -152,9 +196,14 @@ export function registerOrcaWaitTool(
         );
       }
       const next: string[] = [];
-      if (r.messages.length) {
+      if (deliveryId) {
         next.push(
-          `process every message (verify completion yourself), then orca_ack(delivery_id=${r.deliveryId})`,
+          `process every message (verify completion yourself), then orca_ack(delivery_id=${deliveryId})`,
+        );
+      }
+      if (other.some((m) => m.type === "question")) {
+        next.push(
+          "answer each question with orca_reply({ run_id, message_id, body })",
         );
       }
       if (stalls.some((s) => s.reason === "never-started")) {
@@ -183,14 +232,16 @@ export function registerOrcaWaitTool(
       return orcaResponse("Orca wait", lines, {
         ok: true,
         run_id: args.run_id,
-        timed_out: r.timedOut,
-        delivery_id: r.deliveryId,
+        timed_out: timedOut,
+        delivery_id: deliveryId,
         worker_done: workerDone,
         messages: other,
         stalls,
         reclaimable,
         attention,
         active_dispatches: r.verdicts.length,
+        ...(heartbeatsAcked ? { heartbeats_acked: heartbeatsAcked } : {}),
+        ...(heartbeats ? { heartbeats } : {}),
         ...(r.stallError
           ? { stall_error: r.stallError, reclaimable_unknown: true }
           : {}),

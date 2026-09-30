@@ -285,7 +285,7 @@ export async function waitForSettlement(o: {
   );
   const r = await runOrca<OrcaCheckResult>(
     ["orchestration", "check", "--run", o.runId, "--wait"]
-      .concat(["--types", "worker_done,escalation,question"])
+      .concat(["--types", "worker_done,escalation,question,heartbeat"])
       .concat(["--timeout-ms", String(wait)]),
     { runner: o.runner, timeoutMs: wait + WAIT_SLACK_MS },
   );
