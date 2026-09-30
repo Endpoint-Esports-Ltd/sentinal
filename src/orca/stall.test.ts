@@ -642,3 +642,136 @@ describe("collectStalls — never-started", () => {
     ]);
   });
 });
+
+describe("collectStalls — unverifiable liveness (1.4.209, issue #12 follow-up)", () => {
+  const D209 = "ctx_d209000000a1";
+  const AT209 = Date.parse("2026-09-29T23:11:43Z");
+  const out = (name: string): OrcaRunOutput => ({
+    exitCode: 0,
+    stdout: fixture(name),
+    stderr: "",
+  });
+  const gapRow = (
+    reason = "missing_status",
+    categories = ["unverifiable"],
+  ): OrcaWorkerListRow =>
+    row(D209, undefined, {
+      taskId: "task_d209000000a1",
+      projection: {
+        dispatchId: D209,
+        outcome: "in_progress",
+        liveness: { verdict: "unverifiable", reason },
+        attention: { categories, requiresAction: true },
+      },
+    });
+  const showVerdict = (verdict: string): OrcaRunOutput => {
+    const s = JSON.parse(fixture("worker-show-unverifiable-209.json"));
+    s.result.projection.liveness = { verdict };
+    return { exitCode: 0, stdout: JSON.stringify(s), stderr: "" };
+  };
+
+  it("reports the real dropped prompt as a never-started-unverifiable attention entry, never a stall", async () => {
+    const { runner } = scripted([
+      ["orchestration worker-list", ok({ workers: [gapRow()] })],
+      [
+        "orchestration worker-read",
+        out("worker-read-terminal-home-unverifiable.json"),
+      ],
+      ["orchestration worker-show", out("worker-show-unverifiable-209.json")],
+    ]);
+    const r = await collectStalls({ runId: "r", runner, now: AT209 + 4 * MIN });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stalls).toEqual([]);
+    expect(r.attention).toEqual([
+      expect.objectContaining({
+        kind: "never-started-unverifiable",
+        dispatchId: D209,
+        taskId: "task_d209000000a1",
+      }),
+    ]);
+  });
+
+  it("lets worker-show's live verdict enable the normal never-started stall", async () => {
+    const { runner } = scripted([
+      ["orchestration worker-list", ok({ workers: [gapRow()] })],
+      [
+        "orchestration worker-read",
+        out("worker-read-terminal-home-unverifiable.json"),
+      ],
+      ["orchestration worker-show", showVerdict("live")],
+    ]);
+    const r = await collectStalls({ runId: "r", runner, now: AT209 + 4 * MIN });
+    expect(r.ok && r.stalls.map((s) => s.reason)).toEqual(["never-started"]);
+    expect(r.ok && r.attention).toEqual([]);
+  });
+
+  it("turns worker-show's exited verdict into an exited stall", async () => {
+    const { runner } = scripted([
+      ["orchestration worker-list", ok({ workers: [gapRow()] })],
+      ["orchestration worker-read", out("worker-read-terminal-started.json")],
+      ["orchestration worker-show", showVerdict("exited")],
+    ]);
+    const r = await collectStalls({ runId: "r", runner, now: AT209 + 4 * MIN });
+    expect(r.ok && r.stalls.map((s) => s.reason)).toEqual(["exited"]);
+  });
+
+  it("host_unavailable: no stall and no never-started entry, even if worker-show says exited", async () => {
+    const { runner } = scripted([
+      [
+        "orchestration worker-list",
+        ok({ workers: [gapRow("host_unavailable")] }),
+      ],
+      [
+        "orchestration worker-read",
+        out("worker-read-terminal-home-unverifiable.json"),
+      ],
+      ["orchestration worker-show", showVerdict("exited")],
+    ]);
+    const r = await collectStalls({ runId: "r", runner, now: AT209 + 4 * MIN });
+    expect(r.ok && r.stalls).toEqual([]);
+    expect(r.ok && r.attention.map((a) => a.kind)).not.toContain(
+      "never-started-unverifiable",
+    );
+  });
+
+  it("a healthy gap-unverifiable worker gets no stall and no attention (no spam)", async () => {
+    const { runner, calls } = scripted([
+      ["orchestration worker-list", ok({ workers: [gapRow()] })],
+      ["orchestration worker-read", out("worker-read-terminal-started.json")],
+      ["orchestration worker-show", out("worker-show-unverifiable-209.json")],
+    ]);
+    const r = await collectStalls({
+      runId: "r",
+      runner,
+      now: AT209 + 60 * MIN,
+    });
+    expect(r.ok && r.stalls).toEqual([]);
+    expect(r.ok && r.attention).toEqual([]);
+    // worker-show IS consulted for a gap row (option 1)
+    expect(calls.some((c) => c[1] === "worker-show")).toBe(true);
+  });
+
+  it("surfaces other requiresAction rows with Orca's next action", async () => {
+    const r0 = gapRow("missing_status", ["failure"]);
+    r0.projection = {
+      ...r0.projection,
+      liveness: { verdict: "live" },
+      nextAction: { kind: "inspect", argv: ["orchestration", "worker-show"] },
+    };
+    const { runner } = scripted([
+      ["orchestration worker-list", ok({ workers: [r0] })],
+      ["orchestration worker-read", out("worker-read-terminal-started.json")],
+    ]);
+    const r = await collectStalls({ runId: "r", runner, now: AT209 + MIN });
+    expect(r.ok && r.attention).toEqual([
+      {
+        kind: "orca-attention",
+        dispatchId: D209,
+        taskId: "task_d209000000a1",
+        categories: ["failure"],
+        nextAction: ["orchestration", "worker-show"],
+      },
+    ]);
+  });
+});

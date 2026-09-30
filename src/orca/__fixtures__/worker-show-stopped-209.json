@@ -1,0 +1,103 @@
+{
+  "_provenance": "REAL: issue #12 comment 2026-09-30 09:39 (Orca 1.4.209): worker-show captured AFTER a manual worker-stop of the dropped dispatch. Placeholders mapped to concrete ids.",
+  "id": "show-209",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_d209000000a1",
+      "runId": "run_d209000000a1",
+      "taskId": "task_d209000000a1",
+      "task_id": "task_d209000000a1",
+      "contractVersion": 1,
+      "assigneeHandle": "term_d209-worker",
+      "capabilityRevokedAt": "2026-09-29T23:16:04.695Z",
+      "retryOfDispatchId": null,
+      "hostScope": {
+        "kind": "local",
+        "hostId": "local"
+      },
+      "status": "failed",
+      "failureCount": 0,
+      "lastFailure": "stopped",
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-09-29 23:11:43",
+      "completedAt": "2026-09-29T23:16:05.028Z",
+      "createdAt": "2026-09-29 23:11:43",
+      "lastHeartbeatAt": null
+    },
+    "worker": {
+      "dispatchId": "ctx_d209000000a1",
+      "state": "stopped",
+      "stage": "process_stopped",
+      "worktreeId": "c209::/home/dev/orca/workspaces/app/phase-1",
+      "agentTerminalHandle": "term_d209-worker",
+      "setupState": "not_applicable",
+      "lastError": null
+    },
+    "projection": {
+      "id": "ctx_d209000000a1",
+      "dispatchId": "ctx_d209000000a1",
+      "taskId": "task_d209000000a1",
+      "runId": "run_d209000000a1",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c209::/home/dev/orca/workspaces/app/phase-1",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "stopped",
+        "dispatch": "failed",
+        "detail": "process_stopped",
+        "activity": "unknown"
+      },
+      "outcome": "failed",
+      "liveness": {
+        "verdict": "exited",
+        "source": "worker_stop"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "unavailable",
+        "lastObservedAt": null
+      },
+      "resource": {
+        "state": "owned",
+        "releaseState": "not_requested",
+        "terminalState": "retained"
+      },
+      "nextAction": {
+        "kind": "release",
+        "argv": [
+          "orchestration",
+          "worker-release",
+          "--dispatch",
+          "ctx_d209000000a1"
+        ]
+      },
+      "attention": {
+        "categories": ["failure"],
+        "requiresAction": true
+      }
+    },
+    "terminal": {
+      "handle": "term_d209-worker",
+      "orphaned": true,
+      "connected": false,
+      "writable": false,
+      "exitCause": {
+        "kind": "operator_close"
+      }
+    },
+    "observation": {
+      "status": "exited",
+      "exactWorker": true
+    }
+  }
+}

@@ -426,6 +426,7 @@ describe("waitForSettlement", () => {
     expect(r.reclaimable).toEqual([
       { dispatchId: "ctx_done", taskId: "task_done", terminal: "term_done" },
     ]);
+    expect(r.attention).toEqual([]);
     expect(calls.length).toBe(4);
 
     const later = queue([
@@ -473,6 +474,7 @@ describe("waitForSettlement", () => {
     expect(r.messages.length).toBe(1);
     expect(r.stallError?.code).toBe("invalid_argument");
     expect(r.reclaimable).toEqual([]);
+    expect(r.attention).toEqual([]);
   });
 
   it("returns the check error", async () => {

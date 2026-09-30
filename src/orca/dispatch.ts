@@ -24,6 +24,7 @@ import {
 } from "./dispatch-start.js";
 import {
   collectStalls,
+  type AttentionEntry,
   type ReclaimableTerminal,
   type StallVerdict,
 } from "./stall.js";
@@ -272,6 +273,8 @@ export async function waitForSettlement(o: {
       verdicts: StallVerdict[];
       /** Terminals Orca reports reclaimable ([] when stall collection failed). */
       reclaimable: ReclaimableTerminal[];
+      /** Report to the user — never stalls ([] when stall collection failed). */
+      attention: AttentionEntry[];
       stallError?: OrcaError;
     }>
   | Failure
@@ -309,6 +312,7 @@ export async function waitForSettlement(o: {
     stalls: s.ok ? s.stalls : [],
     verdicts: s.ok ? s.verdicts : [],
     reclaimable: s.ok ? s.reclaimable : [],
+    attention: s.ok ? s.attention : [],
     ...(s.ok ? {} : { stallError: s.error }),
   };
 }

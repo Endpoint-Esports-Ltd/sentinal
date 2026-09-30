@@ -2,9 +2,8 @@
  * Settlement half of the `orca_*` MCP tools (registered by
  * `registerOrcaTools` in `mcp-tools.ts`; direct-only like the rest):
  *
- *   - orca_wait            — one bounded `check --wait`; worker_done payloads,
- *                            other messages, stall verdicts with evidence ids.
- *                            Never acks.
+ *   - orca_wait            — `mcp-tools-wait.ts` (stalls, attention,
+ *                            reclaimable; never acks)
  *   - orca_ack             — acknowledge a processed delivery
  *   - orca_stop            — DESTRUCTIVE; only with an evidence id from the
  *                            latest orca_wait of that Run (absence never
@@ -13,27 +12,22 @@
  *   - orca_remove_worktree — DESTRUCTIVE; `orca worktree rm` of a child
  */
 
-import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   ackDelivery,
-  DEFAULT_WAIT_MS,
-  MAX_WAIT_MS,
   releaseWorker,
   removeChildWorktree,
   stopWorker,
-  waitForSettlement,
-  type SettledMessage,
 } from "./dispatch.js";
 import {
-  clip,
   orcaFailure,
   orcaResponse,
   type OrcaToolState,
   type OrcaToolsDeps,
 } from "./mcp-tools-shared.js";
+import { registerOrcaWaitTool } from "./mcp-tools-wait.js";
 
 const DIRECT = "Direct-only: talks to the local `orca` CLI, never the sidecar.";
 
@@ -42,163 +36,11 @@ export function registerOrcaSettleTools(
   deps: OrcaToolsDeps,
   state: OrcaToolState,
 ): void {
-  registerWait(server, deps, state);
+  registerOrcaWaitTool(server, deps, state);
   registerAck(server, deps, state);
   registerStop(server, deps, state);
   registerRelease(server, deps, state);
   registerRemoveWorktree(server, deps);
-}
-
-// --------------------------------------------------------------- orca_wait
-
-function messageRow(m: SettledMessage) {
-  return {
-    message_id: m.id,
-    type: m.type,
-    subject: m.subject,
-    body: clip(m.body ?? ""),
-    payload: m.payload,
-  };
-}
-
-function registerWait(
-  server: McpServer,
-  deps: OrcaToolsDeps,
-  state: OrcaToolState,
-): void {
-  server.tool(
-    "orca_wait",
-    `Wait (bounded, default 35 s, max 40 s; plus ≤10 s of stall checks) for a Run's workers: returns worker_done payloads, escalations/questions, stall verdicts (exited, auth error, idle, or a brief that never reached the agent — each with an evidence_id for orca_stop), and reclaimable terminals still to release. Does NOT acknowledge — process everything, then orca_ack(delivery_id). A timeout is a checkpoint: call again. ${DIRECT}`,
-    {
-      run_id: z.string().min(1),
-      timeout_ms: z.number().int().positive().max(MAX_WAIT_MS).optional(),
-    },
-    async (args) => {
-      const r = await waitForSettlement({
-        runId: args.run_id,
-        timeoutMs: args.timeout_ms ?? DEFAULT_WAIT_MS,
-        runner: deps.runner,
-        now: deps.now?.(),
-      });
-      if (!r.ok) {
-        return orcaFailure("Orca wait", r.error, { run_id: args.run_id });
-      }
-
-      // Only the latest wait's verdicts authorize a stop.
-      for (const [id, v] of state.verdicts) {
-        if (v.runId === args.run_id) state.verdicts.delete(id);
-      }
-      const stalls = r.stalls.map((v) => {
-        const evidenceId = `ev_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
-        if (v.dispatchId) {
-          state.verdicts.set(v.dispatchId, {
-            runId: args.run_id,
-            evidenceId,
-            verdict: v,
-          });
-        }
-        return {
-          dispatch_id: v.dispatchId,
-          task_id: v.taskId ?? null,
-          reason: v.reason,
-          evidence: v.evidence,
-          evidence_id: evidenceId,
-        };
-      });
-      // Terminals owing a release decision; any release answer (retained
-      // included) settles one for this session, so the list cannot loop.
-      const reclaimable = r.reclaimable
-        .filter((t) => !state.released.has(t.dispatchId))
-        .map((t) => ({
-          dispatch_id: t.dispatchId,
-          task_id: t.taskId ?? null,
-          terminal: t.terminal ?? null,
-        }));
-      if (r.deliveryId) state.deliveries.set(r.deliveryId, args.run_id);
-
-      const workerDone = r.messages.flatMap((m) =>
-        m.workerDone
-          ? [
-              {
-                task_id: m.workerDone.taskId,
-                dispatch_id: m.workerDone.dispatchId,
-                outcome: m.workerDone.outcome,
-                files_modified: m.workerDone.filesModified ?? [],
-                report_path: m.workerDone.reportPath ?? null,
-                subject: m.subject,
-                body: clip(m.body ?? ""),
-                message_id: m.id,
-                replayed: state.released.has(m.workerDone.dispatchId),
-              },
-            ]
-          : [],
-      );
-      const other = r.messages.filter((m) => !m.workerDone).map(messageRow);
-
-      const lines: string[] = [
-        `- **Run:** ${args.run_id} — ${r.timedOut ? "timed out (checkpoint)" : `${r.messages.length} message(s)`}`,
-        ...workerDone.map(
-          (d) =>
-            `- **worker_done** ${d.task_id} / ${d.dispatch_id}: ${d.outcome} — ${d.subject}` +
-            (d.replayed
-              ? " (already settled in this session: an un-acked delivery re-sent — do not merge again; orca_ack it)"
-              : ""),
-        ),
-        ...other.map((m) => `- **${m.type}** ${m.subject}`),
-        ...stalls.map(
-          (s) =>
-            `- **STALL** ${s.dispatch_id} (${s.reason}): ${s.evidence} — evidence_id ${s.evidence_id}`,
-        ),
-        ...reclaimable.map(
-          (t) =>
-            `- **reclaimable** ${t.dispatch_id}${t.task_id ? ` (${t.task_id})` : ""}: settled, its terminal awaits orca_release`,
-        ),
-      ];
-      if (r.stallError) {
-        lines.push(
-          `- Stall check failed: ${r.stallError.message} — reclaimable terminals unknown this round`,
-        );
-      }
-      const next: string[] = [];
-      if (r.messages.length) {
-        next.push(
-          `process every message (verify completion yourself), then orca_ack(delivery_id=${r.deliveryId})`,
-        );
-      }
-      if (stalls.some((s) => s.reason === "never-started")) {
-        next.push(
-          "for a never-started stall (the brief never reached the agent): orca_stop(dispatch_id, evidence_id), then orca_start({task_id, worktree, agent, retry_of: dispatch_id}) for a fresh capability; never resend the brief by hand (dispatch-show --preamble omits the capability)",
-        );
-      }
-      if (stalls.some((s) => s.reason !== "never-started")) {
-        next.push(
-          "for each other stall: orca_stop(dispatch_id, evidence_id), then ask the user Retry / Skip / Stop",
-        );
-      }
-      if (reclaimable.length) {
-        next.push(
-          "orca_release each reclaimable dispatch once its worker_done is processed; do not end the coordinator turn while any remain",
-        );
-      }
-      if (!next.length) next.push("call orca_wait again");
-      lines.push("", `Next: ${next.join("; ")}.`);
-
-      return orcaResponse("Orca wait", lines, {
-        ok: true,
-        run_id: args.run_id,
-        timed_out: r.timedOut,
-        delivery_id: r.deliveryId,
-        worker_done: workerDone,
-        messages: other,
-        stalls,
-        reclaimable,
-        active_dispatches: r.verdicts.length,
-        ...(r.stallError
-          ? { stall_error: r.stallError, reclaimable_unknown: true }
-          : {}),
-      });
-    },
-  );
 }
 
 // ---------------------------------------------------------------- orca_ack

@@ -163,6 +163,11 @@ export interface OrcaWorkerReadResult {
   fallbackReason?: string;
   /** Present when `source === "terminal"`: the bounded terminal tail. */
   terminal?: { handle?: string; status?: string; tail?: string[] };
+  /**
+   * The worker's own state. `liveness` here is the TERMINAL's (PTY) liveness,
+   * not the agent's — it may inform an attention entry, never a stop.
+   */
+  status?: { worker?: string; terminal?: string; liveness?: string };
   [key: string]: unknown;
 }
 
@@ -176,10 +181,19 @@ export interface OrcaWorkerShowResult {
     status?: string;
     dispatchedAt?: string | null;
     lastHeartbeatAt?: string | null;
+    /** The dispatch's own agent terminal. */
+    assigneeHandle?: string;
     [key: string]: unknown;
   };
-  worker?: { state?: string; stage?: string; [key: string]: unknown };
+  worker?: {
+    state?: string;
+    stage?: string;
+    agentTerminalHandle?: string;
+    [key: string]: unknown;
+  };
   projection?: OrcaWorkerProjection | null;
+  /** PTY liveness only (Orca's guide) — never an agent verdict. */
+  observation?: { status?: string; exactWorker?: boolean };
   [key: string]: unknown;
 }
 
@@ -205,6 +219,7 @@ export interface OrcaWorkerProjection {
   liveness?: { verdict?: OrcaLivenessVerdict; reason?: string };
   attention?: { categories?: string[]; requiresAction?: boolean };
   nextAction?: { kind?: string; argv?: string[] };
+  evidence?: { liveStatus?: string; lastObservedAt?: number | null };
   [key: string]: unknown;
 }
 

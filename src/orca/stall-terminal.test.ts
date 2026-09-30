@@ -160,6 +160,28 @@ describe("authErrorInTail", () => {
   });
 });
 
+describe("real 1.4.209 dropped prompt (issue #12, unverifiable liveness)", () => {
+  const read = () =>
+    load<OrcaWorkerReadResult>("worker-read-terminal-home-unverifiable.json");
+
+  it("shows the home screen and never the dispatch id", () => {
+    const tail = terminalTail(read())!;
+    expect(showsHomeScreen(tail)).toBe(true);
+    expect(mentionsDispatch(tail, "ctx_d209000000a1")).toBe(false);
+  });
+
+  it("carries the terminal's own live status and handle, and an unverifiable projection", () => {
+    const r = read();
+    expect(r.status?.liveness).toBe("live");
+    expect(r.terminal?.handle).toBe("term_d209-worker");
+    expect(r.fallbackReason).toBe("session_not_reported");
+    const s = load<OrcaWorkerShowResult>("worker-show-unverifiable-209.json");
+    expect(s.dispatch.assigneeHandle).toBe("term_d209-worker");
+    expect(s.worker?.agentTerminalHandle).toBe("term_d209-worker");
+    expect(s.observation).toBeUndefined();
+  });
+});
+
 describe("worker-show fixture", () => {
   it("is a dispatched dispatch with no heartbeat and a zone-less UTC dispatchedAt", () => {
     const s = load<OrcaWorkerShowResult>("worker-show-dispatched.json");

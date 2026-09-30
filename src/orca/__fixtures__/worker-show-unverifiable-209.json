@@ -1,0 +1,85 @@
+{
+  "_provenance": "COMPOSITE: the recorded 1.4.209 post-stop worker-show (worker-show-stopped-209.json) with ONLY its stop fields reverted to the stall-time state (dispatch dispatched, completedAt/capabilityRevokedAt null, lastFailure null, worker ready/input_accepted, projection = the stall-time worker-read projection). Handles and dispatchedAt unchanged from the recording; no observation field (none was captured at stall time).",
+  "id": "show-209",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_d209000000a1",
+      "runId": "run_d209000000a1",
+      "taskId": "task_d209000000a1",
+      "task_id": "task_d209000000a1",
+      "contractVersion": 1,
+      "assigneeHandle": "term_d209-worker",
+      "capabilityRevokedAt": null,
+      "retryOfDispatchId": null,
+      "hostScope": {
+        "kind": "local",
+        "hostId": "local"
+      },
+      "status": "dispatched",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-09-29 23:11:43",
+      "completedAt": null,
+      "createdAt": "2026-09-29 23:11:43",
+      "lastHeartbeatAt": null
+    },
+    "worker": {
+      "dispatchId": "ctx_d209000000a1",
+      "state": "ready",
+      "stage": "input_accepted",
+      "worktreeId": "c209::/home/dev/orca/workspaces/app/phase-1",
+      "agentTerminalHandle": "term_d209-worker",
+      "setupState": "not_applicable",
+      "lastError": null
+    },
+    "projection": {
+      "id": "ctx_d209000000a1",
+      "dispatchId": "ctx_d209000000a1",
+      "taskId": "task_d209000000a1",
+      "runId": "run_d209000000a1",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c209::/home/dev/orca/workspaces/app/phase-1",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "missing_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "unavailable",
+        "lastObservedAt": null
+      },
+      "resource": {
+        "state": "owned",
+        "releaseState": "not_requested",
+        "terminalState": "active"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": ["unverifiable"],
+        "requiresAction": true
+      }
+    }
+  }
+}

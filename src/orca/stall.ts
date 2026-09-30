@@ -13,9 +13,20 @@
  *     an auth failure, or the agent's empty home screen with the dispatch id
  *     never echoed, no heartbeat, and a dispatch older than `neverStartedMs`
  *     (`never-started`, issue #12 — the brief was dropped).
+ *
+ * Liveness follows Orca's precedence (`stall-liveness.ts`): for a client-gap
+ * `unverifiable` row, `worker-show`'s positive verdict outranks it. A dropped
+ * brief under still-unverifiable liveness is an ATTENTION entry, never a stall.
  */
 
 import { runOrca, type OrcaError, type OrcaRunner } from "./cli.js";
+import {
+  GAP_REASONS,
+  neverStartedEvidence,
+  resolveLiveness,
+  unverifiableAttention,
+  type AttentionEntry,
+} from "./stall-liveness.js";
 import {
   AUTH_PATTERNS,
   authErrorInTail,
@@ -28,14 +39,16 @@ import type {
   OrcaTranscriptMessage,
   OrcaWorkerListResult,
   OrcaWorkerListRow,
-  OrcaWorkerProjection,
   OrcaWorkerReadResult,
   OrcaWorkerShowResult,
 } from "./types.js";
 
+export {
+  DEFAULT_NEVER_STARTED_MS,
+  parseDispatchedAt,
+  type AttentionEntry,
+} from "./stall-liveness.js";
 export const DEFAULT_MAX_IDLE_MS = 10 * 60_000;
-/** A home screen older than this, with no heartbeat, never got its brief. */
-export const DEFAULT_NEVER_STARTED_MS = 180_000;
 const READ_LIMIT = 20;
 
 export type StallReason =
@@ -63,17 +76,6 @@ export interface StallInput {
   neverStartedMs?: number;
 }
 
-function projectionOf(
-  row: OrcaWorkerListRow | null | undefined,
-  read: OrcaWorkerReadResult | null | undefined,
-): OrcaWorkerProjection | undefined {
-  if (row?.projection) return row.projection;
-  const p = read?.projection;
-  return typeof p === "object" && p !== null
-    ? (p as OrcaWorkerProjection)
-    : undefined;
-}
-
 function textOf(m: OrcaTranscriptMessage): string {
   return (m.blocks ?? [])
     .map((b) => (typeof b.text === "string" ? b.text : ""))
@@ -96,18 +98,6 @@ function clip(s: string): string {
   return t.length > 160 ? `${t.slice(0, 160)}…` : t;
 }
 
-/**
- * Orca prints `dispatchedAt` as "YYYY-MM-DD HH:MM:SS" in UTC with no zone.
- * Returns epoch ms, or `null` when missing or unparsable (absence).
- */
-export function parseDispatchedAt(v: unknown): number | null {
-  if (typeof v !== "string" || v.trim() === "") return null;
-  let s = v.trim().replace(" ", "T");
-  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) s += "Z";
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : null;
-}
-
 type Verdict = (reason: StallReason | null, evidence: string) => StallVerdict;
 
 /** The terminal-tail path: auth error, else never-started, else why not. */
@@ -124,41 +114,16 @@ function tailVerdict(
       `terminal tail shows an auth failure: "${auth}"`,
     );
   }
-  if (!showsHomeScreen(tail)) {
-    return verdict(null, "live; terminal tail shows no home screen");
-  }
-  if (!dispatchId) {
-    return verdict(null, "live; home screen visible, dispatch id unknown");
-  }
-  if (mentionsDispatch(tail, dispatchId)) {
-    return verdict(null, "live; the dispatch id is in the terminal tail");
-  }
-  const d = input.show?.dispatch;
-  if (!d)
-    return verdict(null, "live; home screen visible, worker-show unavailable");
-  if (d.lastHeartbeatAt != null) {
-    return verdict(
-      null,
-      "live; home screen visible but a heartbeat was recorded",
-    );
-  }
-  const at = parseDispatchedAt(d.dispatchedAt);
-  if (at === null) {
-    return verdict(null, "live; home screen visible, dispatchedAt unknown");
-  }
-  const age = input.now - at;
-  const limit = input.neverStartedMs ?? DEFAULT_NEVER_STARTED_MS;
-  const secs = `${Math.round(age / 1000)} s`;
-  if (age > limit) {
-    return verdict(
-      "never-started",
-      `dispatched ${secs} ago (> ${Math.round(limit / 1000)} s), no heartbeat, home screen visible, dispatch id never shown`,
-    );
-  }
-  return verdict(
-    null,
-    `live; home screen visible but dispatched only ${secs} ago`,
-  );
+  const e = neverStartedEvidence({
+    tail,
+    dispatchId,
+    show: input.show,
+    now: input.now,
+    limitMs: input.neverStartedMs,
+  });
+  return e.ok
+    ? verdict("never-started", e.evidence)
+    : verdict(null, `live; ${e.why}`);
 }
 
 /** Pure verdict for one dispatch. Never throws. */
@@ -179,18 +144,19 @@ export function stallVerdict(input: StallInput): StallVerdict {
   if (input.workerDoneSent) {
     return verdict(null, "worker_done already reported");
   }
-  const liveness = projectionOf(row, read)?.liveness;
-  const live = liveness?.verdict;
-  if (live === "exited") {
+  const l = resolveLiveness({ row, read, show: input.show });
+  const via = l.source === "worker-show" ? " per worker-show" : "";
+  if (l.verdict === "exited") {
     return verdict(
       "exited",
-      `liveness exited${liveness?.reason ? ` (${liveness.reason})` : ""}`,
+      `liveness exited${l.reason ? ` (${l.reason})` : ""}${via}`,
     );
   }
-  if (live !== "live") {
+  if (l.verdict !== "live") {
+    const raw = row?.projection?.liveness?.verdict ?? "missing";
     return verdict(
       null,
-      `liveness ${live ?? "missing"}: absence never authorizes a stop`,
+      `liveness ${raw}${l.reason ? ` (${l.reason})` : ""}: absence never authorizes a stop`,
     );
   }
 
@@ -253,6 +219,8 @@ export type CollectStallsResult =
       stalls: StallVerdict[];
       verdicts: StallVerdict[];
       reclaimable: ReclaimableTerminal[];
+      /** Report to the user — never stalls, never an evidence id. */
+      attention: AttentionEntry[];
     }
   | { ok: false; error: OrcaError };
 
@@ -307,6 +275,7 @@ export async function collectStalls(
   const now = opts.now ?? Date.now();
 
   const verdicts: StallVerdict[] = [];
+  const attention: AttentionEntry[] = [];
   for (const row of rows) {
     if (left() < MIN_CALL_MS) break;
     const read = await runOrca<OrcaWorkerReadResult>(
@@ -324,35 +293,70 @@ export async function collectStalls(
     );
     const transcript = read.ok ? read.result : null;
     const tail = terminalTail(transcript);
-    let show: OrcaWorkerShowResult | null = null;
-    if (
-      tail &&
+    const lv = row.projection?.liveness;
+    const gap =
+      lv?.verdict === "unverifiable" &&
+      typeof lv.reason === "string" &&
+      GAP_REASONS.includes(lv.reason);
+    const suspect =
+      !!tail &&
       showsHomeScreen(tail) &&
-      !mentionsDispatch(tail, row.dispatchId) &&
-      left() >= MIN_CALL_MS
-    ) {
+      !mentionsDispatch(tail, row.dispatchId);
+    let show: OrcaWorkerShowResult | null = null;
+    if ((suspect || gap) && left() >= MIN_CALL_MS) {
       const s = await runOrca<OrcaWorkerShowResult>(
         ["orchestration", "worker-show", "--dispatch", row.dispatchId],
         { runner: opts.runner, timeoutMs: left() },
       );
       show = s.ok ? s.result : null;
     }
-    verdicts.push(
-      stallVerdict({
-        workerListRow: row,
-        transcript,
-        show,
-        now,
-        maxIdleMs: opts.maxIdleMs,
-        neverStartedMs: opts.neverStartedMs,
-      }),
-    );
+    const v = stallVerdict({
+      workerListRow: row,
+      transcript,
+      show,
+      now,
+      maxIdleMs: opts.maxIdleMs,
+      neverStartedMs: opts.neverStartedMs,
+    });
+    verdicts.push(v);
+    if (!v.stalled) {
+      const a =
+        unverifiableAttention({
+          row,
+          read: transcript,
+          show,
+          now,
+          limitMs: opts.neverStartedMs,
+        }) ?? orcaAttention(row);
+      if (a) attention.push(a);
+    }
   }
   return {
     ok: true,
     stalls: verdicts.filter((v) => v.stalled),
     verdicts,
     reclaimable,
+    attention,
+  };
+}
+
+/**
+ * Orca flags the row `requiresAction` and no stall was proven. The bare
+ * `["unverifiable"]` category is left out: on 1.4.209 every healthy OpenCode
+ * worker carries it, and its actionable form is `never-started-unverifiable`.
+ */
+function orcaAttention(row: OrcaWorkerListRow): AttentionEntry | null {
+  const at = row.projection?.attention;
+  const cats = Array.isArray(at?.categories) ? at.categories : [];
+  if (at?.requiresAction !== true) return null;
+  if (cats.length === 1 && cats[0] === "unverifiable") return null;
+  const argv = row.projection?.nextAction?.argv;
+  return {
+    kind: "orca-attention",
+    dispatchId: row.dispatchId,
+    ...(typeof row.taskId === "string" ? { taskId: row.taskId } : {}),
+    categories: cats,
+    nextAction: Array.isArray(argv) && argv.length ? argv : null,
   };
 }
 

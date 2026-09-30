@@ -58,6 +58,8 @@ export interface OrcaToolState {
    * flags those worker_done rows `replayed` instead of hiding them.
    */
   released: Set<string>;
+  /** `<dispatch>:<kind>` attention entries this session already reported (once each). */
+  attentionReported: Set<string>;
 }
 
 export function createOrcaToolState(): OrcaToolState {
@@ -67,6 +69,7 @@ export function createOrcaToolState(): OrcaToolState {
     verdicts: new Map(),
     deliveries: new Map(),
     released: new Set(),
+    attentionReported: new Set(),
   };
 }
 

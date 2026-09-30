@@ -1,0 +1,85 @@
+{
+  "_provenance": "REAL: issue #12 comment 2026-09-30 09:39 (Orca 1.4.209, Linux, OpenCode 1.18.33, 7 MCP): stall-time worker-read --source auto of a dispatch whose brief was dropped, ~4 min after worker-start. Excerpt completed into an envelope; the reporter's placeholders mapped to concrete ids/paths.",
+  "id": "read-209",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_d209000000a1",
+    "source": "terminal",
+    "fallbackReason": "session_not_reported",
+    "sourceExact": false,
+    "contentComplete": false,
+    "clipping": ["terminal_fallback"],
+    "status": {
+      "worker": "ready",
+      "terminal": "running",
+      "liveness": "live"
+    },
+    "terminal": {
+      "handle": "term_d209-worker",
+      "status": "running",
+      "source": "screen",
+      "returnedLineCount": 13,
+      "tail": [
+        "                                                                          ▄",
+        "                                         █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",
+        "                                         █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀",
+        "                                         ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀",
+        "                       ┃",
+        "                       ┃  Ask anything… \"Fix a TODO in the codebase\"",
+        "                       ┃",
+        "                       ┃  Build · <model> Anthropic",
+        "                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+        "                                                                       tab agents  ctrl+p commands",
+        "                          ● Tip Press ctrl+v to paste images from your clipboard into the prompt",
+        "  /home/dev/orca/workspaces/app/phase-1    ⊙ 7 MCP /status    1.18.33",
+        "  phase-1"
+      ]
+    },
+    "projection": {
+      "id": "ctx_d209000000a1",
+      "dispatchId": "ctx_d209000000a1",
+      "taskId": "task_d209000000a1",
+      "runId": "run_d209000000a1",
+      "role": "worker",
+      "parent": null,
+      "provider": null,
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "c209::/home/dev/orca/workspaces/app/phase-1",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "ready",
+        "dispatch": "dispatched",
+        "detail": "input_accepted",
+        "activity": "unknown"
+      },
+      "outcome": "in_progress",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "missing_status"
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "unavailable",
+        "lastObservedAt": null
+      },
+      "resource": {
+        "state": "owned",
+        "releaseState": "not_requested",
+        "terminalState": "active"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": ["unverifiable"],
+        "requiresAction": true
+      }
+    }
+  }
+}
