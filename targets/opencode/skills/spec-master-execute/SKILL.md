@@ -206,6 +206,13 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
      `orca_abandon({ dispatch_id })` (refused unless Orca itself reports `stop_unknown`), then
      `orca_start({ …, retry_of: <that dispatch_id> })`.
    - Never stop, release or remove a worker on anything weaker than a reported stall.
+   - **`attention` entries are never stalls** — they carry no `evidence_id`, and `orca_stop`
+     refuses them. `never-started-unverifiable` means the brief was probably dropped (the agent's
+     empty home screen on its own live terminal, no heartbeat, minutes after dispatch), but Orca
+     cannot confirm the agent is running, and Orca's guide forbids stopping, abandoning or retrying
+     an `unverifiable` worker. Tell the user, with the evidence, and let them decide; do not stop,
+     abandon or retry it yourself. Report any other attention entry (`orca-attention`) to the user
+     together with Orca's next action.
 7. **Terminals.** `orca_wait` lists `reclaimable` dispatches — settled workers whose terminal still
    awaits `orca_release`. Release each once its `worker_done` is processed; any release answer,
    `retained` included, clears it. A failed start's leftover terminal is reported by `orca_start`,

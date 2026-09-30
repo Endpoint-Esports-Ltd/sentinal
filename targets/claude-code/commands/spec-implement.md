@@ -198,6 +198,8 @@ dispatch_id> })`, once per task, without asking. Any other stall, or a second ne
    `orca_stop` answers `stop_unknown`, ask the user, then `orca_abandon({ dispatch_id })` before
    the `retry_of` start. ⛔ Never
    resend a brief with `dispatch-show --preamble` or `terminal send` (it omits the capability).
+   An `attention` entry is never a stall: report a `never-started-unverifiable` or
+   `orca-attention` entry to the user and do not stop, abandon or retry that worker.
 4. Continue exactly as after a parallel wave: run the orchestrator's builds once, then update the
    plan checkboxes (Step 2.4).
 
