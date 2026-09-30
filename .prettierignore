@@ -11,3 +11,6 @@ targets/claude-code/hooks/dist/**
 targets/opencode/tests/fixtures/**
 src/cli/embedded-assets.ts
 bun.lock
+
+# Orca worktrees (workspaceDir: .orca/worktrees)
+.orca/

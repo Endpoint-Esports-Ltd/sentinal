@@ -14,6 +14,7 @@ export default tseslint.config(
       "targets/claude-code/hooks/dist/**",
       "targets/opencode/tests/fixtures/**",
       ".sentinal/worktrees/**",
+      ".orca/**",
       "docs/**",
     ],
   },

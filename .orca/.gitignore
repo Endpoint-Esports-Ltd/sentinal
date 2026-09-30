@@ -1,0 +1,2 @@
+# Orca creates its worktrees here (workspaceDir: .orca/worktrees)
+worktrees/
