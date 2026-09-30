@@ -380,7 +380,13 @@ until `setup` runs. A brief OpenCode dropped while booting (issue #12) surfaces 
 `orca_start({…, retry_of})`. When Orca reports the agent's liveness as `unverifiable` (1.4.209),
 the same dropped brief is only an `attention` entry (`never-started-unverifiable`, no
 `evidence_id`) that the coordinator reports to the user, because Orca's guide forbids stopping,
-abandoning, retrying or releasing an `unverifiable` worker. Generic Orca rules are not restated in Sentinal's prose: it defers
+abandoning, retrying or releasing an `unverifiable` worker. To stop briefs being dropped in the
+first place (issue #13), `orca_start` pre-warms agents in `SENTINAL_ORCA_PREWARM_AGENTS` (default
+`opencode`) into an existing worktree: Sentinal creates the agent terminal, waits until its input
+box is drawn, then runs `worker-start --terminal <h>`, falling back to `--agent` after 30 s; the
+off switch is `SENTINAL_ORCA_PREWARM_AGENTS=none` (Orca #17741 pane-binding risk). With Orca's
+`workspaceDir: .orca/worktrees` the worktrees live inside the repo, so `.orca/.gitignore`,
+`eslint.config.mjs` (`.orca/**`) and `.prettierignore` (`.orca/`) ignore them. Generic Orca rules are not restated in Sentinal's prose: it defers
 to the version-matched guide, `orca skills get orchestration [--reference <file>]`.
 
 ## Auto-capture, dedupe and notifications (hardening sweep)

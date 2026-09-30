@@ -1,6 +1,6 @@
 # Sentinal MCP Server (Self-Hosted)
 
-The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **47 tools across 8 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
+The only MCP server this repo configures at the project level is **`sentinal`** itself (see `targets/claude-code/.mcp.json` and `targets/opencode/opencode.json`). It's a single server exposing **49 tools across 8 domains**, all registered by `createSentinalServer()` in `src/mcp/server.ts:36`.
 
 > ⚠️ This count was previously stated as "28 tools across 6 domains" and was already wrong before the runtime domain existed — the real pre-Phase-3 figure was **31 across 6** (the Memory table below was missing `memory_update`, `memory_delete` and `memory_share`). `src/mcp/server.test.ts` now asserts registration, so a domain that is never wired in is caught; the COUNT is still hand-maintained.
 
@@ -177,19 +177,21 @@ checkout), else the main checkout as before; the chosen checkout must be clean f
 (`DIRTY_MAIN_CHECKOUT` names the files). The tool reports `Merged in:`. `manager.squashMerge` still
 returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outcome}`.
 
-### Orca Domain (`src/orca/mcp-tools*.ts`) — 9 tools
+### Orca Domain (`src/orca/mcp-tools*.ts`) — 11 tools
 
-| Tool                   | Purpose                                                                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                         |
-| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                          |
-| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); `retry_of` replaces a stopped/failed attempt; reports `delivery_confirmed`                 |
-| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; no ack |
-| `orca_ack`             | Acknowledge a delivery                                                                                                                                                   |
-| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                         |
-| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                        |
-| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                                                                                                                    |
-| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                      |
+| Tool                   | Purpose                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                                                                                                                                                                    |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                                                                                                                                                                     |
+| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); pre-warms listed agents (`start_path`: `prewarmed` / `agent` / `agent-fallback` / `replayed`); `retry_of` replaces a stopped/failed attempt (`retry_of_skipped: true` when the task is already `ready`); reports `delivery_confirmed` |
+| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; auto-acks heartbeat-only deliveries (≤3 rounds), otherwise no ack                                                                                 |
+| `orca_ack`             | Acknowledge a delivery                                                                                                                                                                                                                                                                                              |
+| `orca_reply`           | Answer a worker's question: `orchestration reply` (`run_id`, `message_id`, `body`)                                                                                                                                                                                                                                  |
+| `orca_rebind`          | Rebind a Run to this coordinator terminal (`run-use`) after `consumer_fenced`; refuses `rebind_refused` while the old coordinator terminal is `connected: true`, unless `force`                                                                                                                                     |
+| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                                                                                                                                                                    |
+| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                   |
+| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal; after `retained`/`released`/`already_released` also closes the terminal Sentinal created for a pre-warmed start (never an Orca-created one)                                                                                                                  |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                                                                                                                                                                 |
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
@@ -259,9 +261,53 @@ dispatch stays `dispatched`, a second stop is `dispatch_inactive`, and `--retry-
 abandon a healthy worker, and the gate survives a new session. Abandon fences the dispatch as
 `failed` without touching processes or files; the old terminal stays retained.
 
-A failed start's `cleanupAttempt` (`src/orca/dispatch-start.ts`) releases the attempt and **no
-longer runs `orca terminal close`** — Orca's guide says never substitute it for release; terminals of
-a `retained` release are reported in `unclosedTerminals` (`closedTerminals` stays, always `[]`).
+A failed start's `cleanupAttempt` (`src/orca/dispatch-attempts.ts`) releases the attempt and **never
+runs `orca terminal close` on an Orca-created terminal** — Orca's guide says never substitute it for
+release; terminals of a `retained` release are reported in `unclosedTerminals`. `closedTerminals`
+only ever lists terminals Sentinal itself created for a pre-warmed start (below).
+
+⛔ **Pre-warmed start** (issue #13, `docs/plans/2026-09-30-orca-prewarmed-start.md`). `worker-start
+--agent` pastes the brief once the terminal enables bracketed paste (~0.8 s), but OpenCode draws its
+input box seconds later and silently drops anything pasted before it. So `startTask`
+(`src/orca/dispatch-start.ts`) pre-warms agents listed in `SENTINAL_ORCA_PREWARM_AGENTS` (comma list,
+default `opencode`; `none` or empty disables) when the placement is `current` or `{path}` —
+`new-child` never pre-warms, it has no worktree yet. `prewarmTerminal`
+(`src/orca/dispatch-prewarm.ts`): (1) `orca terminal create --worktree <sel> --command <agent> --title
+worker-<task>`; (2) `terminal wait --for tui-idle`; (3) poll `terminal read --screen` every 500 ms
+until `showsHomeScreen` (splash logo AND the framed `Ask anything…`), then 1 s of slack; (4)
+`worker-start --terminal <h>` — never with `--agent`, the two are exclusive. Timeout 30 s
+(`PREWARM_TIMEOUT_MS`); if the box never appears Sentinal closes its own terminal and falls back to
+`--agent` (`start_path: agent-fallback`, `fallback_reason`). `orca_start` reports `start_path`
+(`prewarmed` | `agent` | `agent-fallback` | `replayed`) and `prewarm: {terminal, readyMs}`.
+
+- **Replays.** An in-process join or replay reuses the same handle (`state.startTerminals`, keyed by
+  request id) — never a second terminal. A replay with **no local record** (e.g. after an MCP
+  restart) never pre-warms: `request-show` decides — `completed` → the recorded receipt
+  (`start_path: replayed`); `pending` → pending; `absent` → `start_outcome_unknown`, and **nothing is
+  started** (absent is not proof nothing happened).
+- **Closing Sentinal's terminals.** A failed pre-warmed attempt closes Sentinal's terminal only when
+  the release answered `released`, `already_released`, `retained` or `not_needed`; after
+  `release_pending`/`release_unknown`/an error it is reported in `unclosedTerminals`. A start that
+  timed out keeps the terminal for the replay. `orca_release` closes the dispatch's Sentinal-created
+  terminal (`state.createdTerminals`) after a `retained`, `released` or `already_released` answer.
+  **Orca-created terminals are never closed.**
+- **`retry_of` on a ready task.** When the caller's `retry_of` is refused `task_not_startable` with
+  status `ready` and no unmet dependencies (its attempt already settled), the task is started
+  plainly **once** with a fresh request id, reusing any pre-warmed terminal; the result carries
+  `retry_of_skipped: true` and `retry_of_refusal`.
+- **Measured** (macOS, 2026-09-30, OpenCode 1.18.33): bracketed paste on at ~0.8 s; the input box
+  drawn at 3.3–3.5 s warm and 3.3–5.8 s in a new worktree (sentinal and passbot-platform); a paste
+  before the box is dropped; 12/12 real `worker-start` first starts landed on macOS. Linux (#13): 9/9
+  first starts failed; the box drawn at 5.2–6.6 s cold.
+- **Known risk: Orca #17741 defect 2** — for `terminal create` terminals the dispatch capability can
+  bind to the wrong pane (14/600 `worker_done` rejected in one report). **Off switch:
+  `SENTINAL_ORCA_PREWARM_AGENTS=none`** (every start goes back to `--agent`).
+
+**Heartbeats.** `orca_wait` asks `check --types worker_done,escalation,question,heartbeat`: Orca
+nudges the coordinator for every pending delivery, and heartbeats excluded by `--types` stayed
+pending and nagged it. A heartbeat-only delivery is auto-acked and the wait continues (at most 3
+rounds, within the caller's timeout; `heartbeats_acked`); in a mixed delivery they are counted as
+`heartbeats: N` and the normal `orca_ack` covers them.
 
 The `orca_*` tools stay Sentinal's own (rather than prose telling agents to run `orca`) because they
 enforce the safety floor in code and integrate adoption, VERIFIED and merge. Shipped prose defers

@@ -1,0 +1,77 @@
+{
+  "review_summary": "The plan covers all eight things the user asked for, and its waves do not overlap on files. The biggest risk is that a pending start replayed through Orca (`--retry-request`, with no start in flight in this process) breaks under pre-warming: it would create a new terminal and send a different argv with the old request id. Terminal-close gating, the heartbeat wait loop, retry_of-on-ready with a pre-warmed terminal, and the line budget of dispatch-start.ts also need more precise rules.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Replaying a request_id through Orca after a restart creates a second terminal and changes the argv under the same --retry-request",
+      "description": "Scope 1 says: 'The pending/join design is kept. A terminal created by an in-flight start is tracked by request id, so joining never creates a second terminal.' That only covers joins inside the same process. The existing path in mcp-tools-start.test.ts:196 is 'replays through Orca (--retry-request) when no start is in flight here' (for example after an MCP process restart). On that path, startTask would pre-warm again. That creates a NEW terminal and sends `worker-start --terminal <new handle>` with the ORIGINAL --retry-request. Orca may then do one of three things: replay the recorded dispatch, leaving the new terminal orphaned and never closed because createdTerminals was lost; reject the request because the arguments differ; or, if the original attempt had fallen back to `--agent`, meet a different flag set entirely. The same problem applies to a CLI timeout mapped to pending (mcp-tools-start.test.ts:210). The Risks table covers only the orphan left by the ORIGINAL start ('Documented limitation'), not this replay.",
+      "suggested_fix": "In Task 2, specify that when orca_start receives a request_id with no in-flight or completed entry in this process, it must NOT pre-warm. Two options: (a) replay the bare `worker-start --task … --worktree … --retry-request <rid>` and accept Orca's recorded answer, verified with a fixture or live test in Task 9 that shows how Orca treats a replay whose argv differs; or (b) query `worker-show`/`task-show` first, and pre-warm only if nothing was recorded for the request. Add a test: a replay with no in-flight start makes zero `terminal create` calls. Add the case to the Risks table."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "A failed pre-warmed attempt closes its terminal after worker-release whatever the release answered",
+      "description": "Scope 2 says: 'A failed pre-warmed attempt closes its terminal after `worker-release`.' dispatch-start.ts:146 already handles `release_pending`/`release_unknown` release outcomes. After one of those, Orca may still own the dispatch's lifecycle on that terminal, so running `terminal close` would substitute a close for a release. The plan cites Orca's guide as forbidding exactly that.",
+      "suggested_fix": "Close the created terminal only when release answered `released` or `retained`, or when worker-start never accepted the terminal at all (a refusal before any dispatch). Otherwise, report the handle in `unclosedTerminals` like today. Add a test per outcome."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "retry_of-on-ready does not say what happens to the pre-warmed terminal, or that it applies only to the caller's retry_of",
+      "description": "Task 6: 'When the caller's `retryOf` attempt fails with `task_not_startable`, `data.status === \"ready\"` … retry once without `retry_of`, with a fresh request id.' Two gaps. (1) In pre-warmed mode, a terminal was already created and made ready before the refused worker-start. The plan does not say whether the plain retry reuses that terminal, closes it and pre-warms again, or leaks it. (2) startTask also sets `retryOf = receipt.dispatchId` for its OWN automatic retry (dispatch-start.ts:307). The code needs to tell the caller's retryOf apart from the automatic one, or the automatic retry could also be turned into a plain start. The duplicate risk itself is low: a `ready` task has no active dispatch, and a second concurrent plain start would get `task_not_startable` with status `dispatched`. Also, 'no unmet dependencies' is implied by `ready`, and checking it would need an extra call the plan does not list.",
+      "suggested_fix": "State: the skip applies only when `retryOf === o.retryOf`, the caller's value, on the first attempt. The plain retry reuses the same pre-warmed handle, because worker-start refused and never bound it. Test: one `terminal create`, two `worker-start --terminal <same h>`, the second without --retry-of and with a different --retry-request. Drop the 'no unmet dependencies' clause, or name the call that checks it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Adding heartbeat to --types can turn orca_wait into an immediate-return loop",
+      "description": "Task 3 adds `heartbeat` to `--types` (dispatch.ts:288, where it is currently `worker_done,escalation,question`), and a heartbeat-only delivery 'is acked at once and treated as a checkpoint'. Until now, heartbeats were excluded from `check --wait`. After this change, every heartbeat ends the wait early, so orca_wait returns `timed_out: true` long before the 35 s budget. The coordinator is prompted just as often as before, with a different message. Nothing in the plan confirms what causes the nag today (is Orca delivering heartbeats despite the `--types` filter?). The auto-ack itself is safe, because it acks only deliveries whose messages are ALL heartbeats.",
+      "suggested_fix": "After auto-acking a heartbeat-only delivery, keep waiting inside the same orca_wait call until the budget runs out, and report `heartbeats_acked: N` at the end. Add a test: a heartbeat-only delivery, then a worker_done inside the budget, gives one call that returns the worker_done. Before implementing, record in Task 1 which Orca output caused the nag in issue #13 (a raw capture if possible), so the fix targets the real source."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Three live starts cannot detect the #17741 pane-binding defect, and there is no documented off switch",
+      "description": "The Risks table says 'Live-verified in Task 9' for 'Capability bound to the wrong pane (Orca #17741 defect 2)'. The reported rate is 14 in 600 (about 2.3%). Three pre-warmed starts would catch it only about 7% of the time, so Task 9(a) passing is not evidence against it. Pre-warming is on by default for opencode, so every OpenCode user is exposed to this.",
+      "suggested_fix": "Reword the mitigation: Task 9 checks only that the path works, not the defect rate. In Task 7/8 prose, document `SENTINAL_ORCA_PREWARM_AGENTS=none` as the off switch when a worker's plan reads VERIFIED but no worker_done arrives. Consider including `start_path` in the stall/attention output, so such a case can be traced to pre-warming."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "The recovery prose says to start the task again but does not say how",
+      "description": "Task 7: 'Please close only that worker's terminal tab … then call `orca_start` for the task again.' After the tab is closed, the dispatch is exited or failed, or it may still be `dispatched` until Orca notices. A plain orca_start may then be refused as `task_not_startable`, and a start without retry_of may hit a task that needs `--retry-of`.",
+      "suggested_fix": "Have the prose call `orca_start({ task_id, worktree, agent, retry_of: <the dropped dispatch id> })`. Task 6 makes that safe whether the task is `ready` or needs a retry. If the answer is `blocked` because the dispatch is still `dispatched`, tell the coordinator to orca_wait until the next wait shows the stall or exit. Add one Task 9 step that closes a worker tab by hand and restarts the task this way, since this is the recovery the user asked for."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "The consumer_fenced hint moved to Task 3, but Task 3's own file list and DoD do not include it",
+      "description": "Task 4: 'This file is in Task 3's list, so the hint is added in Task 3 instead: when `r.error.code === \"consumer_fenced\"`, add the line.' Task 3's bullets mention the heartbeat work and the orca_reply Next line, but not the orca_rebind hint, and its DoD does not check it. An implementer following Task 3 alone will skip it. Otherwise the waves are disjoint: Wave 2 is prewarm/start/start.ts/shared.ts (T2), dispatch.ts/wait.ts (T3) and coord.ts/mcp-tools.ts/server.test.ts (T4). createOrcaToolState lives in mcp-tools-shared.ts:65, so T2 does not need mcp-tools.ts. Wave 3 is settle.ts (T5) and start.ts/dispatch-start.ts (T6).",
+      "suggested_fix": "Add a bullet to Task 3's file list for `mcp-tools-wait.ts`: 'on `consumer_fenced`, the Next line names `orca_rebind({ run_id })`', plus a test in mcp-tools-wait.test.ts. Remove the note from Task 4, or change it to 'see Task 3'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "dispatch-start.ts will likely go over 400 lines, and the split is left optional",
+      "description": "dispatch-start.ts is at 309 lines. Task 2 adds the terminal branch in startOnce, the prewarm, fallback and close paths in startTask, and the new result fields. Task 6 then adds the retry-without-retry_of branch. The plan says 'If needed, move `cleanupAttempt` into `dispatch-prewarm.ts`'. That leaves Task 6, which runs later in its own wave, with no room and no plan.",
+      "suggested_fix": "Make the split part of Task 2: move the pre-warm orchestration (prewarm → start → fallback → close) into dispatch-prewarm.ts as one function, such as `startPrewarmed`, and keep only a one-line branch in startTask. Give Task 6 a line budget (for example, 'dispatch-start.ts ≤ 380 after Task 2') and a DoD check such as `wc -l src/orca/*.ts | awk '$1>400'` that must print nothing (excluding tests)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 8 has no Verify command",
+      "description": "Task 8's DoD says 'the counts match `registerOrcaTools`', but no command checks it. Counts are maintained by hand in four places.",
+      "suggested_fix": "Add a Verify line: `bunx prettier --check README.md .sentinal/rules/sentinal-mcp-servers.md .sentinal/skills/sentinal-orca-cli/SKILL.md && rg -n '49 tools|11 tools' README.md .sentinal/rules/sentinal-mcp-servers.md && bun test src/mcp/server.test.ts src/orca/mcp-tools.test.ts`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "orca_rebind can take a Run from another live coordinator",
+      "description": "Scope 6 relies on the tool description ('never rebind a Run another live coordinator is using') for safety. Elsewhere, ensureRun refuses a Run bound to another coordinator in code. orca_rebind would be the only path around that refusal, and it would rely on prose alone.",
+      "suggested_fix": "Before `run-use`, read the Run's bound coordinator handle. If it names another terminal that Orca reports as live, refuse unless the call includes `confirm: true`, and name the current handle in the refusal. Otherwise, record in the plan that prose-only protection is a deliberate choice."
+    }
+  ]
+}

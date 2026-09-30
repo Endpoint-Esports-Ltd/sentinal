@@ -1,0 +1,89 @@
+{
+  "pass_summary": "All 9 tasks are implemented. The pre-warmed start, the fallback, the request-show replay after a restart, the settled-only close, the heartbeat auto-ack loop, retry_of-on-ready, and orca_reply/orca_rebind match the plan, and the tool counts (Orca 11, 49 total) and both targets' prose are consistent. The problems are edge cases in the pending/replay handling: a closed fallback handle can be replayed with --terminal, and the retry_of-skip request id is lost across a replay. orca_rebind also fails open when `terminal show` errors, and some planned MCP-level tests are missing.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "A closed fallback terminal stays in state.startTerminals and is replayed with --terminal",
+      "description": "src/orca/dispatch-prewarm.ts:106 calls onCreated(handle) as soon as the terminal exists, so src/orca/mcp-tools-start.ts records it in state.startTerminals[requestId]. If the readiness wait then fails, startTask closes that handle and falls back to `--agent` (dispatch-start.ts, the `prewarm.ok === false` branch). The `.then` in mcp-tools-start.ts keeps the entry whenever the result is an `orca_timeout` error. So when the fallback `--agent` worker-start times out, the next orca_start({request_id}) passes `terminal: <closed handle>`. startOnce then sends `worker-start --terminal <closed>` under the SAME `--retry-request`, with a different argv than the original `--agent` request. Orca will refuse that as a request-id argv mismatch or `terminal_handle_stale`, and the start can no longer be replayed. The same stale entry remains after a failed pre-warmed attempt whose automatic retry fell back.",
+      "suggested_fix": "In startTask, tell the MCP layer when a handle is dropped. For example, add `onTerminalReleased?.()`, or call `onTerminalCreated` with an 'agent' marker, whenever the terminal is closed or the path becomes `agent-fallback`. mcp-tools-start.ts should then delete state.startTerminals[requestId], so a replay repeats the exact `--agent` argv. Add a test in src/orca/mcp-tools-start.test.ts: pre-warm times out → fallback worker-start returns orca_timeout → replay with the same request_id → worker-start carries `--agent opencode` and no `--terminal`."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "The fresh request id from the retry_of skip is not kept across a pending/timeout replay",
+      "description": "src/orca/dispatch-start.ts: when readyAgain() holds, the plain start runs with `requestId: undefined`, so mutate generates a new UUID. The orca_start layer only knows the ORIGINAL request_id. If that plain worker-start returns orca_timeout (it may have reached Orca), the caller's replay reuses the original request_id and the caller's retry_of. Orca refuses it again, the skip runs again, and a SECOND plain worker-start goes out under yet another fresh id. Orca's refusal of concurrent starts limits the damage, but the replay then answers `blocked`/`task_not_startable` (status no longer `ready`) instead of returning the first plain start's receipt. This breaks the \"same argv, same --retry-request\" promise of the plan's Scope 1.",
+      "suggested_fix": "Make the skip id derivable, for example `${requestId}:plain` or a v5 UUID derived from requestId, or return it to the MCP layer and record it in state (like startTerminals) so a replay resends the plain start with the same `--retry-request`. Add a test: skip → plain start orca_timeout → replay → exactly one plain worker-start request id across both calls."
+    },
+    {
+      "severity": "should_fix",
+      "category": "error_handling",
+      "title": "orca_rebind treats any `terminal show` error as a stale terminal and rebinds",
+      "description": "src/orca/mcp-tools-coord.ts:143-157: `live = term.ok && connected === true`. Any failure, such as a CLI timeout, a parse error or a transient Orca error, counts as not-live, and the tool goes on to `run-use`, fencing a coordinator that may still be live. The plan's text allows this (\"stale or error → continue\"), but it contradicts the invariant the rest of src/orca follows (never act on absence; Orca's guide says unknown is not proof). Only the `terminal_handle_stale` error, or `connected: false`, proves the old coordinator is gone.",
+      "suggested_fix": "Continue only when `term.ok && connected !== true` or `term.error.code === \"terminal_handle_stale\"`. For any other error, return `rebind_unverified` with the error and tell the caller to pass `force: true` if they know the old coordinator is gone. Add a test with a generic `terminal show` failure."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Any non-timeout worker-start error closes Sentinal's terminal, even when the outcome is uncertain",
+      "description": "src/orca/dispatch-start.ts: `if (terminal && r.error.code !== \"orca_timeout\") closeTerminal(...)`. Plan Scope 2 says close only when worker-start never took the terminal (an error before a receipt). Transport-level failures other than a timeout, such as a spawn error, unparseable output or a non-JSON exit, do not prove that Orca never accepted the start. Closing the terminal then could kill a worker Orca just bound.",
+      "suggested_fix": "Close only when the error is a structured Orca refusal (the error has an Orca `code` from the JSON envelope, such as task_not_startable, agent_readiness or inject_rejected). For adapter-level errors (orca_timeout, parse/spawn errors), keep the terminal and report it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "test_quality",
+      "title": "No MCP-level test that an in-process replay reuses the recorded handle",
+      "description": "Task 2 lists \"an in-process replay reusing the handle\" as a required test. src/orca/mcp-tools-start.test.ts covers the pending join (one create) and the first pre-warmed start, but no test drives the path where worker-start returns orca_timeout, state.startTerminals keeps the handle, and a replay sends `--terminal <same handle>` with the same `--retry-request` and no second `terminal create`. No test file references `startTerminals` either.",
+      "suggested_fix": "In src/orca/mcp-tools-start.test.ts: the first worker-start answers orca_timeout; call orca_start again with that request_id. Assert that `terminal create` ran once, both worker-start argv carry the same `--terminal` and `--retry-request`, and state.startTerminals is empty after success."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "orca_release also closes after `released`/`already_released`, beyond the plan's `retained` only",
+      "description": "src/orca/mcp-tools-settle.ts CLOSABLE_AFTER = {retained, released, already_released}. Plan Scope 2 and Task 5 say the close happens after `retained`. The dev rules were updated to match the code, and the handle is still only ever a Sentinal-created one, so this is safe. It is still undocumented drift from the approved plan, and Truth 4 is only phrased for `retained`.",
+      "suggested_fix": "Record the widening in the plan's Implementation Notes (Task 5). Add a settle test asserting that a `released` answer for a createdTerminals dispatch also yields one close, and that a failed release (orcaFailure) leaves the map entry in place."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "The pre-warm replay: terminal create → wait → home-screen read → worker-start --terminal, with no --agent",
+      "status": "verified",
+      "evidence": "dispatch-prewarm.ts runs create/wait/read in that order. mcp-tools-start.test.ts:338-368 asserts `--terminal` = HANDLE and no `--agent`. dispatch-prewarm.test.ts has the same at the startTask level."
+    },
+    {
+      "truth": "Box never appears → terminal close, then worker-start --agent, with start_path agent-fallback",
+      "status": "verified",
+      "evidence": "dispatch-start.ts closes w.handle and sets path agent-fallback. dispatch-prewarm.test.ts:235 asserts startPath 'agent-fallback'."
+    },
+    {
+      "truth": "SENTINAL_ORCA_PREWARM_AGENTS=none or agent claude → --agent directly",
+      "status": "verified",
+      "evidence": "prewarmAgents() returns [] for 'none'; usePrewarm requires the agent to be listed; the existing claude start tests keep the --agent path."
+    },
+    {
+      "truth": "orca_release on retained for a createdTerminals dispatch → exactly one terminal close; no close for dispatches not in the map",
+      "status": "uncertain",
+      "evidence": "closeOwnTerminal only reads state.createdTerminals and deletes the entry. The settle-test assertions for the exact close count were not inspected within this review's budget."
+    },
+    {
+      "truth": "A heartbeat-only delivery is acked inside orca_wait, which returns timed_out with no messages",
+      "status": "verified",
+      "evidence": "mcp-tools-wait.ts loop (every message is a heartbeat → ackDelivery, ≤3 rounds, Date.now budget); mcp-tools-wait.test.ts:295-324 asserts heartbeats_acked."
+    },
+    {
+      "truth": "retryOf refused task_not_startable/ready → plain retry, started with retrySkipped",
+      "status": "verified",
+      "evidence": "readyAgain() is gated on o.retryOf and `!retryOf` (never the automatic retry); dispatch-start.test.ts:436,487 and mcp-tools-start.test.ts:409-445."
+    },
+    {
+      "truth": "orca_reply/orca_rebind are registered; README says 49 tools and Orca 11",
+      "status": "verified",
+      "evidence": "registerOrcaCoordTools is called from mcp-tools.ts. The 11 orca_* server.tool names across mcp-tools*.ts are status, dispatch, start, wait, ack, stop, release, remove_worktree, abandon, reply, rebind. README.md lines 59/687/698 and sentinal-mcp-servers.md lines 3/180 agree."
+    }
+  ]
+}
