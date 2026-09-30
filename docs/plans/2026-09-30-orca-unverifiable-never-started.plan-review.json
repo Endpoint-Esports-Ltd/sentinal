@@ -1,0 +1,70 @@
+{
+  "review_summary": "The plan covers all three options the user chose and keeps the recovery path unchanged. Two things could make it fail in the field. First, on Orca 1.4.209 every healthy worker carries requiresAction/unverifiable, so attention rows would be listed on every orca_wait and the user would be asked about them each time. Second, the only positive test for the reported case uses an invented stall-time worker-show. A few smaller gaps: whose verdict counts under host_unavailable, budget starvation, a skill path that may be wrong, and the TDD companion file for the new module.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Attention rows will fire for every healthy 1.4.209 worker on every orca_wait",
+      "description": "Per the plan's own Context, the issue's projection for a missing_status worker was `attention: { categories: [\"unverifiable\"], requiresAction: true }` with `nextAction: none`. On 1.4.209 that is the normal state of every OpenCode worker, healthy ones included, because Orca never gets agent status. Task 2 lists 'active rows with requiresAction === true that got no stall verdict', and Task 3 excludes only `state.released`. So every busy, healthy worker becomes an attention row on every wait, roughly every 35 s. Task 4's prose says 'tell the user', which turns this into a repeated user prompt: the spam/loop the Risks table rates 'Low'. Task 6 runs on 1.4.216, where liveness is live and requiresAction is presumably false, so it cannot catch this.",
+      "suggested_fix": "(a) Do not list a row whose only category is `unverifiable` once resolveLiveness has resolved it (to live/exited via worker-show, or to terminal-only with a live exactWorker PTY). Keep it only when liveness stays `absent`. (b) Report each (dispatchId, categories) pair at most once per session: keep an `attentionReported` set next to `state.released` in the wait state and render repeats as a count, or not at all. (c) Add tests: a gap-unverifiable row with a conversation tail produces no attention row, and the same attention row is not listed again on a second orca_wait."
+    },
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "The fix for the reported case is proven only against a composite worker-show",
+      "description": "Truth 1 and the positive Task 2 test use `worker-show-unverifiable-live-pty.json`, which is a composite with `observation: { status: \"live\", exactWorker: true }` at stall time. The plan's first Assumption admits this was never observed; it is inferred from worker-read `status.liveness` and the post-stop show. If 1.4.209's stall-time worker-show has no `observation` (or `exactWorker` is not true while the agent status is missing), option 2 never fires and the reported bug stays unfixed, while every DoD item passes. The Pre-Mortem fallback (worker-read `status.liveness: live` + a handle match) is deferred until 'the user's next capture', and no task asks for that capture.",
+      "suggested_fix": "Either (1) add a step before Task 2 that asks the issue reporter for a stall-time `worker-show --json` on 1.4.209 and records it as a real fixture, or (2) build the fallback into resolveLiveness now. For example: terminal-only when show.observation is live+exactWorker, OR when show.observation is absent AND read.status.liveness === 'live' AND read.terminal handle === show/row agentTerminalHandle. Test both shapes. Whatever is chosen, mark Truth 1 as 'verified against a composite' in the plan and in the issue comment."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Option 1 accepts any worker-show verdict for host_unavailable, not only one sourced from the execution host",
+      "description": "Orca's guide, as the plan quotes it, says 'a worker-show verdict **sourced from the execution host** is the better evidence and outranks the row'. Task 2 step 2 accepts `show.projection.liveness` live/exited for all GAP_REASONS, host_unavailable included, without checking where the verdict came from. During contact loss, worker-show could return an `exited` verdict built from the coordinator's stale view. That gives an `exited` stall and an orca_stop on a worker that is actually running. The Risks row ('Option 1 uses it only if worker-show positively says live/exited') does not address this.",
+      "suggested_fix": "In resolveLiveness step 2, skip rows where show's own liveness reason is itself a gap reason, and require a host source (e.g. `projection.evidence.liveStatus` !== 'unavailable', or whichever field 1.4.216's worker-show fixture uses to mark host-sourced evidence). Simpler: for host_unavailable, let only a show `live` outrank the row and never derive `exited` from it. Add a negative test: host_unavailable + show exited with no host evidence gives no stall."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "More worker-show calls under a fixed 10 s budget: the same tail rows are always starved, and it is unclear whether budget-skipped rows count as attention",
+      "description": "collectStalls loops over rows in list order and breaks when `left() < MIN_CALL_MS` (stall.ts:311). Option 1 adds one worker-show per gap-unverifiable row, and on 1.4.209 that is every row, which roughly doubles the calls. The same late rows then miss the budget on every wait, so their never-started verdict never comes. Task 2 also defines attention as rows that 'got no stall verdict'. That could include budget-skipped rows, which would then be listed as attention for the wrong reason.",
+      "suggested_fix": "Rotate or shuffle the row start offset per call (or process the oldest dispatchedAt first) so each row is eventually read. Derive attention only from rows that were actually evaluated (a verdict exists with stalled=false), or clearly label unevaluated rows 'not checked (budget)'. Add a budget test with 3 gap rows and a budget for only 2 × (read + show)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "The new mcp-tools-wait.ts has no companion test file (TDD guard / file-checker)",
+      "description": "Task 3 creates `src/orca/mcp-tools-wait.ts` but puts its tests in `mcp-tools-settle.test.ts`. The repo's TDD guard blocks writes to an implementation file until a failing test exists in the corresponding `*.test.ts`, and file-checker checks for a companion test. Creating the file will be blocked or warned about.",
+      "suggested_fix": "Add `src/orca/mcp-tools-wait.test.ts`, containing at least a registration test and the attention rendering tests. Alternatively, set RED_CONFIRMED explicitly with test_file_path pointing at mcp-tools-settle.test.ts and say so in Task 3."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "The skill path in Task 5 is probably wrong",
+      "description": "Task 5 edits `.sentinal/skills/sentinal-orca-cli/SKILL.md`. The loaded skill lives at `.opencode/skills/sentinal-orca-cli/SKILL.md`, and a glob for `**/sentinal-orca-cli/SKILL.md` found nothing under `.sentinal/`. A mirror under `.claude/skills/` may also exist.",
+      "suggested_fix": "Run `fd -H SKILL.md | rg sentinal-orca-cli` and list every real copy (.opencode/skills and .claude/skills, if present) in Task 5's Files and its prettier DoD."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "orca_wait's description and schema change without a prose-drift check",
+      "description": "The orca_wait description (mcp-tools-settle.ts:71) lists what the tool returns: worker_done, stalls, reclaimable. Task 3 adds a structured `attention` field but does not update the description. It also does not update the orca_wait row in `.sentinal/rules/sentinal-mcp-servers.md` or README's MCP catalog, which both describe what orca_wait returns (see the sentinal-schema-prose-drift skill).",
+      "suggested_fix": "In Task 3, add 'attention rows (never authorize orca_stop)' to the tool description, with a test asserting it. In Task 5, update the orca_wait row in sentinal-mcp-servers.md and README.md."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "State which existing 'never stalls on unverifiable' tests stay and which change",
+      "description": "stall.test.ts:95 ('never stalls on unverifiable or missing liveness, even with a 401 transcript') and :458 ('never stalls on unverifiable liveness') encode the old invariant. Task 2's DoD says only 'bun test src/orca/ passes'. An implementer could quietly weaken these tests to get green.",
+      "suggested_fix": "Add to Task 2: these two tests stay unmodified (no show / no exactWorker leaves the result absent). Add a variant of :95 that has a live exactWorker show and a 401 tail, and assert it still produces no auth-error stall, because only never-started comes from terminal-only liveness."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "State how the 'retry once, then ask' counter treats basis: terminal",
+      "description": "The user chose 'retry first then ask' for option 2, the same as the live case. The existing Next hint (mcp-tools-settle.ts:168-170) keys only on `reason === 'never-started'`, so a terminal-basis verdict inherits it. The plan does not say that the once-per-task counter in the coordinator prose counts both bases together. A worker that alternates between agent and terminal basis must not get two automatic retries.",
+      "suggested_fix": "In Task 4's prose, and in one orca_wait test, state that the once-per-task auto-retry counts every never-started verdict regardless of basis, and that the evidence string names the basis."
+    }
+  ]
+}

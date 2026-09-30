@@ -1,0 +1,63 @@
+{
+  "pass_summary": "Tasks 1–5 are implemented as planned. An unverifiable dispatch can only become a stall through a positive live or exited verdict, and worker-show is consulted only for GAP_REASONS (never host_unavailable). Attention entries carry no evidence_id and are never stored in state.verdicts, so orca_stop refuses them. The orca_wait move is verbatim, and the prose in both targets says to report the entry and never stop, abandon or retry. The remaining gaps are bookkeeping (Task 6 and the Live Verification record) and two minor robustness points in the attention de-duplication and rendering.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Task 6 live smoke is not recorded in the plan",
+      "description": "The orchestrator reports that the 1.4.216 live smoke passed: a healthy worker got no stall and no attention entry. The plan does not show it. Task 6 is still '[ ]', the Progress Tracking line says 5/6, and there is no '## Live Verification' section, although Task 6 step 5 requires one. The DoD also requires that no e2e-v12b worktree or branch remains, and nothing in the plan evidences that.",
+      "suggested_fix": "Add a '## Live Verification' section to docs/plans/2026-09-30-orca-unverifiable-never-started.md with: the Orca version, the worker's projection liveness, the collectStalls result (stalls: [], attention: []), and confirmation that the e2e-v12b worktree and branch were removed. Then tick Task 6 and update the Completed/Remaining counts."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "attentionReported is keyed by dispatch only, so a later, stronger entry can be hidden",
+      "description": "src/orca/mcp-tools-wait.ts:118-125 filters and records attention by dispatchId alone. Suppose a dispatch is first reported as 'orca-attention', for example with categories ['unverifiable', <other>] before the 3-minute threshold. When it later qualifies as 'never-started-unverifiable' (the dropped-brief signal this plan exists to surface), that entry is never shown in this session. On 1.4.209 the categories were exactly ['unverifiable'], so the recorded case is unaffected, but the de-duplication is coarser than the plan's intent.",
+      "suggested_fix": "Key the set by `${dispatchId}:${kind}` in mcp-tools-wait.ts (and in the attentionReported doc comment in mcp-tools-shared.ts). Add a test in mcp-tools-wait.test.ts: orca-attention first, then never-started-unverifiable for the same dispatch; both are reported once."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_mitigation",
+      "title": "The orca-attention line shows Orca's nextAction argv with no inline 'tell the user'",
+      "description": "attentionLine (src/orca/mcp-tools-wait.ts:217-222) renders `Orca's next action: <argv>` bare. The 'tell the user; attention never authorizes orca_stop…' guard appears only in the aggregated Next hint. If Orca ever suggests a mutating argv for a row that is also unverifiable, a coordinator reading the line alone could run it as a raw orca command, which is exactly Pre-Mortem #1. The never-started-unverifiable line already carries an inline 'tell the user'.",
+      "suggested_fix": "Append ' — report to the user; not an authorization to act' to the orca-attention line. Optionally omit or mark the argv when the row's liveness is unverifiable. Assert the wording in mcp-tools-wait.test.ts."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "The real 1.4.209 worker-read plus a matching-handle, unverifiable worker-show, over 3 min old, gives stalls: [] and one never-started-unverifiable attention entry",
+      "status": "verified",
+      "evidence": "stall.test.ts:673 ('reports the real dropped prompt as a never-started-unverifiable attention entry, never a stall') uses worker-read-terminal-home-unverifiable.json and worker-show-unverifiable-209.json. unverifiableAttention in stall-liveness.ts:176-205 requires: absent liveness with a GAP reason, ownTerminalLive, and neverStartedEvidence."
+    },
+    {
+      "truth": "The attention entry has no evidence_id, and orca_stop for that dispatch is refused",
+      "status": "verified",
+      "evidence": "attentionRow (mcp-tools-wait.ts:201-211) emits no evidence_id. Only r.stalls are written to state.verdicts (lines 71-87). Tests: mcp-tools-wait.test.ts:117 and :150 ('orca_stop refuses an attention dispatch, whatever evidence id is passed')."
+    },
+    {
+      "truth": "worker-show 'live' for a missing_status row gives the normal never-started stall with an evidence_id",
+      "status": "verified",
+      "evidence": "resolveLiveness (stall-liveness.ts:78-88) returns source 'worker-show' for GAP_REASONS only. Test stall.test.ts:695 expects stalls ['never-started'] and attention []. The evidence_id is assigned for every stall in mcp-tools-wait.ts:71-87."
+    },
+    {
+      "truth": "The same inputs with host_unavailable give neither a stall nor a never-started-unverifiable entry",
+      "status": "verified",
+      "evidence": "GAP_REASONS excludes host_unavailable (stall-liveness.ts:37-40), so worker-show can never outrank it and unverifiableAttention returns null. Tests: stall.test.ts:719 (even when worker-show says exited), stall-liveness.test.ts:83 and :213."
+    },
+    {
+      "truth": "stall-liveness.ts exports resolveLiveness, and stall.ts imports it",
+      "status": "verified",
+      "evidence": "The stall.ts diff imports { GAP_REASONS, neverStartedEvidence, resolveLiveness, unverifiableAttention, type AttentionEntry } from './stall-liveness.js'. mcp-tools-settle.ts registers via registerOrcaWaitTool."
+    },
+    {
+      "truth": "Every non-test src/orca/*.ts file is 400 lines or fewer, and the fixtures contain no unredacted dcap_ token",
+      "status": "verified",
+      "evidence": "stall.ts is 370 lines, stall-liveness.ts 205 and mcp-tools-wait.ts 223. mcp-tools-settle.ts was 393 and lost about 150 lines, so it is well under 360. dispatch.ts gained only 3 lines. A grep for 'dcap_' in the new fixtures found no matches. The _provenance labels are honest: two are marked REAL, and worker-show-unverifiable-209.json is marked COMPOSITE, with reverted stop fields and no invented observation."
+    }
+  ]
+}

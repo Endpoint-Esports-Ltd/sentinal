@@ -377,7 +377,10 @@ reports stalls and the skill asks the user; the first `worker-start` can fail at
 `agent_readiness` and one `--retry-of` recovers it; Orca child worktrees have no `node_modules`
 until `setup` runs. A brief OpenCode dropped while booting (issue #12) surfaces as a
 `never-started` stall read from the terminal tail; recovery is `orca_stop`, then
-`orca_start({…, retry_of})`. Generic Orca rules are not restated in Sentinal's prose: it defers
+`orca_start({…, retry_of})`. When Orca reports the agent's liveness as `unverifiable` (1.4.209),
+the same dropped brief is only an `attention` entry (`never-started-unverifiable`, no
+`evidence_id`) that the coordinator reports to the user, because Orca's guide forbids stopping,
+abandoning, retrying or releasing an `unverifiable` worker. Generic Orca rules are not restated in Sentinal's prose: it defers
 to the version-matched guide, `orca skills get orchestration [--reference <file>]`.
 
 ## Auto-capture, dedupe and notifications (hardening sweep)

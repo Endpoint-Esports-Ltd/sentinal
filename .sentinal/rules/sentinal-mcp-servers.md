@@ -179,17 +179,17 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 
 ### Orca Domain (`src/orca/mcp-tools*.ts`) — 9 tools
 
-| Tool                   | Purpose                                                                                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                         |
-| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                          |
-| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); `retry_of` replaces a stopped/failed attempt; reports `delivery_confirmed` |
-| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `reclaimable` terminals; no ack                          |
-| `orca_ack`             | Acknowledge a delivery                                                                                                                                   |
-| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                         |
-| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                        |
-| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                                                                                                    |
-| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                      |
+| Tool                   | Purpose                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                         |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                          |
+| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); `retry_of` replaces a stopped/failed attempt; reports `delivery_confirmed`                 |
+| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; no ack |
+| `orca_ack`             | Acknowledge a delivery                                                                                                                                                   |
+| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                         |
+| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                        |
+| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal                                                                                                                    |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                      |
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
@@ -209,12 +209,45 @@ and only a terminal tail. Stall evidence for such workers comes from that tail
 brief was dropped) needs ALL of — live liveness, no `worker_done`, the agent's home screen visible,
 the dispatch id absent from the joined tail, no heartbeat, and `dispatchedAt` (zone-less UTC,
 `parseDispatchedAt`) older than `DEFAULT_NEVER_STARTED_MS` (3 min). `worker-show` is called only for
-home-screen suspects. Only OpenCode's home-screen signature was verified live; it needs BOTH the splash logo's top row and the input box's `┃  Ask anything…` placeholder, each at a line start, so an agent that merely prints or quotes the phrase is never taken for the home screen. A tail `auth-error` counts only in the provider's own wording, in the last 8 non-blank lines (the terminal's "final turn"). Every
+home-screen suspects and for gap-unverifiable rows (see below). Only OpenCode's home-screen signature was verified live; it needs BOTH the splash logo's top row and the input box's `┃  Ask anything…` placeholder, each at a line start, so an agent that merely prints or quotes the phrase is never taken for the home screen. A tail `auth-error` counts only in the provider's own wording, in the last 8 non-blank lines (the terminal's "final turn"). Every
 evidence string is redacted (`redactCapabilities`), because the echoed preamble shows the `dcap_…`
 capability. Recovery is `orca_stop`, then `orca_start({…, retry_of: <stopped dispatch>})`.
 `orca_start` reports `delivery_confirmed: false` when the receipt says `turnStart`/
 `prompt.observation` `unsupported` (OpenCode). `orca_wait` lists `reclaimable` dispatches (from the
 same `worker-list`, `terminalState: "reclaimable"`), minus any this session already released.
+
+⛔ **Unverifiable liveness → attention, never a stall** (issue #12 follow-up,
+`docs/plans/2026-09-30-orca-unverifiable-never-started.md`). Orca's guide
+(`orca skills get orchestration --reference recovery-and-cleanup`) says: "`unverifiable` liveness |
+Keep waiting or inspect; never stop, abandon, retry, or release". `resolveLiveness`
+(`src/orca/stall-liveness.ts`) follows Orca's precedence: the list's `projection.liveness` first;
+for `unverifiable` with a reason in `GAP_REASONS` (`missing_status`, `capability_unsupported` —
+client-side gaps), a positive `live`/`exited` verdict from `worker-show` outranks the row (then the
+normal stall checks apply, with a normal `evidence_id`); `host_unavailable` (contact loss) never
+consults `worker-show`. Anything else resolves to `absent`, which never produces a stall.
+`collectStalls` (`src/orca/stall.ts`) therefore calls `worker-show` for gap-unverifiable rows too,
+and returns `attention: AttentionEntry[]` beside `stalls`/`reclaimable`; `waitForSettlement` passes
+it through (`[]` when stall collection failed). Two kinds:
+
+- **`never-started-unverifiable`** — a brief that was probably dropped while Orca cannot verify the
+  agent. Needs ALL of: `absent` liveness with a `GAP_REASONS` reason; the dispatch's **own**
+  terminal live (`ownTerminalLive`: `worker-read` `status.liveness: "live"` with `terminal.handle`
+  equal to `worker-show`'s `dispatch.assigneeHandle` or `worker.agentTerminalHandle`, OR
+  `worker-show` `observation: {status: "live", exactWorker: true}` — PTY liveness, which may inform
+  but never authorizes); the home screen; no dispatch id in the tail; no heartbeat; age over 3 min
+  (`neverStartedEvidence`, shared with the `never-started` stall).
+- **`orca-attention`** — an active row with `projection.attention.requiresAction` and no stall
+  verdict, carrying `categories` and `nextAction` (argv or `null`). Rows whose categories are
+  exactly `["unverifiable"]` are excluded: every healthy 1.4.209 OpenCode worker carries it.
+
+Attention entries have **no `evidence_id`** and are never stored in `state.verdicts`, so
+`orca_stop` refuses them (`stop_refused`). `orca_wait` (`src/orca/mcp-tools-wait.ts`) renders each
+dispatch's entry once per session (`state.attentionReported`), never after release, with the Next
+hint: tell the user; attention never authorizes `orca_stop`, `orca_abandon` or a retry. The shape
+this was built for (Orca 1.4.209, Linux, issue #12): `worker-read` `fallbackReason:
+"session_not_reported"`, `status.liveness: "live"` on the worker's own handle, the OpenCode home
+screen in the tail, and a projection with `provider: null`, `liveness: unverifiable/missing_status`,
+`attention: {categories: ["unverifiable"], requiresAction: true}` and `nextAction: {kind: "none"}`.
 
 ⛔ **`stop_unknown` → `orca_abandon`** (Task 9 of `docs/plans/2026-09-29-orca-dropped-prompt.md`, verified
 live on 1.4.216): `worker-stop` answers `stop_unknown` when Orca has marked the worker's terminal
