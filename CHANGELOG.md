@@ -1,3 +1,10 @@
+## [1.42.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.42.0...v1.42.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **orca:** surface dropped briefs when Orca's agent liveness is unverifiable ([576ae78](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/576ae786e9c05fafc232191b6d5e16c6647a50c4)), closes [#12](https://github.com/Endpoint-Esports-Ltd/sentinal/issues/12)
+
 # [1.42.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.41.1...v1.42.0) (2026-09-29)
 
 

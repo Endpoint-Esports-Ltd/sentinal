@@ -1,6 +1,6 @@
 {
   "name": "sentinal",
-  "version": "1.42.0",
+  "version": "1.42.1",
   "description": "Claude Code quality plugin for TypeScript, Angular, and NestJS",
   "author": {
     "name": "Sentinal"
