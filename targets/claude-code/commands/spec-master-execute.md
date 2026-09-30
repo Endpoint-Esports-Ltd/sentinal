@@ -180,7 +180,11 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    `pending`, call it again with the same `request_id`; if `blocked`, its dependencies are still
    running — start it once they settle; if `refused` or `failed`, treat the phase as failed.
    `delivery_confirmed: false` is normal for agents whose delivery Orca cannot observe
-   (OpenCode); a brief that never landed shows up later as a `never-started` stall.
+   (OpenCode); a brief that never landed shows up later as a `never-started` stall. For
+   OpenCode, `orca_start` pre-warms the worker (`start_path: "prewarmed"`): it starts the agent
+   in its own terminal and hands Orca the brief only once the agent's input box is drawn, which
+   avoids the known cold-start drop (Orca #22580, OpenCode #42915).
+   `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off.
 5. **Wait.** Loop `orca_wait({ run_id })` (it returns within ~50 s; a timeout is a checkpoint, not
    a failure). For each `worker_done` that is not marked `replayed` (a replayed one was
    already settled — Orca re-sends a batch until it is acked; skip it):
@@ -190,6 +194,8 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
      adopted worktree this _releases_ it: slot freed, seeded files removed, nothing deleted) and
      `orca_remove_worktree({ path })`.
    - Otherwise treat it as a failed phase (below).
+   - A `question` message: answer it with `orca_reply({ run_id, message_id, body })` (ask the user
+     if you cannot answer), before the worker's `ask` times out.
      Then `orca_ack({ delivery_id })` before the next `orca_wait` (an un-acked batch is re-sent). Start
      any task that has become ready.
 6. **Stalls.** `orca_wait` reports a stall only on positive evidence, each with an `evidence_id`:
@@ -214,8 +220,11 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
      empty home screen on its own live terminal, no heartbeat, minutes after dispatch), but Orca
      cannot confirm the agent is running, and Orca's guide forbids stopping, abandoning or retrying
      an `unverifiable` worker. Tell the user, with the evidence, and let them decide; do not stop,
-     abandon or retry it yourself. Report any other attention entry (`orca-attention`) to the user
-     together with Orca's next action.
+     abandon or retry it yourself. Suggest: close ONLY that worker's terminal tab — not Orca's stop,
+     which can delete the worktree — then tell you; once Orca reports the task ready again,
+     `orca_start({ task_id, worktree: { path }, agent })` starts it again (a `retry_of` is skipped
+     automatically). Report any other attention entry (`orca-attention`) to the user together
+     with Orca's next action.
 7. **Terminals.** `orca_wait` lists `reclaimable` dispatches — settled workers whose terminal still
    awaits `orca_release`. Release each once its `worker_done` is processed; any release answer,
    `retained` included, clears it. A failed start's leftover terminal is reported by `orca_start`,
@@ -226,7 +235,10 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
 
 **Resuming** in a new session: a Run is bound to the terminal that created it. Pass the Run's
 id (`run_id`, from the earlier `orca_dispatch` reply) to `orca_dispatch` to bind it to this
-terminal before waiting on it; otherwise `orca_wait` reports `consumer_fenced`.
+terminal before waiting on it; otherwise `orca_wait` reports `consumer_fenced`. After an Orca
+restart the Run may still be bound to the old terminal: `orca_wait` then reports
+`consumer_fenced`; call `orca_rebind({ run_id })` (it refuses if another live coordinator holds
+the Run).
 
 **On Skip or Stop** for a failed phase, still release its worktree through Sentinal
 (`worktree_abandon`) before `orca_remove_worktree`, so no slot stays reserved. On Retry, dispatch

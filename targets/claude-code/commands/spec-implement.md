@@ -188,9 +188,13 @@ In Orca Mode, per wave:
    ending with: "Report completion through your Orca preamble: succeeded or failed, and list the
    files you changed."
 2. `orca_start({ task_id, worktree: "current", agent })` for each task (`pending` → call again with
-   the same `request_id`).
+   the same `request_id`). For OpenCode it pre-warms the worker (`start_path: "prewarmed"`),
+   handing Orca the brief only once the agent's input box is drawn, which avoids the known
+   cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off.
 3. Loop `orca_wait({ run_id })` until every task has a `worker_done`; `orca_ack` each delivery and
-   `orca_release({ dispatch_id })` each settled worker, until nothing is `reclaimable`. A
+   `orca_release({ dispatch_id })` each settled worker, until nothing is `reclaimable`. Answer a
+   `question` message with `orca_reply({ run_id, message_id, body })` (ask the user if you
+   cannot) before the worker's `ask` times out. A
    `never-started` stall (the brief never reached the agent) → `orca_stop({ dispatch_id,
 evidence_id })`, then `orca_start({ task_id, worktree: "current", agent, retry_of: <stopped
 dispatch_id> })`, once per task, without asking. Any other stall, or a second never-started
@@ -199,7 +203,10 @@ dispatch_id> })`, once per task, without asking. Any other stall, or a second ne
    the `retry_of` start. ⛔ Never
    resend a brief with `dispatch-show --preamble` or `terminal send` (it omits the capability).
    An `attention` entry is never a stall: report a `never-started-unverifiable` or
-   `orca-attention` entry to the user and do not stop, abandon or retry that worker.
+   `orca-attention` entry to the user and do not stop, abandon or retry that worker. For a
+   dropped brief, suggest they close ONLY that worker's terminal tab (not Orca's stop, which can
+   delete the worktree); once the task is ready again, a plain `orca_start` restarts it (a
+   `retry_of` is skipped automatically).
 4. Continue exactly as after a parallel wave: run the orchestrator's builds once, then update the
    plan checkboxes (Step 2.4).
 
