@@ -62,6 +62,13 @@ would let the very drift this tool exists to catch through. Do **not** give it a
 sidecar route or a `store` dependency — `store` is `null` in production whenever the
 sidecar runs, which would make it pass every test and do nothing in the field.
 
+It also returns non-blocking **`warnings`** (`no-review-evidence`) for each VERIFIED child with no
+`<slug>.spec-review.json` beside it — the worker probably skipped `/spec`'s code review (seen in the
+2026-10-02 live master run, where workers marked one-line doc plans VERIFIED in under 30 s).
+Warnings never change `ok`: older children predate review files, and none are raised when
+`SENTINAL_SPEC_REVIEWER_ENABLED=false`. In Orca Mode the coordinator checks the same file before
+merging and treats a missing one as a failed phase (`spec-master-execute` step 5).
+
 `spec_notify` takes an optional `project` (default: the MCP server's cwd), resolved with
 `resolveProjectIdentity` and sent as `projectPath` with `source: "spec-notify"` (D5), so the notice
 reaches that project's session-start digest. `spec_metrics` passes its `project` to
