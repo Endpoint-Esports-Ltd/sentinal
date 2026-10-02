@@ -566,3 +566,40 @@ describe("target asset namespace parity", () => {
     });
   });
 });
+
+describe("OpenCode subagent edit permissions (2026-10-01-opencode-subagent-edits)", () => {
+  const cfg = JSON.parse(
+    readFileSync(join(OPENCODE_DIR, "opencode.json"), "utf-8"),
+  );
+
+  it("ships the spec-task agent as an edit-allowed subagent", () => {
+    const agent = readFileSync(
+      join(OPENCODE_DIR, "agents", "spec-task.md"),
+      "utf-8",
+    );
+    expect(agent).toMatch(/^mode: subagent$/m);
+    expect(agent).toMatch(/^ {2}edit:\n {4}"\*": allow$/m);
+  });
+
+  it("allows doc edits by default and lets build/plan start spec-task", () => {
+    for (const edit of [cfg.permission.edit, cfg.agent.plan.permission.edit]) {
+      expect(edit[".sentinal/rules/**"]).toBe("allow");
+      expect(edit[".sentinal/skills/**"]).toBe("allow");
+      expect(edit["docs/**"]).toBe("allow");
+      expect(edit["*"]).toBe("ask");
+    }
+    expect(cfg.agent.build.permission.task["spec-task"]).toBe("allow");
+    expect(cfg.agent.plan.permission.task["spec-task"]).toBe("allow");
+  });
+
+  it("wave and child-plan subagents use spec-task, not general", () => {
+    for (const f of ["spec-implement", "spec-master-execute"]) {
+      const s = readFileSync(
+        join(OPENCODE_DIR, "skills", f, "SKILL.md"),
+        "utf-8",
+      );
+      expect(s).not.toContain('subagent_type="general"');
+      expect(s).toContain('subagent_type="spec-task"');
+    }
+  });
+});

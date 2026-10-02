@@ -112,7 +112,7 @@ For each child plan in the current wave, spawn a subagent:
 
 ```
 Task(
-  subagent_type="general",
+  subagent_type="spec-task",
   prompt="""
   Execute the spec workflow for this child plan.
 
@@ -181,7 +181,12 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    OpenCode, `orca_start` pre-warms the worker (`start_path: "prewarmed"`): it starts the agent
    in its own terminal and hands Orca the brief only once the agent's input box is drawn, which
    avoids the known cold-start drop (Orca #22580, OpenCode #42915).
-   `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off.
+   `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off. Pre-warmed OpenCode workers can read the
+   coordinator's checkout and the main checkout without a permission prompt (read-only: edits
+   there are denied; extra paths via `SENTINAL_ORCA_WORKER_ALLOW_DIRS`, `none` to turn it off). A
+   worker that wasn't pre-warmed (the `--agent` fallback, `new-child`, other agents,
+   `SENTINAL_ORCA_PREWARM_AGENTS=none`, Windows) may still ask; the user approves it in that
+   worker's tab.
 5. **Wait.** Loop `orca_wait({ run_id })` (it returns within ~50 s; a timeout is a checkpoint, not
    a failure). For each `worker_done` that is not marked `replayed` (a replayed one was
    already settled — Orca re-sends a batch until it is acked; skip it):

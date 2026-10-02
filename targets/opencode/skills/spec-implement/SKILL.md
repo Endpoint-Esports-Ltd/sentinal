@@ -15,7 +15,7 @@ description: TDD implementation phase - execute plan tasks with RED-GREEN-REFACT
 
 ## ⛔ Critical Constraints
 
-- **Sub-agents ONLY for parallel wave execution** — use `Task(subagent_type="general")` to run independent tasks concurrently within a wave. No sub-agents for research or other purposes.
+- **Sub-agents ONLY for parallel wave execution** — use `Task(subagent_type="spec-task")` to run independent tasks concurrently within a wave. `spec-task` edits without permission prompts; the plan's per-task file lists and the same-wave no-overlap rule keep tasks apart. No sub-agents for research or other purposes.
 - **TDD is MANDATORY** — no production code without failing test first (Sentinal hooks enforce this)
 - **NEVER SKIP TASKS** — every task must be fully implemented, no "MVP scope" exceptions
 - **Quality over speed** — never rush due to context pressure. Context warnings are informational. Finish current task with full quality — auto-compaction handles the rest.
@@ -135,7 +135,7 @@ FOR each wave (1, 2, 3, ...):
   4. IF wave has 2+ tasks → spawn parallel Tasks:
      Spawn one Task per task (all in single message for concurrency):
         Task(
-          subagent_type="general",
+          subagent_type="spec-task",
           prompt="""
           You are implementing a single task from a spec plan using TDD.
 
@@ -186,7 +186,10 @@ In Orca Mode, per wave:
 2. `orca_start({ task_id, worktree: "current", agent })` for each task (`pending` → call again with
    the same `request_id`). For OpenCode it pre-warms the worker (`start_path: "prewarmed"`),
    handing Orca the brief only once the agent's input box is drawn, which avoids the known
-   cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off.
+   cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off. A
+   pre-warmed worker reads the coordinator's and main checkouts without a prompt (read-only;
+   `SENTINAL_ORCA_WORKER_ALLOW_DIRS` adds paths, `none` disables); any other worker (`--agent`
+   fallback, other agents, prewarm off, Windows) may still ask, approved in its own tab.
 3. Loop `orca_wait({ run_id })` until every task has a `worker_done`; `orca_ack` each delivery and
    `orca_release({ dispatch_id })` each settled worker, until nothing is `reclaimable`. Answer a
    `question` message with `orca_reply({ run_id, message_id, body })` (ask the user if you

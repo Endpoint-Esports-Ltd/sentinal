@@ -16,7 +16,10 @@
       "*": "ask",
       "docs/plans/*.md": "allow",
       "docs/plans/**/*.md": "allow",
-      "docs/plans/*.json": "allow"
+      "docs/plans/*.json": "allow",
+      "docs/**": "allow",
+      ".sentinal/rules/**": "allow",
+      ".sentinal/skills/**": "allow"
     }
   },
 
@@ -28,7 +31,8 @@
           "plan-reviewer": "allow",
           "spec-reviewer": "allow",
           "explore": "allow",
-          "general": "allow"
+          "general": "allow",
+          "spec-task": "allow"
         },
         "edit": {
           "*": "allow"
@@ -42,13 +46,17 @@
           "plan-reviewer": "allow",
           "spec-reviewer": "allow",
           "explore": "allow",
-          "general": "allow"
+          "general": "allow",
+          "spec-task": "allow"
         },
         "edit": {
           "*": "ask",
           "docs/plans/*.md": "allow",
           "docs/plans/**/*.md": "allow",
-          "docs/plans/*.json": "allow"
+          "docs/plans/*.json": "allow",
+          "docs/**": "allow",
+          ".sentinal/rules/**": "allow",
+          ".sentinal/skills/**": "allow"
         }
       }
     }

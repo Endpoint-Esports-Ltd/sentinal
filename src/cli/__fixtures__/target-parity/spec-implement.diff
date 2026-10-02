@@ -3,7 +3,7 @@
  ## ⛔ Critical Constraints
  
 -- **Sub-agents ONLY for parallel wave execution** — use `Agent(isolation="worktree")` to run independent tasks concurrently within a wave. No sub-agents for research or other purposes.
-+- **Sub-agents ONLY for parallel wave execution** — use `Task(subagent_type="general")` to run independent tasks concurrently within a wave. No sub-agents for research or other purposes.
++- **Sub-agents ONLY for parallel wave execution** — use `Task(subagent_type="spec-task")` to run independent tasks concurrently within a wave. `spec-task` edits without permission prompts; the plan's per-task file lists and the same-wave no-overlap rule keep tasks apart. No sub-agents for research or other purposes.
  - **TDD is MANDATORY** — no production code without failing test first (Sentinal hooks enforce this)
  - **NEVER SKIP TASKS** — every task must be fully implemented, no "MVP scope" exceptions
  - **Quality over speed** — never rush due to context pressure. Context warnings are informational. Finish current task with full quality — auto-compaction handles the rest.
@@ -22,7 +22,7 @@
 +  4. IF wave has 2+ tasks → spawn parallel Tasks:
 +     Spawn one Task per task (all in single message for concurrency):
 +        Task(
-+          subagent_type="general",
++          subagent_type="spec-task",
            prompt="""
            You are implementing a single task from a spec plan using TDD.
  
@@ -47,7 +47,7 @@
  ---
  
  **Orca Mode (opt-in).** Only when the plan header says `Orchestration: orca`: call
-@@ -211,10 +209,10 @@
+@@ -214,10 +212,10 @@
  1. **Read plan's implementation steps** — list files to create/modify/delete
  2. **Pre-Mortem check:** Scan plan's `## Pre-Mortem` section — if any trigger condition is observably true for this task, note it in the plan and adapt your approach autonomously. Only escalate to user if it's an architectural-level change.
  3. **Call chain analysis:** Trace callers (upwards), callees (downwards), side effects. Work down this order and stop at the first rung actually available to you:

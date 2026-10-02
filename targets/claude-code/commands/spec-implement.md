@@ -190,7 +190,10 @@ In Orca Mode, per wave:
 2. `orca_start({ task_id, worktree: "current", agent })` for each task (`pending` → call again with
    the same `request_id`). For OpenCode it pre-warms the worker (`start_path: "prewarmed"`),
    handing Orca the brief only once the agent's input box is drawn, which avoids the known
-   cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off.
+   cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off. A
+   pre-warmed worker reads the coordinator's and main checkouts without a prompt (read-only;
+   `SENTINAL_ORCA_WORKER_ALLOW_DIRS` adds paths, `none` disables); any other worker (`--agent`
+   fallback, other agents, prewarm off, Windows) may still ask, approved in its own tab.
 3. Loop `orca_wait({ run_id })` until every task has a `worker_done`; `orca_ack` each delivery and
    `orca_release({ dispatch_id })` each settled worker, until nothing is `reclaimable`. Answer a
    `question` message with `orca_reply({ run_id, message_id, body })` (ask the user if you

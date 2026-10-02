@@ -10,7 +10,7 @@
 -  description="Execute Phase N: <title>",
 -  isolation="worktree",
 +Task(
-+  subagent_type="general",
++  subagent_type="spec-task",
    prompt="""
    Execute the spec workflow for this child plan.
  
@@ -23,7 +23,7 @@
  
  ### Orca Mode
  
-@@ -305,7 +304,7 @@
+@@ -310,7 +309,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  
