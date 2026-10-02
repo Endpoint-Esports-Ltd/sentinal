@@ -38,6 +38,15 @@
 
 **OpenCode command vs skill distinction:** In OpenCode, `/spec`, `/sync`, and `/learn` are user-invocable commands (`targets/opencode/commands/`). The spec sub-phases (`spec-plan`, `spec-implement`, etc.) are skills (`targets/opencode/skills/`) invoked programmatically by the `/spec` dispatcher — not slash commands the user types. This is intentional architecture (see `docs/plans/2026-03-10-opencode-agents-skills.md`). Do not add command files for spec sub-phases to `targets/opencode/commands/`.
 
+**OpenCode subagent permissions** (`docs/plans/2026-10-01-opencode-subagent-edits.md`): `general`
+has no agent rules in the shipped `targets/opencode/opencode.json`, so it gets the top-level
+`edit: {"*": "ask", …}` (it does **not** inherit `build`'s `"*": "allow"`), and "Allow always"
+lasts one session only. Sentinal's wave tasks and child-plan subagents therefore use the shipped
+**`spec-task`** agent (`targets/opencode/agents/spec-task.md`, `edit: "*": allow`), never
+`general`. The top-level and `plan` edit blocks also allow `docs/**`, `.sentinal/rules/**` and
+`.sentinal/skills/**`. The installer merges both additively. Claude Code is unaffected: its waves
+use `Agent(isolation="worktree")` in the parent's permission mode.
+
 ## Quick sanity check before editing
 
 ```bash

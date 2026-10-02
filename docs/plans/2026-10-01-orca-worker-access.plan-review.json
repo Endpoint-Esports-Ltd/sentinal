@@ -1,0 +1,77 @@
+{
+  "review_summary": "The plan covers the user's three decisions (coordinator + main + env list, read-only, document the --agent gap). Its approach is grounded in live probes. The main risks: which agent's edit rules actually apply, which environment the merge reads, launch-prefix portability across shells, path canonicalisation for the relative deny patterns, and reporting worker_access on fallback or replay. Tasks 3 to 5 also have no DoD checkboxes.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Read-only only holds for the `build` agent; the default agent and subagents are not covered",
+      "description": "User: 'read-only access'. Plan: 'permission.edit and agent.build.permission.edit … the user's build agent has edit: {\"*\": \"allow\"}'. The plan admits in Pre-Mortem #1 that a user `default_agent` other than build makes the deny ineffective, but it only acts after the live check fails. Any agent-level `permission.edit` allow overrides the top-level deny, because agent rules come last. This covers a custom default agent, `general` (subagents the worker spawns through the task tool), and `plan`. A worker that delegates to a subagent can then write into the main checkout. Probe 3 only exercised `build`.",
+      "suggested_fix": "In Task 1, emit the same edit-deny map under agent.build, agent.general and every other built-in primary or subagent name (build, plan, general, explore), plus a `defaultAgent` argument if one is supplied. Alternatively, launch with an explicit `--agent build` so the agent is known. Add a unit test asserting the deny appears under each emitted agent key. Extend the Task 5 live check so the worker also attempts the external write through a `task`/general subagent."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The OPENCODE_CONFIG_CONTENT merge reads the MCP server's env, not the worker terminal's",
+      "description": "Plan: 'if the coordinator's environment already has OPENCODE_CONFIG_CONTENT … deep-merged'. The worker's opencode runs in a terminal Orca spawns through the user's login shell. That shell's environment (rc files, the Orca app env) can differ from `process.env` of the Sentinal MCP server, which was spawned by the coordinator's OpenCode. A value exported in the user's shell rc would be silently overridden by the `VAR=… opencode` prefix, which is exactly the clobbering risk the user asked about. It is also unverified whether the coordinator OpenCode itself sets the variable for its MCP children, which would leak the coordinator's inline config into the worker. Separately, deep-merging into a user object whose `permission.edit` is a string ('allow') rather than a map needs a defined rule.",
+      "suggested_fix": "Document that the merge source is the MCP server's environment and that a value set only in the shell rc is replaced. Add a unit test where an existing `permission.edit: \"allow\"` string is converted to `{\"*\":\"allow\", …denies}`, with `*` first so the denies win under last-match. Add a test for existing `agent.build.permission.edit` maps. Record in Task 5 whether `process.env.OPENCODE_CONFIG_CONTENT` is set inside the MCP server under a real OpenCode coordinator."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The `VAR='…' cmd` prefix is not portable across user shells",
+      "description": "Plan: 'orca terminal create --command runs its text through the user's POSIX shell'. The probes ran on the maintainer's shell only. A `VAR=value cmd` prefix fails in tcsh/csh and nushell, and is only supported in fish 3.1 and later. With a non-POSIX login shell the terminal shows a shell error instead of the OpenCode home screen. Pre-warm then waits the full 30 s and falls back, so every start costs 30 s and gets no access.",
+      "suggested_fix": "Emit `env OPENCODE_CONFIG_CONTENT='<json>' opencode` (the `env` binary works in POSIX shells, fish, and csh with single quotes). Keep the `'\\''` escaping but add a test for a JSON payload containing `'`, `$`, backticks and `!`, since csh history-expands `!`. Note the remaining limitation in the docs."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Relative deny patterns depend on matching path canonicalisation, nesting depth and wildcard semantics",
+      "description": "Plan: 'path.relative(instance.worktree, filepath)' and the Truth 1 pattern `../../../*`. The patterns are computed from Sentinal's strings: `resolveWorkspaceRoot`, `resolveProjectIdentity` and the `{path}` placement. OpenCode computes paths from its own `instance.worktree`. If one side is realpath'd (macOS `/var` → `/private/var`, a symlinked home or workspace dir) and the other is not, the relative prefix differs and the deny silently matches nothing. Probe 3 does not show whether `*` crosses `/` (deep files such as `../../../src/a/b.ts`) or whether writes outside the file's top level were tested. Glob metacharacters (`*`, `?`, `[`) in directory names would also widen the external_directory allow or the edit deny.",
+      "suggested_fix": "In Task 1, realpath (try/catch, fall back to the raw path) both the worktree and each dir before `path.relative`. Escape or reject dirs containing glob metacharacters, reported via `skipped`. Add unit tests for a symlinked worktree and a dir with `*` in its name. In Task 5, attempt the external writes at depth ≥2 (e.g. `src/x/y.txt`) as well as at the top level."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Placement `current` relies on MCP `process.cwd()` being the coordinator worktree",
+      "description": "Plan: 'for current, the coordinator checkout' and 'use resolveWorkspaceRoot(process.cwd())'. Orca resolves `--worktree current` from the coordinator terminal's worktree, but the plan derives it from the MCP server's cwd. If they differ (an MCP server launched from a subdirectory or a different checkout), the coordinator dir is not skipped. The worker is then denied edits to its own files, because they would match the 'coordinator' pattern, or the relative patterns are computed from the wrong base. No test covers `current`, which is the default placement across the existing tests.",
+      "suggested_fix": "Add a Truth/test: with placement `current`, the coordinator dir is skipped (no edit deny for it), and only the main checkout is denied when it differs from the coordinator. Document the cwd assumption in Task 2, and if feasible check it against the `terminal create` response's worktree path before building the patterns."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "worker_access must not be reported on agent-fallback or replays",
+      "description": "Plan: 'mcp-tools-start.ts: compute the launch … and output worker_access'. The launch is computed before `startTask` knows whether pre-warm succeeded (dispatch-start.ts:204-219 can switch to `agent-fallback`) or whether the start is a `replayed` request-show receipt. Reporting `worker_access: {read_only: true}` for an `--agent` worker misinforms the coordinator, and that worker will prompt. Truth 3 only covers the success and `none` paths.",
+      "suggested_fix": "Derive `worker_access` in mcp-tools-start only when `r.startPath === \"prewarmed\"`. Otherwise report `worker_access: { skipped: \"agent-fallback\" | \"not-prewarmed\" | \"replayed\" }`. This also avoids adding a `workerAccess` field to dispatch-start's result. Add tests for `agent-fallback` and `new-child` asserting no access is claimed."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "The dispatch-start.ts line budget is very tight",
+      "description": "Plan: 'dispatch-start.ts (393/400 lines) … add one launchCommand pass-through only', but Task 2 also says 'the started result carries workerAccess'. An option field, the pass-through, a result-type field and the result assignment are about 4 to 6 lines. After Prettier wrapping this can exceed 400 lines and trigger the 400-line warning.",
+      "suggested_fix": "Thread only `launchCommand` through dispatch-start (one option, one pass-through). Compute worker_access from `startPath` in mcp-tools-start (see the previous issue). Add `wc -l src/orca/dispatch-start.ts` ≤ 400 after `bunx prettier --write` to Task 2's Verify."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Tasks 3, 4 and 5 have no Definition of Done or Verify command",
+      "description": "Only Tasks 1 and 2 have DoD checkboxes. Task 3 requires 'hunk counts must stay unchanged' and a parity regeneration, Task 4 has no check at all, and Task 5's expected outcomes are prose only.",
+      "suggested_fix": "Task 3 DoD: `bun test src/cli/target-parity.test.ts src/cli/target-assets.test.ts` passes after one baseline regeneration, and `bun run embed-assets` leaves `check-embed-assets` clean. Task 4 DoD: both files mention `SENTINAL_ORCA_WORKER_ALLOW_DIRS` and the bash limitation, and `bun run format:check` passes. Task 5 DoD: a '## Live Verification' section records each of the four Truth 4 outcomes, the deep-path write, and the subagent write, plus terminal or worktree cleanup."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "The prose names only the --agent fallback, not every path that can still prompt",
+      "description": "User: 'on paths that can't carry it … just document it'. The Task 3 sentence mentions only the `--agent` fallback. It omits `new-child` placement (never pre-warmed), non-opencode agents, `SENTINAL_ORCA_PREWARM_AGENTS=none`, Windows, and the skip when an existing OPENCODE_CONFIG_CONTENT is invalid.",
+      "suggested_fix": "Extend the sentence to list every case that can still prompt: `--agent` fallback, `new-child`, `SENTINAL_ORCA_PREWARM_AGENTS=none`, non-OpenCode agents, Windows, and an invalid existing `OPENCODE_CONFIG_CONTENT`."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "SENTINAL_ORCA_WORKER_ALLOW_DIRS edge cases",
+      "description": "Plan: 'absolute paths only'. It is not specified whether relative entries are silently dropped or reported. `none` disables everything, including the defaults, but there is no way to disable only the defaults. An empty string is not specified either.",
+      "suggested_fix": "Report dropped non-absolute entries in `worker_access.skipped`. Define the empty string as 'defaults only' and add a test for it."
+    }
+  ]
+}

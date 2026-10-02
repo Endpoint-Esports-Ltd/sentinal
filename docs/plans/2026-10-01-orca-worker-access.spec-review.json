@@ -1,0 +1,67 @@
+{
+  "pass_summary": "The feature is implemented as planned. worker-access.ts is pure and git-free, the quoting is sound, and denies only cover directories outside the worktree. worker_access is gated on startPath === 'prewarmed', the server injects workerDirs, and the prose is symmetric across the 4 target files. The main gap is that orca_start never reports why the inline config was skipped (invalid OPENCODE_CONFIG_CONTENT, Windows, none) or which directories were dropped for glob characters, although the plan requires it. There are also a few robustness edges in the merge and in withAccess.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 3,
+  "truths_total": 4,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "orca_start does not surface the skip reason or skippedDirs",
+      "description": "The plan's In Scope says 'Reporting: orca_start reports worker_access … or the reason it was skipped', and that a glob-named directory 'is skipped and reported'. opencodeLaunch returns `skipped` and `skippedDirs` (src/orca/worker-access.ts:56-59), but src/orca/mcp-tools-start.ts only reads `launch?.access` in withAccess (:316-342). So an invalid user OPENCODE_CONFIG_CONTENT, win32, or a dropped glob directory leaves no visible trace, and the worker then silently prompts again. That is the symptom this feature removes.",
+      "suggested_fix": "In mcp-tools-start.ts, when start_path is 'prewarmed' and the agent is opencode, add `worker_access: { skipped: launch.skipped }` (or `worker_access_skipped`) plus `skipped_dirs` to the JSON and a text line when `launch.skipped`/`launch.skippedDirs` is set. Add a test with OPENCODE_CONFIG_CONTENT='not json' that asserts the reason appears."
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "Merge drops a non-object agent-level `permission` (and a top-level string `permission`)",
+      "description": "In src/orca/worker-access.ts:143-154, `permission` is copied only when `isObject(config.permission)`, and each agent's `a.permission` only when it is an object. If the user's OPENCODE_CONFIG_CONTENT uses a shorthand string action (e.g. `\"permission\": \"allow\"` or `agent.build.permission: \"ask\"`, if OpenCode accepts that form), it is replaced by `{}` plus denies, and the user's setting is lost. That is the 'user settings lost' risk the plan mitigates with a deep merge. Only a string `permission.edit` is wrapped (addRules). There is no test for existing agent-level permissions.",
+      "suggested_fix": "Apply the same string→`{\"*\": value}` wrapping at the `permission` level, both top-level and per agent, before adding rules (or skip with a reason when the shape is unknown). Add a test that merges an existing `agent.build.permission.edit` object and string."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "withAccess uses a string replacement that interprets `$` patterns",
+      "description": "src/orca/mcp-tools-start.ts:338-341 calls `.replace(\"- Next:\", `…${a.dirs.join(\", \")}…`)`. A string replacement expands `$&`, `$'` and `` $` ``, so a directory path containing `$'` or `$&` (allowed by the extra-dirs list) would corrupt the text line. The JSON half already uses a function replacer. The rewrite also silently does nothing if formatStart ever stops emitting a ```json fence or '- Next:', and the text line looks untested (the tests assert only `r.data.worker_access`).",
+      "suggested_fix": "Use a function replacer: `.replace(\"- Next:\", () => `- The worker can read … \\n- Next:`)`. Better still, add `worker_access` inside formatStart's data object before rendering instead of re-parsing the fenced JSON. Add an assertion on the text line."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "'Inside the worktree' test uses startsWith('..') on the relative path",
+      "description": "src/orca/worker-access.ts:121 treats any `rel` starting with '..' as outside the worktree. A directory inside the worktree whose name starts with two dots (e.g. `<wt>/..cache`) yields rel '..cache', so the worker would get a `..cache/*` deny on its own files. That is the 'deny covers own worktree' risk, in an unlikely form.",
+      "suggested_fix": "Use `rel === \"..\" || rel.startsWith(\"..\" + sep)` (and `isAbsolute(rel)` for other roots) to decide 'outside'. Add a unit test with a `..name` subdirectory."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Glob check runs on the raw path, not the realpath used in the patterns",
+      "description": "GLOB.test(d) (worker-access.ts:114) checks the input. The emitted patterns use `abs = resolve(real(d))` and `rel`, so a symlink whose target contains `*?[]{}` produces unescaped glob patterns, which could widen the allow/deny.",
+      "suggested_fix": "Test GLOB against `abs` (and the resolved worktree for `rel`) after realpath, and report those directories in skippedDirs."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "opencodeLaunch for worktree /r/.orca/worktrees/w and dirs [/r, /c/co] yields the env-prefixed command, external_directory /r/** allow, edit ../../../* deny, repeated under agent.build",
+      "status": "verified",
+      "evidence": "worker-access.ts:113-157; worker-access.test.ts:50-69 asserts all of it for every WORKER_AGENTS entry. (The command starts with `env OPENCODE_CONFIG_CONTENT='`, a deliberate refinement of the Truth's wording.)"
+    },
+    {
+      "truth": "No rule for a directory equal to or contained in the worktree",
+      "status": "verified",
+      "evidence": "worker-access.ts:121; tests :71-92 (same dir, /co/sub, placement current)"
+    },
+    {
+      "truth": "orca_start test: the pre-warm terminal create --command has the prefix, worker_access is reported, and SENTINAL_ORCA_WORKER_ALLOW_DIRS=none gives plain opencode",
+      "status": "verified",
+      "evidence": "mcp-tools-start.test.ts:509-566 (prefix + worker_access, none → plain + no worker_access, non-prewarmed → no worker_access); the gating is at mcp-tools-start.ts:304-307"
+    },
+    {
+      "truth": "Live: no prompt, reads succeed, external writes refused (including through a general subagent), own writes succeed",
+      "status": "uncertain",
+      "evidence": "Recorded in the plan's Live Verification table (Orca 1.4.218 / OpenCode 1.18.34); cannot be confirmed statically"
+    }
+  ]
+}

@@ -179,19 +179,19 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 
 ### Orca Domain (`src/orca/mcp-tools*.ts`) — 11 tools
 
-| Tool                   | Purpose                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                                                                                                                                                                    |
-| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                                                                                                                                                                     |
-| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); pre-warms listed agents (`start_path`: `prewarmed` / `agent` / `agent-fallback` / `replayed`); `retry_of` replaces a stopped/failed attempt (`retry_of_skipped: true` when the task is already `ready`); reports `delivery_confirmed` |
-| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; auto-acks heartbeat-only deliveries (≤3 rounds), otherwise no ack                                                                                 |
-| `orca_ack`             | Acknowledge a delivery                                                                                                                                                                                                                                                                                              |
-| `orca_reply`           | Answer a worker's question: `orchestration reply` (`run_id`, `message_id`, `body`)                                                                                                                                                                                                                                  |
-| `orca_rebind`          | Rebind a Run to this coordinator terminal (`run-use`) after `consumer_fenced`; refuses `rebind_refused` while the old coordinator terminal is `connected: true`, unless `force`                                                                                                                                     |
-| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                                                                                                                                                                    |
-| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                   |
-| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal; after `retained`/`released`/`already_released` also closes the terminal Sentinal created for a pre-warmed start (never an Orca-created one)                                                                                                                  |
-| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                                                                                                                                                                 |
+| Tool                   | Purpose                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                                                                                                                                                                                                                       |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                                                                                                                                                                                                                        |
+| `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); pre-warms listed agents (`start_path`: `prewarmed` / `agent` / `agent-fallback` / `replayed`); `retry_of` replaces a stopped/failed attempt (`retry_of_skipped: true` when the task is already `ready`); reports `delivery_confirmed`; `worker_access` (read-only dirs) when `prewarmed` |
+| `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; auto-acks heartbeat-only deliveries (≤3 rounds), otherwise no ack                                                                                                                                    |
+| `orca_ack`             | Acknowledge a delivery                                                                                                                                                                                                                                                                                                                                                 |
+| `orca_reply`           | Answer a worker's question: `orchestration reply` (`run_id`, `message_id`, `body`)                                                                                                                                                                                                                                                                                     |
+| `orca_rebind`          | Rebind a Run to this coordinator terminal (`run-use`) after `consumer_fenced`; refuses `rebind_refused` while the old coordinator terminal is `connected: true`, unless `force`                                                                                                                                                                                        |
+| `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                                                                                                                                                                                                                       |
+| `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                                                                      |
+| `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal; after `retained`/`released`/`already_released` also closes the terminal Sentinal created for a pre-warmed start (never an Orca-created one)                                                                                                                                                                     |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                                                                                                                                                                                                                    |
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
@@ -302,6 +302,40 @@ until `showsHomeScreen` (splash logo AND the framed `Ask anything…`), then 1 s
 - **Known risk: Orca #17741 defect 2** — for `terminal create` terminals the dispatch capability can
   bind to the wrong pane (14/600 `worker_done` rejected in one report). **Off switch:
   `SENTINAL_ORCA_PREWARM_AGENTS=none`** (every start goes back to `--agent`).
+
+⛔ **Worker directory access** (`docs/plans/2026-10-01-orca-worker-access.md`). OpenCode prompts
+"Access external directory" for any path outside the worker's worktree (`external_directory`
+defaults to `ask`), and "Allow always" lasts only for that session, so a worker reading the
+coordinator's checkout stalled on a prompt. Fix: pre-warmed OpenCode workers are launched as
+`env OPENCODE_CONFIG_CONTENT='<json>' opencode` (`env` so fish/csh/nushell accept it; POSIX single
+quotes), built by `src/orca/worker-access.ts` (`opencodeLaunch`, `workerAllowDirs`). The JSON
+**allows** `external_directory` `"<abs>/**"` for the coordinator checkout (`resolveWorkspaceRoot`)
+and the main checkout (`resolveProjectIdentity`) — both injected by `src/mcp/server.ts`
+`orcaWorkerDirs` as `deps.workerDirs`, so `src/orca` stays git-free — plus absolute entries of
+`SENTINAL_ORCA_WORKER_ALLOW_DIRS` (comma list, `~` expanded, relative/empty ignored; `none` turns
+the feature off). It **denies** `edit` with paths relative to the worker's worktree (`"<rel>/*"`),
+at the top level **and** for the `build`, `plan`, `general` and `explore` agents. Nothing is
+written to the user's config.
+
+- **Verified** (OpenCode 1.18.34): `external_directory` takes absolute globs; edit patterns match
+  `path.relative(worktree, file)`, so absolute denies never match; the last matching rule wins and
+  agent rules come last (hence the per-agent denies); `*` matches deeper files too; a write from a
+  `general` subagent was denied as well.
+- **Skip rules.** The worker's worktree (the `{path}` placement, or the coordinator checkout for
+  `current`) and any directory inside it get no rule, so a `current` worker gets only the main
+  checkout and extra dirs. A directory with glob characters (`*?[]{}`) is skipped and reported in
+  `opencodeLaunch`'s `skippedDirs`. All paths go through `realpath` (raw path if that fails) first.
+- **Existing `OPENCODE_CONFIG_CONTENT`** in the MCP server's environment is merged into: a string
+  `permission.edit` (e.g. `"allow"`) is wrapped as `{"*": …}` before the denies are added. A value
+  that is not a JSON object means the feature is skipped (plain `opencode`). A value set only in
+  the user's shell startup files is invisible to the MCP server and is **replaced** for workers;
+  opt out with `SENTINAL_ORCA_WORKER_ALLOW_DIRS=none`.
+- **Reporting.** `orca_start` adds `worker_access: {dirs, read_only: true}` (and a text line) only
+  when `start_path` is `prewarmed` — never for `agent`, `agent-fallback` or `replayed`.
+- **Limits.** Bash writes are not covered (edit rules cover edit/write/patch only). Workers that
+  were not pre-warmed may still prompt: the `--agent` fallback, `new-child`, other agents,
+  `SENTINAL_ORCA_PREWARM_AGENTS=none`, and Windows (plain command). A custom default agent with its
+  own `edit: allow` could override the deny.
 
 **Heartbeats.** `orca_wait` asks `check --types worker_done,escalation,question,heartbeat`: Orca
 nudges the coordinator for every pending delivery, and heartbeats excluded by `--types` stayed
