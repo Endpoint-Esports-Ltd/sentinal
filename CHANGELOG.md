@@ -1,3 +1,10 @@
+# [1.45.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.44.0...v1.45.0) (2026-10-02)
+
+
+### Features
+
+* **orca:** hide repeated question attention, retry a stale worktree removal, configurable worktree limit ([2a6d44e](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/2a6d44e9735a2222edff9a02491a25f7f4d990aa))
+
 # [1.44.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.43.0...v1.44.0) (2026-10-02)
 
 
