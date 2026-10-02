@@ -191,7 +191,7 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 | `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                                                                                                                                                                                                                       |
 | `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                                                                      |
 | `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal; after `retained`/`released`/`already_released` also closes the terminal Sentinal created for a pre-warmed start (never an Orca-created one)                                                                                                                                                                     |
-| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`)                                                                                                                                                                                                                                                                                                                    |
+| `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`); one retry after a stale "Failed to delete worktree" refusal                                                                                                                                                                                                                                                       |
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON
@@ -302,6 +302,16 @@ until `showsHomeScreen` (splash logo AND the framed `Ask anything…`), then 1 s
 - **Known risk: Orca #17741 defect 2** — for `terminal create` terminals the dispatch capability can
   bind to the wrong pane (14/600 `worker_done` rejected in one report). **Off switch:
   `SENTINAL_ORCA_PREWARM_AGENTS=none`** (every start goes back to `--agent`).
+
+**Open questions and limits** (`docs/plans/2026-10-02-orca-polish.md`). A worker's `ask` also
+raises an `orca-attention` entry with categories `["input"]`; `orca_wait` hides it while that
+dispatch has an open question (`state.openQuestions`, filled from `question` messages, cleared by
+`orca_reply`), so the question is not reported twice. Any other `input`-only entry is still shown,
+since a probe could not rule out Orca using `input` for a worker blocked at a local prompt.
+Sentinal holds at most `maxActive` worktrees at once (default 5); `SENTINAL_WORKTREE_MAX_ACTIVE`
+(a positive integer, read by `runtimeWorktreeConfig()`) raises it, so an Orca wave with more phases
+otherwise adopts in batches. Recovering a stuck worker means closing its tab **in the Orca UI** —
+after `orca terminal close` the release stays `release_unknown`.
 
 ⛔ **Worker directory access** (`docs/plans/2026-10-01-orca-worker-access.md`). OpenCode prompts
 "Access external directory" for any path outside the worker's worktree (`external_directory`

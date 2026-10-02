@@ -173,6 +173,8 @@ uncertain attempt). The `orca` binary serves that guide itself, so it needs no i
 3. **Adopt.** For each prepared worktree: `worktree_ensure({ plan_slug: "<child-plan-slug>",
 path, base: <this session's branch>, owner: "external" })`. This gives it a slot, seeds its
    config and runs the project's `setup` (dependency install). Report any setup warning.
+   Sentinal holds at most 5 worktrees at once (`SENTINAL_WORKTREE_MAX_ACTIVE` raises it), so a
+   wave with more phases than that is adopted in batches.
 4. **Start.** `orca_start({ task_id, worktree: { path }, agent })` for each task. If it returns
    `pending`, call it again with the same `request_id`; if `blocked`, its dependencies are still
    running — start it once they settle; if `refused` or `failed`, treat the phase as failed.
@@ -222,8 +224,8 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
      empty home screen on its own live terminal, no heartbeat, minutes after dispatch), but Orca
      cannot confirm the agent is running, and Orca's guide forbids stopping, abandoning or retrying
      an `unverifiable` worker. Tell the user, with the evidence, and let them decide; do not stop,
-     abandon or retry it yourself. Suggest: close ONLY that worker's terminal tab — not Orca's stop,
-     which can delete the worktree — then tell you; once Orca reports the task ready again,
+     abandon or retry it yourself. Suggest: close ONLY that worker's terminal tab in the Orca UI — not with `orca terminal close`, whose release
+     never settles, and not Orca's stop, which can delete the worktree — then tell you; once Orca reports the task ready again,
      `orca_start({ task_id, worktree: { path }, agent })` starts it again (a `retry_of` is skipped
      automatically). Report any other attention entry (`orca-attention`) to the user together
      with Orca's next action.

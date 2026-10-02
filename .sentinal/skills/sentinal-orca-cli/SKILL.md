@@ -16,7 +16,7 @@ author: Claude Code
 version: 1.2.0
 ---
 
-# Orca CLI — verified behaviour (Orca 1.4.216, `orchestration.contract.v1`)
+# Orca CLI — verified behaviour (Orca 1.4.218, `orchestration.contract.v1`)
 
 ## When to Use
 
@@ -77,6 +77,9 @@ orca status --json | .sentinal/skills/sentinal-orca-cli/scripts/orca-json.py run
 | OpenCode's "Allow always" on an "Access external directory" prompt is a **session-only** rule; `external_directory` defaults to `ask` and takes absolute globs                                                                                                                  | Allow the coordinator/main checkouts up front in the inline config (`"<abs>/**": "allow"`)                                                                                                                               |
 | OpenCode `edit` permission patterns match `path.relative(worktree, file)` — **absolute denies never match**; the last matching rule wins and agent rules come last; `*` matches deeper files                                                                                    | Read-only denies are relative (`"../../../*"`) and repeated for `build`/`plan`/`general`/`explore` (a `general` subagent's write was denied)                                                                             |
 | **1.4.218:** `orchestration.contract.v1` unchanged; the OpenCode composer-wait PR #20451 is still open; Linux input box at 7.5–8.5 s cold (confirms #13)                                                                                                                        | Pre-warming is still needed; no adapter change for 1.4.218                                                                                                                                                               |
+| `orca worktree rm` (no `--force`) can refuse once with a stale status — "Failed to delete worktree … ?? <file>" — just after that file was deleted (seen 2026-10-02, 1.4.218)                                                                                                   | `orca_remove_worktree` retries exactly once after 1.5 s, still without `--force`; a worktree that really has untracked files fails the retry too                                                                         |
+| A worker's `ask` raises `attention: {categories: ["input"], requiresAction: true}` beside its `question` message                                                                                                                                                                | `orca_wait` hides that `input` entry while the dispatch has an open question (`state.openQuestions`, cleared by `orca_reply`); an `input` entry without one is still shown                                               |
+| `orca terminal close` on a worker leaves its release `release_unknown` forever; closing the tab in the Orca UI settles cleanly (#13, Linux)                                                                                                                                     | Recovery prose says: close the tab in the Orca UI, never with `orca terminal close`                                                                                                                                      |
 
 ⛔ Never stop/abandon/release/retry on `unverifiable` liveness — it yields an
 `attention` entry only (no `evidence_id`; `orca_stop` refuses it). Act only on positive

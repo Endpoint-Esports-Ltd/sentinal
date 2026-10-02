@@ -207,8 +207,8 @@ dispatch_id> })`, once per task, without asking. Any other stall, or a second ne
    resend a brief with `dispatch-show --preamble` or `terminal send` (it omits the capability).
    An `attention` entry is never a stall: report a `never-started-unverifiable` or
    `orca-attention` entry to the user and do not stop, abandon or retry that worker. For a
-   dropped brief, suggest they close ONLY that worker's terminal tab (not Orca's stop, which can
-   delete the worktree); once the task is ready again, a plain `orca_start` restarts it (a
+   dropped brief, suggest they close ONLY that worker's terminal tab in the Orca UI (not with `orca terminal close`, and
+   not Orca's stop, which can delete the worktree); once the task is ready again, a plain `orca_start` restarts it (a
    `retry_of` is skipped automatically).
 4. Continue exactly as after a parallel wave: run the orchestrator's builds once, then update the
    plan checkboxes (Step 2.4).
