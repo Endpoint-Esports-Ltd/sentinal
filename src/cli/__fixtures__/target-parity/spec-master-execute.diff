@@ -14,7 +14,7 @@
    prompt="""
    Execute the spec workflow for this child plan.
  
-@@ -128,7 +127,7 @@
+@@ -129,7 +128,7 @@
  )
  ```
  
@@ -23,7 +23,7 @@
  
  ### Orca Mode
  
-@@ -312,7 +311,7 @@
+@@ -318,7 +317,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  

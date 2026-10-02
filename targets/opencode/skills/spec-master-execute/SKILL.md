@@ -126,6 +126,7 @@ Task(
   5. If Status is VERIFIED → report done, no work needed
 
   The child plan should end at Status: VERIFIED when all tasks pass verification.
+  Run verification in full (never skip its code review), so <child-plan>.spec-review.json is written.
   Report the final status when done.
   """
 )
@@ -158,12 +159,14 @@ uncertain attempt). The `orca` binary serves that guide itself, so it needs no i
    <master-plan-path>).
    Change: run the spec workflow for the child plan. PENDING + Approved: Yes or IN_PROGRESS →
    run /spec <child-plan-path> to completion; COMPLETE → run verification only; VERIFIED →
-   nothing to do.
+   nothing to do. Run verification in full — never skip its code review — and commit the plan
+   file together with its `.spec-review.json`.
    Constraints: work only in this worktree; commit your work on this branch; do not merge,
    push, or edit the master plan. Questions: use your preamble's `ask` command, never a local
    question prompt.
    Ownership: this worktree and its branch.
-   Observable acceptance: the child plan file reads Status: VERIFIED. Report completion through
+   Observable acceptance: the child plan file reads Status: VERIFIED and its
+   `.spec-review.json` exists. Report completion through
    your Orca preamble: succeeded only when the plan reads VERIFIED, otherwise failed with the
    plan's Status and the blocker; list the files you changed.
    ```
@@ -193,10 +196,13 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    a failure). For each `worker_done` that is not marked `replayed` (a replayed one was
    already settled — Orca re-sends a batch until it is acked; skip it):
    - Read the **child plan file**. Only `Status: VERIFIED` counts, whatever the report says.
-   - If VERIFIED: `worktree_sync({ plan_slug })` squash-merges the phase into this session's
-     branch; then `orca_release({ dispatch_id })`, `worktree_abandon({ plan_slug })` (for an
-     adopted worktree this _releases_ it: slot freed, seeded files removed, nothing deleted) and
-     `orca_remove_worktree({ path })`.
+     Also check that `docs/plans/<child-plan-slug>.spec-review.json` exists in the phase's
+     worktree (skip this when `SENTINAL_SPEC_REVIEWER_ENABLED=false`): without it the worker
+     skipped the code review, so treat the phase as failed (below) instead of merging.
+   - If both hold: `worktree_sync({ plan_slug })` squash-merges the phase into this session's
+     branch and releases the adopted worktree; then `orca_release({ dispatch_id })` and
+     `orca_remove_worktree({ path })`. (`worktree_abandon` is only for a skipped or stopped
+     phase — after a merge it has nothing left to release.)
    - Otherwise treat it as a failed phase (below).
    - A `question` message: answer it with `orca_reply({ run_id, message_id, body })` (ask the user
      if you cannot answer), before the worker's `ask` times out.
