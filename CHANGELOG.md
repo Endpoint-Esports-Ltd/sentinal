@@ -1,3 +1,11 @@
+# [1.44.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.43.0...v1.44.0) (2026-10-02)
+
+
+### Features
+
+* **opencode:** spec-task agent and doc edit allowances for subagents ([6abae29](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/6abae295ed3115204ff5caae98b03234099eeb2a))
+* **orca:** pre-warmed OpenCode workers read the coordinator and main checkouts without prompts ([634b88a](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/634b88af975160718f883680d55c85e2ff827dae))
+
 # [1.43.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.42.1...v1.43.0) (2026-09-30)
 
 
