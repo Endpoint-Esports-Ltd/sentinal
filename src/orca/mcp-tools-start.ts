@@ -23,7 +23,9 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { homedir } from "node:os";
 import { prewarmAgents } from "./dispatch-prewarm.js";
+import { opencodeLaunch, workerAllowDirs } from "./worker-access.js";
 import { startTask, type StartTaskResult } from "./dispatch.js";
 import {
   orcaFailure,
@@ -238,8 +240,22 @@ export function registerOrcaStartTool(
       // replay after a restart (pre-warm then asks request-show instead).
       const replay =
         args.request_id !== undefined && !state.inflightStarts.has(requestId);
+      const env = deps.env ?? process.env;
+      const wd = deps.workerDirs?.();
+      const launch = wd
+        ? opencodeLaunch({
+            agent: args.agent,
+            worktree:
+              typeof args.worktree === "object"
+                ? args.worktree.path
+                : wd.coordinator,
+            dirs: workerAllowDirs(env, [wd.coordinator, wd.main], homedir()),
+            env,
+          })
+        : undefined;
       const p = trackStart(state, requestId, () =>
         startTask({
+          launchCommand: launch?.command,
           taskId: args.task_id,
           worktree: args.worktree,
           agent: args.agent,
@@ -247,7 +263,7 @@ export function registerOrcaStartTool(
           retryOf: args.retry_of,
           requestId,
           runner: deps.runner,
-          prewarmAgents: prewarmAgents(deps.env ?? process.env),
+          prewarmAgents: prewarmAgents(env),
           terminal: state.startTerminals.get(requestId),
           replay,
           onTerminalCreated: (h) => state.startTerminals.set(requestId, h),
@@ -285,10 +301,53 @@ export function registerOrcaStartTool(
         if (r === "pending")
           return pending(requestId, args.task_id, args.retry_of);
         state.finishedStarts.delete(requestId);
-        return formatStart(r, requestId, args.task_id, args.retry_of);
+        const res = formatStart(r, requestId, args.task_id, args.retry_of);
+        return r.status === "started" && r.startPath === "prewarmed"
+          ? withAccess(res, launch, args.agent)
+          : res;
       } finally {
         clearTimeout(timer);
       }
     },
   );
+}
+
+/**
+ * Add `worker_access` (or why it was skipped) to a pre-warmed start's
+ * response: the JSON block is re-serialised, and a line goes before Next.
+ */
+function withAccess(
+  res: ReturnType<typeof formatStart>,
+  launch: ReturnType<typeof opencodeLaunch> | undefined,
+  agent: string,
+): ReturnType<typeof formatStart> {
+  if (!launch || agent !== "opencode") return res;
+  const a = launch.access;
+  const extra = {
+    ...(a ? { worker_access: { dirs: a.dirs, read_only: true } } : {}),
+    ...(launch.skipped ? { worker_access_skipped: launch.skipped } : {}),
+    ...(launch.skippedDirs?.length
+      ? { worker_access_skipped_dirs: launch.skippedDirs }
+      : {}),
+  };
+  if (Object.keys(extra).length === 0) return res;
+  const line = a
+    ? `- The worker can read ${a.dirs.join(", ")} without a permission prompt (read-only).`
+    : `- No directory access was granted (${launch.skipped ?? "no directories"}); the worker may still prompt.`;
+  const block = res.content[0]!;
+  const m = /```json\n([\s\S]*?)\n```/.exec(block.text);
+  if (!m) return res;
+  const json = JSON.stringify({ ...JSON.parse(m[1]!), ...extra }, null, 2);
+  let text =
+    block.text.slice(0, m.index) +
+    "```json\n" +
+    json +
+    "\n```" +
+    block.text.slice(m.index + m[0].length);
+  const i = text.indexOf("- Next:");
+  text =
+    i === -1
+      ? `${line}\n${text}`
+      : text.slice(0, i) + line + "\n" + text.slice(i);
+  return { ...res, content: [{ ...block, text }, ...res.content.slice(1)] };
 }

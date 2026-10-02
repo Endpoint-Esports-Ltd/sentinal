@@ -493,3 +493,123 @@ describe("orca_start — in-process replay after a timeout (review should_fix)",
     expect(state.startTerminals.size).toBe(0);
   });
 });
+
+describe("orca_start — worker access (prompt-free, read-only)", () => {
+  const fx = (name: string): OrcaRunOutput => out(fixture(name));
+  const instant = { clock: () => 0, sleep: async () => {} };
+  const routes = () =>
+    fakeOrca([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+      ["orchestration worker-start", fx("worker-start-terminal-ready.json")],
+    ]);
+  const dirs = () => ({ coordinator: "/co/orca-support", main: "/p/sentinal" });
+
+  it("launches pre-warmed OpenCode with the inline config and reports worker_access (Truth 3)", async () => {
+    const f = routes();
+    const { call } = capture({
+      runner: f.runner,
+      env: { ORCA_TERMINAL_HANDLE: COORD },
+      prewarmClock: instant,
+      workerDirs: dirs,
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/p/sentinal/.orca/worktrees/w" },
+      agent: "opencode",
+    });
+    const cmd = flag(f.called("terminal create")[0]!, "--command")!;
+    expect(cmd.startsWith("env OPENCODE_CONFIG_CONTENT='")).toBe(true);
+    expect(cmd).toContain("/p/sentinal/**");
+    expect(cmd).toContain("/co/orca-support/**");
+    expect(r.data.worker_access).toEqual({
+      dirs: ["/co/orca-support", "/p/sentinal"],
+      read_only: true,
+    });
+    expect(r.text).toContain("without a permission prompt");
+  });
+
+  it("uses the plain command with SENTINAL_ORCA_WORKER_ALLOW_DIRS=none", async () => {
+    const f = routes();
+    const { call } = capture({
+      runner: f.runner,
+      env: {
+        ORCA_TERMINAL_HANDLE: COORD,
+        SENTINAL_ORCA_WORKER_ALLOW_DIRS: "none",
+      },
+      prewarmClock: instant,
+      workerDirs: dirs,
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/p/sentinal/.orca/worktrees/w" },
+      agent: "opencode",
+    });
+    expect(flag(f.called("terminal create")[0]!, "--command")).toBe("opencode");
+    expect(r.data.worker_access).toBeUndefined();
+  });
+
+  it("never reports worker_access for a start that was not pre-warmed", async () => {
+    const f = fakeOrca([["orchestration worker-start", readyReceipt()]]);
+    const { call } = capture({
+      runner: f.runner,
+      env: ORCA_ENV,
+      workerDirs: dirs,
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/p/sentinal/.orca/worktrees/w" },
+      agent: "opencode",
+    });
+    expect(r.data.start_path).toBe("agent");
+    expect(r.data.worker_access).toBeUndefined();
+  });
+});
+
+describe("orca_start — worker access reporting (review fixes)", () => {
+  const fx = (name: string): OrcaRunOutput => out(fixture(name));
+  const instant = { clock: () => 0, sleep: async () => {} };
+  const routes = () =>
+    fakeOrca([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+      ["orchestration worker-start", fx("worker-start-terminal-ready.json")],
+    ]);
+
+  it("reports why the inline config was skipped", async () => {
+    const f = routes();
+    const { call } = capture({
+      runner: f.runner,
+      env: { ORCA_TERMINAL_HANDLE: COORD, OPENCODE_CONFIG_CONTENT: "nope" },
+      prewarmClock: instant,
+      workerDirs: () => ({ coordinator: "/co", main: "/p/s" }),
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/p/s/.orca/worktrees/w" },
+      agent: "opencode",
+    });
+    expect(r.data.worker_access_skipped).toContain("OPENCODE_CONFIG_CONTENT");
+    expect(r.text).toContain("may still prompt");
+  });
+
+  it("reports dropped glob directories and survives $ patterns in paths", async () => {
+    const f = routes();
+    const { call } = capture({
+      runner: f.runner,
+      env: { ORCA_TERMINAL_HANDLE: COORD },
+      prewarmClock: instant,
+      workerDirs: () => ({ coordinator: "/co/a*b", main: "/p/$&x" }),
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/elsewhere/w" },
+      agent: "opencode",
+    });
+    expect(r.data.worker_access.dirs).toEqual(["/p/$&x"]);
+    expect(r.data.worker_access_skipped_dirs).toEqual(["/co/a*b"]);
+    expect(r.text).toContain("/p/$&x without a permission prompt");
+  });
+});

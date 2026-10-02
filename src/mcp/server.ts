@@ -25,6 +25,10 @@ import { guardOrcaWorktreeRemoval } from "../worktree/removal-guard.js";
 import { WorktreeStore } from "../worktree/store.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { autoStartSidecar, stopSidecarProcess } from "../sidecar/lifecycle.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
 
 // --- Server Factory ---
 
@@ -72,6 +76,7 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   // The removal veto needs Sentinal's worktree rows: with the sidecar running
   // `store` is null, so open the DB per check (same as the worktree tools do).
   registerOrcaTools(server, {
+    workerDirs: () => orcaWorkerDirs(process.cwd()),
     guardWorktreeRemoval: async (path) => {
       const own = store ?? new MemoryStore();
       try {
@@ -86,6 +91,20 @@ export function createSentinalServer(opts: ServerOptions = {}): {
   });
 
   return { server, store };
+}
+
+/**
+ * The checkouts a pre-warmed OpenCode worker may read without a prompt: this
+ * session's (the coordinator's) checkout and the repo's main checkout.
+ */
+export function orcaWorkerDirs(cwd: string): {
+  coordinator: string;
+  main: string;
+} {
+  return {
+    coordinator: resolveWorkspaceRoot(cwd),
+    main: resolveProjectIdentity(cwd),
+  };
 }
 
 // --- Cleanup Handlers ---

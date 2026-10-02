@@ -29,6 +29,12 @@ export interface OrcaToolsDeps {
   /** Tests: an instant clock for the pre-warm readiness poll. */
   prewarmClock?: PrewarmClock;
   /**
+   * The coordinator's checkout and the repo's main checkout, which pre-warmed
+   * OpenCode workers may read without a prompt. Injected by the server so
+   * src/orca stays free of git.
+   */
+  workerDirs?: () => { coordinator: string; main: string };
+  /**
    * Veto for `orca_remove_worktree`: refuse the main checkout, the calling
    * session's own checkout, and any worktree Sentinal still holds live. The
    * server injects `guardOrcaWorktreeRemoval` (src/worktree) — src/orca stays

@@ -16,8 +16,8 @@ import {
   spyOn,
   mock,
 } from "bun:test";
-import { join } from "node:path";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { mkdirSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { makeTmpDir } from "../test-helpers.js";
 import { createSentinalServer, registerMcpCleanupHandlers } from "./server.js";
 import { MemoryStore } from "../memory/store.js";
@@ -745,3 +745,24 @@ describe("registerMcpCleanupHandlers", () => {
 });
 
 // Keepalive tests removed — keepalive ping no longer needed with session-aware shutdown.
+
+describe("orcaWorkerDirs (prompt-free worker access)", () => {
+  it("resolves the coordinator checkout and the main checkout from this worktree", async () => {
+    const { orcaWorkerDirs } = await import("./server.js");
+    const here = process.cwd();
+    const d = orcaWorkerDirs(here);
+    const top = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+      cwd: here,
+    })
+      .stdout.toString()
+      .trim();
+    expect(d.coordinator).toBe(realpathSync(top));
+    const common = Bun.spawnSync(
+      ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: here },
+    )
+      .stdout.toString()
+      .trim();
+    expect(d.main).toBe(realpathSync(dirname(common)));
+  });
+});

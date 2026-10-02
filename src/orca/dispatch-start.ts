@@ -126,6 +126,8 @@ export interface StartTaskOptions extends Base {
   /** Replay of an earlier skip: start plainly under this request id. */
   skipRequestId?: string;
   prewarmTimeoutMs?: number;
+  /** Pre-warm launch command (e.g. with an inline OpenCode config). */
+  launchCommand?: string;
   /** Tests: an instant clock for the readiness poll. */
   prewarmClock?: PrewarmClock;
 }
@@ -205,6 +207,7 @@ export async function startTask(o: StartTaskOptions): Promise<StartTaskResult> {
       const w = await prewarmTerminal({
         placement,
         agent: o.agent,
+        command: o.launchCommand,
         taskId: o.taskId,
         runner: o.runner,
         timeoutMs: o.prewarmTimeoutMs,

@@ -72,6 +72,8 @@ export async function prewarmTerminal(
   o: {
     placement: Placement;
     agent: string;
+    /** The launch command (default: the bare agent). */
+    command?: string;
     taskId: string;
     runner?: OrcaRunner;
     timeoutMs?: number;
@@ -90,7 +92,7 @@ export async function prewarmTerminal(
       "--worktree",
       worktreeSelector(o.placement),
       "--command",
-      o.agent,
+      o.command ?? o.agent,
       "--title",
       `worker-${o.taskId}`,
     ],

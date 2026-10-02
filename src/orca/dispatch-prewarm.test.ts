@@ -375,3 +375,24 @@ describe("startTask — pre-warmed", () => {
     }
   });
 });
+
+describe("prewarmTerminal — launch command (worker access)", () => {
+  it("creates the terminal with the given command instead of the bare agent", async () => {
+    const q = queue([
+      ["terminal create", fx("terminal-create.json")],
+      ["terminal wait", fx("terminal-wait-tui-idle.json")],
+      ["terminal read", fx("terminal-read-home.json")],
+    ]);
+    const cmd = "env OPENCODE_CONFIG_CONTENT='{}' opencode";
+    const r = await prewarmTerminal({
+      placement: { path: WT },
+      agent: "opencode",
+      command: cmd,
+      taskId: "task_1",
+      runner: q.runner,
+      ...fakeTime(),
+    });
+    expect(r.ok).toBe(true);
+    expect(flag(q.calls[0]!, "--command")).toBe(cmd);
+  });
+});
