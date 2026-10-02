@@ -34,6 +34,8 @@ export interface OrcaToolsDeps {
    * src/orca stays free of git.
    */
   workerDirs?: () => { coordinator: string; main: string };
+  /** Delay before orca_remove_worktree's one retry (default 1500 ms). */
+  retryDelayMs?: number;
   /**
    * Veto for `orca_remove_worktree`: refuse the main checkout, the calling
    * session's own checkout, and any worktree Sentinal still holds live. The
@@ -67,6 +69,12 @@ export interface OrcaToolState {
    * flags those worker_done rows `replayed` instead of hiding them.
    */
   released: Set<string>;
+  /**
+   * dispatch_id → ids of its questions seen in orca_wait and not yet answered
+   * with orca_reply. While a dispatch has one, Orca's `input` attention for it
+   * only repeats the question and is not shown.
+   */
+  openQuestions: Map<string, Set<string>>;
   /** `<dispatch>:<kind>` attention entries this session already reported (once each). */
   attentionReported: Set<string>;
   /** request_id → the terminal a pre-warmed start created (join/replay reuse it). */
@@ -85,6 +93,7 @@ export function createOrcaToolState(): OrcaToolState {
     deliveries: new Map(),
     released: new Set(),
     attentionReported: new Set(),
+    openQuestions: new Map(),
     startTerminals: new Map(),
     createdTerminals: new Map(),
     startSkips: new Map(),

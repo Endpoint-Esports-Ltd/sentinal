@@ -57,6 +57,7 @@ export function runtimeWorktreeConfig(
 ): WorktreeConfig {
   return {
     ...base,
+    maxActive: maxActiveFromEnv(base.maxActive),
     sharedResourcesFor: (worktreePath) =>
       loadRuntimeConfig(worktreePath).sharedResources,
     stopOwnedRuntime: (worktreePath) => stopOwnedGroup(worktreePath),
@@ -92,4 +93,17 @@ async function runSetupFor(
     };
   }
   return runWorktreeSetup(worktreePath, loaded.config, { slot });
+}
+
+/**
+ * `SENTINAL_WORKTREE_MAX_ACTIVE`: how many worktrees Sentinal holds at once
+ * (default 5 — e.g. an Orca wave of 8 phases runs in batches). Only a positive
+ * integer counts; anything else keeps the default. More slots mean more
+ * per-slot ports / database names for a runtime.json contract.
+ */
+function maxActiveFromEnv(fallback: number): number {
+  const raw = process.env.SENTINAL_WORKTREE_MAX_ACTIVE?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+  const n = Number(raw);
+  return n >= 1 ? n : fallback;
 }

@@ -481,3 +481,26 @@ describe("every WorktreeManager construction site injects the runtime deps", () 
     expect(server).toMatch(/worktreeConfig:\s*runtimeWorktreeConfig\(\)/);
   });
 });
+
+describe("runtimeWorktreeConfig — SENTINAL_WORKTREE_MAX_ACTIVE", () => {
+  const prev = process.env.SENTINAL_WORKTREE_MAX_ACTIVE;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SENTINAL_WORKTREE_MAX_ACTIVE;
+    else process.env.SENTINAL_WORKTREE_MAX_ACTIVE = prev;
+  });
+
+  it("uses a positive integer and ignores anything else", () => {
+    for (const [v, want] of [
+      ["8", 8],
+      ["abc", 5],
+      ["0", 5],
+      ["-2", 5],
+      ["3.5", 5],
+      [undefined, 5],
+    ] as const) {
+      if (v === undefined) delete process.env.SENTINAL_WORKTREE_MAX_ACTIVE;
+      else process.env.SENTINAL_WORKTREE_MAX_ACTIVE = v;
+      expect(runtimeWorktreeConfig().maxActive).toBe(want);
+    }
+  });
+});

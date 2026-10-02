@@ -22,6 +22,7 @@ import { mutate } from "./dispatch-start.js";
 import {
   orcaFailure,
   orcaResponse,
+  type OrcaToolState,
   type OrcaToolsDeps,
 } from "./mcp-tools-shared.js";
 import type { OrcaRunShowResult, OrcaTerminalShowResult } from "./types.js";
@@ -31,8 +32,9 @@ const DIRECT = "Direct-only: talks to the local `orca` CLI, never the sidecar.";
 export function registerOrcaCoordTools(
   server: McpServer,
   deps: OrcaToolsDeps = {},
+  state?: OrcaToolState,
 ): void {
-  registerReplyTool(server, deps);
+  registerReplyTool(server, deps, state);
   registerRebindTool(server, deps);
 }
 
@@ -47,7 +49,11 @@ function replyMessageId(result: unknown): string | undefined {
   return typeof id === "string" && id ? id : undefined;
 }
 
-function registerReplyTool(server: McpServer, deps: OrcaToolsDeps): void {
+function registerReplyTool(
+  server: McpServer,
+  deps: OrcaToolsDeps,
+  state?: OrcaToolState,
+): void {
   server.tool(
     "orca_reply",
     `Answer a worker's question (from orca_wait) before its ask times out. ${DIRECT}`,
@@ -74,6 +80,11 @@ function registerReplyTool(server: McpServer, deps: OrcaToolsDeps): void {
         { runner: deps.runner },
       );
       if (!r.ok) return orcaFailure(title, r.error, { run_id: args.run_id });
+      for (const [d, open] of state?.openQuestions ?? []) {
+        if (open.delete(args.message_id) && open.size === 0) {
+          state?.openQuestions.delete(d);
+        }
+      }
       const replyId = replyMessageId(r.result);
       return orcaResponse(
         title,

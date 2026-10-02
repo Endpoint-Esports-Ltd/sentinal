@@ -56,7 +56,7 @@ export function registerOrcaTools(
   registerOrcaStartTool(server, deps, state);
   registerOrcaSettleTools(server, deps, state);
   registerOrcaAbandonTool(server, deps);
-  registerOrcaCoordTools(server, deps);
+  registerOrcaCoordTools(server, deps, state);
 }
 
 // ------------------------------------------------------------- orca_status

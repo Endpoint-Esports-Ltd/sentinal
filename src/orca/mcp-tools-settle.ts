@@ -277,17 +277,30 @@ function registerRemoveWorktree(server: McpServer, deps: OrcaToolsDeps): void {
           message: `Refusing to remove ${args.path}: ${guard.reason}`,
         });
       }
-      const r = await removeChildWorktree(args.path, { runner: deps.runner });
+      let r = await removeChildWorktree(args.path, { runner: deps.runner });
+      // Orca can refuse once on a stale status (a file just deleted still
+      // listed): retry exactly once, never with --force.
+      const retried =
+        !r.ok && r.error.message.includes("Failed to delete worktree");
+      if (retried) {
+        await new Promise((res) => setTimeout(res, deps.retryDelayMs ?? 1500));
+        r = await removeChildWorktree(args.path, { runner: deps.runner });
+      }
       if (!r.ok) {
         return orcaFailure("Orca remove worktree", r.error, {
           path: args.path,
         });
       }
-      return orcaResponse("Orca remove worktree", [`- Removed ${args.path}.`], {
-        ok: true,
-        path: args.path,
-        result: r.result,
-      });
+      return orcaResponse(
+        "Orca remove worktree",
+        [
+          `- Removed ${args.path}.`,
+          ...(retried
+            ? ["- Orca refused the first attempt (stale status); retried once."]
+            : []),
+        ],
+        { ok: true, path: args.path, result: r.result, retried },
+      );
     },
   );
 }

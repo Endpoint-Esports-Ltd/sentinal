@@ -158,10 +158,24 @@ export function registerOrcaWaitTool(
           : [],
       );
       const other = messages.filter((m) => !m.workerDone).map(messageRow);
+      for (const m of messages) {
+        const d = m.type === "question" ? m.payload?.dispatchId : undefined;
+        if (typeof d !== "string") continue;
+        const open = state.openQuestions.get(d) ?? new Set<string>();
+        open.add(m.id);
+        state.openQuestions.set(d, open);
+      }
+      // `input` alone while the dispatch's question is open only repeats it.
+      const repeatsQuestion = (a: AttentionEntry) =>
+        a.kind === "orca-attention" &&
+        a.categories?.length === 1 &&
+        a.categories[0] === "input" &&
+        (state.openQuestions.get(a.dispatchId)?.size ?? 0) > 0;
 
       const attention = r.attention
         .filter(
           (a) =>
+            !repeatsQuestion(a) &&
             !state.released.has(a.dispatchId) &&
             !state.attentionReported.has(`${a.dispatchId}:${a.kind}`),
         )

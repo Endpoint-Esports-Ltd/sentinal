@@ -612,3 +612,58 @@ describe("orca_release / orca_remove_worktree", () => {
     expect(seen).toEqual(["/repo/main", "/repo/child"]);
   });
 });
+
+describe("orca_remove_worktree — one retry on a stale refusal", () => {
+  const stale = out(
+    JSON.stringify({
+      id: "x",
+      ok: false,
+      error: {
+        code: "runtime_error",
+        message: "Failed to delete worktree at /wt/a. ?? probe.txt",
+      },
+    }),
+    1,
+  );
+  const routes = (replies: OrcaRunOutput[]) => {
+    const calls: string[][] = [];
+    const runner: OrcaRunner = async (args) => {
+      calls.push(args);
+      return replies.shift()!;
+    };
+    return { runner, calls };
+  };
+
+  it("retries once without --force and succeeds", async () => {
+    const r = routes([stale, ok({ removed: true })]);
+    const call = capture({ runner: r.runner, env: {}, retryDelayMs: 0 });
+    const res = await call("orca_remove_worktree", { path: "/wt/a" });
+    expect(res.data.ok).toBe(true);
+    expect(r.calls.length).toBe(2);
+    expect(r.calls.some((c) => c.includes("--force"))).toBe(false);
+    expect(res.text).toContain("retried");
+  });
+
+  it("returns the error after the second refusal", async () => {
+    const r = routes([stale, stale]);
+    const call = capture({ runner: r.runner, env: {}, retryDelayMs: 0 });
+    const res = await call("orca_remove_worktree", { path: "/wt/a" });
+    expect(res.data.ok).toBe(false);
+    expect(r.calls.length).toBe(2);
+  });
+
+  it("does not retry other errors", async () => {
+    const other = out(
+      JSON.stringify({
+        id: "x",
+        ok: false,
+        error: { code: "worktree_not_found", message: "nope" },
+      }),
+      1,
+    );
+    const r = routes([other]);
+    const call = capture({ runner: r.runner, env: {}, retryDelayMs: 0 });
+    await call("orca_remove_worktree", { path: "/wt/a" });
+    expect(r.calls.length).toBe(1);
+  });
+});

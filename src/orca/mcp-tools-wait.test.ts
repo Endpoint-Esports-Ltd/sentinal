@@ -371,3 +371,87 @@ describe("orca_wait — heartbeats", () => {
     );
   });
 });
+
+describe("orca_wait — a worker's open question is not repeated as `input` attention", () => {
+  const Q = "ctx_question01";
+  const B = "ctx_blocked01";
+  function qRoutes(withQuestion: () => boolean) {
+    const runner: OrcaRunner = async (args) => {
+      const line = args.join(" ");
+      if (line.startsWith("orchestration check") && line.includes("--ack")) {
+        return ok({
+          runId: RUN,
+          deliveryId: null,
+          messages: [],
+          timedOut: false,
+        });
+      }
+      if (line.startsWith("orchestration check")) {
+        return ok({
+          runId: RUN,
+          deliveryId: withQuestion() ? "delivery_q" : null,
+          timedOut: !withQuestion(),
+          messages: withQuestion()
+            ? [
+                {
+                  id: "msg_q1",
+                  run_id: RUN,
+                  type: "question",
+                  subject: "Question",
+                  body: "ping or pong?",
+                  payload: JSON.stringify({ taskId: "task_q", dispatchId: Q }),
+                  from_handle: "t",
+                  to_handle: "c",
+                  created_at: "2026-10-02 10:00:00",
+                },
+              ]
+            : [],
+        });
+      }
+      if (line.startsWith("orchestration worker-list")) {
+        const row = (id: string) => ({
+          dispatchId: id,
+          taskId: `task_${id}`,
+          projection: {
+            outcome: "in_progress",
+            liveness: { verdict: "live" },
+            attention: { categories: ["input"], requiresAction: true },
+            nextAction: {
+              kind: "inspect",
+              argv: ["orchestration", "worker-show"],
+            },
+          },
+        });
+        return ok({ workers: [row(Q), row(B)] });
+      }
+      if (line.startsWith("orchestration worker-read")) {
+        return out(fixture("worker-read-terminal-started.json"));
+      }
+      if (line.startsWith("orchestration reply")) {
+        return ok({ message: { id: "msg_r1" } });
+      }
+      throw new Error(`unexpected orca call: ${line}`);
+    };
+    return runner;
+  }
+
+  it("hides input for a dispatch with an open question, shows it for another, and again after the reply", async () => {
+    let question = true;
+    const { call } = capture({ runner: qRoutes(() => question), env: {} });
+    const first = await call("orca_wait", { run_id: RUN });
+    const ids = first.data.attention.map(
+      (a: { dispatch_id: string }) => a.dispatch_id,
+    );
+    expect(ids).toEqual([B]);
+    await call("orca_reply", {
+      run_id: RUN,
+      message_id: "msg_q1",
+      body: "pong",
+    });
+    question = false;
+    const later = await call("orca_wait", { run_id: RUN });
+    expect(
+      later.data.attention.map((a: { dispatch_id: string }) => a.dispatch_id),
+    ).toEqual([Q]);
+  });
+});
