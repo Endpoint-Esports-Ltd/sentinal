@@ -69,10 +69,20 @@ function render(r: MasterAuditResult): string {
     lines.push("");
   }
 
+  const warnings: string[] = r.warnings.length
+    ? [
+        "",
+        `### warnings (${r.warnings.length})`,
+        "",
+        ...r.warnings.map((w) => `- **[${w.kind}] ${w.slug}** — ${w.message}`),
+      ]
+    : [];
+
   if (r.findings.length === 0) {
     lines.push(
       "Every child plan is VERIFIED and every master checkbox agrees with its " +
         "child file. Master verification may proceed.",
+      ...warnings,
     );
     return lines.join("\n");
   }
@@ -88,6 +98,7 @@ function render(r: MasterAuditResult): string {
       "A disagreement is itself the finding: it means the master's checkbox was " +
       "written from a subagent report rather than from the child file.",
   );
+  lines.push(...warnings);
 
   return lines.join("\n");
 }

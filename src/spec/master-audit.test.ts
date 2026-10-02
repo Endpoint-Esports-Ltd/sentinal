@@ -329,3 +329,48 @@ describe("auditMasterPlan — guards", () => {
     );
   });
 });
+
+describe("auditMasterPlan — verification evidence warnings", () => {
+  const prev = process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    else process.env.SENTINAL_SPEC_REVIEWER_ENABLED = prev;
+  });
+  const setup = () => {
+    const master = writeMaster(M, "- [x] Phase 1: one\n- [ ] Phase 2: two");
+    writeChild(`${M}-phase-1`, { status: "VERIFIED", parent: M });
+    writeChild(`${M}-phase-2`, { status: "PENDING", parent: M });
+    return master;
+  };
+
+  it("warns (without failing on that account) for a VERIFIED child with no .spec-review.json", () => {
+    delete process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    const r = auditMasterPlan(setup());
+    expect(r.warnings).toEqual([
+      expect.objectContaining({
+        kind: "no-review-evidence",
+        slug: `${M}-phase-1`,
+      }),
+    ]);
+    expect(r.findings.map((f) => f.kind)).not.toContain("no-review-evidence");
+  });
+
+  it("has no warning when the review file exists, or when the reviewer is disabled", () => {
+    delete process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    const master = setup();
+    writeFileSync(join(plansDir, `${M}-phase-1.spec-review.json`), "{}");
+    expect(auditMasterPlan(master).warnings).toEqual([]);
+    rmSync(join(plansDir, `${M}-phase-1.spec-review.json`));
+    process.env.SENTINAL_SPEC_REVIEWER_ENABLED = "false";
+    expect(auditMasterPlan(master).warnings).toEqual([]);
+  });
+
+  it("keeps ok true when the only issue is a warning", () => {
+    delete process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    const master = writeMaster(M, "- [x] Phase 1: one");
+    writeChild(`${M}-phase-1`, { status: "VERIFIED", parent: M });
+    const r = auditMasterPlan(master);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.length).toBe(1);
+  });
+});

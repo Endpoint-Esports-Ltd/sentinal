@@ -230,3 +230,20 @@ describe("spec_master_audit — errors", () => {
     expect(out.toLowerCase()).toContain("not found");
   });
 });
+
+describe("spec_master_audit — verification evidence warnings", () => {
+  it("renders a warnings section for a VERIFIED child without its .spec-review.json, still PASS", async () => {
+    const prev = process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    delete process.env.SENTINAL_SPEC_REVIEWER_ENABLED;
+    try {
+      const p = writeMaster("- [x] Phase 1: A (Wave 1)");
+      writeChild(`${M}-phase-1`, "VERIFIED");
+      const out = await run(p);
+      expect(out).toContain("PASS");
+      expect(out).toContain("warnings (1)");
+      expect(out).toContain("no-review-evidence");
+    } finally {
+      if (prev !== undefined) process.env.SENTINAL_SPEC_REVIEWER_ENABLED = prev;
+    }
+  });
+});

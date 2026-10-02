@@ -77,6 +77,18 @@ export interface MasterAuditFinding {
   declaredStatus?: string;
 }
 
+/**
+ * A VERIFIED child with no `<slug>.spec-review.json` beside it: its worker
+ * probably skipped /spec's code review. Non-blocking — older children were
+ * verified before review files existed, and the review is optional when
+ * `SENTINAL_SPEC_REVIEWER_ENABLED=false`.
+ */
+export interface MasterAuditWarning {
+  kind: "no-review-evidence";
+  slug: string;
+  message: string;
+}
+
 export interface MasterAuditResult {
   ok: boolean;
   master: { slug: string; planFile: string; status: SpecStatus; title: string };
@@ -87,6 +99,8 @@ export interface MasterAuditResult {
   excluded: ChildPlan[];
   checkboxes: MasterCheckbox[];
   findings: MasterAuditFinding[];
+  /** Non-blocking: never affect `ok`. */
+  warnings: MasterAuditWarning[];
   /** Counts exclude CANCELLED children. */
   verifiedCount: number;
   totalCount: number;
@@ -343,6 +357,24 @@ export function auditMasterPlan(masterPlanPath: string): MasterAuditResult {
     });
   }
 
+  const reviewOn = process.env.SENTINAL_SPEC_REVIEWER_ENABLED !== "false";
+  const warnings: MasterAuditWarning[] = reviewOn
+    ? children
+        .filter(
+          (c) =>
+            c.status === "VERIFIED" &&
+            !existsSync(c.planFile.replace(/\.md$/, ".spec-review.json")),
+        )
+        .map((c) => ({
+          kind: "no-review-evidence" as const,
+          slug: c.slug,
+          message:
+            `Child reads VERIFIED but has no ${c.slug}.spec-review.json beside it, ` +
+            `so /spec's code review probably did not run. Re-run verification for ` +
+            `it, or confirm the review was intentionally skipped.`,
+        }))
+    : [];
+
   return {
     ok: findings.length === 0,
     master: {
@@ -356,6 +388,7 @@ export function auditMasterPlan(masterPlanPath: string): MasterAuditResult {
     excluded,
     checkboxes,
     findings,
+    warnings,
     verifiedCount: children.filter((c) => c.status === "VERIFIED").length,
     totalCount: children.length,
   };
