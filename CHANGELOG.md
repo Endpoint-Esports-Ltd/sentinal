@@ -1,3 +1,15 @@
+# [1.46.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.45.0...v1.46.0) (2026-10-12)
+
+
+### Bug Fixes
+
+* **opencode:** workspace adaptor runs sentinal without a shell and never acts without a project ([9e348fc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/9e348fcef64609c528198d927266323040068f02))
+
+
+### Features
+
+* **spec:** spec_master_audit warns when a VERIFIED child has no code-review evidence ([6d4bc3b](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/6d4bc3bdfbac8eace48d78a1150f023d8c7f3d3b))
+
 # [1.45.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.44.0...v1.45.0) (2026-10-02)
 
 
