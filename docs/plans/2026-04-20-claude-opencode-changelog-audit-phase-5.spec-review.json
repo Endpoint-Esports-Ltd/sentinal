@@ -1,0 +1,157 @@
+{
+  "verdict": "pass_with_should_fix",
+  "pass_summary": "Re-review after fixes. All three previous must_fix findings are resolved: defaultExecutor now uses execFileSync with an argv array (no shell), create()/remove() refuse and log when config.directory is null (no '' / '.' fallbacks), and create() logs success and failure. The two un-awaited .resolves assertions are awaited, and the new tests cover the null-directory, metacharacter-name, executor-failure and abandon-failure paths. register-plan/baseRef are now honestly in Out of Scope, and the Task 4 manual items stay unticked with partial evidence. target() and configure() are unchanged by the diff (no regression). One new should_fix: with stdio 'ignore' the CLI's own stderr is still thrown away, so every create failure is logged as a possible PATH problem even when the real cause is something else (dirty checkout, slot limit, git error). The other new findings are minor: Windows .cmd resolution, an option-shaped slug, the blocking synchronous spawn, and stale bundles.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 5,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "error_handling",
+      "title": "stdio: 'ignore' still discards the CLI's stderr, and the PATH hint is shown for every failure",
+      "description": "makeDefaultExecutor runs `execFileSync(cmd, args, { stdio: \"ignore\" })`. When `sentinal` is found but `worktree create` exits non-zero (dirty main checkout, BASE_CHECKED_OUT, slot pool exhausted, invalid ref from a free-text name such as '..'), the thrown error's message is only 'Command failed: sentinal worktree create \u2026'. stderr was not captured, so the real reason is lost. create() then logs 'workspace create failed (is `sentinal` in PATH? \u2026)' for every failure, which points the user at the wrong cause. A true PATH miss shows up as `err.code === \"ENOENT\"` (spawnSync ENOENT); every other failure has a numeric `status`.",
+      "suggested_fix": "In makeDefaultExecutor use `stdio: [\"ignore\", \"ignore\", \"pipe\"]` (or `\"pipe\"`) and include `String(err.stderr ?? \"\").trim()` (truncated, e.g. last 500 chars) in the rethrown/logged message. In create() add the PATH hint only when `(e as NodeJS.ErrnoException).code === \"ENOENT\"`; otherwise log `workspace create failed for spec/<slug>: <stderr>`. Add a test where the executor throws an error with `status: 1, stderr: \"dirty checkout\"` and assert the log contains 'dirty checkout' and not 'PATH'.",
+      "file": "src/opencode/workspace-adaptor.ts",
+      "line": 353
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Windows: execFileSync without a shell does not resolve `sentinal.cmd` npm shims",
+      "description": "The old execSync went through cmd.exe, which resolves `sentinal` to `sentinal.cmd`/PATHEXT. execFileSync('sentinal', \u2026) with no shell only finds a real `sentinal.exe`, so on Windows an npm/bun-installed shim now fails with ENOENT. That is a Windows-only regression, made less visible because the PATH hint fits it exactly. The repo already treats Windows as a lesser-supported platform (worker-access falls back to a plain command there), so this is low impact.",
+      "suggested_fix": "On `process.platform === \"win32\"`, run `cmd.exe /d /s /c sentinal \u2026` with each argument quoted, or resolve the shim explicitly (try `sentinal.cmd`). Alternatively, document Windows as unsupported for the workspace adaptor in the file header.",
+      "file": "src/opencode/workspace-adaptor.ts",
+      "line": 353
+    },
+    {
+      "severity": "suggestion",
+      "category": "security",
+      "title": "Option-shaped slug from the free-text name reaches commander as a flag",
+      "description": "There is no shell any more, so this is no longer command injection. But a dialog name with no '/' that starts with '-' (for example '--base=main' or '--json') becomes the slug argv element, and commander parses it as an option rather than as <slug>. Today that only produces a CLI error, which is logged. No slug validation exists anywhere downstream either: grep finds none in src/worktree.",
+      "suggested_fix": "Validate the slug before exec (e.g. `/^[A-Za-z0-9][A-Za-z0-9._-]*$/`, log and return otherwise), or insert a `--` end-of-options marker if the worktree create command supports it.",
+      "file": "src/opencode/workspace-adaptor.ts",
+      "line": 271
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "create() spawns synchronously with no timeout, so it blocks the plugin process during worktree setup",
+      "description": "This predates the fix (execSync had the same problem). `sentinal worktree create` also runs the runtime contract's `setup` (this repo's is `bun install --frozen-lockfile`), so execFileSync can block OpenCode's plugin event loop for tens of seconds, and indefinitely if a step hangs.",
+      "suggested_fix": "Pass a `timeout` (e.g. 120_000) to execFileSync, or switch to async `execFile`/`Bun.spawn` and await it, since create() is already async.",
+      "file": "src/opencode/workspace-adaptor.ts",
+      "line": 353
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Rebuild the shipped bundles before release",
+      "description": "Only src/opencode/* and the plan changed. The bundled plugin copies (targets/opencode/dist/sentinal.mjs and the plugin embedded in src/cli/embedded-assets.ts, which contains createSpecWorktreeAdaptor) still have the pre-fix executor until `bun run build:opencode` and `embed-assets` run. CI's check-embed-assets should catch this, but users should not get the shell-string version from a stale artifact.",
+      "suggested_fix": "Run `bun run build:all` (and embed-assets) before committing, and include the regenerated artifacts if they are tracked.",
+      "file": "src/cli/embedded-assets.ts",
+      "line": 17288
+    }
+  ],
+  "previous_findings": [
+    {
+      "title": "create() interpolates user-editable workspace name and directory into an unquoted shell string",
+      "status": "resolved",
+      "note": "makeDefaultExecutor uses execFileSync(cmd, args) with no shell. Tests assert 'foo; rm -rf ~' and '/p q' each stay a single argv element. Slug validation was not added; it remains a suggestion only, because without a shell the risk is just an option-shaped slug."
+    },
+    {
+      "title": "remove() and create() lose project scoping when config.directory is null \u2014 can act on another checkout's worktree",
+      "status": "resolved",
+      "note": "Both now return with a logWarn before any executor or sidecar call; the `?? \".\"` and `?? \"\"` fallbacks are gone. New tests assert no executor call and no resolveWorktreeBySlug/abandonWorktree call."
+    },
+    {
+      "title": "PATH-missing / executor-failure mitigation ('logs error, user sees it in plugin.debug.log') is not implemented \u2014 create() fails silently",
+      "status": "resolved",
+      "note": "create() logs 'workspace created: spec/<slug>' on success and a PATH-hint error on failure, through `log`, which writes to plugin.debug.log; a test covers the failure log. New follow-up: stderr is still discarded and the PATH hint is not limited to ENOENT (see should_fix)."
+    },
+    {
+      "title": "In-scope items not implemented: `sentinal register-plan` on create() and `worktree.baseRef` awareness",
+      "status": "accepted",
+      "note": "Moved to Out of Scope with reasons that hold up: the plan is registered by /spec before a worktree exists, and baseRef is a Claude Code setting the OpenCode adaptor cannot read (worktree create auto-detects the base). The In Scope bullets were rewritten to match the code."
+    },
+    {
+      "title": "Two negative-path tests do not await their `.resolves` assertion",
+      "status": "resolved",
+      "note": "Both are now `await expect(...).resolves.toBeUndefined()`."
+    },
+    {
+      "title": "Task 4 manual OpenCode smoke test is not evidenced",
+      "status": "accepted",
+      "note": "Left unticked with honest partial evidence (adaptor registration seen in plugin.debug.log; dialog not observed; configure() unit-tested). Still an open manual check, but no longer misreported as done."
+    },
+    {
+      "title": "remove() swallows all errors silently",
+      "status": "resolved",
+      "note": "The catch now logs 'workspace remove failed: <msg>'; a test asserts 'sidecar 500' appears in the log."
+    },
+    {
+      "title": "Header comment contradicts the code, and configure() spawns git on a UI-latency path",
+      "status": "accepted",
+      "note": "The header now correctly describes the one resolveProjectIdentity call as a storage key only. configure() still uses the un-memoized resolveProjectIdentity rather than canonicalProjectKey, but that call sits inside the existing 1 s race budget. Minor, not re-raised."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/opencode/workspace-adaptor.ts exists and exports createSpecWorktreeAdaptor (now also makeDefaultExecutor)",
+      "status": "verified",
+      "evidence": "workspace-adaptor.ts:129 createSpecWorktreeAdaptor; :345 export makeDefaultExecutor; :357 const defaultExecutor = makeDefaultExecutor() (read lazily at call time, so there is no TDZ issue)."
+    },
+    {
+      "truth": "targets/opencode/plugins/sentinal.ts registers the adaptor with a logger that reaches plugin.debug.log",
+      "status": "verified",
+      "evidence": "sentinal.ts:639 passes { logger: log }; log() at :228 calls logToFile(PLUGIN_LOG_FILE, \u2026)."
+    },
+    {
+      "truth": "target() and configure() behaviour is unchanged by the fixes",
+      "status": "verified",
+      "evidence": "The diff touches only the header comment, create(), remove() and the executor. target() (:192-261) keeps the loud UNRESOLVED_REMOTE_TARGET sentinel and the mainFallback for a non-worktree flow; configure() still guards `config.directory` before keying."
+    },
+    {
+      "truth": "create()/remove() never act without a project directory",
+      "status": "verified",
+      "evidence": "workspace-adaptor.ts:276-281 and :317-323 return early with logWarn; covered by the 'project scoping and safety' tests."
+    },
+    {
+      "truth": "The eslint-disable for the lazy require is correctly placed",
+      "status": "verified",
+      "evidence": "The `// eslint-disable-next-line @typescript-eslint/no-require-imports` at :351 sits directly above the line containing require() (:352) inside the `cp ?? (...)` expression, so it applies to the right line."
+    },
+    {
+      "truth": "bun test src/opencode/workspace-adaptor.test.ts passes",
+      "status": "uncertain",
+      "evidence": "Not run by the reviewer: this session's bash permissions allow only `git diff*` / `git log*`, and `bun test` was denied. Static read of the new tests found no defects (awaited assertions, injected executor and logger, no real spawn). The orchestrator should confirm green."
+    }
+  ],
+  "resolutions_2026_10_12": [
+    {
+      "finding": "create() always blames PATH (stderr discarded)",
+      "status": "resolved",
+      "note": "stderr piped and reported; PATH hint only on ENOENT (describeCreateFailure); 3 new tests"
+    },
+    {
+      "finding": "Option-shaped workspace names",
+      "status": "resolved",
+      "note": "slugs starting with '-' are refused and logged"
+    },
+    {
+      "finding": "Windows .cmd shim not resolved without a shell",
+      "status": "accepted",
+      "note": "re-enabling a shell on win32 would reintroduce the injection; OpenCode workspaces are untested on Windows"
+    },
+    {
+      "finding": "Synchronous create() with no timeout",
+      "status": "accepted",
+      "note": "pre-existing; setup (bun install) can legitimately take minutes"
+    },
+    {
+      "finding": "Stale bundles",
+      "status": "accepted",
+      "note": "targets/opencode/dist is a build artifact rebuilt by release-build; gates passed"
+    }
+  ]
+}

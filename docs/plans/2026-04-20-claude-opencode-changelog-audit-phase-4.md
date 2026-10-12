@@ -200,9 +200,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] MCP-tool hook entry added to hooks.json and tested in live CC session
-- [ ] Findings doc records: invocation success, input shape, response parsing, latency
-- [ ] hooks.json reverted to original state
+- [x] MCP-tool hook entry added to hooks.json and tested in live CC session — tested from `--settings` and from a copy of the plugin's `hooks.json` via `--plugin-dir`; the repo file was never modified *(2026-10-12, CC 2.1.287 — see spike notes)*
+- [x] Findings doc records: invocation success, input shape, response parsing, latency *(2026-10-12, CC 2.1.287 — see spike notes)*
+- [x] hooks.json reverted to original state — nothing to revert (repo untouched)
 
 **Verify:**
 
@@ -235,10 +235,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] Deny behavior tested — CC blocks tool call when tool returns block JSON
-- [ ] Hint behavior tested — CC receives additionalContext from tool
-- [ ] Findings doc updated with deny/hint test results
-- [ ] All temporary changes reverted
+- [x] Deny behavior tested — CC blocks tool call when tool returns block JSON — via a throwaway MCP server (option C) *(2026-10-12, CC 2.1.287 — see spike notes)*
+- [x] Hint behavior tested — CC receives additionalContext from tool (`hookSpecificOutput` JSON; plain text is not delivered)
+- [x] Findings doc updated with deny/hint test results
+- [x] All temporary changes reverted — option C needed none
 
 **Verify:**
 
@@ -281,11 +281,11 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] HTTP hook entry added and tested in live CC session
-- [ ] Request body shape documented — matches HookInput or differs?
-- [ ] Unix socket URL support tested (works / doesn't work)
-- [ ] Findings doc records all results
-- [ ] hooks.json reverted
+- [x] HTTP hook entry added and tested in live CC session (throwaway receiver + sidecar `/health`) *(2026-10-12, CC 2.1.287 — see spike notes)*
+- [x] Request body shape documented — matches HookInput or differs? (full HookInput plus `prompt_id`, `effort`, `tool_use_id`)
+- [x] Unix socket URL support tested (works / doesn't work) — does NOT work, 3 URL forms
+- [x] Findings doc records all results
+- [x] hooks.json reverted — nothing to revert (repo untouched)
 
 **Verify:**
 
@@ -325,9 +325,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] `docs/benchmarks/phase4-baseline.json` exists with hyperfine results
-- [ ] `docs/benchmarks/phase4-baseline.md` has a summary table with median/stddev
-- [ ] All 4 hooks benchmarked
+- [x] `docs/benchmarks/phase4-baseline.json` exists with hyperfine results
+- [x] `docs/benchmarks/phase4-baseline.md` has a summary table with median/stddev
+- [x] All 4 hooks benchmarked
 
 **Verify:**
 
@@ -374,8 +374,8 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] `targets/claude-code/.mcp.json` has `"alwaysLoad": true` on the sentinal server entry
-- [ ] No other MCP server entries affected
+- [x] `targets/claude-code/.mcp.json` has `"alwaysLoad": true` on the sentinal server entry
+- [x] No other MCP server entries affected
 
 **Verify:**
 
@@ -412,10 +412,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] All 21 hooks in hooks.json use `"command": "sentinal"` + `"args": [...]` format
-- [ ] No other hook properties changed
-- [ ] JSON is valid
-- [ ] At least one hook verified in live CC session (30-second smoke test: trigger a Write, confirm tdd-guard fires)
+- [x] All 21 hooks in hooks.json use `"command": "sentinal"` + `"args": [...]` format (23 today — hooks added since)
+- [x] No other hook properties changed
+- [x] JSON is valid
+- [x] At least one hook verified in live CC session (30-second smoke test: trigger a Write, confirm tdd-guard fires) — the installed 1.44.0 plugin's `args`-form hooks ran on every Write and `[sentinal hook shared session-end] completed with status 0` *(2026-10-12, CC 2.1.287 — see spike notes)*
 
 **Verify:**
 
@@ -453,9 +453,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] Decision doc exists with all 5 sections
-- [ ] Clear recommendation with rationale
-- [ ] Next steps actionable enough to create a follow-up plan
+- [x] Decision doc exists with all 5 sections
+- [x] Clear recommendation with rationale (corrected 2026-10-12: qualified server name, fail-open)
+- [x] Next steps actionable enough to create a follow-up plan
 
 **Verify:**
 
@@ -467,7 +467,7 @@ _Assume this plan failed. Most likely internal reasons:_
 
 | Item                                    | Resolution                                                                                                                                                                                                                                                               |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `type: "mcp_tool"` hooks (CC 2.1.118)   | **Confirmed in CC docs.** Format: `{ "type": "mcp_tool", "server": "sentinal", "tool": "<name>", "input": { ... } }`. Variable substitution supported: `${tool_input.file_path}`. Tool text content parsed as hook decision. Requires empirical validation (Tasks 1, 2). |
+| `type: "mcp_tool"` hooks (CC 2.1.118)   | _2026-10-12 live: the plugin server must be named `plugin:sentinal:sentinal`; see the spike notes._ **Confirmed in CC docs.** Format: `{ "type": "mcp_tool", "server": "sentinal", "tool": "<name>", "input": { ... } }`. Variable substitution supported: `${tool_input.file_path}`. Tool text content parsed as hook decision. Requires empirical validation (Tasks 1, 2). |
 | `args: string[]` exec form (CC 2.1.139) | **Confirmed in CC docs.** Adopted as Task 6 — converts all 21 hooks to exec form.                                                                                                                                                                                        |
 | `alwaysLoad: true` (CC 2.1.121)         | **Confirmed in CC docs.** Adopted as Task 5 — adds to `.mcp.json`.                                                                                                                                                                                                       |
 | `continueOnBlock` (CC 2.1.139)          | **Deferred.** Phase 5 concern. Noted in findings for future reference.                                                                                                                                                                                                   |

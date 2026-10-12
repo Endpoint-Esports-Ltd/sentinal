@@ -113,9 +113,9 @@ All three can run in parallel as sub-agents with no file overlap.
 
 ## Progress Tracking
 
-- [ ] Phase 1: UX + Settings Polish (Wave 1)
-- [ ] Phase 2: Claude Code Lifecycle Hooks (Wave 1)
-- [ ] Phase 3: OpenCode Plugin Hooks (Wave 1)
+- [x] Phase 1: UX + Settings Polish (Wave 1)
+- [x] Phase 2: Claude Code Lifecycle Hooks (Wave 1)
+- [x] Phase 3: OpenCode Plugin Hooks (Wave 1)
 - [ ] Phase 4: HTTP Hooks Architecture (Wave 2)
 - [ ] Phase 5: Workspace + Permission Middleware (Wave 3)
 

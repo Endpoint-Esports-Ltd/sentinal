@@ -1,67 +1,87 @@
 # Phase 4 Spike: MCP-tool Hook Transport
 
-**Date:** 2026-06-09  
+**Date:** 2026-06-09 (desk research) — **re-run live 2026-10-12** on Claude Code 2.1.287  
 **Context:** This spike evaluates `type: "mcp_tool"` hooks for replacing subprocess hooks on the hot path.
 
 ## Method
 
-Unable to run a live Claude Code session from within OpenCode. Findings combine:
+The 2026-06-09 version could not run a live Claude Code session and took its findings from the CC
+docs. Everything below was **observed** on 2026-10-12 in headless sessions
+(`claude -p --settings <throwaway> --debug-file <log>`) in a throwaway git repo outside this
+checkout, with the installed Sentinal plugin (1.44.0) providing the MCP server. Evidence is the CC
+debug log (`Hooks: mcp_tool calling …`, `Hook PreToolUse:… success/error`), the model's reply, and
+the files left on disk. Nothing in this repo was modified; there is nothing to revert.
 
-1. Claude Code documentation (confirmed format and response semantics)
-2. Empirical sidecar HTTP benchmarks (identical underlying I/O path)
-3. OpenCode MCP tool calls against the warm Sentinal MCP server (this session)
+- **Task 1** — a `PreToolUse` `Read` hook calling Sentinal's `tdd_status`, first from `--settings`,
+  then from a **copy of the plugin's own `hooks.json`** loaded with `--plugin-dir` (installed plugin
+  disabled for that run only).
+- **Task 2** — a `PreToolUse` `Write` hook calling a throwaway stdio MCP server (`--mcp-config`;
+  plan option C instead of modifying `tdd_status`, so nothing needed reverting) whose tool returns
+  block JSON for `blocked.txt` and hint JSON otherwise.
 
 ## Findings
 
-### Invocation
-
-**Works per CC docs.** Format confirmed:
+### Invocation — works, but ONLY with the qualified server name
 
 ```json
 {
   "type": "mcp_tool",
-  "server": "sentinal",
+  "server": "plugin:sentinal:sentinal",
   "tool": "tdd_status",
   "input": { "file_path": "${tool_input.file_path}" }
 }
 ```
 
-The `sentinal` MCP server is already running when hooks fire (it starts at session init). No cold-start penalty.
+⛔ **A server provided by a plugin is registered as `plugin:<plugin>:<server>`.** With
+`"server": "sentinal"` the hook is skipped — `Hooks: mcp_tool hook skipped — MCP server 'sentinal'
+not connected` — **including when the hook is declared in the plugin's own `hooks.json`**. Plugin
+hooks get no plugin-scoped name resolution. A non-plugin install (a project/user `.mcp.json` entry
+named `sentinal`) would instead need `"sentinal"`, so one `hooks.json` cannot serve both.
 
-### Input Shape
+With the qualified name: `Hooks: mcp_tool calling plugin:sentinal:sentinal/tdd_status with 1
+arg(s)`. The MCP server connected ~170 ms after session start, well before the first tool call.
 
-Variable substitution available in `input`: `${tool_input.*}`, `${session_id}`, `${cwd}`, `${hook_event_name}`, `${permission_mode}`. The full `HookInput` fields are not all available as variables — only the CC-documented substitutions.
+### Input Shape — confirmed
 
-**Implication:** MCP-tool hooks cannot receive the full hook input. For hooks that need `tool_input.file_path` (tdd-guard, file-checker) this is fine. For hooks that need the full payload (memory-observer, context-monitor) subprocess is still required.
+`${tool_input.file_path}` is substituted: `tdd_status` received the absolute path
+(`…/work/note.txt`) and answered `IDLE (active spec: false)` for it. A follow-up run on a
+**PostToolUse** `Write` hook passed `${tool_input.file_path}`, `${session_id}` (equal to the
+session's id), `${cwd}` and `${hook_event_name}` (`PostToolUse`) — all four substituted. Only the
+variables placed in `input` are passed — the tool never sees the full hook payload.
 
-### Response Parsing
+### Response Parsing — JSON only
 
-Per CC docs: "The tool's text content in an MCP tool hook is processed like command-hook stdout." The MCP tool must return a `content[0].text` value that is either:
+- **Plain text is NOT delivered.** `tdd_status`'s markdown answer was logged as the hook's success
+  output, but the model reported receiving no hook context. Existing tools cannot be reused as-is.
+- `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"…"}}` → **delivered**:
+  the model quoted `MCP-HOOK-CONTEXT-MARKER` verbatim. Same on PostToolUse.
+- ⛔ `hookEventName` **must equal the firing event.** A PostToolUse hook answering
+  `"hookEventName":"PreToolUse"` was logged as `success` and dropped without any warning; with
+  `"PostToolUse"` the debug log showed `provided additionalContext` and the model quoted it.
 
-- Empty / non-JSON → CC continues normally
-- JSON with `{"decision": "block", "reason": "..."}` → CC blocks the tool call
-- JSON with `{"additionalContext": "..."}` → CC injects context
+### Block/Deny Behavior — confirmed
 
-Sentinal's `tdd_status` currently returns human-readable markdown text — it would need a new hook-optimised variant that returns JSON hook decisions.
+`{"continue": true, "decision": "block", "reason": "MCP-HOOK-BLOCKED: …"}` → the Write was
+**blocked** (`blocked.txt` never created) and the model saw
+`PreToolUse:Write hook error: MCP-HOOK-BLOCKED: spike deliberately blocked`.
 
-### Block/Deny Behavior
-
-Per CC docs: if the MCP tool returns `isError: true`, the hook is treated as a non-blocking error and execution continues. To block, the tool must return JSON with `decision: "block"` in its text content.
-
-**Implication:** We need new MCP tools (e.g. `hook_tdd_guard`) that return hook-decision JSON, not markdown. Or we wire the existing logic through new thin tools.
+⚠️ **Fails open.** A hook whose server is not connected exits `status code 1` — a non-blocking
+error — and the tool call proceeds. A guard moved to `mcp_tool` is silently disabled whenever the
+MCP server is absent or misnamed (exactly what the unqualified name does).
 
 ### Observed Latency
 
-Sidecar HTTP round-trip (identical I/O path to what the MCP server would do): **8.8ms median** (vs 63.7ms subprocess baseline). Expected MCP-tool overhead adds ~1–3ms for JSON-RPC framing over the already-warm stdio pipe.
-
-**Projected MCP-tool median: ~10–12ms** — a **~5× improvement** over subprocess.
+From debug-log timestamps, `mcp_tool calling …` → `Hook … success`: **4 ms** (`tdd_status`, via the
+sidecar) and **2–4 ms** (throwaway server). The 2026-06-09 projection was ~10–12 ms; the subprocess
+baseline is ~64 ms (`docs/benchmarks/phase4-baseline.json`).
 
 ### Conclusion
 
-MCP-tool hooks work, are faster, but require:
+MCP-tool hooks work, block, and hint, at single-digit milliseconds. Phase 4b must:
 
-1. New hook-decision-returning MCP tools (thin wrappers around existing sidecar routes)
-2. `alwaysLoad: true` in `.mcp.json` (done — Task 5)
-3. Variable substitution is sufficient for file-path-dependent hooks
+1. Reference the server as **`plugin:sentinal:sentinal`** in the plugin's `hooks.json`.
+2. Add tools that return **hook-decision JSON** (plain text is dropped).
+3. Accept, or mitigate, **fail-open** behaviour for `tdd-guard` when the server is unavailable.
+4. Keep `alwaysLoad: true` in `.mcp.json` (done — Task 5).
 
 **Recommendation: viable for the 3 sync hot-path hooks** (tdd-guard, pre-edit-guide, file-checker).

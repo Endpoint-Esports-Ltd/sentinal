@@ -27,9 +27,8 @@ Wave: 3
   - Plugin entry point calls `experimental_workspace.register("sentinal-spec-worktree", adaptor)` at init
   - `configure()`: reads active spec from `SidecarClient.getCurrentSpec()` (fallback: parse `compact-state.json`); pre-fills `WorkspaceInfo.name` from plan slug, stores plan path in `extra`
   - `target()`: resolves worktree path via `SidecarClient.resolveWorktreeBySlug()`; if no worktree yet, returns `{ type: "local", directory: projectPath }` as pre-creation placeholder
-  - `create()`: calls `SidecarClient.cleanupWorktrees()` / `POST /worktree/create` via client; also runs `sentinal register-plan` for the spec
-  - `remove()`: calls `SidecarClient.abandonWorktree()`
-  - `worktree.baseRef` setting awareness (CC 2.1.133): pass `baseBranch` from CC settings to `worktree_create` if available (gracefully skip if not present)
+  - `create()`: runs `sentinal worktree create <slug> --project <directory>` (argv, no shell; refuses without a directory)
+  - `remove()`: calls `SidecarClient.abandonWorktree()` (project-scoped; refuses without a directory)
 
 - **Section B (permission middleware):**
   - `src/utils/hook-output.ts`: add `continueOnBlock(reason): ContinueOnBlockOutput` export returning `{ continueOnBlock: true, stopReason: reason }`
@@ -45,6 +44,12 @@ Wave: 3
 - `worktree.bgIsolation` setting awareness (low impact)
 - `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` changes (Sentinal's stop guard blocks at most once per turn — no risk)
 - OpenCode permission/auth API (`authorize` hook — OC-3, previously descoped as YAGNI)
+- _Moved here at verification (2026-10-12):_ running `sentinal register-plan` from `create()` — the
+  plan is already registered by `/spec` before a worktree exists, and the adaptor has no plan file
+  when the user types a free-text name.
+- _Moved here at verification (2026-10-12):_ `worktree.baseRef` awareness — that is a **Claude
+  Code** setting; the OpenCode adaptor cannot read it, and `worktree create` already auto-detects
+  the base branch.
 
 ## Context for Implementer
 
@@ -364,7 +369,7 @@ _Assume this plan failed. Most likely internal reasons:_
 - [ ] `bun test` fully green
 - [ ] `bunx tsc --noEmit` — no new errors in `src/`
 - [ ] `bun run build:all` succeeds
-- [ ] Manual: OpenCode workspace creation shows "Sentinal Spec Worktree" option
-- [ ] Manual: With an active spec, configure() pre-fills the workspace name
+- [ ] Manual: OpenCode workspace creation shows "Sentinal Spec Worktree" option — _partial evidence (2026-10-12): live OpenCode logged `workspace adaptor registered: sentinal-spec-worktree` (plugin.debug.log, 2026-10-07 ×3); the dialog itself has not been observed_
+- [ ] Manual: With an active spec, configure() pre-fills the workspace name — _unit-tested (`configure()` suites in `workspace-adaptor.test.ts`); not observed in the UI_
 
 **Verify:** `bun test && bunx tsc --noEmit && bun run build:all`

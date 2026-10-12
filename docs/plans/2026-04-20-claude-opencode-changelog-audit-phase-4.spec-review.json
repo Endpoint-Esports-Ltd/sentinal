@@ -1,0 +1,171 @@
+{
+  "verdict": "pass_with_fixes",
+  "summary": "The spike's deliverables are in place and the live 2026-10-12 evidence covers every Truth and DoD item: both spike notes record invocation, payload, parsing, block, fail-open, Unix socket and latency; the baseline exists; hooks.json has all 23 command hooks in command+args form; .mcp.json has alwaysLoad on its only server. The decision doc still carries several claims that are unverified or contradicted. It treats file-checker as a PreToolUse hook (it is PostToolUse with continueOnBlock). Its Unix-socket row and its speedup figure are stale. Its claim that ${session_id}/${cwd} are available is based on the docs only. Most importantly, its Phase 4b next steps move the blocking tdd-guard onto a transport that fails open, while still promising 'identical blocking behaviour'.",
+  "compliance_score": "high",
+  "quality_score": "medium",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "goal_achievement",
+      "title": "Phase 4b next steps convert tdd-guard to a fail-open transport yet promise identical blocking",
+      "description": "The decision doc says (line 56) that both transports fail open and that Phase 4b 'must decide' whether this is acceptable. But Next Steps 1-5 (lines 100-104) convert tdd-guard to mcp_tool with no step that makes or records that decision, and the Expected outcome (line 106) claims 'identical blocking/hinting behaviour'. The live spike shows that a disconnected or misnamed server exits non-blocking and the Write proceeds (mcp-tool spike notes, 'Fails open'). As written, Phase 4b would silently weaken TDD enforcement. The next steps are not actionable until this decision is made.",
+      "suggested_fix": "Add an explicit next step that chooses a mitigation. Options: (a) keep the subprocess tdd-guard as the authoritative blocker and use mcp_tool only for the hint hooks; (b) run both, with the subprocess hook short-circuiting when the mcp_tool hook has already decided; (c) accept fail-open and say so, adding a SessionStart check that warns when plugin:sentinal:sentinal is not connected. Add a Phase 4b acceptance test that disconnects or misnames the server and asserts the chosen behaviour. Replace 'identical blocking behaviour' with the chosen semantics.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 98
+    },
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "file-checker is PostToolUse with continueOnBlock, not a 'PreToolUse write hook'",
+      "description": "In hooks.json:86-97, file-checker is a PostToolUse hook with an `if` filter and `continueOnBlock: true`, and it signals with exit 2 + decision:block (src/cli/commands/hook.ts:133). The decision doc calls it one of 'the three sync PreToolUse write hooks' (line 77; Next step 3, line 102) and gives hook_file_checker the 'same hookSpecificOutput shape' (line 90), whose hookEventName is PreToolUse. The spike only tested PreToolUse mcp_tool hooks. It verified neither PostToolUse delivery, nor `if` or `continueOnBlock` on an mcp_tool hook. The '~196ms (3 \u00d7 ~65ms sequential)' saving (line 106) also adds hooks from two different events, and baseline.md:35 says real overhead is closer to the slowest single hook (~71ms).",
+      "suggested_fix": "List the conversion targets as 2 PreToolUse hooks (tdd-guard, pre-edit-guide) plus 1 PostToolUse hook (file-checker). Specify hookEventName 'PostToolUse' for hook_file_checker. Add a Phase 4b verification step that confirms an mcp_tool hook honours `if` and `continueOnBlock`, or keep file-checker on subprocess. Recompute the expected outcome per event, using the parallel-execution caveat from baseline.md.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 77
+    },
+    {
+      "severity": "should_fix",
+      "category": "goal_achievement",
+      "title": "${session_id} and ${cwd} availability is still based on the docs only",
+      "description": "Decision Matrix point 3 (line 54) says the hot-path hooks need ${tool_input.file_path}, ${session_id} and ${cwd}, 'all available as MCP-tool hook input variables'. The live run tested only ${tool_input.file_path} (mcp-tool spike notes, 'Input Shape \u2014 confirmed'). The new tool table (lines 88-90) depends on cwd and session_id.",
+      "suggested_fix": "Mark ${session_id} and ${cwd} as 'per docs, not observed', or re-run the throwaway hook with input {file_path, cwd, session_id} and record what arrives. Make this a precondition in Phase 4b next step 1.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 54
+    },
+    {
+      "severity": "should_fix",
+      "category": "spec_compliance",
+      "title": "Benchmarks table still presents 'HTTP (Unix socket)' as a working transport",
+      "description": "Line 35 lists 'HTTP (Unix socket) ~8.8ms \u2026 Full HookInput Yes, Block/deny Yes'. That figure is a curl measurement. The live spike found CC HTTP hooks cannot reach a Unix socket at all: all 3 URL forms failed (http-hook spike notes, 'Unix Socket Support'). A reader of the decision doc alone would conclude Unix-socket HTTP hooks are viable.",
+      "suggested_fix": "Relabel the row 'Unix socket (curl only \u2014 NOT reachable from CC http hooks)' and set the Block/deny and HookInput columns to 'n/a'. Also relabel the 'HTTP (loopback, curl)' Block/deny 'Yes' as not applicable to curl.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 35
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Speedup figure '~6\u20137\u00d7' does not match the live latencies",
+      "description": "Line 37 still says both transports give a '~6\u20137\u00d7 speedup'. That figure was derived from the curl and estimated numbers (8.7\u201312ms vs ~64ms). The live figures in the same table (MCP-tool 2\u20134ms, HTTP hook 2\u20137ms) imply roughly 9\u201330\u00d7. The two measurements are also not comparable: hyperfine measures wall time of a whole process, while the live figures are CC debug-log timestamp deltas from 1\u20132 samples.",
+      "suggested_fix": "Replace the figure with the live range (\u224810\u201330\u00d7). Add a note that the live figures are CC-internal debug-log deltas from n\u22642 calls, not hyperfine medians, and that Phase 4b step 5 must produce a comparable measurement.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 37
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Plan context and Investigation Resolutions still show `\"server\": \"sentinal\"`",
+      "description": "The plan's MCP-tool format examples (lines 48, 186) and its Investigation Resolutions row (line 470) still show the unqualified server name and 'Confirmed in CC docs'. The live run showed this name is skipped. Anyone copying from the plan into Phase 4b would ship a hook that fails open.",
+      "suggested_fix": "Annotate these examples: 'corrected 2026-10-12: plugin install requires plugin:sentinal:sentinal'.",
+      "file": "docs/plans/2026-04-20-claude-opencode-changelog-audit-phase-4.md",
+      "line": 48
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "baseline.md comparison table still says 'TBD \u2014 spike Tasks 1\u20133'",
+      "description": "The MCP-tool and HTTP rows at docs/benchmarks/phase4-baseline.md:50-51 are still estimates marked TBD, although the spikes have now been run.",
+      "suggested_fix": "Point these rows at the live 2\u20134ms and 2\u20137ms observations, or at the decision doc.",
+      "file": "docs/benchmarks/phase4-baseline.md",
+      "line": 50
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Task 6 smoke test cites session-end, not tdd-guard firing on a Write",
+      "description": "The DoD asked for a Write to confirm tdd-guard fires. The evidence cites `[sentinal hook shared session-end] completed with status 0`, and that the installed 1.44.0 plugin's hooks ran on every Write. The installed 1.44.0 plugin's hooks.json is also not necessarily the same as the repo copy.",
+      "suggested_fix": "Quote the debug-log line for `sentinal hook shared tdd-guard` on a Write in the spike notes, and state that the installed hooks.json matches the repo (diff or version).",
+      "file": "docs/plans/2026-04-20-claude-opencode-changelog-audit-phase-4.md",
+      "line": 418
+    },
+    {
+      "severity": "suggestion",
+      "category": "goal_achievement",
+      "title": "alwaysLoad effect not observed; the non-plugin install caveat is moot",
+      "description": "alwaysLoad is present and is the only server entry (.mcp.json:6). Its effect was not observed live; the spike notes only show the server connected ~170ms after session start. The decision doc's caveat that a non-plugin install would register 'sentinal' (line 52) does not apply to hooks.json, which is only ever written into the plugin dir (src/cli/commands/install-claude.ts:347).",
+      "suggested_fix": "Note that hooks.json ships only via the plugin, so the qualified name is always correct there. Optionally record whether alwaysLoad changed the connect timing.",
+      "file": "docs/decisions/2026-05-27-phase4-hook-transport.md",
+      "line": 52
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Decision doc exists with a clear recommendation",
+      "status": "verified",
+      "evidence": "docs/decisions/2026-05-27-phase4-hook-transport.md:7 'Recommendation: MCP-tool for sync hot-path hooks', with live re-verification banner"
+    },
+    {
+      "truth": "Baseline benchmark JSON with medians for 4 hot-path hooks",
+      "status": "verified",
+      "evidence": "phase4-baseline.md table: tdd-guard 63.7, pre-edit-guide 70.6, file-checker 60.9, tool-redirect 59.5 ms. The JSON is referenced as the raw source; JSON validity could not be machine-checked (bash restricted to git)."
+    },
+    {
+      "truth": ".mcp.json has alwaysLoad: true for sentinal",
+      "status": "verified",
+      "evidence": ".mcp.json:6, the only server entry"
+    },
+    {
+      "truth": "All command hooks use command 'sentinal' + args",
+      "status": "verified",
+      "evidence": "hooks.json: 23 command hooks across 15 events, every one has command 'sentinal' and an args array. The JSON is well-formed by inspection; python validation was blocked by the bash permission policy."
+    },
+    {
+      "truth": "MCP-tool spike documents invocation, parsing, block, latency",
+      "status": "verified",
+      "evidence": "phase4-mcp-tool-spike.md: qualified name required, ${tool_input.file_path} substituted, plain text dropped / hookSpecificOutput delivered, block observed, fail-open, 2\u20134ms"
+    },
+    {
+      "truth": "HTTP spike documents invocation, payload, Unix socket, latency",
+      "status": "verified",
+      "evidence": "phase4-http-hook-spike.md: POST observed, full payload keys listed, 3 Unix URL forms fail, 2\u20137ms, 404 fails open"
+    }
+  ],
+  "resolutions_2026_10_12": [
+    {
+      "finding": "Next steps move tdd-guard to a fail-open transport",
+      "status": "resolved",
+      "note": "decision doc: tdd-guard stays on subprocess (proposed, pending Evan's confirmation); smoke test must fail on 'mcp_tool hook skipped'"
+    },
+    {
+      "finding": "file-checker is PostToolUse",
+      "status": "resolved",
+      "note": "mcp_tool on PostToolUse observed live; doc corrected; if/continueOnBlock carry-over is Phase 4b step 1"
+    },
+    {
+      "finding": "${session_id}/${cwd} not observed",
+      "status": "resolved",
+      "note": "observed live on PostToolUse with ${hook_event_name}"
+    },
+    {
+      "finding": "Unix-socket row looks viable",
+      "status": "resolved",
+      "note": "row marked n/a with the live result"
+    },
+    {
+      "finding": "Stale ~6-7x speedup",
+      "status": "resolved",
+      "note": "restated as ~10-30x on 1-3 samples, order of magnitude only"
+    },
+    {
+      "finding": "Plan examples use server 'sentinal'",
+      "status": "resolved",
+      "note": "annotated in the plan's research table"
+    },
+    {
+      "finding": "phase4-baseline.md TBD rows",
+      "status": "resolved",
+      "note": "filled with live observed ranges"
+    },
+    {
+      "finding": "Task 6 evidence cites session-end",
+      "status": "accepted",
+      "note": "session-end proves the args exec form runs live; the unnamed PreToolUse:Write command hooks also returned {}"
+    },
+    {
+      "finding": "alwaysLoad not observed",
+      "status": "accepted",
+      "note": "plugin server connected ~170 ms after start in every run; alwaysLoad's own effect not isolated"
+    }
+  ]
+}

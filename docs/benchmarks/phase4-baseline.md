@@ -47,7 +47,7 @@ All four hooks are in the **60–71ms** band. This is tighter than the estimated
 | Transport  | Expected median | Cold-start cost  | Notes                 |
 | ---------- | --------------- | ---------------- | --------------------- |
 | subprocess | ~65ms           | ~50ms            | This measurement      |
-| MCP-tool   | ~5–15ms est.    | 0 (server warm)  | TBD — spike Tasks 1–2 |
-| HTTP       | ~3–8ms est.     | 0 (sidecar warm) | TBD — spike Task 3    |
+| MCP-tool   | 2–4ms observed  | 0 (server warm)  | Live CC 2.1.287, 2026-10-12: debug-log call→result, 3 samples (not hyperfine) |
+| HTTP       | 2–7ms observed  | 0 (sidecar warm) | Live CC 2.1.287, 2026-10-12: debug-log POST→response, 2 samples (not hyperfine) |
 
 Raw hyperfine data: `docs/benchmarks/phase4-baseline.json`
