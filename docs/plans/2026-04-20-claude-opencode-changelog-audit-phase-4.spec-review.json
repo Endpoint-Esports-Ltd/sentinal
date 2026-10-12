@@ -125,7 +125,7 @@
     {
       "finding": "Next steps move tdd-guard to a fail-open transport",
       "status": "resolved",
-      "note": "decision doc: tdd-guard stays on subprocess (proposed, pending Evan's confirmation); smoke test must fail on 'mcp_tool hook skipped'"
+      "note": "decision doc: tdd-guard stays on subprocess (confirmed by Evan 2026-10-12); smoke test must fail on 'mcp_tool hook skipped'"
     },
     {
       "finding": "file-checker is PostToolUse",

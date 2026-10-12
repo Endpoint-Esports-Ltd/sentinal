@@ -1,7 +1,7 @@
 # Phase 5: Workspace Adaptor + Permission Middleware
 
 Created: 2026-04-20
-Status: COMPLETE
+Status: VERIFIED
 Approved: Yes
 Iterations: 0
 Worktree: No
@@ -233,13 +233,13 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] All 4 adaptor methods implemented with tests
-- [ ] configure() tested with sidecar hit + compact-state fallback + no-spec path
-- [ ] target() tested with existing worktree + no-worktree path
-- [ ] create() tested with mocked executor (no real git); PATH-missing error path tested
-- [ ] remove() tested with mocked sidecar
-- [ ] No `import from '@opencode-ai/plugin'` — all workspace types inlined
-- [ ] No diagnostics errors
+- [x] All 4 adaptor methods implemented with tests
+- [x] configure() tested with sidecar hit + compact-state fallback + no-spec path
+- [x] target() tested with existing worktree + no-worktree path
+- [x] create() tested with mocked executor (no real git); PATH-missing error path tested
+- [x] remove() tested with mocked sidecar
+- [x] No `import from '@opencode-ai/plugin'` — all workspace types inlined
+- [x] No diagnostics errors
 
 **Verify:** `bun test src/opencode/workspace-adaptor.test.ts`
 
@@ -287,9 +287,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] `bun run build:opencode` succeeds
-- [ ] `bun test targets/opencode/` passes
-- [ ] `experimental_workspace` guard present — plugin works on OC without the API
+- [x] `bun run build:opencode` succeeds
+- [x] `bun test targets/opencode/` passes
+- [x] `experimental_workspace` guard present — plugin works on OC without the API
 
 **Verify:** `bun run build:opencode && bun test targets/opencode/`
 
@@ -348,9 +348,9 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] All tests pass (`blockExit` helper shape tested; `processFileCheck` assertions updated)
-- [ ] No diagnostics errors
-- [ ] hooks.json valid JSON with `continueOnBlock: true` at the outer matcher level
+- [x] All tests pass (`blockExit` helper shape tested; `processFileCheck` assertions updated)
+- [x] No diagnostics errors
+- [x] hooks.json valid JSON with `continueOnBlock: true` at the outer matcher level
 
 **Verify:** `bun test src/hooks/file-checker.test.ts src/utils/hook-output.test.ts && python3 -m json.tool targets/claude-code/hooks/hooks.json`
 
@@ -366,10 +366,10 @@ _Assume this plan failed. Most likely internal reasons:_
 
 **Definition of Done:**
 
-- [ ] `bun test` fully green
-- [ ] `bunx tsc --noEmit` — no new errors in `src/`
-- [ ] `bun run build:all` succeeds
-- [ ] Manual: OpenCode workspace creation shows "Sentinal Spec Worktree" option — _partial evidence (2026-10-12): live OpenCode logged `workspace adaptor registered: sentinal-spec-worktree` (plugin.debug.log, 2026-10-07 ×3); the dialog itself has not been observed_
-- [ ] Manual: With an active spec, configure() pre-fills the workspace name — _unit-tested (`configure()` suites in `workspace-adaptor.test.ts`); not observed in the UI_
+- [x] `bun test` fully green
+- [x] `bunx tsc --noEmit` — no new errors in `src/`
+- [x] `bun run build:all` succeeds
+- [x] Manual: OpenCode workspace creation shows "Sentinal Spec Worktree" option — _accepted by Evan 2026-10-12 on partial evidence (2026-10-12): live OpenCode logged `workspace adaptor registered: sentinal-spec-worktree` (plugin.debug.log, 2026-10-07 ×3); the dialog itself has not been observed_
+- [x] Manual: With an active spec, configure() pre-fills the workspace name — _accepted by Evan 2026-10-12: unit-tested (`configure()` suites in `workspace-adaptor.test.ts`); not observed in the UI_
 
 **Verify:** `bun test && bunx tsc --noEmit && bun run build:all`

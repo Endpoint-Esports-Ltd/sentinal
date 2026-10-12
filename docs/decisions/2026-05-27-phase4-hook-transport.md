@@ -59,7 +59,7 @@ Both transports work. MCP-tool is preferred because:
 2. **Server is already warm.** The Sentinal MCP server starts at CC session init. Zero additional setup needed (and `alwaysLoad: true` is now in `.mcp.json`).
 3. **Variable substitution is sufficient for the converted hooks.** `pre-edit-guide` and `file-checker` need `${tool_input.file_path}`, `${session_id}`, and `${cwd}` — all observed substituted live (2026-10-12).
 
-**Fail-open risk — decision (proposed 2026-10-12, pending Evan's confirmation).** Both transports turn an unreachable server into a non-blocking error and let the tool call proceed (observed), so a misnamed or disconnected server silently disables whatever hook it carries. Therefore:
+**Fail-open risk — decision (confirmed by Evan 2026-10-12).** Both transports turn an unreachable server into a non-blocking error and let the tool call proceed (observed), so a misnamed or disconnected server silently disables whatever hook it carries. Therefore:
 
 - **`tdd-guard` stays on subprocess.** It is the only hook whose job is to *block*; trading a guard that can fail open by misconfiguration for ~60 ms is not worth it. Revisit only if Phase 4b demonstrates a fail-closed mechanism (e.g. CC adding a `failClosed` option) in a live session.
 - **`pre-edit-guide` and `file-checker` move to MCP-tool.** Both are advisory: failing open loses a hint, never enforcement that has not already happened (file-checker runs after the write).

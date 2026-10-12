@@ -1,7 +1,7 @@
 # Claude Code + OpenCode Changelog Integration Master Plan
 
 Created: 2026-04-20
-Status: IN_PROGRESS
+Status: VERIFIED
 Approved: Yes
 Iterations: 0
 Worktree: No
@@ -116,8 +116,8 @@ All three can run in parallel as sub-agents with no file overlap.
 - [x] Phase 1: UX + Settings Polish (Wave 1)
 - [x] Phase 2: Claude Code Lifecycle Hooks (Wave 1)
 - [x] Phase 3: OpenCode Plugin Hooks (Wave 1)
-- [ ] Phase 4: HTTP Hooks Architecture (Wave 2)
-- [ ] Phase 5: Workspace + Permission Middleware (Wave 3)
+- [x] Phase 4: HTTP Hooks Architecture (Wave 2)
+- [x] Phase 5: Workspace + Permission Middleware (Wave 3)
 
 **Total Phases:** 5 | **Completed:** 0 | **Remaining:** 5
 
