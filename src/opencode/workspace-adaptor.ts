@@ -13,13 +13,18 @@
  * `src/project/identity.ts`. It never derives a root from a cwd: OpenCode hands
  * it a `WorkspaceInfo.directory` and `target()` either passes that through or
  * substitutes a worktree path the SIDECAR resolved from a plan slug. There is
- * no `git rev-parse` and no `git worktree list` anywhere in this file.
+ * no `git worktree list` anywhere in this file.
  *
  * It is also strictly a WORKSPACE concern in identity.ts's vocabulary — it
  * decides which checkout OpenCode's file tools WRITE to, and answering the main
  * checkout while a spec worktree is active is precisely the edit-leak bug
- * (2026-07-24) that the TIMEOUT sentinel below exists to prevent. Calling
- * `resolveProjectIdentity` here would reintroduce that bug by construction.
+ * (2026-07-24) that the TIMEOUT sentinel below exists to prevent. The ONE
+ * `resolveProjectIdentity` call, in `configure()`, builds the STORAGE KEY for
+ * `/spec/current` (identity → keys only); it never chooses a write target.
+ *
+ * `create()` and `remove()` refuse to act without `config.directory`: a blank
+ * project makes sidecar reads fail open across ALL projects, and `.` means the
+ * OpenCode GUI's cwd — either could act on another checkout's worktree.
  *
  * (The `MAIN_ROOT` identifier attributed to this module lives only in its test
  * file, where it is a literal fixture string — `"/test/project"` — not a
@@ -268,18 +273,32 @@ export function createSpecWorktreeAdaptor(
           : planPath.replace(/^spec\//, "");
 
         if (!slug) return;
+        if (slug.startsWith("-")) {
+          logWarn(
+            `workspace create skipped: "${slug}" would be read as a CLI option`,
+          );
+          return;
+        }
+        if (!config.directory) {
+          logWarn(
+            `workspace create skipped for ${slug}: OpenCode gave no directory, so the project is unknown`,
+          );
+          return;
+        }
 
+        // One argv element per value — never a shell string: `config.name`
+        // is free text from the workspace dialog.
         exec("sentinal", [
           "worktree",
           "create",
           slug,
           "--project",
-          config.directory ?? ".",
+          config.directory,
         ]);
-      } catch {
-        // Non-fatal — sentinal may not be in PATH (common on macOS GUI apps).
-        // The user will see an error in plugin.debug.log but the workspace
-        // creation dialog won't crash.
+        logWarn(`workspace created: spec/${slug}`);
+      } catch (e) {
+        // Non-fatal — the dialog must not crash.
+        logWarn(describeCreateFailure(e));
       }
     },
 
@@ -297,15 +316,22 @@ export function createSpecWorktreeAdaptor(
         if (!sidecar) return;
 
         const slug = slugFromPlanPath(planPath);
-        const wt = await sidecar.resolveWorktreeBySlug(
-          slug,
-          config.directory ?? "",
-        );
+        if (!config.directory) {
+          // A blank project would match the slug across ALL projects.
+          logWarn(
+            `workspace remove skipped for ${slug}: OpenCode gave no directory, so the project is unknown`,
+          );
+          return;
+        }
+        const wt = await sidecar.resolveWorktreeBySlug(slug, config.directory);
         if (!wt) return;
 
         await sidecar.abandonWorktree(wt.id);
-      } catch {
-        /* non-fatal */
+      } catch (e) {
+        // Non-fatal for OpenCode, but never silent: the worktree row and
+        // directory stay in place.
+        const msg = e instanceof Error ? e.message : String(e);
+        logWarn(`workspace remove failed: ${msg}`);
       }
     },
   };
@@ -313,10 +339,37 @@ export function createSpecWorktreeAdaptor(
 
 // ─── Default executor ─────────────────────────────────────────────────────────
 
-function defaultExecutor(cmd: string, args: string[]): void {
-  // Use Node's execSync — safe to call from the OpenCode plugin (Node.js runtime).
-  const { execSync } =
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: child_process loaded only when the default executor actually runs
-    require("node:child_process") as typeof import("node:child_process");
-  execSync(`${cmd} ${args.join(" ")}`, { stdio: "ignore" });
+/**
+ * Build the executor: `execFileSync` with an argv array — no shell, so a
+ * workspace name or directory containing spaces or metacharacters is one
+ * literal argument. `child_process` is loaded lazily (only when it runs).
+ */
+export function makeDefaultExecutor(
+  cp?: Pick<typeof import("node:child_process"), "execFileSync">,
+): (cmd: string, args: string[]) => void {
+  return (cmd, args) => {
+    const mod =
+      cp ??
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: child_process loaded only when the default executor actually runs
+      (require("node:child_process") as typeof import("node:child_process"));
+    // stderr is piped so a failure can say WHY (it lands on the thrown error).
+    mod.execFileSync(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
+  };
+}
+
+const defaultExecutor = makeDefaultExecutor();
+
+/**
+ * Explain a failed `sentinal worktree create`: the PATH hint only when the
+ * binary itself is missing (ENOENT — common for macOS GUI apps), otherwise
+ * the command's own stderr (dirty checkout, no free slot, git error, …).
+ */
+function describeCreateFailure(e: unknown): string {
+  const err = e as { code?: unknown; stderr?: unknown; message?: unknown };
+  if (err?.code === "ENOENT") {
+    return "workspace create failed: `sentinal` is not in PATH — workspace creation unavailable";
+  }
+  const stderr = err?.stderr == null ? "" : String(err.stderr).trim();
+  const msg = e instanceof Error ? e.message : String(e);
+  return `workspace create failed: ${stderr || msg}`;
 }

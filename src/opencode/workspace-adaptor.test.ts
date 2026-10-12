@@ -12,6 +12,7 @@ import { makeTmpDir } from "../test-helpers.js";
 import type { SidecarClient } from "../sidecar/client.js";
 import {
   createSpecWorktreeAdaptor,
+  makeDefaultExecutor,
   type WorkspaceTarget,
 } from "./workspace-adaptor.js";
 
@@ -202,7 +203,7 @@ describe("createSpecWorktreeAdaptor — create()", () => {
     };
     const adaptor = createSpecWorktreeAdaptor(null, executor);
     const config = makeConfig({ extra: { planPath: "/test/plans/plan.md" } });
-    expect(adaptor.create(config)).resolves.toBeUndefined();
+    await expect(adaptor.create(config)).resolves.toBeUndefined();
   });
 
   it("should skip execution when no planSlug can be derived", async () => {
@@ -247,7 +248,7 @@ describe("createSpecWorktreeAdaptor — remove()", () => {
   it("should not throw when no worktree found", async () => {
     const adaptor = createSpecWorktreeAdaptor(null);
     const config = makeConfig({ extra: null });
-    expect(adaptor.remove(config)).resolves.toBeUndefined();
+    await expect(adaptor.remove(config)).resolves.toBeUndefined();
   });
 });
 
@@ -416,5 +417,201 @@ describe("createSpecWorktreeAdaptor — configure() project key (Task 10)", () =
       expect(await adaptor.configure(config)).toEqual(config);
       expect(getCurrentSpec).not.toHaveBeenCalled();
     }
+  });
+});
+
+// ─── Phase 5 verification fixes (2026-10-02 spec review) ──────────────────────
+
+describe("createSpecWorktreeAdaptor — project scoping and safety", () => {
+  it("create() never runs without a directory, and passes the slug as one argv element", async () => {
+    const calls: { cmd: string; args: string[] }[] = [];
+    const warnings: string[] = [];
+    const executor = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+    };
+    const adaptor = createSpecWorktreeAdaptor(null, executor, {
+      logger: (m) => warnings.push(m),
+    });
+    await adaptor.create(
+      makeConfig({ name: "foo; rm -rf ~", directory: null }),
+    );
+    expect(calls).toEqual([]);
+    expect(warnings.join(" ")).toContain("directory");
+
+    await adaptor.create(
+      makeConfig({ name: "foo; rm -rf ~", directory: "/test" }),
+    );
+    expect(calls.length).toBe(1);
+    // the whole name is ONE argument (no shell), and the project is explicit
+    expect(calls[0]!.args).toEqual([
+      "worktree",
+      "create",
+      "foo; rm -rf ~",
+      "--project",
+      "/test",
+    ]);
+  });
+
+  it("create() logs a clear error when the executor fails (sentinal missing from PATH)", async () => {
+    const warnings: string[] = [];
+    const adaptor = createSpecWorktreeAdaptor(
+      null,
+      () => {
+        throw new Error("spawn sentinal ENOENT");
+      },
+      { logger: (m) => warnings.push(m) },
+    );
+    await adaptor.create(
+      makeConfig({
+        extra: { planPath: "/test/plans/plan.md" },
+        directory: "/test",
+      }),
+    );
+    expect(warnings.some((w) => /sentinal.*(PATH|ENOENT)|ENOENT/.test(w))).toBe(
+      true,
+    );
+  });
+
+  it("remove() never resolves a slug across all projects when the directory is missing", async () => {
+    const resolve = mock(async () => null);
+    const abandon = mock(async () => {});
+    const warnings: string[] = [];
+    const sidecar = makeMockSidecar({
+      resolveWorktreeBySlug: resolve,
+      abandonWorktree: abandon,
+    });
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      logger: (m) => warnings.push(m),
+    });
+    await adaptor.remove(
+      makeConfig({
+        extra: { planPath: "/test/docs/plans/plan.md" },
+        directory: null,
+      }),
+    );
+    expect(resolve).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
+    expect(warnings.join(" ")).toContain("directory");
+  });
+
+  it("remove() logs when the abandon fails instead of swallowing it", async () => {
+    const warnings: string[] = [];
+    const sidecar = makeMockSidecar({
+      resolveWorktreeBySlug: mock(async () => ({
+        id: "wt-1",
+        worktreePath: "/test/.sentinal/worktrees/spec-plan-1",
+        branchName: "sentinal/spec-plan",
+        baseBranch: "main",
+        projectPath: "/test",
+        status: "active" as const,
+        baseCommit: "abc",
+        createdAt: Date.now(),
+      })),
+      abandonWorktree: mock(async () => {
+        throw new Error("sidecar 500");
+      }),
+    });
+    const adaptor = createSpecWorktreeAdaptor(sidecar, undefined, {
+      logger: (m) => warnings.push(m),
+    });
+    await adaptor.remove(
+      makeConfig({
+        extra: { planPath: "/test/docs/plans/plan.md" },
+        directory: "/test",
+      }),
+    );
+    expect(warnings.join(" ")).toContain("sidecar 500");
+  });
+});
+
+describe("defaultExecutor — no shell", () => {
+  it("passes arguments as an array (execFileSync), so names with spaces or metacharacters are literal", () => {
+    const seen: unknown[] = [];
+    const exec = makeDefaultExecutor({
+      execFileSync: (file: string, args: readonly string[]) => {
+        seen.push({ file, args: [...args] });
+        return Buffer.from("");
+      },
+    } as unknown as typeof import("node:child_process"));
+    exec("sentinal", ["worktree", "create", "a b; c", "--project", "/p q"]);
+    expect(seen).toEqual([
+      {
+        file: "sentinal",
+        args: ["worktree", "create", "a b; c", "--project", "/p q"],
+      },
+    ]);
+  });
+});
+
+describe("createSpecWorktreeAdaptor — create() error reporting (re-review)", () => {
+  const cfg = () =>
+    makeConfig({
+      extra: { planPath: "/test/plans/plan.md" },
+      directory: "/test",
+    });
+
+  it("gives the PATH hint only when the binary is missing (ENOENT)", async () => {
+    const warnings: string[] = [];
+    const adaptor = createSpecWorktreeAdaptor(
+      null,
+      () => {
+        throw Object.assign(new Error("spawnSync sentinal ENOENT"), {
+          code: "ENOENT",
+        });
+      },
+      { logger: (m) => warnings.push(m) },
+    );
+    await adaptor.create(cfg());
+    expect(warnings.join(" ")).toContain("PATH");
+  });
+
+  it("reports the command's own stderr, without blaming PATH, when it fails for another reason", async () => {
+    const warnings: string[] = [];
+    const adaptor = createSpecWorktreeAdaptor(
+      null,
+      () => {
+        throw Object.assign(
+          new Error("Command failed: sentinal worktree create plan"),
+          {
+            status: 1,
+            stderr: Buffer.from("DIRTY_MAIN_CHECKOUT: src/a.ts\n"),
+          },
+        );
+      },
+      { logger: (m) => warnings.push(m) },
+    );
+    await adaptor.create(cfg());
+    const out = warnings.join(" ");
+    expect(out).toContain("DIRTY_MAIN_CHECKOUT");
+    expect(out).not.toContain("PATH");
+  });
+
+  it("refuses a slug that would be parsed as a CLI option", async () => {
+    const calls: unknown[] = [];
+    const warnings: string[] = [];
+    const adaptor = createSpecWorktreeAdaptor(
+      null,
+      (c, a) => calls.push([c, a]),
+      {
+        logger: (m) => warnings.push(m),
+      },
+    );
+    await adaptor.create(makeConfig({ name: "--json", directory: "/test" }));
+    expect(calls).toEqual([]);
+    expect(warnings.join(" ")).toContain("--json");
+  });
+});
+
+describe("defaultExecutor — captures stderr", () => {
+  it("pipes stderr (so failures can be reported) and ignores stdin/stdout", () => {
+    let opts: unknown;
+    const exec = makeDefaultExecutor({
+      execFileSync: (_f: string, _a: readonly string[], o: unknown) => {
+        opts = o;
+        return Buffer.from("");
+      },
+    } as unknown as typeof import("node:child_process"));
+    exec("sentinal", ["x"]);
+    expect(opts).toMatchObject({ stdio: ["ignore", "ignore", "pipe"] });
   });
 });
