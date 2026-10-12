@@ -117,6 +117,25 @@
         "scripts/build-opencode.mjs"
       ],
       "createdAt": "2026-09-24"
+    },
+    {
+      "type": "discovery",
+      "title": "CC hook transports verified live (CC 2.1.287): mcp_tool needs plugin:sentinal:sentinal; both fail open",
+      "content": "Live headless runs (claude -p --settings <throwaway> --debug-file) on 2026-10-12, Claude Code 2.1.287:\n- mcp_tool hooks targeting a plugin-provided MCP server must use \"server\": \"plugin:sentinal:sentinal\". Plain \"sentinal\" is skipped (\"mcp_tool hook skipped — MCP server 'sentinal' not connected\"), even from the plugin's own hooks.json (--plugin-dir).\n- mcp_tool and http hooks both FAIL OPEN: an unreachable server or non-2xx is a non-blocking error and the tool call proceeds. Decision (Evan): tdd-guard stays a command (subprocess) hook; only pre-edit-guide and file-checker may move to mcp_tool (Phase 4b).\n- Plain-text tool output is logged but NOT delivered to the model. hookSpecificOutput.additionalContext is delivered only if hookEventName equals the firing event; a mismatch is logged as success and silently dropped.\n- {\"decision\":\"block\",\"reason\":...} blocks on both transports. ${tool_input.file_path}, ${session_id}, ${cwd} and ${hook_event_name} all substitute, on PreToolUse and PostToolUse.\n- http hooks always POST the full payload (axios). Unix-socket URLs fail (http+unix:, unix:, http://unix:). Observed latency 2-7 ms vs ~64 ms subprocess.\n- Debug log lines to grep: \"Hooks: mcp_tool calling\", \"HTTP hook POST\", \"Hook PreToolUse:<Tool> (PreToolUse) success/error\", \"provided additionalContext\".\n- Gotcha: macOS sweeps /tmp files older than ~3 days, so keep scratch scripts under the opencode scratch dir in /var/folders instead.",
+      "tags": [
+        "claude-code",
+        "hooks",
+        "mcp_tool",
+        "http-hook",
+        "phase4"
+      ],
+      "filePaths": [
+        "docs/spike-notes/phase4-mcp-tool-spike.md",
+        "docs/spike-notes/phase4-http-hook-spike.md",
+        "docs/decisions/2026-05-27-phase4-hook-transport.md"
+      ],
+      "createdAt": "2026-10-12",
+      "author": "Evan Tiley"
     }
   ]
 }
