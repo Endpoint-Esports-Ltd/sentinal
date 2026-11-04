@@ -1,3 +1,11 @@
+## [1.46.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.46.0...v1.46.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **context:** size Claude 5 models at 1M and never tell the model to stop ([77c36dc](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/77c36dceec40621ff783a95b748c75b3fb85ef05))
+* **stop-guard:** nudge once for a plan this session does not own ([aef5333](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/aef5333051c432477fe9c4192579706002796c10))
+
 # [1.46.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.45.0...v1.46.0) (2026-10-12)
 
 
