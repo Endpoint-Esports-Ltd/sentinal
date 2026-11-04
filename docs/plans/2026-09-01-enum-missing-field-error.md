@@ -1,7 +1,7 @@
 # Missing Required Enum Reported as Invalid Value Fix Plan
 
 Created: 2026-09-01
-Status: COMPLETE
+Status: VERIFIED
 Approved: Yes
 Iterations: 0
 Worktree: Yes
@@ -106,6 +106,16 @@ Optional enums (`memory_search.type`, `memory_update.type`, `quality_report.chec
 - **The drift guard is behavioural, not structural** — it patches `McpServer.prototype.tool` around `createSentinalServer()`, captures every raw zod shape, selects fields whose `_zod.def.type === "enum"` (optional enums surface as `"optional"` and are correctly skipped), then `safeParse(undefined)` on each. Mutation-verified: reverting `memory_maintain.action` to a bare `z.enum` → 9 pass / 1 fail naming exactly that offender, no collateral. A companion test pins that the guard finds exactly the four known enums, so it cannot silently degrade to scanning nothing.
 - **TDD guard, 6th sighting:** its RED gate is unreachable for a brand-new module — a stub `src/utils/schema.ts` cannot be created because no test "exists" for a file that does not exist. RED was confirmed honestly by temporarily shadowing the import with a local bare-`z.enum` inside the test (4 fail / 6 pass). Relates to issue #5.
 - `TDD_CYCLE_STATES` lives in `src/memory/types.ts`, not under `src/tdd/`.
+
+## Verification (2026-11-04)
+
+Verified on `main` at `aef5333`. The fix landed as squash commit `bcd0156`, and its files match the plan's `Files:` list exactly.
+
+- **Full suite:** 4590 pass / 0 fail. `tsc --noEmit` and `tsc -p tsconfig.plugin.json` are clean. eslint and prettier are clean on the fix files.
+- **Plan Verify command** (`src/utils/schema.test.ts src/memory/ src/tdd/ src/spec/`): 1020 pass / 0 fail.
+- **Fix Property:** "reports an omitted `type` as missing" runs through a real `Client` over `InMemoryTransport`.
+- **Preservation Property:** tests pin that a wrong value gives byte-identical output, that valid values parse, and that `inputSchema` still lists all five values and keeps `type` required.
+- **Drift guard still works:** the code has changed since the fix. `memory_*` moved to `maintain-/write-mcp-tools.ts`, and `orca_status.scope` was added later, so there are now five required enums. The guard found all five, and all five use `requiredEnum`. I re-ran the mutation check by changing `tdd_set_state.state` back to a plain `z.enum`. The result was 9 pass / 1 fail, naming exactly that site. I then restored the file.
 
 ## Tasks
 
