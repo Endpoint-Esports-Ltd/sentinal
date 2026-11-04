@@ -86,12 +86,13 @@ describe("getContextWarning", () => {
     expect(r!.toLowerCase()).toContain("approaching");
   });
 
-  it("should urge completion at 95%+ with bar", () => {
+  it("should note compaction is near at 95%+ with bar, without telling the model to stop", () => {
     const r = getContextWarning(usage(95, 158000));
     expect(r).not.toBeNull();
-    expect(r!.toLowerCase()).toContain("complete");
+    expect(r).toContain("do NOT stop");
+    expect(r!.toLowerCase()).not.toContain("complete the current task");
     expect(r).toContain("▓");
-    expect(r).toContain("imminent");
+    expect(r).toContain("near");
   });
 
   it("should urge completion at 100%", () => {

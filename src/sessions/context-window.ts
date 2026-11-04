@@ -40,7 +40,15 @@ const TIER_LADDER = [200_000, 1_000_000, 2_000_000];
  * detectTierWindow), not by the bare model id.
  */
 const MODEL_WINDOWS: Array<{ match: string; window: number }> = [
-  // Anthropic (standard tier; 1M tier detected via marker)
+  // Anthropic Claude 5 family: 1M is the default window — Claude Code runs
+  // `claude-opus-5-5` at 1M with a bare `"model": "opus"` setting, so no tier
+  // marker ever appears. Under-sizing here is the harmful direction: it made
+  // the context monitor report ~100% at 171k tokens and the model stopped
+  // work early. Must precede the generic "claude" entry (first match wins).
+  { match: "claude-opus-5", window: 1_000_000 },
+  { match: "claude-sonnet-5", window: 1_000_000 },
+  { match: "claude-fable-5", window: 1_000_000 },
+  // Anthropic (older standard tier; 1M tier detected via marker)
   { match: "claude", window: 200_000 },
   // Google Gemini
   { match: "gemini-1.5-pro", window: 2_000_000 },

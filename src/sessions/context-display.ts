@@ -51,9 +51,14 @@ export function getContextWarning(usage: ContextUsage): string | null {
   const { percent, tokens } = usage;
   const bar = formatContextBar(percent, tokens);
 
+  // Informational only. Never tell the model to wrap up or stop: compaction is
+  // automatic and lossless for plan state, and a mis-sized window (see
+  // context-window.ts) once made this fire at 17% real usage and halt work.
+  const keepGoing =
+    "This is informational — do NOT stop, pause, or hand off early; keep working. Claude Code compacts automatically and Sentinal restores plan state.";
   if (percent >= 95)
-    return `${bar}\nContext ~${percent}% effective — auto-compaction imminent. Complete the current task. Run /learn if this session has extractable knowledge.`;
+    return `${bar}\nContext ~${percent}% effective — auto-compaction is near. ${keepGoing} Run /learn if this session has extractable knowledge.`;
   if (percent >= 90)
-    return `${bar}\nContext ~${percent}% effective — approaching auto-compaction. Finish the current task before starting complex new work. Consider running /learn.`;
+    return `${bar}\nContext ~${percent}% effective — approaching auto-compaction. ${keepGoing}`;
   return null;
 }

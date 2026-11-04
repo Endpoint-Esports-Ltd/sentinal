@@ -78,10 +78,20 @@ describe("getContextWarning", () => {
     expect(r!.toLowerCase()).toContain("approaching");
   });
 
-  it("should urge at 95%+ that compaction is imminent", () => {
+  it("should note at 95%+ that compaction is near", () => {
     const r = getContextWarning(usage(95, 158000));
     expect(r).not.toBeNull();
-    expect(r).toContain("imminent");
+    expect(r).toContain("near");
+  });
+
+  it("should never instruct the model to wrap up or stop", () => {
+    for (const p of [90, 95, 100]) {
+      const r = getContextWarning(usage(p, 170000))!;
+      expect(r).not.toMatch(
+        /complete the current task|finish the current task/i,
+      );
+      expect(r).toContain("do NOT stop");
+    }
   });
 
   it("should include bar as first line", () => {

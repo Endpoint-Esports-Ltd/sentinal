@@ -30,6 +30,21 @@ describe("contextWindowForModel", () => {
     expect(contextWindowForModel("claude-opus-4-8")).toBe(200_000);
     expect(contextWindowForModel("claude-3-5-sonnet-20241022")).toBe(200_000);
   });
+  it("maps the Claude 5 family to its 1M default window", () => {
+    expect(contextWindowForModel("claude-opus-5-5")).toBe(1_000_000);
+    expect(contextWindowForModel("claude-sonnet-5-5")).toBe(1_000_000);
+    expect(contextWindowForModel("claude-fable-5-1")).toBe(1_000_000);
+  });
+  it("resolves claude-opus-5-5 with a bare 'opus' setting to 1M (regression: 171k read as 100%)", () => {
+    expect(
+      resolveContextWindow({
+        modelId: "claude-opus-5-5",
+        settingsModel: "opus",
+        observedTokens: 171_000,
+        runtime: "claude-code",
+      }),
+    ).toBe(1_000_000);
+  });
   it("maps known large-window models", () => {
     expect(contextWindowForModel("gemini-2.0-flash")).toBe(1_000_000);
     expect(contextWindowForModel("gpt-4o")).toBe(128_000);
