@@ -110,10 +110,13 @@ export async function processSpecStopGuard(input: HookInput): Promise<void> {
     if (input.stop_hook_active === true) return;
     denyExit(reason);
   }
-  // The soft path deliberately does NOT check `stop_hook_active`: it exits 0
-  // with additionalContext, which Claude Code already caps at 8 consecutive
-  // continuations — the platform is the loop breaker there, and suppressing
-  // the nudge on continuation turns would disable the feature entirely.
+  // The soft path does NOT check `stop_hook_active` for the session's OWN plan:
+  // Claude Code caps soft continuations, and suppressing the nudge there would
+  // disable the feature. But a plan this session never owned (orphaned or a
+  // dead owner's) is only ADOPTABLE — nudge once, then let the stop through.
+  // Without this, an unrelated stale COMPLETE plan re-fired on every reply of
+  // every session, hijacking turns about other work.
+  if (decision.ownership !== "self" && input.stop_hook_active === true) return;
   stopContext(reason);
 }
 

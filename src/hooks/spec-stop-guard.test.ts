@@ -187,7 +187,7 @@ describe("spec-stop-guard — stop_hook_active loop breaker (M10a)", () => {
     } catch {}
   });
 
-  function runGuard(extraInput: Record<string, unknown>) {
+  function runGuard(extraInput: Record<string, unknown>, hard = true) {
     const input = JSON.stringify({
       session_id: "loop-test-session",
       transcript_path: "",
@@ -203,7 +203,7 @@ describe("spec-stop-guard — stop_hook_active loop breaker (M10a)", () => {
       env: {
         ...process.env,
         SENTINAL_HOME: homeDir,
-        SENTINAL_STOP_GUARD_HARD: "1",
+        SENTINAL_STOP_GUARD_HARD: hard ? "1" : "0",
       },
     });
   }
@@ -218,5 +218,18 @@ describe("spec-stop-guard — stop_hook_active loop breaker (M10a)", () => {
     const result = runGuard({ stop_hook_active: true });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).not.toContain("deny");
+  }, 30_000);
+
+  // The plan here is unregistered → ownership "orphaned" (not this session's).
+  it("soft mode nudges once for a plan this session does not own", () => {
+    const result = runGuard({}, false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("Do NOT stop");
+  }, 30_000);
+
+  it("soft mode WITH stop_hook_active lets the stop through for an unowned plan (no endless nag)", () => {
+    const result = runGuard({ stop_hook_active: true }, false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).not.toContain("Do NOT stop");
   }, 30_000);
 });
