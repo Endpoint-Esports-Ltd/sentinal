@@ -79,6 +79,47 @@ export interface GitHubRelease {
   }>;
 }
 
+/**
+ * Explain a failed latest-release request. The repository is public, so a
+ * token is optional: without one the likely cause of a 403/429 is the
+ * unauthenticated rate limit; with one, a 401/403 means the token is bad.
+ */
+function releaseErrorMessage(status: number, hasToken: boolean): string | null {
+  if (status === 404) {
+    return (
+      "GitHub API returned 404. No releases have been published yet " +
+      "(or the release was not found)."
+    );
+  }
+  if (!hasToken) {
+    if (status === 403 || status === 429) {
+      return (
+        `GitHub API returned ${status}. The API rate limit was likely hit ` +
+        "(the unauthenticated limit is 60 requests/hour).\n" +
+        "  Set GITHUB_TOKEN or GH_TOKEN to raise it."
+      );
+    }
+    if (status === 401) {
+      return "GitHub API returned 401: unexpected authentication error without a token.";
+    }
+    return null;
+  }
+  if (status === 401) {
+    return (
+      "GitHub API returned 401. The token may be invalid or expired.\n" +
+      "  Refresh it, or unset GITHUB_TOKEN/GH_TOKEN to use unauthenticated access."
+    );
+  }
+  if (status === 403 || status === 429) {
+    return (
+      `GitHub API returned ${status}. The token may be invalid or expired, ` +
+      "or the API rate limit was hit.\n" +
+      "  Refresh the token or try again later; unset GITHUB_TOKEN/GH_TOKEN to use unauthenticated access."
+    );
+  }
+  return null;
+}
+
 /** Fetch the latest release from GitHub API. Returns null on any failure. */
 export async function fetchLatestRelease(
   fetchFn: FetchLike = fetch,
@@ -90,26 +131,8 @@ export async function fetchLatestRelease(
     });
 
     if (!response.ok) {
-      const status = response.status;
-      if (status === 401 || status === 403 || status === 404) {
-        if (!getGitHubToken()) {
-          console.error(
-            `GitHub API returned ${status}. ` +
-              "For private repos, set GITHUB_TOKEN or GH_TOKEN with 'repo' scope.\n" +
-              "  Create a token at: https://github.com/settings/tokens",
-          );
-        } else if (status === 404) {
-          console.error(
-            "GitHub API returned 404. This usually means no releases have been published yet,\n" +
-              "  or the token lacks 'repo' scope for this private repository.",
-          );
-        } else {
-          console.error(
-            `GitHub API returned ${status}. The token may lack 'repo' scope.\n` +
-              "  Verify your GITHUB_TOKEN has access to this private repository.",
-          );
-        }
-      }
+      const message = releaseErrorMessage(response.status, !!getGitHubToken());
+      if (message) console.error(message);
       return null;
     }
 

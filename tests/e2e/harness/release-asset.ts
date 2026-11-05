@@ -1,13 +1,15 @@
 // Download + checksum-verify a published GitHub release asset for this repo.
 //
-// The repo is PRIVATE, so the network path requires a GITHUB_TOKEN. Pure helpers
-// (assetNameFor, parseChecksums, verifyChecksum, selectAssetIds) are unit-tested
-// in release-asset.test.ts. The network helper (downloadReleaseAsset) is gated by
-// GITHUB_TOKEN at call sites and is NOT unit-tested against a real network.
+// The repo is public, so a token is optional: when one is given it is sent as
+// `Authorization: token <tok>` (raising the GitHub API rate limit); otherwise the
+// requests are unauthenticated. Pure helpers (assetNameFor, parseChecksums,
+// verifyChecksum, selectAssetIds) are unit-tested in release-asset.test.ts; the
+// network helper (downloadReleaseAsset) is tested only against a monkeypatched
+// fetch, never a real network.
 //
-// Reference: scripts/install.sh (os/arch to asset name, latest-release resolution,
-// asset download by id with Accept: application/octet-stream). NOTE install.sh does
-// NOT verify checksums; this helper verifies sha256 against checksums.txt.
+// Reference: scripts/install.sh uses the same asset-selection logic (os/arch to
+// asset name, latest-release resolution, asset download by id with
+// Accept: application/octet-stream); both verify sha256 against checksums.txt.
 
 import { createHash } from "node:crypto";
 import { writeFileSync, chmodSync, mkdirSync } from "node:fs";
@@ -117,7 +119,8 @@ export function selectAssetIds(
 
 interface DownloadOpts {
   tag?: string;
-  token: string;
+  /** Optional GitHub token; omitted or empty means unauthenticated requests. */
+  token?: string;
   destDir: string;
   platform?: string;
   arch?: string;
@@ -139,10 +142,7 @@ export async function downloadReleaseAsset(
     : `${API_BASE}/repos/${REPO}/releases/latest`;
 
   const releaseRes = await fetch(releaseUrl, {
-    headers: {
-      Authorization: `token ${opts.token}`,
-      Accept: "application/vnd.github+json",
-    },
+    headers: githubHeaders("application/vnd.github+json", opts.token),
   });
   if (!releaseRes.ok) {
     throw new Error(
@@ -175,16 +175,23 @@ export async function downloadReleaseAsset(
   return outPath;
 }
 
+// Request headers: Accept always; Authorization only for a non-empty token.
+function githubHeaders(
+  accept: string,
+  token: string | undefined,
+): Record<string, string> {
+  const headers: Record<string, string> = { Accept: accept };
+  if (token) headers.Authorization = `token ${token}`;
+  return headers;
+}
+
 // Download a single release asset by id as raw bytes (Accept: octet-stream).
 async function downloadAssetById(
   id: number,
-  token: string,
+  token: string | undefined,
 ): Promise<Uint8Array> {
   const res = await fetch(`${API_BASE}/repos/${REPO}/releases/assets/${id}`, {
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: "application/octet-stream",
-    },
+    headers: githubHeaders("application/octet-stream", token),
   });
   if (!res.ok) {
     throw new Error(

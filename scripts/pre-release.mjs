@@ -12,7 +12,8 @@
 //   bun run pre-release
 // Opt-in native-dep provisioning (network, ~150MB):
 //   SENTINAL_E2E_DEPS=1 bun run pre-release
-// Download + checksum-verify a published asset (needs GITHUB_TOKEN):
+// Download + checksum-verify a published asset (GITHUB_TOKEN/GH_TOKEN optional;
+// if set it is sent and raises the GitHub API rate limit):
 //   bun run pre-release -- --download   (or bun run pre-release:download)
 //
 // Cross-platform caveat: this host can only EXECUTE its own platform's binary
@@ -164,12 +165,8 @@ function runGate(binaryPath) {
 // ── download mode ─────────────────────────────────────────────────────────────
 
 async function downloadArtifact() {
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (!token) {
-    throw new Error(
-      "[pre-release] --download requires GITHUB_TOKEN (private repo).",
-    );
-  }
+  // Optional: the repo is public; a token only raises the API rate limit.
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined;
   const { downloadReleaseAsset } =
     await import("../tests/e2e/harness/release-asset.ts");
   const tag = process.env.SENTINAL_E2E_TAG; // optional; else latest

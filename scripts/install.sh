@@ -1,16 +1,17 @@
 #!/bin/sh
 # Sentinal Installer
 #
-# Downloads the latest sentinal binary from GitHub Releases and installs it
-# to ~/.sentinal/bin/sentinal. Sets up PATH, alias, and shell completions
-# for bash, zsh, and fish.
-#
-# Requires a GitHub token with `repo` scope (private repository).
+# Downloads the latest sentinal binary from GitHub Releases, verifies its
+# SHA-256 against the release's checksums.txt, and installs it to
+# ~/.sentinal/bin/sentinal. Sets up PATH, alias, and shell completions for
+# bash, zsh, and fish.
 #
 # Usage:
-#   export GITHUB_TOKEN=ghp_xxx
-#   curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
-#     https://raw.githubusercontent.com/Endpoint-Esports-Ltd/sentinal/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Endpoint-Esports-Ltd/sentinal/main/scripts/install.sh | sh
+#
+# A token is optional: if GITHUB_TOKEN (or GH_TOKEN) is set it is used for the
+# GitHub API requests, which raises GitHub's unauthenticated limit of 60
+# requests per hour.
 
 set -e
 
@@ -28,14 +29,17 @@ ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$1"; }
 err()  { printf '  \033[1;31m✗\033[0m %s\n' "$1" >&2; }
 die()  { err "$1"; exit 1; }
 
-# ─── Token ────────────────────────────────────────────────────────────────────
+# ─── Token (optional) ────────────────────────────────────────────────────────
 
-TOKEN="${GITHUB_TOKEN:-$GH_TOKEN}"
-if [ -z "$TOKEN" ]; then
-  die "GITHUB_TOKEN or GH_TOKEN must be set. Create a PAT with 'repo' scope at https://github.com/settings/tokens"
-fi
+TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
-AUTH_HEADER="Authorization: token $TOKEN"
+RELEASE_FILE="$BIN_DIR/.sentinal.release.$$"
+DOWNLOAD_FILE="$BIN_DIR/.sentinal.download.$$"
+CHECKSUMS_FILE="$BIN_DIR/.sentinal.checksums.$$"
+
+cleanup() { rm -f "$RELEASE_FILE" "$DOWNLOAD_FILE" "$CHECKSUMS_FILE"; }
+trap cleanup EXIT
+trap 'cleanup; exit 1' INT TERM
 
 # ─── Platform detection ──────────────────────────────────────────────────────
 
@@ -61,37 +65,132 @@ detect_platform() {
 
 # ─── Fetch latest release ────────────────────────────────────────────────────
 
+# get_release_status <use-token: 1|0> — writes the body to $RELEASE_FILE and
+# prints the HTTP status code ("000" when curl itself failed).
+get_release_status() {
+  if [ "$1" = 1 ]; then
+    curl -sSL -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
+      -w '%{http_code}' -o "$RELEASE_FILE" "$API_BASE/repos/$REPO/releases/latest" \
+      || true
+  else
+    curl -sSL -H "Accept: application/vnd.github+json" \
+      -w '%{http_code}' -o "$RELEASE_FILE" "$API_BASE/repos/$REPO/releases/latest" \
+      || true
+  fi
+}
+
 fetch_release() {
   info "Fetching latest release..."
-  RELEASE_JSON="$(curl -fsSL -H "$AUTH_HEADER" "$API_BASE/repos/$REPO/releases/latest")" \
-    || die "Failed to fetch release info. Check your token has 'repo' scope."
+  mkdir -p "$BIN_DIR"
 
-  TAG="$(printf '%s' "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')"
+  STATUS=""
+  if [ -n "$TOKEN" ]; then
+    STATUS="$(get_release_status 1)"
+    case "$STATUS" in
+      401|403)
+        err "GitHub refused the token request (HTTP $STATUS: invalid/expired token or rate limit); retrying without it."
+        TOKEN=""
+        ;;
+    esac
+  fi
+  if [ -z "$TOKEN" ]; then
+    STATUS="$(get_release_status 0)"
+  fi
+
+  case "$STATUS" in
+    200) ;;
+    403|429) die "GitHub API rate limit hit (HTTP $STATUS). Set GITHUB_TOKEN to raise the limit, or try again later." ;;
+    000|"") die "Failed to reach the GitHub API. Check your network connection." ;;
+    *)   die "Failed to fetch release info (HTTP $STATUS)." ;;
+  esac
+
+  # Normalise to one key per line, for both pretty-printed and compact JSON.
+  RELEASE_JSON="$(tr ',{}' '\n\n\n' < "$RELEASE_FILE")"
+
+  TAG="$(printf '%s\n' "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//')"
   [ -z "$TAG" ] && die "Could not parse release tag from API response."
 
   VERSION="${TAG#v}"
   info "Latest version: $VERSION ($TAG)"
 }
 
+# public_url <asset-name> — the asset's browser_download_url, matched exactly.
+public_url() {
+  printf '%s\n' "$RELEASE_JSON" \
+    | grep "\"browser_download_url\"[[:space:]]*:[[:space:]]*\"[^\"]*/$1\"" \
+    | head -1 \
+    | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"//' | sed 's/".*//'
+}
+
+# api_url <asset-name> — the asset's API URL (.../releases/assets/<id>): the last
+# releases/assets "url" seen before that asset's browser_download_url.
+api_url() {
+  printf '%s\n' "$RELEASE_JSON" | awk -v n="$1" '
+    /"url"[[:space:]]*:/ && /\/releases\/assets\// {
+      u = $0
+      sub(/.*"url"[[:space:]]*:[[:space:]]*"/, "", u)
+      sub(/".*/, "", u)
+      last = u
+    }
+    /"browser_download_url"[[:space:]]*:/ {
+      b = $0
+      sub(/.*"browser_download_url"[[:space:]]*:[[:space:]]*"/, "", b)
+      sub(/".*/, "", b)
+      k = length(b) - length(n)
+      if (k > 0 && substr(b, k) == "/" n) { print last; exit }
+    }'
+}
+
+# download_asset <asset-name> <output-file>
+download_asset() {
+  if [ -n "$TOKEN" ]; then
+    URL="$(api_url "$1")"
+    [ -z "$URL" ] && die "No $1 found in release $TAG."
+    curl -fsSL \
+      -H "Authorization: token $TOKEN" \
+      -H "Accept: application/octet-stream" \
+      -o "$2" "$URL"
+  else
+    URL="$(public_url "$1")"
+    [ -z "$URL" ] && die "No $1 found in release $TAG."
+    curl -fsSL -o "$2" "$URL"
+  fi
+}
+
+# sha256_of <file> — prints the lowercase hex digest.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}' | tr '[:upper:]' '[:lower:]'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}' | tr '[:upper:]' '[:lower:]'
+  else
+    return 1
+  fi
+}
+
 # ─── Download binary ─────────────────────────────────────────────────────────
 
 download_binary() {
-  # Extract the asset ID for our platform binary
-  ASSET_ID="$(printf '%s' "$RELEASE_JSON" | grep -B3 "\"name\": \"$ASSET_NAME\"" | grep '"id"' | head -1 | sed 's/[^0-9]//g')"
-  [ -z "$ASSET_ID" ] && die "No binary found for $ASSET_NAME in release $TAG."
-
   info "Downloading $ASSET_NAME..."
   mkdir -p "$BIN_DIR"
 
-  curl -fsSL \
-    -H "$AUTH_HEADER" \
-    -H "Accept: application/octet-stream" \
-    "$API_BASE/repos/$REPO/releases/assets/$ASSET_ID" \
-    -o "$BIN_PATH" \
-    || die "Failed to download binary."
+  download_asset "$ASSET_NAME" "$DOWNLOAD_FILE" || die "Failed to download binary."
+  download_asset "checksums.txt" "$CHECKSUMS_FILE" || die "Failed to download checksums.txt."
 
-  chmod +x "$BIN_PATH"
-  ok "Installed sentinal v$VERSION to $BIN_PATH"
+  EXPECTED="$(awk -v n="$ASSET_NAME" '$2 == n || $2 == "*" n { print $1; exit }' "$CHECKSUMS_FILE" | tr '[:upper:]' '[:lower:]')"
+  [ -z "$EXPECTED" ] && die "No checksum for $ASSET_NAME in checksums.txt."
+
+  ACTUAL="$(sha256_of "$DOWNLOAD_FILE")" \
+    || die "Cannot verify the checksum: neither sha256sum nor shasum is installed."
+  [ -z "$ACTUAL" ] && die "Cannot verify the checksum: hashing $DOWNLOAD_FILE failed."
+
+  if [ "$ACTUAL" != "$EXPECTED" ]; then
+    die "Checksum mismatch for $ASSET_NAME (expected $EXPECTED, got $ACTUAL). Not installing."
+  fi
+
+  chmod +x "$DOWNLOAD_FILE"
+  mv -f "$DOWNLOAD_FILE" "$BIN_PATH"
+  ok "Installed sentinal v$VERSION to $BIN_PATH (checksum verified)"
 }
 
 # ─── Shell integration ───────────────────────────────────────────────────────

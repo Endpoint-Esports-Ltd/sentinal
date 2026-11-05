@@ -1,8 +1,11 @@
 // Unit tests for the pure helpers in release-asset.ts.
 // These are standard .test.ts so they run in the default `bun test` suite (no network).
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   assetNameFor,
   parseChecksums,
@@ -162,6 +165,108 @@ describe("downloadReleaseAsset (mismatch path, monkeypatched fetch)", () => {
       ).rejects.toThrow(/checksum/i);
     } finally {
       globalThis.fetch = origFetch;
+    }
+  });
+});
+
+describe("downloadReleaseAsset (auth headers, monkeypatched fetch)", () => {
+  const binaryBytes = Buffer.from("fake binary payload for header tests");
+  const sha = createHash("sha256").update(binaryBytes).digest("hex");
+  const checksumsText = `${sha}  sentinal-darwin-arm64\n`;
+  const releaseJson = {
+    assets: [
+      { id: 20, name: "sentinal-darwin-arm64" },
+      { id: 21, name: "checksums.txt" },
+    ],
+  };
+
+  const tmpDirs: string[] = [];
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "sentinal-release-asset-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+  afterEach(() => {
+    for (const dir of tmpDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function installFakeFetch(seen: Array<Record<string, string>>): () => void {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      seen.push({ ...((init?.headers ?? {}) as Record<string, string>) });
+      const url = String(input);
+      if (url.includes("/releases/latest") || url.includes("/releases/tags/")) {
+        return new Response(JSON.stringify(releaseJson), { status: 200 });
+      }
+      if (url.endsWith("/assets/20")) {
+        return new Response(binaryBytes, { status: 200 });
+      }
+      if (url.endsWith("/assets/21")) {
+        return new Response(checksumsText, { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    return () => {
+      globalThis.fetch = origFetch;
+    };
+  }
+
+  it("sends no Authorization header when no token is given (public repo)", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const restore = installFakeFetch(seen);
+    const tmpDir = makeTmpDir();
+    try {
+      const out = await downloadReleaseAsset({
+        destDir: tmpDir,
+        platform: "darwin",
+        arch: "arm64",
+      });
+      expect(out).toBe(`${tmpDir}/sentinal-darwin-arm64`);
+    } finally {
+      restore();
+    }
+    expect(seen.length).toBe(3);
+    for (const headers of seen) {
+      expect(Object.keys(headers)).not.toContain("Authorization");
+    }
+  });
+
+  it("sends no Authorization header for an empty token", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const restore = installFakeFetch(seen);
+    try {
+      await downloadReleaseAsset({
+        token: "",
+        destDir: makeTmpDir(),
+        platform: "darwin",
+        arch: "arm64",
+      });
+    } finally {
+      restore();
+    }
+    for (const headers of seen) {
+      expect(Object.keys(headers)).not.toContain("Authorization");
+    }
+  });
+
+  it("sends Authorization: token <tok> on every request when given a token", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const restore = installFakeFetch(seen);
+    try {
+      await downloadReleaseAsset({
+        token: "tok123",
+        destDir: makeTmpDir(),
+        platform: "darwin",
+        arch: "arm64",
+      });
+    } finally {
+      restore();
+    }
+    expect(seen.length).toBe(3);
+    for (const headers of seen) {
+      expect(headers.Authorization).toBe("token tok123");
     }
   });
 });
