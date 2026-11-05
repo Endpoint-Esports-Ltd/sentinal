@@ -6,23 +6,22 @@ Sentinal runs as an intelligent hook pipeline inside Claude Code or OpenCode, au
 
 ## Quick Install
 
-Download and install the latest `sentinal` binary with a single command. Requires a [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope (private repository).
+Download and install the latest `sentinal` binary with a single command:
 
 ```bash
-export GITHUB_TOKEN=ghp_xxx  # or GH_TOKEN
-
-curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
-  https://raw.githubusercontent.com/Endpoint-Esports-Ltd/sentinal/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Endpoint-Esports-Ltd/sentinal/main/scripts/install.sh | sh
 ```
+
+No token is needed. If `GITHUB_TOKEN` (or `GH_TOKEN`) is set, the installer uses it for its GitHub API calls, which raises GitHub's unauthenticated limit of 60 requests per hour. A token GitHub rejects (expired or revoked) falls back to unauthenticated access.
 
 The installer will:
 
 1. Download the latest binary for your platform (linux/darwin, x64/arm64)
-2. Install it to `~/.sentinal/bin/sentinal`
-3. Add `~/.sentinal/bin` to your `PATH` (bash, zsh, or fish)
-4. Set up the `snt` alias
-5. Enable shell tab completions
-6. Provision semantic search dependencies (`~/.sentinal/deps`) for vector memory
+2. Verify its SHA-256 against the release's `checksums.txt`, and refuse to install on a mismatch
+3. Install it to `~/.sentinal/bin/sentinal`
+4. Add `~/.sentinal/bin` to your `PATH` (bash, zsh, or fish)
+5. Set up the `snt` alias
+6. Enable shell tab completions
 
 After installation, restart your shell and install for your AI assistant:
 
@@ -31,6 +30,8 @@ sentinal install claude     # Claude Code
 sentinal install opencode   # OpenCode
 sentinal install both       # Both
 ```
+
+`sentinal install` also provisions the semantic search dependencies (`~/.sentinal/deps`) for vector memory. See [Semantic Memory Search](#semantic-memory-search).
 
 > **macOS:** If Gatekeeper blocks the binary, run `codesign -s - ~/.sentinal/bin/sentinal`
 
@@ -41,30 +42,33 @@ sentinal install both       # Both
 | **Claude Code** | Full support | `sentinal install claude`   |
 | **OpenCode**    | Full support | `sentinal install opencode` |
 
-Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `sentinal install` with no argument auto-detects available assistants and prompts interactively if both are found.
+Both assistants can be used simultaneously — Sentinal detects which environment is running. Running `sentinal install` with no argument looks for the `claude` and `opencode` CLIs on your `PATH`: if it finds one, it installs for that assistant; if it finds both, it asks which to install for; if it finds neither, it exits with an error.
 
 ## Features
 
 - **Quality Checks** — instant structural checks (file length, companion tests, framework patterns) on every file edit; Prettier, ESLint, and `tsc --noEmit` on demand via the `quality_report` MCP tool (auto-fixes only the `file` you pass; project-wide is report-only)
 - **Framework-Specific Rules** — Targeted standards for Angular 17+ (standalone, signals, control flow) and NestJS (DTOs, guards, Swagger)
-- **TDD Enforcement** — Blocks edits to implementation files until a failing test exists (RED→GREEN→REFACTOR cycle tracking)
+- **TDD Enforcement** — While a `/spec` plan is active, blocks edits to implementation files until a failing test exists (RED→GREEN→REFACTOR cycle tracking)
 - **File Length Guardrails** — Warns at 400 lines, blocks at 600 lines (test files exempt)
 - **Structured `/spec` Workflow** — Plan-implement-verify cycle with plan-reviewer and spec-reviewer sub-agents
-- **Console Dashboard** — Live session overview at `http://127.0.0.1:41778` (auto-started with the sidecar)
+- **Console Dashboard** — Live session overview at `http://127.0.0.1:41778` (started automatically when a session begins)
 - **Git Worktree Integration** — Isolated branches per spec plan; merge back with a squash commit
 - **Context Monitoring** — Tracks context usage and suggests knowledge extraction at thresholds
 - **Tool Redirection** — Hints on better tool choices (MCP alternatives, semantic search)
 - **Compact Resilience** — Preserves active plan state across context window compaction
 - **Persistent Semantic Memory** — Vector-based knowledge storage with automatic capture/restore and hybrid keyword+semantic search
-- **MCP Servers** — Pre-configured context7 (library docs), web-search, grep-mcp (GitHub code search), web-fetch, and sentinal (49 tools across 8 domains)
-- **LSP Integration** — TypeScript language server (vtsls) for go-to-definition, references, and hover
+- **MCP Servers** — sentinal (49 tools across 8 domains), plus context7 (library docs), web-search, grep-mcp (GitHub code search), and web-fetch. See [MCP Servers](#mcp-servers) for where each target configures them.
+- **LSP Integration** — TypeScript language server for go-to-definition, references, and hover (`vtsls` for Claude Code, `typescript-language-server` for OpenCode)
 - **Long-Running Sidecar** — Background process holding a warm DB + embeddings; hooks connect via Unix socket for sub-15ms response times
 
 ## Requirements
 
-- **Bun** 1.0+ (required runtime)
-- **Node.js** 18+
+- **macOS or Linux**, x64 or arm64 (release binaries exist only for these platforms)
 - **Claude Code** or **OpenCode**
+- **Node.js** — 18+ for Claude Code (the installer enforces this); OpenCode's installer only checks that `node` exists. `npx` is used to launch the bundled third-party MCP servers.
+- **`bun` or `npm`** — used by `sentinal memory setup` to install the semantic search dependencies
+- **Homebrew SQLite** on macOS (`brew install sqlite`) for vector search. Without it, memory search uses keywords only.
+- **Bun** 1.0+ only when running Sentinal from source or installing the OpenCode plugin in npm mode; the compiled binary does not need it
 
 ## CLI
 
@@ -74,20 +78,21 @@ Sentinal provides a unified `sentinal` binary. Primary distribution is the compi
 # ─── Core ──────────────────────────────────────────────────────────────────
 sentinal --help              # Show available commands
 sentinal --version           # Print version
+sentinal --skip-update-check <cmd>  # Skip the automatic background update check
 sentinal greet               # Display the Sentinal banner
 
 # ─── Install / Update ──────────────────────────────────────────────────────
-sentinal install [target]    # Install for claude, opencode, or both
+sentinal install [target]    # Install for claude, opencode, or both (auto-detect if omitted)
 sentinal install --local     # Install OpenCode to current project only
-sentinal install --bundled   # Offline install (ships plugin .js, no npm)
-sentinal uninstall [target]  # Uninstall (--remove-binary to also remove binary)
+sentinal install --bundled   # OpenCode: bundled plugin (plugins/sentinal.mjs) instead of npm mode
+sentinal uninstall [target]  # Uninstall (--local, --remove-binary to also remove binary)
 sentinal update              # Self-update binary from GitHub Releases
 sentinal update --check      # Check for updates without installing
 
 # ─── Sidecar ───────────────────────────────────────────────────────────────
-sentinal sidecar start       # Start sidecar (-d for background, --http-only)
+sentinal sidecar start       # Start sidecar (-d for background, --http-only, --port <n>)
 sentinal sidecar stop        # Stop the running sidecar
-sentinal sidecar status      # Show PID, transport, port
+sentinal sidecar status      # Show PID and transport
 sentinal sidecar restart     # Restart in the background (--foreground to attach)
 sentinal sidecar logs        # Tail recent log lines (-n 50 by default)
 sentinal sidecar logs --file sidecar    # sidecar.log only
@@ -105,9 +110,13 @@ sentinal memory search <q>   # Hybrid keyword + semantic search
 sentinal memory list         # List recent observations
 sentinal memory timeline <id># Chronological context around an observation
 sentinal memory get <id>     # Full observation details
+sentinal memory update <id>  # Correct an observation in place
+sentinal memory delete <id>  # Delete an observation (destructive)
 sentinal memory stats        # DB statistics incl. vector index size
-sentinal memory prune        # Remove old observations (--older-than)
-sentinal memory export       # Export to JSON or markdown
+sentinal memory prune        # Remove old observations (--older-than, default 90d)
+sentinal memory decay        # Decay quality scores by age (--dry-run)
+sentinal memory maintain <decay|prune|stats>  # Maintenance (prune needs --apply)
+sentinal memory export       # Export to JSON or markdown (--format)
 sentinal memory repair       # Integrity check + index rebuild
 sentinal memory setup        # Provision semantic search native deps (~/.sentinal/deps)
 
@@ -118,9 +127,14 @@ sentinal spec sync           # Sync plan files to SQLite index
 sentinal worktree list       # List worktrees
 sentinal worktree detect <slug>  # Find worktree for a plan slug
 sentinal worktree create <slug>  # Create git worktree for a plan
-sentinal worktree diff <slug>    # Summarize changes
-sentinal worktree sync <slug>    # Squash-merge back to base
-sentinal worktree abandon <slug> # Remove worktree
+sentinal worktree ensure <slug>  # Create, or adopt an existing worktree (--path, --base, --owner)
+sentinal worktree status <id>    # Show one worktree (IDs come from `worktree list`)
+sentinal worktree diff <id>      # Summarize changes
+sentinal worktree sync <slug>    # Squash-merge back to base (-m <msg>)
+sentinal worktree merge <id>     # Squash-merge by worktree ID (-m <msg>)
+sentinal worktree abandon <id>   # Remove (or release, if external) a worktree
+sentinal worktree cleanup        # Remove stale worktrees (--force also removes orphans)
+sentinal worktree abandon-orphan <slug>  # Remove a crashed session's worktree with no DB record
 sentinal register-plan <path>    # Register a plan file in SQLite
 
 # ─── Sessions & Context ────────────────────────────────────────────────────
@@ -136,6 +150,7 @@ sentinal config reset -y     # Reset to defaults
 
 # ─── Other ─────────────────────────────────────────────────────────────────
 sentinal mcp-server          # Start Sentinal MCP server (stdio)
+sentinal hook <shared|claude> <name>  # Run a hook (used by Claude Code's hooks.json; reads JSON on stdin)
 sentinal usage               # Per-model token usage report (-d 7 --json)
 sentinal statusline          # Claude Code statusline formatter (reads stdin)
 sentinal completion [shell]  # Shell completion script (bash/zsh/fish)
@@ -159,10 +174,11 @@ sentinal install claude
 
 The installer:
 
-1. Verifies Node.js 18+, Bun, and Claude Code CLI are installed
+1. Checks that Node.js 18+, the `claude` CLI, and the `sentinal` binary are on your `PATH` (hooks run as `sentinal hook …`). It also reports whether the optional browser-automation tools for `/spec` UI checks (playwright-cli, Chrome DevTools MCP) are present.
 2. Creates a local plugin marketplace at `~/.claude/plugins/sentinal-marketplace/`
 3. Registers the marketplace and installs the plugin via `claude plugin install`
-4. Provisions semantic search dependencies (`sentinal memory setup`)
+4. Writes the Sentinal `statusLine` into `~/.claude/settings.json`, keeping the previous file as `settings.json.bak`
+5. Provisions semantic search dependencies (`sentinal memory setup`)
 
 After installation, restart Claude Code and run `/sentinal:sync` in your project to generate project-specific rules.
 
@@ -174,10 +190,10 @@ sentinal install opencode
 
 The installer:
 
-1. Verifies OpenCode, Bun, and Node.js are installed
-2. Copies the plugin, commands, rules, agents, and skills to `~/.config/opencode/`
-3. Creates or merges `opencode.json` config with MCP servers (native JSON — no `jq` dependency)
-4. Creates global `AGENTS.md` with rule references
+1. Checks that `opencode` and `node` are installed (and `bun` too, in npm mode only)
+2. Copies the bundled plugin (`plugins/sentinal.mjs`), commands, rules, agents, and skills to `~/.config/opencode/`
+3. Creates or merges `opencode.json` with the plugin, MCP servers, permissions and agents (see [Settings → OpenCode](#opencode-1))
+4. Writes the global `~/.config/opencode/AGENTS.md` with rule references. **This overwrites any existing global `AGENTS.md`.**
 5. Provisions semantic search dependencies (`sentinal memory setup`)
 
 For project-local installs instead of global:
@@ -186,7 +202,9 @@ For project-local installs instead of global:
 sentinal install opencode --local
 ```
 
-Then run `/sync` in an OpenCode session within your project.
+This installs into `<project>/.opencode/` and `<project>/opencode.json`, and appends to `<project>/AGENTS.md` (or creates it). Then run `/sync` in an OpenCode session within your project.
+
+> **npm mode.** When Sentinal runs from source or the npm package instead of the compiled binary, the OpenCode installer installs `@endpoint/sentinal` globally and loads the plugin as `@endpoint/sentinal/opencode-plugin`. This needs `@endpoint:registry=https://npm.cloud.endpoint.gg/` in `~/.npmrc`. `--bundled` forces the bundled-plugin layout described above.
 
 ### Both Assistants
 
@@ -201,7 +219,7 @@ sentinal install both
 
 ## Updating
 
-Sentinal self-updates from GitHub Releases:
+Sentinal self-updates from GitHub Releases. No token is needed. As with the installer, a `GITHUB_TOKEN` or `GH_TOKEN` in the environment is used if present, which raises the rate limit.
 
 ```bash
 sentinal update         # Download and replace binary, reinstall plugins
@@ -211,12 +229,13 @@ sentinal update --check # Check for a newer version without installing
 **What `sentinal update` does (v1.30+):**
 
 1. Downloads the latest binary for your platform
-2. Atomically replaces `~/.sentinal/bin/sentinal`
-3. Spawns the new binary with `update --reinstall-plugins` so fresh embedded assets (commands, rules, skills) are deployed immediately
-4. Auto-detects installed assistants and reinstalls for each
-5. Runs `sentinal memory setup` to provision or refresh semantic search deps
+2. Verifies its SHA-256 against the release's `checksums.txt` and refuses a mismatch. If `checksums.txt` cannot be fetched, it checks the download size only and prints a note.
+3. Replaces `~/.sentinal/bin/sentinal`, keeping a backup until the new binary passes a `--version` smoke test; if that test fails, it rolls back
+4. Spawns the new binary with `update --reinstall-plugins` so fresh embedded assets (commands, rules, skills) are deployed immediately
+5. Detects which assistants have Sentinal installed (from the installed files) and reinstalls for each. OpenCode is always reinstalled **globally**, so a project-local (`--local`) install is not refreshed: re-run `sentinal install opencode --local` in that project.
+6. Runs `sentinal memory setup` to provision or refresh semantic search deps, and warns if a sidecar from the previous version is still running
 
-A background update check runs automatically with most commands (24-hour cache). When a newer version is available, it prints a notice and the update command.
+A background update check runs automatically with most commands (24-hour cache; skip it with `--skip-update-check`). When a newer version is available, it prints a notice and the update command.
 
 **Transition note (versions ≤ 1.29.1):** After running `sentinal update` from an older version, run once manually:
 
@@ -244,12 +263,12 @@ Sentinal uses vector embeddings for semantic (meaning-based) memory search along
 sentinal memory setup
 ```
 
-This downloads and bundles `sqlite-vec` and `@xenova/transformers` into `~/.sentinal/deps`. It runs automatically at install and update time, so manual invocation is only needed if setup was skipped or failed.
+This installs pinned versions of `sqlite-vec` and `@xenova/transformers` into `~/.sentinal/deps`, using `bun add` if Bun is available and `npm install --prefix` otherwise. On macOS, vector search also needs Homebrew SQLite (`brew install sqlite`). Setup runs automatically during `sentinal install` and `sentinal update`, so you only need to run it by hand if that step was skipped or failed.
 
 **Environment variables:**
 
 ```bash
-SENTINAL_NO_AUTO_SETUP=1   # Skip auto-setup at install/update (for CI or airgapped environments)
+SENTINAL_NO_AUTO_SETUP=1   # Skip auto-setup at install/update and the sidecar's self-heal (for CI or airgapped environments)
 ```
 
 ### How It Works
@@ -261,7 +280,7 @@ SENTINAL_NO_AUTO_SETUP=1   # Skip auto-setup at install/update (for CI or airgap
 
 ### Self-Heal
 
-If the sidecar starts without vector search (deps missing or corrupt), it automatically retries provisioning once per version in the background. If repair succeeds, the next sidecar start uses vector search.
+If a compiled sidecar starts without vector search because the deps are **missing**, it runs `memory setup` itself in the background, at most once per version, and then re-initializes vector search in the running sidecar. It does not attempt this when the deps exist but SQLite cannot load the extension (for example, macOS without Homebrew SQLite), when running from source, or when `SENTINAL_NO_AUTO_SETUP=1` is set.
 
 ## Console Dashboard
 
@@ -273,7 +292,7 @@ sentinal serve --background  # Start detached
 sentinal serve --port 8080   # Custom port
 ```
 
-The dashboard is auto-started alongside the sidecar when a Claude Code or OpenCode session begins. It shuts down automatically when the sidecar detects no active sessions.
+The dashboard is started automatically when a Claude Code session starts (by the `session-start` hook) or when the OpenCode plugin loads. `sentinal sidecar start` on its own does not start it. It shuts down automatically when the sidecar detects no active sessions.
 
 **Lifecycle logging:** All dashboard start/stop events are written to `~/.sentinal/dashboard.log`. View alongside sidecar and plugin logs:
 
@@ -291,45 +310,52 @@ sentinal/
 ├── src/                              # Shared TypeScript source (both targets)
 │   ├── index.ts                      # Barrel exports (public API)
 │   ├── analysis/                     # check_diagnostics, impact_analysis, quality_report MCP tools
-│   ├── checkers/                     # typescript, angular, nestjs, detect — framework validation
+│   ├── checkers/                     # angular, nestjs, detect — framework validation
 │   ├── cli/                          # Unified sentinal CLI
 │   │   ├── index.ts                  # Commander dispatcher
 │   │   ├── embedded-assets.ts        # Generated — do not hand-edit
-│   │   └── commands/                 # ~20 command modules (install, update, serve, sidecar, memory, ...)
+│   │   └── commands/                 # Command modules (install, update, serve, sidecar, hook, worktree, ...)
 │   ├── config/                       # Config loading
 │   ├── dashboard/                    # Web dashboard (Bun.serve, port 41778)
 │   │   ├── server.ts                 # HTTP server + route dispatch
 │   │   ├── lifecycle.ts              # PID file, probe, startup decision helper
-│   │   └── routes/                   # API + view handlers
+│   │   ├── routes/                   # API handlers
+│   │   └── views/                    # HTML views
+│   ├── git/                          # Git helpers
 │   ├── hooks/                        # Claude Code lifecycle hooks (stdin/stdout JSON I/O)
-│   ├── mcp/                          # MCP server factory — registers all 28 tool modules
+│   ├── mcp/                          # MCP server factory — registers 49 tools across 8 domains
 │   ├── memory/                       # SQLite + sqlite-vec vector store + embeddings + MCP tools
 │   ├── opencode/                     # OpenCode-specific helpers (workspace adaptor, compaction)
+│   ├── orca/                         # Orca orchestration adapter + orca_* MCP tools
 │   ├── project/                      # project_context MCP tool
+│   ├── runtime/                      # .sentinal/runtime.json contract + runtime_* MCP tools
 │   ├── session/ sessions/            # Session tracking, context window estimation
 │   ├── sidecar/                      # Long-running HTTP sidecar (Unix socket preferred)
 │   ├── spec/                         # Spec workflow engine + MCP tools
 │   ├── tdd/                          # TDD cycle state + MCP tools
 │   ├── utils/                        # hook-output, file-length, tdd, git, file-log, shell
-│   └── worktree/                     # Git worktree management + MCP tools
+│   └── worktree/                     # Git worktree management (create/adopt) + MCP tools
 │
 ├── targets/
 │   ├── claude-code/                  # Shipped to Claude Code users
-│   │   ├── hooks/                    # Hook pipeline (hooks.json + compiled dist/)
-│   │   ├── rules/                    # 5 coding standards rule sets (standards-*.md)
-│   │   ├── commands/                 # Slash commands (/spec, /sync, /learn)
-│   │   ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer)
-│   │   ├── settings.json             # Claude Code settings & permissions
-│   │   ├── .mcp.json                 # MCP server configuration
-│   │   └── .lsp.json                 # Language server configuration
+│   │   ├── .claude-plugin/plugin.json # Plugin manifest
+│   │   ├── hooks/hooks.json          # Hook pipeline (each hook runs `sentinal hook …`)
+│   │   ├── rules/                    # 5 standards-*.md (path-scoped) + always-loaded workflow rules
+│   │   ├── commands/                 # /spec, /sync, /learn, /quick, /pause + spec-* phase commands
+│   │   ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer, research)
+│   │   ├── settings.json             # Preference keys (not applied by Claude Code — see Settings)
+│   │   ├── .mcp.json                 # MCP server configuration (sentinal)
+│   │   └── .lsp.json                 # Language server configuration (vtsls)
 │   │
 │   └── opencode/                     # Shipped to OpenCode users
-│       ├── plugins/sentinal.ts       # Plugin entry point (Node.js-compatible)
-│       ├── dist/sentinal.mjs         # Bundled plugin (build output)
-│       ├── commands/                 # Slash commands (/spec, /sync, /learn)
+│       ├── plugins/sentinal.ts       # Plugin source (bundled for install)
+│       ├── dist/sentinal.mjs         # Bundled plugin (build output, installed as plugins/sentinal.mjs)
+│       ├── opencode.json             # Config template (plugin, MCP, LSP, permissions, agents)
+│       ├── AGENTS.md                 # AGENTS.md template copied into user config
+│       ├── commands/                 # /spec, /sync, /learn, /quick, /pause
 │       ├── skills/                   # Spec sub-phase skills (invoked by /spec)
-│       ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer)
-│       └── rules/                    # 5 coding standards rule sets
+│       ├── agents/                   # Sub-agents (plan-reviewer, spec-reviewer, spec-task)
+│       └── rules/                    # 5 standards-*.md + workflow rules (all always loaded)
 │
 ├── scripts/
 │   ├── install.sh                    # Remote install script (curl | sh)
@@ -357,7 +383,7 @@ The sidecar shuts itself down automatically:
 
 When it shuts down, it also stops the dashboard process.
 
-**Request timeouts.** Client requests are bounded per route: 180s for `/quality-check` and `/worktree/*` (cost scales with disk size), 30s for embedding- and git-backed routes, 2s for DB-only routes. Override globally when an operation is legitimately slow:
+**Request timeouts.** Client requests are bounded per route: 180s for `/quality-check` and `/worktree/*` (cost scales with disk size), 30s for embedding- and git-backed routes, 2s for DB-only routes, 1s for `/retire`. Override globally when an operation is legitimately slow:
 
 ```bash
 SENTINAL_SIDECAR_TIMEOUT_MS=300000   # applies to every route; invalid values are ignored
@@ -369,59 +395,74 @@ A request that exceeds its budget reports the outcome as **unknown** — the sid
 
 Claude Code uses compiled TypeScript hooks that intercept lifecycle events via the `sentinal hook <scope> <name>` CLI dispatcher:
 
-| Event              | Hook                 | What It Does                                                                                       |
-| ------------------ | -------------------- | -------------------------------------------------------------------------------------------------- |
-| `SessionStart`     | session-start        | Create session record; auto-start sidecar + dashboard                                              |
-| `SessionStart`     | memory-restore       | Restore relevant memories for the current project                                                  |
-| `SessionStart`     | post-compact-restore | Restore active `/spec` plan after context compaction                                               |
-| `PreToolUse`       | tdd-guard            | Block edits to implementation files until a failing test exists (RED state required)               |
-| `PreToolUse`       | pre-edit-guide       | Provide context-aware guidance before file edits                                                   |
-| `PreToolUse`       | tool-redirect        | Deny `WebSearch`/`WebFetch` (use MCP instead), hint on vague Grep patterns                         |
-| `PostToolUse`      | file-checker         | File length, framework checks, companion-test check on every `Write`/`Edit` (no formatters or tsc) |
-| `PostToolUse`      | tdd-tracker          | Track RED/GREEN state transitions after test runs                                                  |
-| `PostToolUse`      | memory-observer      | Auto-capture learning moments from tool results                                                    |
-| `PostToolUse`      | context-monitor      | Monitor context window %, warn at 65/75/85%+ thresholds                                            |
-| `UserPromptSubmit` | prompt-context       | Inject active plan + memory context into every prompt                                              |
-| `PreCompact`       | pre-compact          | Save active plan path and metadata to `.sentinal/compact-state.json`                               |
-| `Stop`             | spec-stop-guard      | Block session exit if a `/spec` plan is in PENDING or COMPLETE state                               |
-| `SessionEnd`       | session-end          | End session record; stop sidecar + dashboard if no other sessions active                           |
+| Event                | Hook                  | What It Does                                                                                                                                              |
+| -------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionStart`       | session-start         | Create session record; auto-start sidecar + dashboard                                                                                                     |
+| `SessionStart`       | memory-restore        | Restore relevant memories for the current project                                                                                                         |
+| `SessionStart`       | post-compact-restore  | Restore active `/spec` plan after context compaction                                                                                                      |
+| `PreToolUse`         | tdd-guard             | While a `/spec` plan is active, block edits to implementation files until a failing test exists (RED state required)                                      |
+| `PreToolUse`         | pre-edit-guide        | Provide context-aware guidance before file edits                                                                                                          |
+| `PreToolUse`         | tool-redirect         | Deny `WebSearch`/`WebFetch` (use the MCP servers) and `EnterPlanMode`/`ExitPlanMode` (use `/spec`); hint on vague Grep patterns                           |
+| `PostToolUse`        | file-checker          | File length, framework checks, companion-test check on `.ts`/`.tsx` `Write`/`Edit` (no formatters or tsc)                                                 |
+| `PostToolUse`        | tdd-tracker           | Track RED/GREEN state transitions after test runs (also on `PostToolUseFailure`)                                                                          |
+| `PostToolUse`        | memory-observer       | Auto-capture learning moments from tool results                                                                                                           |
+| `PostToolUse`        | context-monitor       | Monitor context window %, warn at 90% and 95%                                                                                                             |
+| `PostToolUseFailure` | tool-failure-observer | Record failed tool calls as `error` memories (redacted, de-duplicated) so error → fix sequences can be captured                                           |
+| `UserPromptSubmit`   | prompt-context        | Inject the active `/spec` plan state (path, current task, progress) into every prompt                                                                     |
+| `PreCompact`         | pre-compact           | Save active plan path and metadata to `.sentinal/compact-state.json`                                                                                      |
+| `PostCompact`        | post-compact          | Check the saved plan state after compaction and point to `/spec` to resume                                                                                |
+| `Stop`               | spec-stop-guard       | Nudge the assistant to continue if a `/spec` plan is IN_PROGRESS or COMPLETE (a soft reminder by default; a hard block with `SENTINAL_STOP_GUARD_HARD=1`) |
+| `StopFailure`        | stop-failure          | On a turn that ends in an API error, raise a dashboard warning (and an `error` memory if a plan is active)                                                |
+| `SessionEnd`         | session-end           | End session record; stop the dashboard if no other sessions are active (the sidecar shuts itself down later)                                              |
+| `ConfigChange`       | config-change         | Record a memory when `.sentinal/rules/*.md` or `CLAUDE.md` change                                                                                         |
+| `InstructionsLoaded` | instructions-loaded   | Record which rule/instruction files were loaded (used by `/sync`)                                                                                         |
+| `CwdChanged`         | cwd-changed           | Invalidate the sidecar's cached project context                                                                                                           |
+| `FileChanged`        | file-changed          | Clear TDD state when a test file changes outside the assistant's own edits                                                                                |
+| `TaskCreated`        | task-created          | Add a dashboard notification for a new background task                                                                                                    |
 
-Hooks are compiled to `targets/claude-code/hooks/dist/` and invoked by the `sentinal hook` CLI dispatcher.
+Every hook runs inside the installed `sentinal` binary: `hooks.json` invokes `sentinal hook <shared|claude> <name>`. (`bun run build:claude` only type-checks/emits to `targets/claude-code/hooks/dist/`, which is not used at runtime.)
 
 ### OpenCode: Plugin Events
 
-OpenCode uses a TypeScript plugin (`targets/opencode/plugins/sentinal.ts`) executed natively by OpenCode's Node.js runtime:
+OpenCode uses a TypeScript plugin (source: `targets/opencode/plugins/sentinal.ts`). The installer deploys it bundled as `plugins/sentinal.mjs`, or, in npm mode, references `@endpoint/sentinal/opencode-plugin`. The plugin avoids Bun-only APIs; all database access goes through the sidecar.
 
-| Event                             | What It Does                                                         |
-| --------------------------------- | -------------------------------------------------------------------- |
-| Plugin init                       | Auto-start sidecar; version-aware dashboard ensure                   |
-| `tool.execute.before`             | TDD guard, tool redirection hints, pre-edit guidance                 |
-| `tool.execute.after`              | Quality checks on file edits (file length, TDD, NestJS/Angular, tsc) |
-| `experimental.session.compacting` | Inject active `/spec` plan state + memory context into compaction    |
-| `session.created`                 | Create session record; restore memories                              |
-| `session.idle`                    | Warn about incomplete `/spec` plans                                  |
-| `session.deleted`                 | End session; stop sidecar + dashboard when no sessions remain        |
+| Hook / event                         | What It Does                                                                                                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plugin init                          | Auto-start sidecar; version-aware dashboard ensure                                                                                                   |
+| `tool.execute.before`                | TDD guard, tool redirection hints, pre-edit guidance                                                                                                 |
+| `tool.execute.after`                 | Structural checks on TS edits (file length, NestJS/Angular patterns, companion test — no tsc); then TDD tracking, memory capture, context monitoring |
+| `experimental.session.compacting`    | Inject active `/spec` plan state + memory context into compaction                                                                                    |
+| `experimental.chat.system.transform` | Inject the unread-notification digest, active `/spec` context and model-routing hints into the system prompt                                         |
+| `compaction.autocontinue`            | Decide whether to auto-continue after compaction and add plan context                                                                                |
+| `session.created`                    | Create session record; restore memories                                                                                                              |
+| `session.updated`                    | Adopt OpenCode's real session ID in place of the provisional one                                                                                     |
+| `message.part.updated`               | Capture tool calls that threw (they never reach `tool.execute.after`)                                                                                |
+| `session.idle`                       | Warn (log only) about incomplete `/spec` plans owned by this session                                                                                 |
+| `session.deleted`                    | End session; stop sidecar + dashboard when no sessions remain                                                                                        |
+| Native tool `sentinal_tdd_status`    | TDD cycle state for the current project                                                                                                              |
 
 ### Architecture Comparison
 
-| Feature            | Claude Code                    | OpenCode                         |
-| ------------------ | ------------------------------ | -------------------------------- |
-| **Extension type** | Compiled hook scripts          | Native TypeScript plugin         |
-| **Hook dispatch**  | `sentinal hook <scope> <name>` | Plugin event handlers            |
-| **Formatters**     | On demand (`quality_report`)   | On demand (`quality_report`)     |
-| **Runtime**        | Compiled JS via Bun            | Node.js (plugin) + Bun (sidecar) |
-| **Tool blocking**  | Exit code 2 + stderr           | Throw Error                      |
-| **Compaction**     | Save state to file             | Direct context injection         |
-| **Sub-agents**     | plan-reviewer, spec-reviewer   | plan-reviewer, spec-reviewer     |
+| Feature            | Claude Code                            | OpenCode                                                         |
+| ------------------ | -------------------------------------- | ---------------------------------------------------------------- |
+| **Extension type** | Hooks in the `sentinal` binary         | Bundled TypeScript plugin                                        |
+| **Hook dispatch**  | `sentinal hook <scope> <name>`         | Plugin event handlers                                            |
+| **Formatters**     | On demand (`quality_report`)           | On demand (`quality_report`)                                     |
+| **Runtime**        | Compiled `sentinal` (Bun) binary       | OpenCode's plugin runtime (plugin) + `sentinal` binary (sidecar) |
+| **Tool blocking**  | Exit code 2 + stderr                   | Throw Error                                                      |
+| **Compaction**     | Save state to file                     | Direct context injection                                         |
+| **Sub-agents**     | plan-reviewer, spec-reviewer, research | plan-reviewer, spec-reviewer, spec-task                          |
 
 ### File Edit Flow
 
-When the assistant edits a TypeScript file, Sentinal runs only fast structural checks:
+When the assistant edits a TypeScript file, Sentinal runs structural checks after the edit:
 
 1. Checks line count (warns at 400+, blocks at 600+)
-2. If Angular file detected — runs `ng build --dry-run` for template/compiler errors
+2. If Angular file detected — Claude Code runs `ng build --dry-run` for template/compiler errors; OpenCode checks patterns instead (`standalone: true`, legacy `*ngIf`/`*ngFor`)
 3. If NestJS file detected — checks for `@ApiTags`, `class-validator`, `@Entity` decorators
-4. Checks for companion test file — blocks edit if TDD guard is active (RED state not confirmed)
+4. Checks for a companion test file
+
+Separately, **before** an edit, the TDD guard blocks changes to an implementation file while a `/spec` plan is active and no failing test (RED state) has been confirmed for it.
 
 All feedback is returned as structured hints that the assistant acts on automatically.
 
@@ -431,11 +472,11 @@ All feedback is returned as structured hints that the assistant acts on automati
 
 Sentinal auto-detects your project setup:
 
-| Detection           | Method                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| **Package manager** | Lockfile presence: `pnpm-lock.yaml` / `yarn.lock` / `bun.lock` / `package-lock.json` |
-| **Test runner**     | Config files: `jest.config.*` / `vitest.config.*` / `karma.conf.*`                   |
-| **Framework**       | Dependency inspection: `@angular/core` / `@nestjs/core` in `package.json`            |
+| Detection           | Method                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| **Package manager** | Lockfile presence: `pnpm-lock.yaml` / `yarn.lock` / `bun.lock` / `bun.lockb` / `package-lock.json` |
+| **Test runner**     | Config files: `jest.config.*` / `vitest.config.*` / `karma.conf.*`                                 |
+| **Framework**       | Workspace files: `angular.json` / `.angular.json` (Angular), `nest-cli.json` (NestJS)              |
 
 ### Hook I/O Protocol
 
@@ -462,9 +503,9 @@ Claude Code hooks receive JSON on stdin and output JSON to stdout:
 
 ## Coding Standards
 
-Sentinal ships 5 rule sets that activate based on file patterns:
+Sentinal ships 5 coding-standards rule sets (`standards-*.md`), alongside workflow rules (testing, verification, MCP and research tools, memory, …) that are always loaded. In Claude Code, each standards file loads only for the file patterns listed below (`paths:` frontmatter). OpenCode has no per-path rule loading, so all of them are always loaded there.
 
-### TypeScript (`**/*.ts`, `**/*.tsx`)
+### TypeScript (`**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.mjs`, `**/*.mts`)
 
 - Strict types: `noImplicitAny`, no `any` casts, explicit return types
 - `node:` prefix for built-in imports
@@ -473,7 +514,7 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - Barrel exports, no circular imports, type-only imports
 - Async/await over `.then()`, typed errors, dependency injection
 
-### Angular (`.component.ts`, `.directive.ts`, `.pipe.ts`, etc.)
+### Angular (`.component.ts`, `.component.html`, `.directive.ts`, `.pipe.ts`, `.module.ts`, `.guard.ts`, `.resolver.ts`, `.interceptor.ts`)
 
 - Standalone components by default (Angular 17+)
 - `OnPush` change detection everywhere
@@ -483,7 +524,7 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - Lazy loading routes, functional guards, reactive typed forms
 - Virtual scrolling for lists > 100 items
 
-### NestJS (`.controller.ts`, `.service.ts`, `.module.ts`, etc.)
+### NestJS (`.controller.ts`, `.service.ts`, `.module.ts`, `.dto.ts`, `.entity.ts`, `.guard.ts`, `.interceptor.ts`, `.pipe.ts`, `.filter.ts`, `.middleware.ts`)
 
 - Module encapsulation, dependency injection (never `new Service()`)
 - Repository pattern for data access
@@ -492,14 +533,14 @@ Sentinal ships 5 rule sets that activate based on file patterns:
 - Guards for auth, interceptors for cross-cutting concerns
 - TypeORM or Prisma with migrations
 
-### Frontend (`.html`, `.css`, `.scss`, `.component.html`)
+### Frontend (`.html`, `.css`, `.scss`, `.component.html`, `.component.ts`)
 
 - Tailwind CSS utility-first
 - WCAG 2.1 AA accessibility: semantic HTML, ARIA labels, keyboard nav, 4.5:1 contrast
 - Responsive mobile-first, fluid typography with `clamp()`
 - Lazy images, bundle splitting, preload critical assets
 
-### Backend (`controllers/`, `services/`, `entities/`, etc.)
+### Backend (`controllers/`, `services/`, `repositories/`, `entities/`, `migrations/`, `middleware/`, `guards/`, `interceptors/`, `filters/`)
 
 - RESTful API design with consistent response format
 - Parameterized queries (SQL injection prevention), input validation at boundaries
@@ -531,12 +572,18 @@ The primary workflow command. Provides a plan-implement-verify cycle for feature
   -> VERIFIED
 ```
 
-Plan files are written to `docs/plans/YYYY-MM-DD-<slug>.md` with status tracking (PENDING -> COMPLETE -> VERIFIED).
+Plan files are written to `docs/plans/YYYY-MM-DD-<slug>.md` with status tracking (PENDING -> IN_PROGRESS -> COMPLETE -> VERIFIED).
 
-**Sub-agents** (both Claude Code and OpenCode — launched in background during verification):
+**Sub-agents** (both Claude Code and OpenCode, launched in the background):
 
-- **plan-reviewer** — Reviews feature plans for completeness and adversarial risks
-- **spec-reviewer** — Reviews implementation for quality and standards compliance
+- **plan-reviewer** — During planning, reviews feature plans for completeness and adversarial risks
+- **spec-reviewer** — During verification, reviews the implementation for quality and standards compliance
+
+Parallel tasks within a wave run as `spec-task` agents on OpenCode and as worktree-isolated agents on Claude Code.
+
+### `/quick` and `/pause`
+
+`/quick <task>` runs a lighter `/spec` with no plan review, no approval stop and no code review. `/pause` saves the current `/spec` position to `.sentinal/continue-here.md` so the next `/spec` can resume it.
 
 ### `/sync` — Generate Project Rules
 
@@ -670,17 +717,20 @@ The CLI is a genuine fallback when the MCP path is failing: `sentinal worktree c
 
 ## MCP Servers
 
-Sentinal configures 5 MCP servers for enhanced capabilities:
+Sentinal ships configuration for 5 MCP servers:
 
-| Server         | Purpose                                        | Package                 |
-| -------------- | ---------------------------------------------- | ----------------------- |
-| **context7**   | Up-to-date library/framework documentation     | `@upstash/context7-mcp` |
-| **web-search** | Web search via DuckDuckGo/Bing/Exa             | `open-websearch`        |
-| **grep-mcp**   | GitHub code search across 1M+ public repos     | `mcp.grep.app`          |
-| **web-fetch**  | Full web page fetching via Playwright          | `fetcher-mcp`           |
-| **sentinal**   | Memory, spec, worktree, TDD, analysis, runtime | `@endpoint/sentinal`    |
+| Server         | Purpose                                              | Source                                        |
+| -------------- | ---------------------------------------------------- | --------------------------------------------- |
+| **context7**   | Up-to-date library/framework documentation           | `@upstash/context7-mcp` (npx)                 |
+| **web-search** | Web search via DuckDuckGo/Bing/Exa                   | `open-websearch` (npx)                        |
+| **grep-mcp**   | GitHub code search across 1M+ public repos           | `mcp.grep.app` (remote)                       |
+| **web-fetch**  | Full web page fetching via Playwright                | `fetcher-mcp` (npx)                           |
+| **sentinal**   | Memory, spec, worktree, TDD, analysis, runtime, Orca | the `sentinal` binary (`sentinal mcp-server`) |
 
-These are preferred over built-in web tools. In Claude Code, the `tool-redirect` hook blocks `WebSearch`/`WebFetch` in favor of the MCP servers.
+Where they are configured differs per target:
+
+- **OpenCode:** all 5 are added globally to `opencode.json`.
+- **Claude Code:** the plugin's `.mcp.json` registers only `sentinal`. context7, web-search, grep-mcp and web-fetch are declared on the `plan-reviewer`, `spec-reviewer` and `research` sub-agents, so they are available inside those agents, not in the main session. The `tool-redirect` hook still denies `WebSearch`/`WebFetch` in the main session; add the servers to your own Claude Code MCP config if you want them there.
 
 ### Sentinal MCP Tool Catalog
 
@@ -770,7 +820,7 @@ and a **release-config install** check (embedded mode, the `install.sh` user pat
 ```bash
 bun run pre-release            # offline, current-platform release artifact
 bun run pre-release:deps       # + real native-dep provisioning (network, ~150MB)
-bun run pre-release:download   # test a PUBLISHED asset (needs GITHUB_TOKEN)
+bun run pre-release:download   # test a PUBLISHED asset (GITHUB_TOKEN optional)
 ```
 
 - **`:deps`** unsets `SENTINAL_NO_AUTO_SETUP` so the release binary provisions
@@ -790,16 +840,19 @@ The codebase is organized into shared layers consumed by both targets:
 - **Sidecar** (`src/sidecar/`) — Long-lived background HTTP server. Hooks and the MCP server connect via `SidecarClient` to avoid per-invocation SQLite cold starts.
 - **Hooks** (`src/hooks/`) — Lifecycle event handlers for Claude Code. Each reads JSON from stdin, processes it, and outputs JSON to stdout. Invoked via the `sentinal hook <scope> <name>` CLI dispatcher (`src/cli/commands/hook.ts`).
 - **Checkers** (`src/checkers/`) — Framework-specific validation logic shared between both targets.
-- **Memory** (`src/memory/`) — SQLite + sqlite-vec vector store + embeddings. Exposed as 6 MCP tools. Sidecar holds a warm instance.
+- **Memory** (`src/memory/`) — SQLite + sqlite-vec vector store + embeddings. Exposed as 9 MCP tools. Sidecar holds a warm instance.
 - **Dashboard** (`src/dashboard/`) — `Bun.serve()` HTTP server on port 41778. Lifecycle logged to `~/.sentinal/dashboard.log`.
 - **Utils** (`src/utils/`) — Shared helpers for hook I/O, file-length, TDD, git, and file logging.
 
 ### Claude Code Development
 
 ```bash
-bun run build:claude                   # Compile hooks to targets/claude-code/hooks/dist/
-sentinal install claude                # Install to ~/.claude/
+bun run build:claude                   # Type-check/emit hooks to targets/claude-code/hooks/dist/ (not used at runtime)
+bun run build:cli                      # Build dist/sentinal — the binary that actually runs the hooks
+./dist/sentinal install claude         # Install this build's embedded assets to ~/.claude/
 ```
+
+Claude Code runs each hook as `sentinal hook …` using whichever `sentinal` is first on your `PATH`, and `sentinal install` deploys the assets embedded in the binary that runs it. To test a hook change live, put the freshly built `dist/sentinal` on your `PATH` (for example, copy it over `~/.sentinal/bin/sentinal`) before reinstalling.
 
 **Adding a new hook:**
 
@@ -808,16 +861,16 @@ sentinal install claude                # Install to ~/.claude/
 3. Register the hook in `targets/claude-code/hooks/hooks.json` with the appropriate event and matcher
 4. Register the CLI dispatch path in `src/cli/commands/hook.ts`
 5. Add the equivalent handler in `targets/opencode/plugins/sentinal.ts` (see dual-target rule)
-6. Build and reinstall: `bun run build:all && sentinal install claude`
+6. Build and reinstall: `bun run build:all && bun run build:cli`, then install with the new binary as above
 
 ### OpenCode Development
 
 ```bash
 bun run build:opencode         # Bundle plugin to targets/opencode/dist/sentinal.mjs
-sentinal install opencode      # Deploy to ~/.config/opencode/
+bun run deploy:opencode        # Build + copy the bundle to ~/.config/opencode/plugins/sentinal.mjs
 ```
 
-OpenCode plugins are executed by OpenCode's embedded Node.js runtime — no Bun APIs inside the plugin. Shared logic lives in `src/` and is imported by the plugin.
+A `sentinal install opencode` deploys the plugin embedded in the binary that runs it, so use `deploy:opencode` (or a freshly built `dist/sentinal`) to try local changes. Keep Bun-only APIs (such as `bun:sqlite`) out of the plugin; database access goes through the sidecar. Shared logic lives in `src/` and is imported by the plugin.
 
 ### Adding a New Checker
 
@@ -825,7 +878,7 @@ Checkers are shared between both targets:
 
 1. Create `src/checkers/my-framework.ts` with a check function
 2. Add detection logic to `src/checkers/detect.ts`
-3. Call the checker from the hook dispatcher (`src/cli/commands/hook.ts`) and from `targets/opencode/plugins/sentinal.ts`
+3. Call the checker from the Claude Code `file-checker` hook (`src/hooks/file-checker.ts`) and from `targets/opencode/plugins/sentinal.ts`
 4. Add tests and build
 
 ## Settings
@@ -842,7 +895,7 @@ Checkers are shared between both targets:
 > settings file, not Sentinal's.
 
 `targets/claude-code/settings.json` carries a handful of preference keys
-(`env`, `plansDirectory`, `statusLine.refreshInterval`, `alwaysThinkingEnabled`,
+(`env` — including `DISABLE_AUTO_COMPACT` — `plansDirectory`, `statusLine.refreshInterval`, `alwaysThinkingEnabled`,
 `respectGitignore`, `spinnerTipsOverride`). They document intent; they do **not**
 take effect from the plugin. To actually apply them, copy them into
 `~/.claude/settings.json`.
@@ -889,13 +942,15 @@ entry widens your own blast radius):
 
 ### OpenCode
 
-Configured via `targets/opencode/opencode.json`:
+The installer writes or merges `opencode.json` (template: `targets/opencode/opencode.json`):
 
-- **Plugin registration** — `sentinal.ts` added to the `plugin[]` array
+- **Plugin registration** — `./plugins/sentinal.mjs` (or `@endpoint/sentinal/opencode-plugin` in npm mode) added to the `plugin[]` array
 - **MCP servers** — All 5 MCP servers configured with appropriate transport types
-- **LSP** — TypeScript language server for code intelligence
+- **Permissions and agents** — Sentinal's `permission` and `agent` blocks (including the `spec-task` agent)
+- **Instructions** — `.sentinal/rules/*.md` added so project rules from `/sync` load
+- **LSP** — `typescript-language-server`, written only when the config file is created fresh
 
-OpenCode settings are merged natively in TypeScript into existing user config, preserving any pre-existing configuration. Existing MCP server entries and other user settings take precedence over Sentinal defaults. JSONC files (with `//` comments) are handled automatically.
+When a config already exists, the merge preserves your settings: existing MCP server entries win, and `permission`/`agent` keys are only added where missing. The exception is the `sentinal` MCP entry, which is always overwritten so it points at the current binary. JSONC files are parsed, but their `//` comments are **not** preserved when the file is rewritten; the previous file is kept as `opencode.json.bak` (or `.jsonc.bak`).
 
 ## License
 

@@ -1,0 +1,70 @@
+{
+  "pass_summary": "All five tasks are implemented as planned: install.sh is token-optional, POSIX-clean, verifies SHA-256 by string comparison into a temp file that is cleaned by trap, and has thorough hermetic tests; update-github/pre-release/release-asset no longer assume a private repo. The README is broadly re-verified against code, with one newly-wrong claim (research agent MCP servers) and a few minor nits.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 5,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "goal_achievement",
+      "title": "README says the CC research agent lacks web-fetch — it has it",
+      "description": "README.md MCP Servers section (Claude Code bullet): \"the `research` agent gets all but web-fetch\". targets/claude-code/agents/research.md:26-29 declares `web-fetch` (npx fetcher-mcp) in its mcpServers frontmatter, alongside context7, web-search and grep-mcp — identical to plan-reviewer/spec-reviewer. The plan's audit note ('research, minus web-fetch') was itself wrong and was copied into the README.",
+      "suggested_fix": "In README.md, change to: \"context7, web-search, grep-mcp and web-fetch are declared on the `plan-reviewer`, `spec-reviewer` and `research` sub-agents, so they are available inside those agents, not in the main session.\""
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "403 with a token is always reported as an invalid/expired token",
+      "description": "src/cli/commands/update-github.ts releaseErrorMessage: with a token, 401/403 → 'token may be invalid or expired'. A 403 with a valid token can also be the authenticated rate limit (or secondary rate limit). Similarly install.sh treats an authenticated 403 as 'token rejected' and retries unauthenticated, which is harmless but the message is misleading.",
+      "suggested_fix": "For 403 with a token, word it as 'token rejected or rate limit hit' (optionally check the x-ratelimit-remaining header == '0' to distinguish)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "security",
+      "title": "checksums.txt is fetched from the same release as the binary",
+      "description": "scripts/install.sh download_binary verifies against checksums.txt from the same origin/release, which detects corruption/truncation but not a compromised release. This is consistent with update-download.ts and is an improvement over no verification; noting so the README's 'verify' wording is not read as authenticity.",
+      "suggested_fix": "Optional: document it as an integrity check, or later add signed checksums (e.g. cosign/minisign or GitHub artifact attestations)."
+    },
+    {
+      "severity": "suggestion",
+      "category": "test_quality",
+      "title": "New release-asset header tests leave temp dirs in /tmp",
+      "description": "tests/e2e/harness/release-asset.test.ts new 'auth headers' describe writes to /tmp/sentinal-release-asset-{noauth,empty,auth}-<ts> and never removes them.",
+      "suggested_fix": "Use mkdtempSync(join(tmpdir(), ...)) and rmSync(dir, {recursive: true, force: true}) in a finally/afterEach."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "README Quick Install uses the token-free curl | sh and has no `Authorization: token` / repo-scope requirement",
+      "status": "verified",
+      "evidence": "README diff L8-14 replaces the token block with the plain curl | sh; Grep for 'Authorization: token $' / \"repo' scope\" / 'private repo' in README.md → no hits."
+    },
+    {
+      "truth": "Tokenless install.sh run in a temp HOME installs the latest release binary",
+      "status": "verified",
+      "evidence": "Orchestrator-reported live run installed v1.46.1 with checksum verified; hermetic test 'installs without a token via the public browser_download_url' asserts no Authorization arg and browser URLs used."
+    },
+    {
+      "truth": "install.sh checks SHA-256 against checksums.txt and a mismatch exits non-zero",
+      "status": "verified",
+      "evidence": "sha256_of uses sha256sum else shasum -a 256 else dies; awk extracts expected hash ($2 == name or '*'name); string compare; mv only after match. Tests cover mismatch (no binary, no .sentinal.* leftovers) and missing entry."
+    },
+    {
+      "truth": "No private-repo / required-token wording in install.sh, pre-release.mjs, update-github.ts, release-asset.ts",
+      "status": "verified",
+      "evidence": "Grep for 'private repo|requires GITHUB_TOKEN|needs GITHUB_TOKEN|repo' scope' over those files → no hits; pre-release.mjs header comment updated."
+    },
+    {
+      "truth": "README has no '28 tool', '6 MCP tools', '65/75/85', 'checkers/typescript', ', tsc) '",
+      "status": "verified",
+      "evidence": "Grep → no hits in README.md; context-monitor now 90/95% matching src/sessions/context-display.ts:54-56."
+    },
+    {
+      "truth": "Targeted tests pass and `bunx prettier --check README.md` passes",
+      "status": "uncertain",
+      "evidence": "Could not execute commands in this review session (bash restricted to git diff/log). Tests read as correct and hermetic (explicit env, fake curl/uname, 20 s timeouts)."
+    }
+  ]
+}
