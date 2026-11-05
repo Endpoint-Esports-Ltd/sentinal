@@ -97,8 +97,9 @@ export async function downloadAndInstall(
   );
 
   try {
-    // For private repos, browser_download_url returns 404. Use the API URL
-    // with Accept: application/octet-stream which redirects to a signed URL.
+    // With a token, download through the API asset URL (Accept:
+    // application/octet-stream redirects to a signed URL) so the request is
+    // authenticated; without one, use the public browser_download_url.
     const useApiUrl = Boolean(getGitHubToken());
     const downloadUrl = useApiUrl ? asset.url : asset.browser_download_url;
 
