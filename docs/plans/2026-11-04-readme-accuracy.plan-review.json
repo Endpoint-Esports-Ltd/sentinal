@@ -1,0 +1,49 @@
+{
+  "review_summary": "The plan covers every part of the request and the clarifications: install.sh becomes token-optional and checks SHA-256, the 'private repo' text goes from update-github.ts and pre-release.mjs, the README errors are fixed in place, and the per-target MCP setup is documented as it is. The remaining risks are in how install.sh will compute the hash, handle a stale token in the user's environment and clean up its temp file. These are should-fix gaps, not misalignment.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Checksum comparison method unspecified; `sha256sum -c` would fail on the temp file name",
+      "description": "Task 1 says to download to `$BIN_DIR/.sentinal.download.$$` and 'verify against the checksums.txt line for $ASSET_NAME'. checksums.txt lines are `<hash>  sentinal-<os>-<arch>`, so `sha256sum -c` / `shasum -a 256 -c` would look for a file named sentinal-<os>-<arch>, not the temp file. `shasum` and `sha256sum` also format their output slightly differently (Pre-Mortem #2 already names this as the most likely failure).",
+      "suggested_fix": "In Task 1 Key Decisions, require: EXPECTED=$(grep \"  $ASSET_NAME\\$\" checksums | awk '{print $1}') (an exact name match, so a longer name like sentinal-darwin-arm64.sig cannot match); ACTUAL=$( (sha256sum \"$TMP\" 2>/dev/null || shasum -a 256 \"$TMP\") | awk '{print $1}'); compare the two lower-cased strings with `[ \"$EXPECTED\" = \"$ACTUAL\" ]`. Never use `-c`. Add a unit test where checksums.txt also lists a decoy asset whose name has $ASSET_NAME as a prefix."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "A stale or invalid GITHUB_TOKEN in the environment will break the install even though the repo is public",
+      "description": "The clarification says 'token still used if set'. Many developers have GITHUB_TOKEN or GH_TOKEN exported for other reasons, and an expired or revoked one gets a 401 from the API. Today install.sh (lines 66-67) then dies with \"Check your token has 'repo' scope\". With the repo public, that turns a working anonymous install into a failure, which defeats the point of making the token optional.",
+      "suggested_fix": "In Task 1: if the authenticated release fetch fails, warn ('token rejected, retrying anonymously') and retry once without auth, then use the browser_download_url path. Add a unit test where the fake curl returns 401 when an Authorization header is sent, and assert the install still succeeds. Mirror the wording in Task 2's 401 message."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Temp file is not cleaned up on a curl failure or an interrupt",
+      "description": "The DoD only checks the mismatch path ('~/.sentinal/bin/sentinal is absent'). The current script runs `set -e` and `|| die` (lines 86-91), so a failed binary or checksums download, or a Ctrl-C, leaves `.sentinal.download.$$` in ~/.sentinal/bin.",
+      "suggested_fix": "Add `trap 'rm -f \"$TMP\" \"$TMP_SUMS\"' EXIT INT TERM` (POSIX), or call rm before every die after the temp file exists. Extend the mismatch test to also assert that no `.sentinal.download.*` file remains in $HOME/.sentinal/bin."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The fake curl must reject an empty `-H` argument and needs a fake uname so tests are deterministic",
+      "description": "Task 1 says 'Build curl auth args only when set'. A naive `-H \"$AUTH_HEADER\"` with an empty variable passes `-H ''`, and the 'no Authorization header' check would miss it if it only greps for 'Authorization'. Without a fake uname, the asset name in fixtures depends on the developer's or CI machine's architecture.",
+      "suggested_fix": "In the test notes, require the fake curl to log each argument on its own line and the no-token test to assert that no `-H` argument is empty or contains 'Authorization'. Always put a fake `uname` on PATH (e.g. Darwin/arm64, plus one Linux/x86_64 case) so the expected asset name is fixed."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "pre-release.mjs header comment still says --download 'needs GITHUB_TOKEN'",
+      "description": "scripts/pre-release.mjs:15 reads 'Download + checksum-verify a published asset (needs GITHUB_TOKEN)'. Truth 4 only greps for 'private repo', so this stale line would get through. Task 3 only mentions updating release-asset.ts's header comment.",
+      "suggested_fix": "Add to Task 3: reword pre-release.mjs:15 to '(GITHUB_TOKEN optional; raises rate limit)', and widen Truth 4 to also grep for 'requires GITHUB_TOKEN\\|needs GITHUB_TOKEN'."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Truth 2 / the manual live run depend on the network and should not be a gate in CI",
+      "description": "Truth 2 (`env -u GITHUB_TOKEN ... sh scripts/install.sh` against live GitHub) is listed next to the hermetic checks. It is subject to the unauthenticated limit of 60 requests per hour and to network flakiness.",
+      "suggested_fix": "Mark Truth 2 as manual/live-only in Goal Verification, and keep it out of any bun test file."
+    }
+  ]
+}
