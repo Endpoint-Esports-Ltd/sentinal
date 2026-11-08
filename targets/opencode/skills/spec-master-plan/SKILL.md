@@ -158,6 +158,20 @@ Table listing each child plan. Each child plan should include an `## Execution W
 | 4     | 3    | Frontend    | User-facing UI       | Phase 3      |
 ```
 
+**Cross-repo phases.** A phase that changes ANOTHER repo (e.g. this master lives in an ops repo
+and Phase 2 changes the API repo) is **foreign**: add `Repo` (and `Base`) columns to the table —
+for humans only, they are not parsed. Suggest repos from `.sentinal/related.json` (its `name`s)
+when it exists. The record of a phase's repo is its child plan's `Repo:` header (below). Prefer
+Orca for foreign phases: each worker then runs inside a worktree of that repo, with its rules,
+memory and TDD scoping, and needs no extra directory permissions.
+
+```markdown
+| Phase | Wave | Title    | Objective        | Dependencies | Repo | Base    |
+| ----- | ---- | -------- | ---------------- | ------------ | ---- | ------- |
+| 1     | 1    | Infra    | Terraform module | None         | —    | —       |
+| 2     | 2    | API flag | Feature flag     | Phase 1      | api  | develop |
+```
+
 ### Progress Tracking
 
 Checkboxes per phase (not per task):
@@ -200,6 +214,19 @@ Wave: [wave-number]
 **Goal:** [Phase objective from master plan]
 **Context:** See master plan at `docs/plans/[master-plan-file]`
 ```
+
+**Foreign phase (another repo):** write the stub here, in THIS repo's `docs/plans/`, with the same
+filename and `Parent:` — it is the phase's **seed** — and add, after `Wave:`:
+
+```markdown
+Repo: [related.json name, path relative to this repo, or absolute path]
+Base: [base branch in that repo; omit for the branch checked out in its main checkout]
+```
+
+Prefer a `related.json` name or a relative path, so the committed seed works for teammates. The
+seed is planned and approved here like any child; `spec-master-execute` copies it into a worktree
+of that repo when the phase runs and records the copy in the seed's `Location:` header. Never
+write `Location:` or `Master:` yourself.
 
 Child plans start as PENDING + Approved: No. They can be:
 

@@ -1,0 +1,11 @@
+{
+  "id": "local",
+  "ok": false,
+  "error": {
+    "code": "invalid_argument",
+    "message": "Choose either one parent selector or --no-parent."
+  },
+  "_meta": {
+    "runtimeId": null
+  }
+}

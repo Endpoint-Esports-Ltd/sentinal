@@ -1,4 +1,4 @@
-@@ -104,12 +104,11 @@
+@@ -106,12 +106,11 @@
  
  ### Spawning Subagents
  
@@ -14,7 +14,7 @@
    prompt="""
    Execute the spec workflow for this child plan.
  
-@@ -129,7 +128,7 @@
+@@ -131,7 +130,7 @@
  )
  ```
  
@@ -23,7 +23,7 @@
  
  ### Orca Mode
  
-@@ -318,7 +317,7 @@
+@@ -390,7 +389,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  

@@ -1,7 +1,7 @@
 # Cross-Repo Master Plans
 
 Created: 2026-11-05
-Status: PENDING
+Status: VERIFIED
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -240,13 +240,29 @@ Task 3). Disjoint files.
 
 ## Progress Tracking
 
-- [ ] Task 1: Live Orca verification + fixtures + skill notes (Wave 1)
-- [ ] Task 3: Plan headers Repo/Base/Master/Location (Wave 1)
-- [ ] Task 2: orca_dispatch `repo` + prepareChildWorktree `--repo` (Wave 2)
-- [ ] Task 4: spec_master_audit follows Location (Wave 2)
-- [ ] Task 5: Master plan/execute prose, parity, README, dev rules (Wave 3)
+- [x] Task 1: Live Orca verification + fixtures + skill notes (Wave 1)
+- [x] Task 3: Plan headers Repo/Base/Master/Location (Wave 1)
+- [x] Task 2: orca_dispatch `repo` + prepareChildWorktree `--repo` (Wave 2)
+- [x] Task 4: spec_master_audit follows Location (Wave 2)
+- [x] Task 5: Master plan/execute prose, parity, README, dev rules (Wave 3)
 
-**Total Tasks:** 5 | **Completed:** 0 | **Remaining:** 5
+**Total Tasks:** 5 | **Completed:** 5 | **Remaining:** 0
+
+## Deferred Issues
+
+From the spec review (suggestions, non-blocking):
+
+- A relative `Location:` (after a merge) resolves against `Repo:` as written — normally the
+  repo's main checkout. If the base branch is checked out in a linked worktree, the merge lands
+  there and the audit reports `foreign-location-missing` until that branch reaches the main
+  checkout.
+- A relative `Repo:` resolves against the master's repo root found by walking up to `.git`; from a
+  linked/Orca worktree nested inside the repo (`.orca/worktrees/…`), `../api` points elsewhere
+  than from the main checkout. The prose recommends a `related.json` name for this reason.
+
+Done from the review: the audit's resolver was renamed `resolveSeedRepo` (it clashed with
+`src/orca/dispatch-worktree.ts` `resolveRepoDir`), and an unreadable `Location:` now names a
+missing repo directory.
 
 ## Implementation Tasks
 

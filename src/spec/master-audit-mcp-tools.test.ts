@@ -247,3 +247,29 @@ describe("spec_master_audit — verification evidence warnings", () => {
     }
   });
 });
+
+describe("spec_master_audit — foreign children", () => {
+  it("should show a Repo column and the location when a child has Repo:", async () => {
+    const api = join(tmpDir, "api");
+    mkdirSync(join(api, "docs", "plans"), { recursive: true });
+    const copy = join(api, "docs", "plans", `${M}-phase-1.md`);
+    writeFileSync(copy, `# Copy\n\nStatus: VERIFIED\nParent: ${M}\n`);
+    writeFileSync(
+      join(plansDir, `${M}-phase-1.md`),
+      `# Seed\n\nStatus: VERIFIED\nType: Feature\nParent: ${M}\nWave: 1\n` +
+        `Repo: ${api}\nLocation: docs/plans/${M}-phase-1.md\n`,
+    );
+    const p = writeMaster("- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    const out = await run(p);
+    expect(out).toContain("| Child | Status | Master checkbox | Repo |");
+    expect(out).toContain(`| ${api} (${copy}) |`);
+  });
+
+  it("should keep the three-column table when no child is foreign", async () => {
+    writeChild(`${M}-phase-1`, "VERIFIED");
+    const out = await run(
+      writeMaster("- [x] Phase 1: A (Wave 1) — **VERIFIED**"),
+    );
+    expect(out).toContain("| Child | Status | Master checkbox |\n");
+  });
+});

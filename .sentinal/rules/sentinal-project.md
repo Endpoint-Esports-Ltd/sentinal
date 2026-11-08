@@ -442,7 +442,10 @@ worktree another tool made (Orca) can be adopted:
 (default `auto`: Orca only when `ORCA_TERMINAL_HANDLE` is set, `orca status` is ready and
 advertises `orchestration.contract.v1`). **Master plans** use Orca under `auto`: Orca creates each
 phase's worktree (no agent), Sentinal adopts it as `external` and runs `setup`, then the worker
-starts in it (`--worktree path:`). **Single plans** use Orca only with the header. Workers run the
+starts in it (`--worktree path:`). **Single plans** use Orca only with the header. A master phase whose child plan has `Repo:` runs in a worktree of **that** repo
+(cross-project scope Phase 3): `orca_dispatch` `repo` (`--repo path: --no-parent`), adopted with
+`project: <repo>`; the plan in the master's `docs/plans/` is a seed whose `Location:` points at the
+copy committed in the phase worktree, and `spec_master_audit` follows it. Workers run the
 coordinator's agent (`claude` / `opencode`). Verified in the spike: Orca enforces task
 dependencies; a worker whose agent cannot log in goes silent (no `worker_done`), so `orca_wait`
 reports stalls and the skill asks the user; the first `worker-start` can fail at

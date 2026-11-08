@@ -76,6 +76,20 @@ Warnings never change `ok`: older children predate review files, and none are ra
 `SENTINAL_SPEC_REVIEWER_ENABLED=false`. In Orca Mode the coordinator checks the same file before
 merging and treats a missing one as a failed phase (`spec-master-execute` step 5).
 
+**Foreign (cross-repo) children** (`src/spec/master-audit-foreign.ts`, Phase 3 of
+`docs/plans/2026-11-05-cross-project-scope.md`): a child with `Repo:` is a **seed**. Its status is
+read from its `Location:` (absolute, or relative to the resolved `Repo:` — absolute, a
+`related.json` name via `loadRelatedProjects(<master workspace>, {identity: p => p})`, else relative
+to the master's repo root, found by walking up to a `.git` entry — no git spawn). Findings:
+`foreign-location-missing` (VERIFIED seed without `Location:`, or an unreadable one),
+`foreign-link-mismatch` (the copy's `Parent:` is not this master; `Master:` is never checked),
+`foreign-status-disagrees` (seed ≠ copy). A seed without `Location:` that is not VERIFIED uses its
+own status; a CANCELLED seed is excluded without reading the copy. `ChildPlan` gains `repo` and
+`location`; `no-review-evidence` looks beside the **Location** file; the rendered table gains a
+`Repo` column only when some child is foreign. Another repo's `docs/plans` is never scanned.
+`spec_plan_parse` prints `Parent`/`Repo`/`Base`/`Master`/`Location` when present (parsed by
+`parser-header.ts`, raw strings; `Spec.repo/base/master/location` are omitted when absent).
+
 `spec_notify` takes an optional `project` (default: the MCP server's cwd), resolved with
 `resolveProjectIdentity` and sent as `projectPath` with `source: "spec-notify"` (D5), so the notice
 reaches that project's session-start digest. `spec_metrics` passes its `project` to
@@ -196,7 +210,7 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 | Tool                   | Purpose                                                                                                                                                                                                                                                                                                                                                                |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `orca_status`          | Detect Orca, resolve Orca vs subagents (header / `SENTINAL_ORCHESTRATION`), auth                                                                                                                                                                                                                                                                                       |
-| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing                                                                                                                                                                                                                                                                                        |
+| `orca_dispatch`        | Ensure a Run; create tasks (deps) and prepared child worktrees — starts nothing; `repo` (prepare-child) creates it in another Orca-registered repo                                                                                                                                                                                                                     |
 | `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); pre-warms listed agents (`start_path`: `prewarmed` / `agent` / `agent-fallback` / `replayed`); `retry_of` replaces a stopped/failed attempt (`retry_of_skipped: true` when the task is already `ready`); reports `delivery_confirmed`; `worker_access` (read-only dirs) when `prewarmed` |
 | `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; auto-acks heartbeat-only deliveries (≤3 rounds), otherwise no ack                                                                                                                                    |
 | `orca_ack`             | Acknowledge a delivery                                                                                                                                                                                                                                                                                                                                                 |
@@ -206,6 +220,17 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 | `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                                                                      |
 | `orca_release`         | **DESTRUCTIVE** — release a settled worker's terminal; after `retained`/`released`/`already_released` also closes the terminal Sentinal created for a pre-warmed start (never an Orca-created one)                                                                                                                                                                     |
 | `orca_remove_worktree` | **DESTRUCTIVE** — `orca worktree rm` (no `--force`); one retry after a stale "Failed to delete worktree" refusal                                                                                                                                                                                                                                                       |
+
+**Foreign-repo child worktrees** (`src/orca/dispatch-worktree.ts`, Phase 3 of
+`docs/plans/2026-11-05-cross-project-scope.md`, verified live on 1.4.253 — `sentinal-orca-cli`
+skill): a `prepare-child` task with `repo` (absolute, existing; validated in `orderDispatchTasks`,
+only with `prepare-child`) runs `worktree create --repo path:<realpath> --name … --base-branch …
+--no-parent --setup skip` — never `--parent-worktree` (Orca rejects both together). The selector
+is matched literally against the registered path, hence the realpath. `repo_not_found` →
+`repo_not_registered` naming `orca repo add --path <repo>`; Sentinal never runs it (Orca has no
+removal command). A path-less result is resolved by `repo show` → `repo.id` + `worktree list`
+(`repoId` + `displayName`), never `worktree show --worktree name:` (`selector_ambiguous` across
+repos). The task's `next` adds `project=<repo>` to `worktree_ensure`.
 
 ⛔ **Direct-only, like Runtime**: Orca state lives in the Orca app, so `registerOrcaTools` ignores
 `{client, store}` and shells out through one adapter (`src/orca/cli.ts`: parses the LAST JSON

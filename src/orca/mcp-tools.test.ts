@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { makeTmpDir } from "../test-helpers.js";
@@ -301,6 +301,74 @@ describe("orca_dispatch", () => {
     const wt = f.called("worktree create")[0]!;
     expect(flag(wt, "--base-branch")).toBe("main");
     expect(flag(wt, "--setup")).toBe("skip");
+  });
+
+  it("should describe the repo field and the orca repo add hint in the tool description", () => {
+    const { tools } = capture({ runner: dispatchRoutes().runner });
+    expect(tools.get("orca_dispatch")!.description).toContain("orca repo add");
+  });
+
+  it("should create a prepare-child worktree in another repo when the task has repo", async () => {
+    const repo = makeTmpDir();
+    try {
+      const f = dispatchRoutes();
+      const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+      const r = await call("orca_dispatch", {
+        objective: "cross-repo",
+        agent: "opencode",
+        tasks: [
+          {
+            key: "api",
+            title: "API",
+            spec: "s",
+            worktree: "prepare-child",
+            name: "spec-api",
+            base_branch: "develop",
+            repo,
+          },
+        ],
+      });
+      expect(r.data.ok).toBe(true);
+      const wt = f.called("worktree create")[0]!;
+      expect(flag(wt, "--repo")).toBe(`path:${realpathSync(repo)}`);
+      expect(wt).toContain("--no-parent");
+      expect(wt).not.toContain("--parent-worktree");
+      expect(r.data.tasks[0].repo).toBe(realpathSync(repo));
+      expect(r.data.tasks[0].next).toContain(`project=${realpathSync(repo)}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["a relative repo", "relative/repo", "prepare-child"],
+    [
+      "a repo that does not exist",
+      "/nonexistent/sentinal-repo-xyz",
+      "prepare-child",
+    ],
+    ["repo on a current placement", "/tmp", "current"],
+  ])("refuses %s before touching Orca", async (_label, repo, worktree) => {
+    const f = dispatchRoutes();
+    const { call } = capture({ runner: f.runner, env: ORCA_ENV });
+    const r = await call("orca_dispatch", {
+      objective: "o",
+      agent: "opencode",
+      tasks: [
+        {
+          key: "a",
+          title: "A",
+          spec: "s",
+          worktree,
+          name: "n",
+          base_branch: "main",
+          repo,
+        },
+      ],
+    });
+    expect(r.data.ok).toBe(false);
+    expect(r.data.error.code).toBe("invalid_tasks");
+    expect(f.calls).toEqual([]);
   });
 
   it("passes an existing task id through as a dependency", async () => {

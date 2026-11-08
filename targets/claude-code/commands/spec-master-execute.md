@@ -83,6 +83,8 @@ For each child plan:
 1. **File exists:** Verify the child plan `.md` file exists
 2. **Has tasks:** Check if the child plan has `## Implementation Tasks` (not just a stub)
 3. **Not a stub:** If child plan only has `> Awaiting detailed planning...`, it needs planning first
+4. **Foreign phase:** a child plan with a `Repo:` header changes another repo — run the
+   **Foreign Phases** pre-flight below before its wave starts
 
 **If any child plan is a stub (no tasks):**
 
@@ -154,8 +156,11 @@ uncertain attempt). The `orca` binary serves that guide itself, so it needs no i
 2. **Dispatch.** `orca_dispatch({ objective, agent, tasks })` with one task per child plan:
    `key` = the phase, `title` = the phase title, `worktree: "prepare-child"`,
    `name: "spec-<child-plan-slug>"`, `base_branch` = this session's branch, `deps` = the task keys
-   (or ids) of the phases this one depends on. The `spec` text must be self-contained and follow
-   Orca's Task-spec contract:
+   (or ids) of the phases this one depends on. For a **foreign phase** (child plan with `Repo:`)
+   also pass `repo: <absolute path of that repo>` and `base_branch: <its Base:, else the branch
+checked out in its main checkout>`: the worktree is created in that repo, with no lineage
+   (**Foreign Phases** below). The `spec` text must be self-contained and follow Orca's Task-spec
+   contract:
 
    ```
    Target: this worktree only; child plan <child-plan-path> (Phase N of master plan
@@ -180,7 +185,9 @@ uncertain attempt). The `orca` binary serves that guide itself, so it needs no i
 path, base: <this session's branch>, owner: "external" })`. This gives it a slot, seeds its
    config and runs the project's `setup` (dependency install). Report any setup warning.
    Sentinal holds at most 5 worktrees at once (`SENTINAL_WORKTREE_MAX_ACTIVE` raises it), so a
-   wave with more phases than that is adopted in batches.
+   wave with more phases than that is adopted in batches. For a foreign phase pass
+   `project: <repo>` and `base: <its base>`, then copy and commit its plan (**Foreign Phases**,
+   F2–F3) before starting it.
 4. **Start.** `orca_start({ task_id, worktree: { path }, agent })` for each task. If it returns
    `pending`, call it again with the same `request_id`; if `blocked`, its dependencies are still
    running — start it once they settle; if `refused` or `failed`, treat the phase as failed.
@@ -205,7 +212,9 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    - If both hold: `worktree_sync({ plan_slug })` squash-merges the phase into this session's
      branch and releases the adopted worktree; then `orca_release({ dispatch_id })` and
      `orca_remove_worktree({ path })`. (`worktree_abandon` is only for a skipped or stopped
-     phase — after a merge it has nothing left to release.)
+     phase — after a merge it has nothing left to release.) For a foreign phase read the COPY
+     (the seed's `Location:`) and merge with `worktree_sync({ plan_slug, project: <repo> })`,
+     then update the seed (**Foreign Phases**, F4).
    - Otherwise treat it as a failed phase (below).
    - A `question` message: answer it with `orca_reply({ run_id, message_id, body })` (ask the user
      if you cannot answer), before the worker's `ask` times out.
@@ -255,7 +264,69 @@ the Run).
 
 **On Skip or Stop** for a failed phase, still release its worktree through Sentinal
 (`worktree_abandon`) before `orca_remove_worktree`, so no slot stays reserved. On Retry, dispatch
-the phase again (a new task) into the same prepared worktree with `worktree: { path }`.
+the phase again (a new task) into the same prepared worktree with `worktree: { path }`. For a
+foreign phase pass `project: <repo>` to `worktree_abandon`, then set the seed's `Status: CANCELLED`
+and commit it.
+
+### Foreign Phases (another repo)
+
+A child plan with `Repo:` (an absolute path, a path relative to this repo, or a
+`.sentinal/related.json` name) changes **another repo**. The file in this repo's `docs/plans/` is
+its **seed**; the phase runs in a worktree of that repo, on a **copy** of the seed, and the copy is
+what gets verified and merged there. Orca is the recommended path: a worker started in the foreign
+worktree has that repo as its working directory — its rules, memory and TDD scoping — and needs no
+extra directory permissions.
+
+**Pre-flight (both modes), before the phase's wave:**
+
+- Resolve `Repo:` to an absolute path (a `related.json` name → its `path`; a relative path →
+  against this repo's root). It must be an existing git repo.
+- Its base is `Base:`, else the branch checked out in its main checkout
+  (`git -C <repo> branch --show-current`).
+- ⛔ The merge lands in **the user's checkout of that repo**: `worktree_sync` merges in the
+  checkout holding the base branch, else the repo's main checkout, and refuses a dirty one
+  (`DIRTY_MAIN_CHECKOUT`). Check `git -C <repo> status --porcelain` is clean and the base exists,
+  and tell the user before the wave starts.
+- Orca Mode only: the repo must be in `orca repo list`. If it is not, stop and ask the user to run
+  `orca repo add --path <repo>` — never run it yourself (it changes their Orca setup, and Orca has
+  no command to undo it). `orca_dispatch` answers `repo_not_registered` with the same command.
+
+**Per foreign phase:**
+
+- **F1 — Worktree.** Orca: `orca_dispatch` with `repo:` and `base_branch:` (above), then
+  `worktree_ensure({ plan_slug, path, base, owner: "external", project: <repo> })`. Subagents:
+  `worktree_create({ plan_slug, project: <repo>, base_branch: <its base> })`.
+- **F2 — Copy.** Copy the seed to `<worktree>/docs/plans/<same file>` and add
+  `Master: <this master plan's path relative to this repo's root>` (e.g.
+  `docs/plans/2026-11-05-x.md`) after `Parent:`. Commit it **in the phase worktree**:
+  `git -C <worktree> add docs/plans/<file> && git -C <worktree> commit -m "docs(spec): add <slug> plan"`
+  — `worktree_sync` merges only commits, so an uncommitted copy never reaches the repo.
+- **F3 — Location.** Write `Location: <absolute path of the copy>` into the seed and commit the
+  seed **here, immediately** (every seed rewrite is committed at once: a dirty checkout blocks the
+  next same-repo merge). Brief the worker with the COPY's path as the plan file, and add to its
+  Constraints: "commit your plan file and its `.spec-review.json` with your work".
+- **F4 — After the merge.** Once the copy reads VERIFIED and its merge succeeded
+  (`worktree_sync` with `project: <repo>`), set the seed's `Location:` to `docs/plans/<file>`
+  (relative to `Repo:`) and its `Status:` to the copy's, and commit. Then release / abandon (`project: <repo>`) / remove
+  as for any phase.
+
+**Subagents (no Orca).** Run the phase **without worktree isolation of this repo** — the worktree
+already exists in the other repo. Claude Code: a plain `Agent` subagent, never
+`isolation="worktree"` (that would create a worktree of THIS repo). OpenCode: `spec-task`. Brief it
+with the worktree path and the copy's path, and tell it to use absolute paths and run every
+command as `cd <worktree> && …`. Sentinal keys its memory and TDD state to the repo that owns each
+edited file, so the work stays scoped to that repo.
+
+⚠️ **Permissions (subagents only).** Editing outside this session's directory prompts: OpenCode's
+`external_directory` ("Allow always" lasts one session) and Claude Code's working-directory rule.
+Say so up front, and suggest the durable fix: OpenCode
+`"permission": {"external_directory": {"<repo>/**": "allow"}}` in the project's `opencode.json`;
+Claude Code `--add-dir <repo>` or `permissions.additionalDirectories`.
+
+`spec_master_audit` follows the seed's `Location:` (absolute, or relative to `Repo:`), reads the
+status there, requires the copy's `Parent:` to name this master, and reports the repo per child.
+A VERIFIED seed without `Location:`, a missing copy, a wrong `Parent:`, or a seed whose status
+differs from its copy's is a finding. The master's phase table shows the repo for humans only.
 
 ### Failure Handling
 
@@ -276,7 +347,8 @@ If a child plan fails (verification rejects, or subagent reports errors):
 After each wave completes, update the master plan:
 
 1. Read current master plan content
-2. **Read each child plan's `Status:` field from the child FILE.**
+2. **Read each child plan's `Status:` field from the child FILE** (for a foreign phase, the copy
+   at its seed's `Location:` — the seed mirrors it after the merge).
    ⛔ Never set a checkbox from what a subagent reported. The report is prose; the child file is the
    record `spec-verify` actually writes. Setting `— VERIFIED` from a report is how a master comes to
    claim phases that were never verified, and Step 3.1 then selects the next wave from those same

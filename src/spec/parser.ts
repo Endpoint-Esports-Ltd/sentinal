@@ -62,6 +62,11 @@ export function parsePlanContent(content: string, filePath: string): Spec {
     created: meta.created,
     parent: meta.parent || undefined,
     wave: meta.wave ? parseInt(meta.wave, 10) : undefined,
+    // Cross-repo headers: keys omitted unless present, like `orchestration`.
+    ...(meta.repo && { repo: meta.repo }),
+    ...(meta.base && { base: meta.base }),
+    ...(meta.master && { master: meta.master }),
+    ...(meta.location && { location: meta.location }),
     tasks,
     metadata: {
       iterations: meta.iterations ? parseInt(meta.iterations, 10) : undefined,

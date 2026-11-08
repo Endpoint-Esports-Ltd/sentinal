@@ -319,6 +319,12 @@ function registerSpecPlanParseTool(server: McpServer): void {
           );
         }
 
+        if (spec.parent) lines.push(`- **Parent:** ${spec.parent}`);
+        if (spec.repo) lines.push(`- **Repo:** ${spec.repo}`);
+        if (spec.base) lines.push(`- **Base:** ${spec.base}`);
+        if (spec.master) lines.push(`- **Master:** ${spec.master}`);
+        if (spec.location) lines.push(`- **Location:** ${spec.location}`);
+
         if (spec.tasks.length > 0) {
           lines.push("", "### Tasks");
           for (const task of spec.tasks) {

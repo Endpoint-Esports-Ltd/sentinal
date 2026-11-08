@@ -17,6 +17,14 @@ export interface RawMetadata {
   parent?: string;
   wave?: string;
   orchestration?: string;
+  /** Cross-repo phase: the repo it changes (absolute path, relative path or related.json name). */
+  repo?: string;
+  /** Cross-repo phase: base branch in that repo. */
+  base?: string;
+  /** Copy of a cross-repo child: the master plan's path relative to its repo. */
+  master?: string;
+  /** Seed of a cross-repo child: where the live child plan is. */
+  location?: string;
 }
 
 /** Extract metadata from either new-format or old-format plan files. */
@@ -34,7 +42,7 @@ export function extractMetadata(
 
     // New format: `Key: Value`
     const plainMatch = line.match(
-      /^(Status|Type|Approved|Created|Iterations|Worktree|Parent|Wave|Orchestration):\s*(.+)$/i,
+      /^(Status|Type|Approved|Created|Iterations|Worktree|Parent|Wave|Orchestration|Repo|Base|Master|Location):\s*(.+)$/i,
     );
     if (plainMatch) {
       const key = plainMatch[1].toLowerCase() as keyof RawMetadata;
