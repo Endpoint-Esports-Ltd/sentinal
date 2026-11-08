@@ -202,7 +202,7 @@ Child plans:
 ## Progress Tracking
 
 - [x] Phase 1: File-project resolver + per-edit wiring (Wave 1) — VERIFIED
-- [ ] Phase 2: Related projects + foreign context (Wave 2) — PENDING
+- [x] Phase 2: Related projects + foreign context (Wave 2) — VERIFIED
 - [ ] Phase 3: Cross-repo master plans (Wave 3) — PENDING
 
-**Total Phases:** 3 | **Completed:** 1 | **Remaining:** 2
+**Total Phases:** 3 | **Completed:** 2 | **Remaining:** 1
