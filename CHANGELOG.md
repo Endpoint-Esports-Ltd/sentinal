@@ -1,3 +1,18 @@
+# [1.47.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.46.1...v1.47.0) (2026-11-08)
+
+
+### Bug Fixes
+
+* **install:** install.sh works without a token and verifies sha256 ([ce33c77](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/ce33c77064441b7d9b1fcd56005bbb66ac17f608))
+* **orca:** request --full from orchestration commands (Orca 1.4.253 concise output) ([409ff49](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/409ff49c687d495d48cf6bd1bd32ebd5e8a1e122))
+
+
+### Features
+
+* **project:** cross-project scope phase 1 — per-file project resolver and wiring ([921c634](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/921c6340bd9c3e3e9a8557209888d1ba1b7fb701))
+* **project:** cross-project scope phase 2 — related projects and foreign context ([5166ca2](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/5166ca2c39032b56fe3e02e7ed23c6cba436abc9))
+* **spec:** cross-project scope phase 3 — cross-repo master plans ([1889a92](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/1889a922f68c0d85183f84d6032dabc04cc7b67c))
+
 ## [1.46.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.46.0...v1.46.1) (2026-11-04)
 
 
