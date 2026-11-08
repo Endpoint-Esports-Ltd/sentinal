@@ -1687,3 +1687,281 @@ describe("memory capture: error → fix (D9)", () => {
     expect(fixes()).toHaveLength(1);
   }, 30_000);
 });
+
+// ─── Cross-project scope (docs/plans/2026-11-05-cross-project-scope-phase-1.md) ─
+
+describe("per-file project wiring (session A, file in repo B)", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+  let prevHome: string | undefined;
+  let queuePendingSpy: ReturnType<typeof spyOn>;
+  let queueEnqueueSpy: ReturnType<typeof spyOn>;
+
+  const BUN_FAIL = " 0 pass\n 1 fail\nRan 1 tests across 1 file. [5.00ms]\n";
+
+  beforeAll(() => {
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-oc-cross-")));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    for (const d of [a, b]) {
+      mkdirSync(join(d, "src", "app"), { recursive: true });
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: d });
+    }
+    writeFileSync(join(b, "src", "x.test.ts"), "");
+    writeFileSync(join(b, "angular.json"), "{}");
+    const home = join(tmp, "home");
+    mkdirSync(join(home, "bin"), { recursive: true });
+    writeFileSync(join(home, "bin", "sentinal"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(home, "bin", "sentinal"), 0o755);
+    prevHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = home;
+    queuePendingSpy = spyOn(ObservationQueue, "pending").mockReturnValue(0);
+    queueEnqueueSpy = spyOn(ObservationQueue, "enqueue").mockImplementation(
+      () => {},
+    );
+  });
+
+  afterAll(() => {
+    queuePendingSpy.mockRestore();
+    queueEnqueueSpy.mockRestore();
+    if (prevHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = prevHome;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  interface Calls {
+    getTddState: Array<[string, string | undefined]>;
+    setTddState: Array<Record<string, unknown>>;
+    transitions: unknown[][];
+    observations: Array<Record<string, unknown>>;
+    searches: Array<Record<string, unknown>>;
+    logs: string[];
+  }
+
+  async function setup(
+    activeSpec: Record<string, boolean>,
+    tddStates: unknown[] = [],
+  ) {
+    const calls: Calls = {
+      getTddState: [],
+      setTddState: [],
+      transitions: [],
+      observations: [],
+      searches: [],
+      logs: [],
+    };
+    const fake = {
+      createSession: async () => {},
+      endSession: async () => {},
+      getTddState: async (file: string, project?: string) => {
+        calls.getTddState.push([file, project]);
+        return {
+          state: "IDLE",
+          hasActiveSpec: activeSpec[project ?? ""] ?? false,
+        };
+      },
+      setTddState: async (s: Record<string, unknown>) => {
+        calls.setTddState.push(s);
+      },
+      tddTransition: async (...args: unknown[]) => {
+        calls.transitions.push(args);
+        return { count: 1 };
+      },
+      addObservation: async (obs: Record<string, unknown>) => {
+        calls.observations.push(obs);
+      },
+      memorySearch: async (q: Record<string, unknown>) => {
+        calls.searches.push(q);
+        return [];
+      },
+      listActiveTddStates: async () => tddStates,
+      getCurrentSpec: async () => null,
+    } as unknown as SidecarClient;
+    const spy = spyOn(SidecarClient, "connectWithRetry").mockResolvedValue(
+      fake,
+    );
+    let hooks: Awaited<ReturnType<typeof SentinalPlugin>>;
+    try {
+      hooks = await SentinalPlugin({
+        project: { name: "cross", path: a },
+        client: {
+          app: {
+            log: async (o: { body: { message: string } }) => {
+              calls.logs.push(o.body.message);
+            },
+          },
+          session: { messages: async () => ({ data: [] }) },
+        },
+        $: () => Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+        directory: a,
+        worktree: a,
+      } as never);
+    } finally {
+      spy.mockRestore();
+    }
+    const before = (tool: string, args: Record<string, unknown>) =>
+      hooks["tool.execute.before"]!(
+        { tool, sessionID: "s1", callID: "c1" } as never,
+        { args } as never,
+      );
+    let n = 0;
+    const after = async (
+      tool: string,
+      args: Record<string, unknown>,
+      output = "",
+      metadata: Record<string, unknown> = {},
+    ) => {
+      await hooks["tool.execute.after"]!(
+        { tool, sessionID: "s1", callID: `c${++n}`, args } as never,
+        { title: "", output, metadata } as never,
+      );
+      await new Promise((r) => setTimeout(r, 60));
+    };
+    return { hooks, calls, before, after };
+  }
+
+  it("guard: B's file is blocked when only the SESSION has a spec (two lookups)", async () => {
+    const { calls, before } = await setup({ [a]: true });
+    const file = join(b, "src", "x.ts");
+    await expect(before("edit", { filePath: file })).rejects.toThrow(
+      /TDD Guard/,
+    );
+    expect(calls.getTddState).toEqual([
+      [file, b],
+      [file, a],
+    ]);
+  }, 30_000);
+
+  it("guard: B's file is blocked when only B has a spec (one lookup)", async () => {
+    const { calls, before } = await setup({ [b]: true });
+    await expect(
+      before("edit", { filePath: join(b, "src", "x.ts") }),
+    ).rejects.toThrow(/TDD Guard/);
+    expect(calls.getTddState.map((c) => c[1])).toEqual([b]);
+  }, 30_000);
+
+  it("guard: a session file makes one lookup under the session key", async () => {
+    const { calls, before } = await setup({});
+    await before("edit", { filePath: join(a, "src", "x.ts") });
+    expect(calls.getTddState.map((c) => c[1])).toEqual([a]);
+  }, 30_000);
+
+  it("apply_patch: a same-repo guarded file is now TDD-guarded", async () => {
+    const { calls, before } = await setup({ [a]: true });
+    const patchText =
+      "*** Begin Patch\n*** Update File: src/guarded.ts\n@@\n-a\n+b\n*** End Patch";
+    await expect(before("apply_patch", { patchText })).rejects.toThrow(
+      /TDD Guard/,
+    );
+    expect(calls.getTddState[0]).toEqual([join(a, "src", "guarded.ts"), a]);
+  }, 30_000);
+
+  it("apply_patch with no parsable path behaves as before (no lookup)", async () => {
+    const { calls, before } = await setup({ [a]: true });
+    await before("apply_patch", { patchText: "garbage" });
+    expect(calls.getTddState).toEqual([]);
+  }, 30_000);
+
+  it("pre-edit hint searches B's memories", async () => {
+    const { calls, before } = await setup({});
+    await before("edit", { filePath: join(b, "src", "x.ts") });
+    expect(calls.searches.map((q) => q.project)).toEqual([b]);
+  }, 30_000);
+
+  it("tracker: a failing `cd B && bun test` transitions B's rows", async () => {
+    const { calls, after } = await setup({});
+    await after("bash", { command: `cd ${b} && bun test` }, BUN_FAIL, {
+      exit: 1,
+    });
+    expect(calls.transitions).toEqual([["confirm_red", undefined, b]]);
+  }, 30_000);
+
+  it("tracker: editing B's test writes the row under B", async () => {
+    const { calls, after } = await setup({});
+    await after("write", { filePath: join(b, "src", "x.test.ts") });
+    expect(calls.setTddState[0]).toMatchObject({
+      filePath: join(b, "src", "x.ts"),
+      projectPath: b,
+    });
+  }, 30_000);
+
+  it("capture: a fix in B is keyed to B with sessionProject A", async () => {
+    const { calls, after } = await setup({});
+    await after("bash", { command: "bun test" }, BUN_FAIL, { exit: 1 });
+    await after("edit", { filePath: join(b, "src", "x.ts") });
+    const fix = calls.observations.find((o) =>
+      String(o.title).startsWith("Fixed issue"),
+    );
+    expect(fix?.projectPath).toBe(b);
+    expect((fix?.metadata as Record<string, unknown>).sessionProject).toBe(a);
+  }, 30_000);
+
+  it("capture: a failing `cd B && …` is keyed to B", async () => {
+    const { calls, after } = await setup({});
+    await after(
+      "bash",
+      { command: `cd ${b} && bun run src/x.ts` },
+      "error: Cannot find module 'express'",
+      { exit: 1 },
+    );
+    const err = calls.observations.find((o) => o.type === "error");
+    expect(err?.projectPath).toBe(b);
+    expect((err?.metadata as Record<string, unknown>).sessionProject).toBe(a);
+  }, 30_000);
+
+  it("framework detection runs on B's checkout (angular.json only in B)", async () => {
+    const { calls, after } = await setup({});
+    const comp = join(b, "src", "app", "foo.component.ts");
+    writeFileSync(comp, "@Component({ selector: 'x' })\nexport class Foo {}\n");
+    await after("edit", { filePath: comp });
+    expect(calls.logs.join("\n")).toContain("[Angular] Standalone components");
+  }, 30_000);
+
+  it("autocontinue: every target of an apply_patch marks its project touched", async () => {
+    const red = {
+      id: 1,
+      filePath: join(b, "src", "x.ts"),
+      specId: null,
+      taskPosition: null,
+      state: "RED_CONFIRMED",
+      testFilePath: null,
+      lastFailOutput: null,
+      updatedAt: Date.now(),
+      projectPath: b,
+    };
+    const s = await setup({}, [red]);
+    const patchText = `*** Begin Patch\n*** Update File: ${join(a, "README.md")}\n*** Update File: ${join(b, "README.md")}\n*** End Patch`;
+    await s.after("apply_patch", { patchText });
+    const out = { continue: true, context: [] as string[] };
+    await s.hooks["compaction.autocontinue"]!({} as never, out as never);
+    expect(out.continue).toBe(false);
+  }, 30_000);
+
+  it("autocontinue pauses for a RED row of a foreign project the session touched", async () => {
+    const red = {
+      id: 1,
+      filePath: join(b, "src", "x.ts"),
+      specId: null,
+      taskPosition: null,
+      state: "RED_CONFIRMED",
+      testFilePath: null,
+      lastFailOutput: null,
+      updatedAt: Date.now(),
+      projectPath: b,
+    };
+    const untouched = await setup({}, [red]);
+    const out1 = { continue: true, context: [] as string[] };
+    await untouched.hooks["compaction.autocontinue"]!(
+      {} as never,
+      out1 as never,
+    );
+    expect(out1.continue).toBe(true);
+
+    const touched = await setup({}, [red]);
+    await touched.before("edit", { filePath: join(b, "src", "x.ts") });
+    const out2 = { continue: true, context: [] as string[] };
+    await touched.hooks["compaction.autocontinue"]!({} as never, out2 as never);
+    expect(out2.continue).toBe(false);
+  }, 30_000);
+});

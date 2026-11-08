@@ -13,8 +13,18 @@ import {
 import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
 import {
   isScoped,
+  type TestRunScope,
   type TestScopeInput,
 } from "../../../src/utils/test-run-scope.js";
+import {
+  resolveFileProject,
+  type FileProject,
+  type SessionRoots,
+} from "../../../src/project/file-project.js";
+import {
+  groupTestScopeByProject,
+  type ProjectTestScope,
+} from "../../../src/project/test-scope-projects.js";
 
 // ─── Project Root Resolution ──────────────────────────────────────────────────
 
@@ -297,4 +307,51 @@ export async function transitionTddState(
     );
     return null;
   }
+}
+
+// ─── Cross-project scope (docs/plans/2026-11-05-cross-project-scope.md) ──────
+
+interface TddStateSidecar {
+  getTddState(
+    filePath: string,
+    projectPath?: string,
+  ): Promise<{ state: string; hasActiveSpec: boolean }>;
+}
+
+/**
+ * The TDD guard's lookup under the either-project rule: enforce when the
+ * FILE's project or the SESSION's project has an active spec. The state is
+ * keyed by file, so it is the same either way. A second request is made only
+ * for a foreign file whose own project has no active spec — no sidecar change,
+ * so an old sidecar answers both.
+ */
+export async function tddGuardLookup(
+  sidecar: TddStateSidecar,
+  filePath: string,
+  file: FileProject,
+  session: SessionRoots,
+): Promise<{ state: string; hasActiveSpec: boolean }> {
+  const own = await sidecar.getTddState(filePath, file.identity);
+  if (own.hasActiveSpec || !file.foreign) return own;
+  const viaSession = await sidecar.getTddState(filePath, session.identity);
+  return { state: own.state, hasActiveSpec: viaSession.hasActiveSpec };
+}
+
+/**
+ * One bulk transition per project the run touched (`groupTestScopeByProject`):
+ * named test files/dirs go to their own project; a run naming none is
+ * project-wide for the project of the directory it ran in. Returns the groups
+ * so the caller can note the foreign projects it touched.
+ */
+export async function transitionTddStateByProject(
+  sidecar: TddTransitionSidecar,
+  action: "confirm_red" | "confirm_green",
+  run: TestRunScope,
+  session: SessionRoots,
+  resolve: (p: string, s: SessionRoots) => FileProject = resolveFileProject,
+): Promise<ProjectTestScope[]> {
+  const groups = groupTestScopeByProject(run, session, resolve);
+  for (const g of groups)
+    await transitionTddState(sidecar, action, g.identity, undefined, g.scope);
+  return groups;
 }

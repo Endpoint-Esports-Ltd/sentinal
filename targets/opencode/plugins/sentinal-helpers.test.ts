@@ -459,3 +459,137 @@ describe("processTaskCreated — OC parity", () => {
     });
   });
 });
+
+// ─── Cross-project scope (Phase 1) ───────────────────────────────────────────
+
+import {
+  tddGuardLookup,
+  transitionTddStateByProject,
+} from "./sentinal-helpers.js";
+import type { FileProject } from "../../../src/project/file-project.js";
+
+describe("tddGuardLookup — either-project rule", () => {
+  const session = { identity: "/a", workspace: "/a" };
+  function fake(active: Record<string, boolean>) {
+    const calls: Array<[string, string | undefined]> = [];
+    return {
+      calls,
+      sidecar: {
+        getTddState: async (file: string, project?: string) => {
+          calls.push([file, project]);
+          return {
+            state: "IDLE",
+            hasActiveSpec: active[project ?? ""] ?? false,
+          };
+        },
+      },
+    };
+  }
+  const foreign: FileProject = {
+    identity: "/b",
+    workspace: "/b",
+    foreign: true,
+  };
+  const local: FileProject = {
+    identity: "/a",
+    workspace: "/a",
+    foreign: false,
+  };
+
+  it("a session file → one lookup under the session key", async () => {
+    const f = fake({ "/a": true });
+    expect(await tddGuardLookup(f.sidecar, "/a/x.ts", local, session)).toEqual({
+      state: "IDLE",
+      hasActiveSpec: true,
+    });
+    expect(f.calls).toEqual([["/a/x.ts", "/a"]]);
+  });
+
+  it("a foreign file whose project has a spec → one lookup", async () => {
+    const f = fake({ "/b": true });
+    const r = await tddGuardLookup(f.sidecar, "/b/x.ts", foreign, session);
+    expect(r.hasActiveSpec).toBe(true);
+    expect(f.calls).toEqual([["/b/x.ts", "/b"]]);
+  });
+
+  it("a foreign file with no spec of its own → second lookup under the session", async () => {
+    const f = fake({ "/a": true });
+    const r = await tddGuardLookup(f.sidecar, "/b/x.ts", foreign, session);
+    expect(r.hasActiveSpec).toBe(true);
+    expect(f.calls).toEqual([
+      ["/b/x.ts", "/b"],
+      ["/b/x.ts", "/a"],
+    ]);
+  });
+
+  it("neither project has a spec → not active", async () => {
+    const f = fake({});
+    expect(
+      (await tddGuardLookup(f.sidecar, "/b/x.ts", foreign, session))
+        .hasActiveSpec,
+    ).toBe(false);
+  });
+});
+
+describe("transitionTddStateByProject — one transition per project", () => {
+  const session = { identity: "/a", workspace: "/a" };
+  const resolveFake = (p: string): FileProject =>
+    p.startsWith("/b")
+      ? { identity: "/b", workspace: "/b", foreign: true }
+      : { identity: "/a", workspace: "/a", foreign: false };
+
+  it("sends one /tdd-state/transition per project with its own scope", async () => {
+    const calls: unknown[][] = [];
+    const sidecar = {
+      tddTransition: async (...args: unknown[]) => {
+        calls.push(args);
+        return { count: 1 };
+      },
+    };
+    const groups = await transitionTddStateByProject(
+      sidecar,
+      "confirm_red",
+      {
+        files: ["/a/x.test.ts", "/b/y.test.ts"],
+        dirs: ["/b/lib"],
+        nameFiltered: false,
+        cwd: "/a",
+      },
+      session,
+      resolveFake,
+    );
+    expect(calls).toEqual([
+      [
+        "confirm_red",
+        undefined,
+        "/a",
+        { testFiles: ["/a/x.test.ts"], testDirs: [] },
+      ],
+      [
+        "confirm_red",
+        undefined,
+        "/b",
+        { testFiles: ["/b/y.test.ts"], testDirs: ["/b/lib"] },
+      ],
+    ]);
+    expect(groups.map((g) => g.foreign)).toEqual([false, true]);
+  });
+
+  it("a project-wide run is one unscoped call for the run's cwd project", async () => {
+    const calls: unknown[][] = [];
+    const sidecar = {
+      tddTransition: async (...args: unknown[]) => {
+        calls.push(args);
+        return { count: 0 };
+      },
+    };
+    await transitionTddStateByProject(
+      sidecar,
+      "confirm_green",
+      { files: null, dirs: [], nameFiltered: false, cwd: "/b" },
+      session,
+      resolveFake,
+    );
+    expect(calls).toEqual([["confirm_green", undefined, "/b"]]);
+  });
+});

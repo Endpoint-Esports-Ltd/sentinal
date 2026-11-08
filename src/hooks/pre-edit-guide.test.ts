@@ -240,3 +240,126 @@ describe("processPreEditGuide", () => {
     expect(result).toContain("and 2 more observation(s)");
   });
 });
+
+// ─── Cross-project: hints + conflict check use the file's project (Phase 1) ─
+
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { SidecarClient } from "../sidecar/client.js";
+import { preEditHookContext } from "./pre-edit-guide.js";
+
+describe("pre-edit context keyed by the file's project", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+  let svc: MemoryService;
+
+  beforeEach(() => {
+    svc = new MemoryService(new MemoryStore(":memory:"));
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "pre-edit-cross-")));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    for (const d of [a, b]) {
+      mkdirSync(join(d, "src"), { recursive: true });
+      Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: d });
+    }
+  });
+
+  afterEach(() => {
+    svc.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  function fakeClient(projects: string[]): SidecarClient {
+    return {
+      memorySearch: async (q: { project?: string }) => {
+        projects.push(q.project ?? "");
+        return [];
+      },
+    } as unknown as SidecarClient;
+  }
+
+  it("editing B/src/x.ts from cwd A searches B's memories", async () => {
+    const projects: string[] = [];
+    await processPreEditGuide({
+      filePath: join(b, "src", "x.ts"),
+      cwd: a,
+      client: fakeClient(projects),
+    });
+    expect(projects).toEqual([b]);
+  }, 30_000);
+
+  it("an explicit project wins", async () => {
+    const projects: string[] = [];
+    await processPreEditGuide({
+      filePath: join(b, "src", "x.ts"),
+      cwd: a,
+      client: fakeClient(projects),
+      project: "/explicit",
+    });
+    expect(projects).toEqual(["/explicit"]);
+  });
+
+  it("from A/src as cwd the direct fallback uses A's canonical identity", async () => {
+    svc.addObservation(
+      makeObservation({
+        projectPath: a,
+        title: "A note on x",
+        filePaths: [join(a, "src", "x.ts")],
+      }),
+    );
+    const result = await processPreEditGuide({
+      filePath: join(a, "src", "x.ts"),
+      cwd: join(a, "src"),
+      service: svc,
+    });
+    expect(result).toContain("A note on x");
+  }, 30_000);
+
+  it("the conflict check queries the file's project (B from session A)", async () => {
+    const asked: string[] = [];
+    await preEditHookContext({
+      filePath: join(b, "src", "x.ts"),
+      cwd: a,
+      sessionId: "s1",
+      client: fakeClient([]),
+      checkConflict: (_file, project) => {
+        asked.push(project);
+        return "[Sentinal] Warning: conflict";
+      },
+    });
+    expect(asked).toEqual([b]);
+  }, 30_000);
+
+  it("the conflict check from A/src uses A's canonical identity, and its message is returned", async () => {
+    const asked: string[] = [];
+    const out = await preEditHookContext({
+      filePath: join(a, "src", "x.ts"),
+      cwd: join(a, "src"),
+      sessionId: "s1",
+      client: fakeClient([]),
+      checkConflict: (_file, project) => {
+        asked.push(project);
+        return "[Sentinal] Warning: conflict";
+      },
+    });
+    expect(asked).toEqual([a]);
+    expect(out).toBe("[Sentinal] Warning: conflict");
+  }, 30_000);
+
+  it("no session id → no conflict check; nothing found → null", async () => {
+    let called = false;
+    const out = await preEditHookContext({
+      filePath: join(a, "src", "x.ts"),
+      cwd: a,
+      client: fakeClient([]),
+      checkConflict: () => {
+        called = true;
+        return null;
+      },
+    });
+    expect(called).toBe(false);
+    expect(out).toBeNull();
+  }, 30_000);
+});

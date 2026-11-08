@@ -6,14 +6,23 @@
  *
  * Query strategy: use memory search with the file basename as query,
  * then filter client-side to observations whose filePaths match the target.
+ *
+ * Both the search and the file-conflict check are keyed by the EDITED FILE's
+ * project (cross-project scope, Phase 1): observations are written under the
+ * file's identity, so a session in A editing B/x.ts must read B's rows.
  */
 
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { readStdin, hint, output } from "../utils/hook-output.js";
 import { isMemoryEnabled } from "../memory/config.js";
 import { MemoryStore } from "../memory/store.js";
 import { MemoryService } from "../memory/service.js";
 import { SidecarClient } from "../sidecar/client.js";
+import { detectFileConflict } from "../session/conflict.js";
+import {
+  resolveFileProject,
+  sessionRootsFromCwd,
+} from "../project/file-project.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +35,11 @@ export interface PreEditInput {
   service?: MemoryService;
   /** Sidecar client (preferred path) */
   client?: SidecarClient | null;
+  /**
+   * Canonical identity of the project to search. Default: the edited file's
+   * project, resolved from `cwd` + `filePath`.
+   */
+  project?: string;
 }
 
 interface SearchHit {
@@ -47,6 +61,9 @@ export async function processPreEditGuide(
 ): Promise<string | null> {
   const { filePath, cwd } = input;
   const fileBasename = basename(filePath);
+  // STORAGE KEY — canonical, so the direct fallback (exact-match read) also
+  // finds rows from a subdirectory or linked worktree.
+  const project = input.project ?? fileProjectOf(filePath, cwd).identity;
 
   let hits: SearchHit[] = [];
 
@@ -55,24 +72,24 @@ export async function processPreEditGuide(
     try {
       const results = await input.client.memorySearch({
         query: fileBasename,
-        project: cwd,
+        project,
         limit: 10,
       });
       hits = results as SearchHit[];
     } catch {
       // Sidecar unavailable — try direct
-      hits = await searchDirect(fileBasename, cwd, input.service);
+      hits = await searchDirect(fileBasename, project, input.service);
     }
   } else if (input.service) {
     // Direct service path (testing / fallback)
-    hits = await searchDirect(fileBasename, cwd, input.service);
+    hits = await searchDirect(fileBasename, project, input.service);
   } else {
     // No client or service — open store
     let store: MemoryStore | null = null;
     try {
       store = new MemoryStore();
       const service = new MemoryService(store);
-      hits = await searchDirect(fileBasename, cwd, service);
+      hits = await searchDirect(fileBasename, project, service);
     } catch {
       // Memory unavailable
     } finally {
@@ -92,6 +109,73 @@ export async function processPreEditGuide(
   const maxHits = input.effort === "low" || input.effort === "medium" ? 3 : 5;
 
   return formatHint(fileBasename, relevant, maxHits);
+}
+
+// ─── Hook context (conflict + guidance) ───────────────────────────────────────
+
+/** The edited file's project, from the hook's cwd (relative paths resolve there). */
+function fileProjectOf(filePath: string, cwd: string) {
+  return resolveFileProject(resolve(cwd, filePath), sessionRootsFromCwd(cwd));
+}
+
+export interface PreEditHookInput {
+  filePath: string;
+  cwd: string;
+  sessionId?: string;
+  client: SidecarClient | null;
+  effort?: string;
+  /** File-conflict check; default: `detectFileConflict` over the default store. */
+  checkConflict?: (
+    filePath: string,
+    projectPath: string,
+    sessionId: string,
+  ) => string | null;
+}
+
+function defaultConflictCheck(
+  filePath: string,
+  projectPath: string,
+  sessionId: string,
+): string | null {
+  let store: MemoryStore | null = null;
+  try {
+    store = new MemoryStore();
+    return (
+      detectFileConflict(store, filePath, projectPath, sessionId)?.message ??
+      null
+    );
+  } catch {
+    return null; // non-fatal
+  } finally {
+    store?.close();
+  }
+}
+
+/**
+ * Everything `sentinal hook shared pre-edit-guide` says before an edit: the
+ * file-conflict warning (needs a session id) and the memory hint, both keyed
+ * by the file's project (resolved once).
+ */
+export async function preEditHookContext(
+  input: PreEditHookInput,
+): Promise<string | null> {
+  const { filePath, cwd, sessionId } = input;
+  const project = fileProjectOf(filePath, cwd).identity;
+  const parts: string[] = [];
+  if (sessionId) {
+    const check = input.checkConflict ?? defaultConflictCheck;
+    const conflict = check(filePath, project, sessionId);
+    if (conflict) parts.push(conflict);
+  }
+  const guide = await processPreEditGuide({
+    filePath,
+    cwd,
+    client: input.client,
+    effort: input.effort,
+    project,
+  });
+  if (guide) parts.push(guide);
+  return parts.length > 0 ? parts.join("\n") : null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

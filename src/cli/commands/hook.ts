@@ -122,14 +122,15 @@ async function runToolRedirect(): Promise<void> {
 }
 
 async function runFileChecker(): Promise<void> {
-  const { processFileCheck } = await import("../../hooks/file-checker.js");
+  const { fileCheckForEdit } = await import("../../hooks/file-checker.js");
   const { blockExit } = await import("../../utils/hook-output.js");
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
   const filePath =
     (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
-  const result = await processFileCheck(filePath, input.cwd);
+  // Framework detection runs in the file's own checkout (resolveFileProject).
+  const result = await fileCheckForEdit(filePath, input.cwd);
   // Exit 2 + decision:block — paired with continueOnBlock:true in hooks.json
   // so Claude self-corrects instead of the turn ending (Phase 5, Section B).
   if (result) blockExit(result);
@@ -147,9 +148,7 @@ async function runContextMonitor(): Promise<void> {
 }
 
 async function runPreEditGuide(): Promise<void> {
-  const { processPreEditGuide } = await import("../../hooks/pre-edit-guide.js");
-  const { detectFileConflict } = await import("../../session/conflict.js");
-  const { MemoryStore: Store } = await import("../../memory/store.js");
+  const { preEditHookContext } = await import("../../hooks/pre-edit-guide.js");
   const { hint: hintFn } = await import("../../utils/hook-output.js");
   const input = await readStdin();
   const filePath = extractFilePath(input.tool_input ?? {});
@@ -161,32 +160,15 @@ async function runPreEditGuide(): Promise<void> {
     /* no sidecar */
   }
 
-  const parts: string[] = [];
-
-  // File-level conflict check (uses session_id from hook input)
-  if (input.session_id) {
-    let store: InstanceType<typeof Store> | null = null;
-    try {
-      store = new Store();
-      const conflict = detectFileConflict(
-        store,
-        filePath,
-        input.cwd,
-        input.session_id,
-      );
-      if (conflict) parts.push(conflict.message);
-    } catch {
-      /* non-fatal */
-    } finally {
-      store?.close();
-    }
-  }
-
-  // Observation-based pre-edit guidance
-  const guide = await processPreEditGuide({ filePath, cwd: input.cwd, client });
-  if (guide) parts.push(guide);
-
-  if (parts.length > 0) output(hintFn("PreToolUse", parts.join("\n")));
+  // File-level conflict check (needs session_id) + observation guidance, both
+  // keyed by the EDITED FILE's project (resolveFileProject).
+  const context = await preEditHookContext({
+    filePath,
+    cwd: input.cwd,
+    sessionId: input.session_id,
+    client,
+  });
+  if (context) output(hintFn("PreToolUse", context));
 }
 
 async function runPromptContext(): Promise<void> {

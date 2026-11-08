@@ -27,6 +27,14 @@ export interface TestRunScope {
   dirs: string[];
   /** `-t` / `--test-name-pattern` / `--grep`: only SOME tests of the files ran. */
   nameFiltered: boolean;
+  /**
+   * The directory the run ran in: the caller's cwd after any `cd` before the
+   * first test segment (the caller's own cwd when the shell must resolve a
+   * `cd`). A project-wide run covers the project of THIS directory, not the
+   * session's. Optional in the type only so hand-built literals stay valid —
+   * `testRunScope` always sets it.
+   */
+  cwd?: string;
 }
 
 const PROJECT_WIDE: TestRunScope = {
@@ -232,37 +240,74 @@ function scopeFromArgs(args: string[], cwd: string): TestRunScope {
  * (`bunx`/`npx`/`pnpm exec`/`yarn`, `npm|pnpm|yarn [run] test [--]`,
  * `bun [run] test`, `vitest [run]`, `jest`), env prefixes and redirections
  * are stripped; `cd x &&` moves the cwd. Anything not
- * recognised is project-wide.
+ * recognised is project-wide. Every result carries `cwd` — where the run ran.
  */
 export function testRunScope(input: {
   command: string | undefined | null;
   cwd: string;
 }): TestRunScope {
+  const wide = (cwd: string, nameFiltered = false): TestRunScope => ({
+    ...PROJECT_WIDE,
+    nameFiltered,
+    cwd,
+  });
   if (typeof input.command !== "string" || input.command.trim() === "")
-    return { ...PROJECT_WIDE };
+    return wide(input.cwd);
   let cwd = input.cwd;
+  let runCwd: string | null = null;
   const runs: TestRunScope[] = [];
   for (const words of segments(tokenize(input.command))) {
     if (words[0] === "cd") {
-      const target = words[1];
-      // `cd -`, `cd ~/x`, `cd $DIR`: the shell resolves these, we cannot.
-      if (!target || /^[-~$]/.test(target) || target.includes("$"))
-        return { ...PROJECT_WIDE };
-      cwd = resolve(cwd, target);
+      const next = cdTarget(words, cwd);
+      // the shell resolves this; the run's cwd is unknown
+      if (next === null) return wide(input.cwd);
+      cwd = next;
       continue;
     }
     const args = runnerArgs(words);
-    if (args) runs.push(scopeFromArgs(args, cwd));
+    if (args) {
+      runCwd ??= cwd;
+      runs.push(scopeFromArgs(args, cwd));
+    }
   }
-  if (runs.length === 0) return { ...PROJECT_WIDE };
+  if (runs.length === 0) return wide(cwd);
+  const ranIn = runCwd ?? cwd;
   const nameFiltered = runs.some((r) => r.nameFiltered);
-  if (runs.some((r) => r.files === null))
-    return { ...PROJECT_WIDE, nameFiltered };
+  if (runs.some((r) => r.files === null)) return wide(ranIn, nameFiltered);
   return {
     files: runs.flatMap((r) => r.files ?? []),
     dirs: runs.flatMap((r) => r.dirs),
     nameFiltered,
+    cwd: ranIn,
   };
+}
+
+/** Apply one `cd` segment: the new cwd, or `null` if the shell must resolve it. */
+function cdTarget(words: string[], cwd: string): string | null {
+  const target = words[1];
+  // `cd`, `cd -`, `cd ~/x`, `cd $DIR`: the shell resolves these, we cannot.
+  if (!target || /^[-~$]/.test(target) || target.includes("$")) return null;
+  return resolve(cwd, target);
+}
+
+/**
+ * The directory a shell command ends up in after its `cd` segments, or `null`
+ * when the shell must resolve a target (`cd`, `cd -`, `~`, `$VAR`). Used to key
+ * a Bash event with no file path by the project it ran in.
+ */
+export function effectiveCwd(
+  command: string | undefined | null,
+  cwd: string,
+): string | null {
+  if (typeof command !== "string" || command.trim() === "") return cwd;
+  let dir = cwd;
+  for (const words of segments(tokenize(command))) {
+    if (words[0] !== "cd") continue;
+    const next = cdTarget(words, dir);
+    if (next === null) return null;
+    dir = next;
+  }
+  return dir;
 }
 
 // ─── Matching ────────────────────────────────────────────────────────────────

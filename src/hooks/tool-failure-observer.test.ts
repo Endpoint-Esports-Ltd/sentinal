@@ -461,3 +461,70 @@ describe("processToolFailure — event buffer", () => {
     expect(captured[0].type).toBe("fix");
   });
 });
+
+// ─── Cross-project keying (docs/plans/2026-11-05-cross-project-scope-phase-1.md) ─
+
+describe("processToolFailure — keyed by the failing file's project", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+
+  function initRepo(dir: string): void {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    for (const args of [
+      ["init", "-b", "main"],
+      ["config", "user.email", "t@t.com"],
+      ["config", "user.name", "T"],
+      ["commit", "--allow-empty", "-m", "init"],
+    ])
+      Bun.spawnSync(["git", ...args], { cwd: dir });
+  }
+
+  async function send(extra: Partial<HookInput>) {
+    const sent: Record<string, unknown>[] = [];
+    const outcome = await processToolFailure(failure(a, extra), {
+      connect: async () => ({
+        addObservation: async (obs) => {
+          sent.push(obs as unknown as Record<string, unknown>);
+          return { id: 1 };
+        },
+      }),
+    });
+    expect(outcome.captured).toBe(true);
+    return sent[0];
+  }
+
+  beforeEach(() => {
+    tmp = realpathSync(makeTmpDir("sentinal-tfo-cross"));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    initRepo(a);
+    initRepo(b);
+  });
+
+  afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it("a failed Edit of B/x.ts from cwd A is keyed to B, sessionProject A", async () => {
+    const obs = await send({
+      tool_name: "Edit",
+      tool_input: { file_path: join(b, "src", "x.ts"), old_string: "x" },
+      error: "String to replace not found in file.",
+    });
+    expect(obs.projectPath).toBe(b);
+    expect((obs.metadata as Record<string, unknown>).sessionProject).toBe(a);
+  }, 30_000);
+
+  it("a failed `cd ../b && bun run …` is keyed to B", async () => {
+    const obs = await send({
+      tool_input: { command: "cd ../b && bun run src/server.ts" },
+    });
+    expect(obs.projectPath).toBe(b);
+    expect((obs.metadata as Record<string, unknown>).sessionProject).toBe(a);
+  }, 30_000);
+
+  it("a same-repo failure carries no sessionProject", async () => {
+    const obs = await send({});
+    expect(obs.projectPath).toBe(a);
+    expect("sessionProject" in (obs.metadata as object)).toBe(false);
+  }, 30_000);
+});

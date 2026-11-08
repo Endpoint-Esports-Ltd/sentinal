@@ -305,3 +305,41 @@ describe("handleCompactionAutocontinue — linked worktree (identity ≠ workspa
     expect(result).toEqual({ shouldContinue: true, context: [] });
   });
 });
+
+// ─── Cross-project scope (Phase 1): RED rows of projects this session touched ─
+
+describe("handleCompactionAutocontinue — touched foreign projects", () => {
+  const foreignRed = (): TddCycle => ({
+    ...redCycle("/other/src/foo.ts"),
+    projectPath: "/other",
+  });
+
+  it("pauses for a RED row of a foreign project this session touched", async () => {
+    const { sidecar } = makeMockSidecar({ tddStates: [foreignRed()] });
+    const result = await handleCompactionAutocontinue(sidecar, {
+      ...SAME("/project"),
+      touchedProjects: new Set(["/other"]),
+    });
+    expect(result.shouldContinue).toBe(false);
+  });
+
+  it("still ignores a RED row of a project the session never touched", async () => {
+    const { sidecar } = makeMockSidecar({ tddStates: [foreignRed()] });
+    const result = await handleCompactionAutocontinue(sidecar, {
+      ...SAME("/project"),
+      touchedProjects: new Set(["/elsewhere"]),
+    });
+    expect(result).toEqual({ shouldContinue: true, context: [] });
+  });
+
+  it("a row without a projectPath is matched by workspace only", async () => {
+    const { sidecar } = makeMockSidecar({
+      tddStates: [redCycle("/other/src/foo.ts")],
+    });
+    const result = await handleCompactionAutocontinue(sidecar, {
+      ...SAME("/project"),
+      touchedProjects: new Set(["/other"]),
+    });
+    expect(result.shouldContinue).toBe(true);
+  });
+});

@@ -1,7 +1,7 @@
 # File-Project Resolver + Per-Edit Wiring
 
 Created: 2026-11-05
-Status: PENDING
+Status: VERIFIED
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -246,14 +246,40 @@ CC edit-time checks / OpenCode plugin).
 
 ## Progress Tracking
 
-- [ ] Task 1: Resolver, test-scope grouping, effective cwd (Wave 1)
-- [ ] Task 2: CC memory capture keyed by file project (Wave 2)
-- [ ] Task 3: CC TDD guard + tracker per project (Wave 2)
-- [ ] Task 4: CC pre-edit hints, conflict check, framework detection (Wave 2)
-- [ ] Task 5: OpenCode plugin wiring + apply_patch + autocontinue (Wave 2)
-- [ ] Task 6: Docs + latency measurement (Wave 3)
+- [x] Task 1: Resolver, test-scope grouping, effective cwd (Wave 1)
+- [x] Task 2: CC memory capture keyed by file project (Wave 2)
+- [x] Task 3: CC TDD guard + tracker per project (Wave 2)
+- [x] Task 4: CC pre-edit hints, conflict check, framework detection (Wave 2)
+- [x] Task 5: OpenCode plugin wiring + apply_patch + autocontinue (Wave 2)
+- [x] Task 6: Docs + latency measurement (Wave 3)
 
-**Total Tasks:** 6 | **Completed:** 0 | **Remaining:** 6
+**Total Tasks:** 6 | **Completed:** 6 | **Remaining:** 0
+
+## Implementation Notes
+
+- **Latency** (Task 6; `bun run build:cli`, `hyperfine --warmup 3 --runs 30`, macOS, slow path of
+  `sentinal hook shared tdd-guard` — guarded file, IDLE, no active spec; `SENTINAL_HOME` isolated;
+  baseline = `e2cfc82` built the same way). Medians:
+
+  | Edited file | Before | After |
+  | --- | --- | --- |
+  | same repo (`A/src/x.ts`, cwd A) | 113.7 ms | 115.0 ms |
+  | sibling repo (`B/src/x.ts`, cwd A) | 112.7 ms | 130.1 ms |
+
+- **Deviation (auto-fix, perf):** the first measurement showed the same-repo path +15 ms (129 ms):
+  `sessionRootsFromCwd` resolved the workspace with `git rev-parse` before the short-circuit
+  could compare. It now finds the workspace on the filesystem (nearest `.git` above the realpath'd
+  cwd — the same walk the resolver does for files, so the two compare like with like) and falls
+  back to `resolveWorkspaceRoot` only outside a checkout. The sibling path pays one git spawn
+  (B's identity) plus the session identity for the either-project spec check.
+- **Added helpers beyond the plan's artifact list:** `src/project/capture-project.ts`
+  (`captureProject` — shared observation key for CC observers and the OC plugin),
+  `preEditHookContext` (`pre-edit-guide.ts`, conflict + hint keyed once — `hook.ts` dispatches it),
+  `fileCheckForEdit` (`file-checker.ts`, resolves the file's workspace only for Angular files),
+  `tddGuardLookup` / `transitionTddStateByProject` (`sentinal-helpers.ts`), `toolFilePaths`
+  (`patch-paths.ts`). `src/session/conflict.ts` changed only in its doc comment.
+- OC pre-edit hint lookups do not mark a project as "touched" (only edits, test runs and captures
+  do); `touchedProjects` feeds compaction autocontinue only.
 
 ## Implementation Tasks
 
@@ -284,11 +310,11 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Truths 1 and 2 hold
-- [ ] Tests cover: sibling repo, linked worktree of the session repo (`foreign: false`, own
+- [x] Truths 1 and 2 hold
+- [x] Tests cover: sibling repo, linked worktree of the session repo (`foreign: false`, own
       workspace), submodule-style `.git` file, outside any repo, new non-existent dir, symlinked
       session path, relative path
-- [ ] `testRunScope` returns `cwd` (post-`cd`) in every branch; existing tests unchanged
+- [x] `testRunScope` returns `cwd` (post-`cd`) in every branch; existing tests unchanged
 
 **Verify:**
 
@@ -315,9 +341,9 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Truth 3 holds; tool-failure equivalent (failed Edit on `B/x.ts`, failed
+- [x] Truth 3 holds; tool-failure equivalent (failed Edit on `B/x.ts`, failed
       `cd ../b && bun test`) keyed to B
-- [ ] Same-repo payloads unchanged (existing assertions pass)
+- [x] Same-repo payloads unchanged (existing assertions pass)
 
 **Verify:**
 
@@ -342,13 +368,13 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Truths 4 and 5 hold
-- [ ] Mixed run `bun test a/x.test.ts ../b/y.test.ts` transitions each project's row under its
+- [x] Truths 4 and 5 hold
+- [x] Mixed run `bun test a/x.test.ts ../b/y.test.ts` transitions each project's row under its
       own key; an unrelated project's RED row is untouched
-- [ ] Ordering test: B row written while only A had a plan (spec_id = A's), then B gets its own
+- [x] Ordering test: B row written while only A had a plan (spec_id = A's), then B gets its own
       plan → a passing B run still clears the row
-- [ ] Guard fast paths unchanged: an unguarded or `RED_CONFIRMED` file spawns no git (spy)
-- [ ] Existing tests unchanged
+- [x] Guard fast paths unchanged: an unguarded or `RED_CONFIRMED` file spawns no git (spy)
+- [x] Existing tests unchanged
 
 **Verify:**
 
@@ -376,12 +402,12 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Editing `B/x.ts` from cwd A searches B's memories (test with injected client capturing
+- [x] Editing `B/x.ts` from cwd A searches B's memories (test with injected client capturing
       the `project` param)
-- [ ] Angular repo B detected from session A (`angular.json` only in B) — test with
+- [x] Angular repo B detected from session A (`angular.json` only in B) — test with
       `runAngularChecks` stubbed
-- [ ] Conflict check queries B's identity
-- [ ] Subdirectory test: from `A/src` as cwd, the pre-edit fallback and conflict check use A's
+- [x] Conflict check queries B's identity
+- [x] Subdirectory test: from `A/src` as cwd, the pre-edit fallback and conflict check use A's
       canonical identity (documented same-repo fix)
 
 **Verify:**
@@ -414,11 +440,11 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Helper tests: guard (either rule, two lookups only for foreign), tracker grouping (one
+- [x] Helper tests: guard (either rule, two lookups only for foreign), tracker grouping (one
       transition call per project), capture key + `sessionProject`, `patchFilePaths`
-- [ ] Autocontinue keeps a RED row of a touched foreign project
-- [ ] A same-repo `apply_patch` of a guarded file is TDD-guarded (new behaviour, tested)
-- [ ] `bun run typecheck:plugin` and `bun test src/cli/target-assets.test.ts` pass
+- [x] Autocontinue keeps a RED row of a touched foreign project
+- [x] A same-repo `apply_patch` of a guarded file is TDD-guarded (new behaviour, tested)
+- [x] `bun run typecheck:plugin` and `bun test src/cli/target-assets.test.ts` pass
 
 **Verify:**
 
@@ -445,8 +471,8 @@ CC edit-time checks / OpenCode plugin).
 
 **Definition of Done:**
 
-- [ ] Rule doc and README updated; measurements recorded here
-- [ ] Truth 7 holds (full suite + all gates)
+- [x] Rule doc and README updated; measurements recorded here
+- [x] Truth 7 holds (full suite + all gates)
 
 **Verify:**
 

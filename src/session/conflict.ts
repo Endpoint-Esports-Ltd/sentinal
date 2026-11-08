@@ -70,7 +70,10 @@ const RECENCY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
  * ⛔ The two path parameters are DIFFERENT KINDS and are treated differently:
  *   - `projectPath` is a STORAGE KEY (`o.project_path = ?`, exact equality) and
  *     is canonicalized, for the same reason as `detectSessionConflict` above.
- *     Its caller (`src/cli/commands/hook.ts:200`) passes the hook's raw `cwd`.
+ *     Its caller (`preEditHookContext`, `src/hooks/pre-edit-guide.ts`) passes
+ *     the EDITED FILE's identity (`resolveFileProject`), matching the key
+ *     auto-captured observations are written under; canonicalizing it again
+ *     here is idempotent.
  *   - `filePath` is a FILE path matched with `LIKE '%…%'` against
  *     `o.file_paths`. It is deliberately left RAW — canonicalizing it would
  *     resolve a relative path against the wrong root, and a repo-root result

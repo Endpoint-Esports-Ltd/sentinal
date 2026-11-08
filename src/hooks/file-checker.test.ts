@@ -102,3 +102,55 @@ describe("file-checker hook", () => {
     });
   });
 });
+
+// ─── Cross-project: framework detection on the file's own checkout (Phase 1) ─
+
+import { mkdirSync, realpathSync } from "node:fs";
+import { spyOn } from "bun:test";
+import * as angular from "../checkers/angular.js";
+import { fileCheckForEdit } from "./file-checker";
+
+describe("fileCheckForEdit — framework of the file's project", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+
+  beforeAll(() => {
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "file-checker-cross-")));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    for (const d of [a, b]) {
+      mkdirSync(join(d, "src", "app"), { recursive: true });
+      Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: d });
+    }
+    writeFileSync(join(b, "angular.json"), "{}");
+    const comp = join(b, "src", "app", "foo.component.ts");
+    writeFileSync(comp, "export class Foo {}\n");
+    writeFileSync(comp.replace(/\.ts$/, ".spec.ts"), "");
+  });
+
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it("detects Angular in repo B from session A (angular.json only in B)", async () => {
+    const spy = spyOn(angular, "runAngularChecks").mockImplementation(() => [
+      { tool: "ng-build", severity: "error", message: "stubbed ng build" },
+    ]);
+    try {
+      const result = await fileCheckForEdit(
+        join(b, "src", "app", "foo.component.ts"),
+        a,
+      );
+      expect(result).toContain("[Angular] stubbed ng build");
+      expect(spy.mock.calls[0]![0]).toBe(b);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 30_000);
+
+  it("a non-Angular file in another repo needs no project resolution", async () => {
+    const plain = join(b, "src", "plain.ts");
+    writeFileSync(plain, "export const x = 1;\n");
+    writeFileSync(join(b, "src", "plain.test.ts"), "");
+    expect(await fileCheckForEdit(plain, a)).toBeNull();
+  });
+});

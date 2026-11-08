@@ -28,6 +28,11 @@ export interface CompactionAutocontinueResult {
 export interface CompactionRoots {
   identity: string;
   workspace: string;
+  /**
+   * Identities of FOREIGN projects this session edited (cross-project scope):
+   * their RED rows live outside the workspace but still pause autocontinue.
+   */
+  touchedProjects?: ReadonlySet<string>;
 }
 
 /**
@@ -35,7 +40,8 @@ export interface CompactionRoots {
  *
  * Logic:
  * 1. If sidecar is null → allow continue (no data available)
- * 2. If any TDD state under the workspace is RED_CONFIRMED → pause
+ * 2. If any TDD state under the workspace, or of a foreign project this
+ *    session touched, is RED_CONFIRMED → pause
  * 3. If an active spec (keyed by identity) is IN_PROGRESS → inject resume directive
  * 4. Otherwise → allow continue with no extra context
  */
@@ -53,8 +59,12 @@ export async function handleCompactionAutocontinue(
   // match). A relative `filePath` resolves against the process cwd and is
   // excluded — fail-open, matching prior behaviour.
   const allTddStates = await sidecar.listActiveTddStates();
-  const tddStates = allTddStates.filter((cycle) =>
-    isInside(cycle.filePath, roots.workspace),
+  // A foreign project's row is matched by its STORAGE KEY (`projectPath`).
+  const touched = roots.touchedProjects;
+  const tddStates = allTddStates.filter(
+    (cycle) =>
+      isInside(cycle.filePath, roots.workspace) ||
+      (!!cycle.projectPath && touched?.has(cycle.projectPath) === true),
   );
   const hasRedState = tddStates.some(
     (cycle) => cycle.state === "RED_CONFIRMED",

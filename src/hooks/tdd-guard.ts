@@ -8,7 +8,10 @@
  * Fast path: lightweight SQLite read (~2ms) via readTddState().
  * Slow path: open MemoryStore only if we might need to block.
  *
- * Only active when there is a current active spec for the project.
+ * Only active when the EDITED FILE's project or the SESSION's project has a
+ * current active spec (either-project rule, docs/plans/2026-11-05-cross-
+ * project-scope.md decision 4). Project roots are resolved only on the slow
+ * path; the TDD state itself stays keyed by file.
  *
  * Triggered before: Write, Edit, MultiEdit
  */
@@ -22,7 +25,12 @@ import {
 import { readTddState } from "../memory/tdd-state.js";
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
-import { resolveProjectIdentity } from "../project/identity.js";
+import { resolve } from "node:path";
+import {
+  resolveFileProject,
+  sessionRootsFromCwd,
+  type SessionRoots,
+} from "../project/file-project.js";
 import { isGuardedFile } from "../utils/tdd.js";
 
 // ─── State messages ───────────────────────────────────────────────────────────
@@ -44,6 +52,8 @@ export interface TddGuardInput {
   filePath?: string;
   cwd: string;
   dbPath?: string;
+  /** Session roots of `cwd` (default: lazy `sessionRootsFromCwd`). */
+  sessionRoots?: (cwd: string) => SessionRoots;
 }
 
 export function processTddGuard(input: TddGuardInput): DenyOutput | null {
@@ -66,9 +76,13 @@ export function processTddGuard(input: TddGuardInput): DenyOutput | null {
   const store = new MemoryStore(dbPath);
   try {
     const specStore = new SpecStore(store);
-    // Storage key: the canonical identity, never the raw cwd (a subdirectory,
+    // Storage keys: canonical identities, never the raw cwd (a subdirectory,
     // symlink or linked worktree would otherwise miss the spec row).
-    const spec = specStore.getCurrentSpec(resolveProjectIdentity(cwd));
+    const session = (input.sessionRoots ?? sessionRootsFromCwd)(cwd);
+    const file = resolveFileProject(resolve(cwd, filePath), session);
+    const spec =
+      specStore.getCurrentSpec(file.identity) ??
+      (file.foreign ? specStore.getCurrentSpec(session.identity) : null);
     if (!spec) return null; // No active spec = no enforcement
   } finally {
     store.close();

@@ -565,3 +565,106 @@ describe("processTddGuard — spec lookup key (Task 10)", () => {
     }
   }, 30_000);
 });
+
+// ─── Cross-project: either project's spec enforces (Phase 1, decision 4) ─────
+
+describe("processTddGuard — file in another repo", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+  let dbPath: string;
+
+  function initRepo(dir: string): void {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+  }
+
+  function activate(project: string, slug: string): void {
+    const store = new MemoryStore(dbPath);
+    new SpecStore(store).syncFromPlanFile(
+      writePlan(project, `${slug}.md`, activePlanContent),
+      project,
+    );
+    store.close();
+  }
+
+  const guardB = (extra: Partial<TddGuardInput> = {}) =>
+    processTddGuard({
+      toolName: "Edit",
+      filePath: join(b, "src", "x.ts"),
+      cwd: a,
+      dbPath,
+      ...extra,
+    });
+
+  beforeEach(() => {
+    tmp = realpathSync(makeTmpDir("tdd-guard-cross"));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    initRepo(a);
+    initRepo(b);
+    dbPath = join(tmp, "test.db");
+    new MemoryStore(dbPath).close();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("blocks B/src/x.ts from session A when only B has an active spec", () => {
+    activate(b, "b-plan");
+    expect(guardB()?.permissionDecision).toBe("deny");
+  }, 30_000);
+
+  it("blocks B/src/x.ts from session A when only A has an active spec", () => {
+    activate(a, "a-plan");
+    expect(guardB()?.permissionDecision).toBe("deny");
+  }, 30_000);
+
+  it("allows B/src/x.ts when neither project has an active spec", () => {
+    expect(guardB()).toBeNull();
+  }, 30_000);
+
+  it("allows B/src/x.ts when RED_CONFIRMED (file-keyed state)", () => {
+    activate(b, "b-plan");
+    const store = new MemoryStore(dbPath);
+    store.setTddState({
+      filePath: join(b, "src", "x.ts"),
+      state: "RED_CONFIRMED",
+    });
+    store.close();
+    expect(guardB()).toBeNull();
+  }, 30_000);
+
+  it("a session file is not checked against another repo's spec", () => {
+    activate(b, "b-plan");
+    expect(
+      processTddGuard({
+        toolName: "Edit",
+        filePath: join(a, "src", "x.ts"),
+        cwd: a,
+        dbPath,
+      }),
+    ).toBeNull();
+  }, 30_000);
+
+  it("fast paths (unguarded file, RED_CONFIRMED) resolve no project roots", () => {
+    let calls = 0;
+    const sessionRoots = (cwd: string) => {
+      calls++;
+      return { identity: cwd, workspace: cwd };
+    };
+    const store = new MemoryStore(dbPath);
+    store.setTddState({
+      filePath: join(b, "src", "x.ts"),
+      state: "RED_CONFIRMED",
+    });
+    store.close();
+    expect(guardB({ sessionRoots })).toBeNull();
+    expect(
+      guardB({ sessionRoots, filePath: join(b, "src", "x.test.ts") }),
+    ).toBeNull();
+    expect(guardB({ sessionRoots, filePath: join(b, "README.md") })).toBeNull();
+    expect(calls).toBe(0);
+  });
+});

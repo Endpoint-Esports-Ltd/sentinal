@@ -25,7 +25,13 @@ import {
 import { MemoryStore } from "../memory/store.js";
 import { SpecStore } from "../spec/store.js";
 import { isTestFile, getImplPathForTest } from "../utils/tdd.js";
-import { resolveProjectIdentity } from "../project/identity.js";
+import { resolve } from "node:path";
+import {
+  resolveFileProject,
+  sessionRootsFromCwd,
+} from "../project/file-project.js";
+import { groupTestScopeByProject } from "../project/test-scope-projects.js";
+import type { Spec } from "../spec/types.js";
 import {
   TEST_FAIL_INDICATORS,
   TEST_PASS_INDICATORS,
@@ -33,7 +39,6 @@ import {
 import {
   filterRowsByTestScope,
   testRunScope,
-  toTestScopeInput,
 } from "../utils/test-run-scope.js";
 
 // Re-export for backwards compatibility (implementation moved to src/utils/tdd.ts)
@@ -76,27 +81,42 @@ export async function processTddTracking(
   input: TddTrackerInput,
 ): Promise<void> {
   const { toolName, filePath, bashOutput, sessionId, cwd, command } = input;
-  const runScope = testRunScope({ command, cwd });
-  const scope = toTestScopeInput(runScope);
+  const isBash = toolName === "Bash" && !!bashOutput;
+  const testEdit = isEditTool(toolName) && !!filePath && isTestFile(filePath);
+  const failed = isBash && hasTestFailure(bashOutput);
+  const passed = isBash && !failed && hasTestPass(bashOutput);
+  if (!testEdit && !failed && !passed) return;
 
-  // Storage key: the canonical identity (main checkout), so a cycle written
-  // from a linked worktree is visible to — and only to — its own project.
-  const project = resolveProjectIdentity(cwd);
+  // Storage keys: canonical identities (main checkout) of the FILE's project
+  // (cross-project scope), so a cycle written from a linked worktree — or from
+  // a session in another repo — is visible to its own project.
+  const session = sessionRootsFromCwd(cwd);
 
   const store = new MemoryStore();
   try {
     const specStore = new SpecStore(store);
-    const spec = specStore.getCurrentSpec(project);
     // D6: FK writes use the stored project-qualified key. `spec.id` is the
     // bare slug, which is ambiguous once another project has a same-named plan.
-    const specKey = spec ? (spec.key ?? spec.id) : null;
+    const keyOf = (spec: Spec | null): string | null =>
+      spec ? (spec.key ?? spec.id) : null;
+    let sessionSpec: Spec | null | undefined;
+    const getSessionSpec = (): Spec | null =>
+      (sessionSpec ??= specStore.getCurrentSpec(session.identity));
+    /** The project's own spec; for a foreign project, else the session's. */
+    const specOf = (identity: string): Spec | null =>
+      identity === session.identity
+        ? getSessionSpec()
+        : (specStore.getCurrentSpec(identity) ?? getSessionSpec());
 
     // Case 1: Test file written/edited — transition to TEST_WRITTEN
-    if (isEditTool(toolName) && filePath && isTestFile(filePath)) {
+    if (testEdit) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
       // D3 — never downgrade: re-editing the test of a RED impl keeps it RED.
       if (store.getTddState(implPath)?.state === "RED_CONFIRMED") return;
-      const task = spec ? specStore.getCurrentTask(specKey!) : null;
+      const project = resolveFileProject(resolve(cwd, filePath), session);
+      const spec = specOf(project.identity);
+      const specKey = keyOf(spec);
+      const task = specKey ? specStore.getCurrentTask(specKey) : null;
 
       store.setTddState({
         filePath: implPath,
@@ -104,12 +124,12 @@ export async function processTddTracking(
         specId: specKey,
         taskPosition: task?.position ?? null,
         testFilePath: filePath,
-        projectPath: project,
+        projectPath: project.identity,
       });
 
-      if (spec) {
+      if (specKey) {
         store.logSpecEvent({
-          specId: specKey!,
+          specId: specKey,
           sessionId: sessionId ?? null,
           eventType: "tdd_cycle",
           details: {
@@ -123,67 +143,46 @@ export async function processTddTracking(
       return;
     }
 
-    // Case 2: Bash output shows test failure — transition TEST_WRITTEN → RED_CONFIRMED
-    // ⛔ Both bulk cases read project-scoped: an unscoped read would transition
-    // (and, via the project on the write, re-key) or delete OTHER projects' rows.
-    // D1 — and only the rows the run's tests cover (same matcher as the route).
-    if (toolName === "Bash" && bashOutput && hasTestFailure(bashOutput)) {
-      const states = filterRowsByTestScope(
-        store.listActiveTddStates(specKey, project),
-        scope,
+    // Cases 2/3 — one bulk transition per project the run touched.
+    // A `-t`-filtered run proves only some tests of those files: no GREEN.
+    const runScope = testRunScope({ command, cwd });
+    if (passed && runScope.nameFiltered) return;
+    for (const group of groupTestScopeByProject(runScope, session)) {
+      const own = group.identity === session.identity;
+      // ⛔ Read project-scoped: an unscoped read would transition (and, via
+      // the project on the write, re-key) or delete OTHER projects' rows. D1 —
+      // and only the rows the run's tests cover (same matcher as the route).
+      // A foreign group is read WITHOUT a spec filter: its rows may carry the
+      // session's spec id (written before that project had a plan).
+      const listKey = own ? keyOf(getSessionSpec()) : null;
+      const rows = filterRowsByTestScope(
+        store.listActiveTddStates(listKey, group.identity),
+        group.scope,
       );
-      let transitioned = false;
-
-      for (const cycle of states) {
-        if (cycle.state === "TEST_WRITTEN") {
+      let changed = false;
+      for (const cycle of rows) {
+        if (failed && cycle.state === "TEST_WRITTEN") {
+          // Case 2: TEST_WRITTEN → RED_CONFIRMED
           store.setTddState({
             filePath: cycle.filePath,
             state: "RED_CONFIRMED",
-            lastFailOutput: bashOutput.slice(0, 2000),
-            projectPath: project,
+            lastFailOutput: bashOutput!.slice(0, 2000),
+            projectPath: group.identity,
           });
-          transitioned = true;
-        }
-      }
-
-      if (transitioned && spec) {
-        store.logSpecEvent({
-          specId: specKey!,
-          sessionId: sessionId ?? null,
-          eventType: "tdd_cycle",
-          details: { phase: "red_confirmed" },
-        });
-      }
-      return;
-    }
-
-    // Case 3: Bash output shows test pass — cycle complete, reset to IDLE.
-    // A `-t`-filtered run proves only some tests of those files: no GREEN.
-    if (
-      toolName === "Bash" &&
-      bashOutput &&
-      hasTestPass(bashOutput) &&
-      !runScope.nameFiltered
-    ) {
-      const states = filterRowsByTestScope(
-        store.listActiveTddStates(specKey, project),
-        scope,
-      );
-      let completed = false;
-
-      for (const cycle of states) {
-        if (cycle.state === "RED_CONFIRMED") {
+          changed = true;
+        } else if (passed && cycle.state === "RED_CONFIRMED") {
+          // Case 3: cycle complete, reset to IDLE
           store.clearTddState(cycle.filePath);
-          completed = true;
+          changed = true;
         }
       }
-
-      if (completed && spec) {
+      const specKey = changed ? keyOf(specOf(group.identity)) : null;
+      if (specKey) {
         store.logSpecEvent({
-          specId: specKey!,
+          specId: specKey,
           sessionId: sessionId ?? null,
           eventType: "tdd_cycle",
-          details: { phase: "green_confirmed" },
+          details: { phase: failed ? "red_confirmed" : "green_confirmed" },
         });
       }
     }
