@@ -1,0 +1,91 @@
+{
+  "review_summary": "The master plan matches the user's request and every clarification: it covers memory, rules and TDD for related projects, adds Orca and multi-worktree orchestration, has three sequential phases and uses Worktree: No. The phase split and waves are sound. Several resolver and keying decisions are left implicit, though, and each one would make a child phase fail or diverge: path canonicalization before the session comparison, bulk TDD transitions run from the session cwd, conflict-check keying, CC 'once per session' state that must survive compaction, OC per-turn system-prompt cost, and cross-repo Parent/slug resolution.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Resolver step 2 compares a raw fs-walk path to a realpath'd workspace root (/var vs /private/var, symlinks)",
+      "description": "Plan §The resolver step 2: 'If that repo top equals the session's workspace root ... return the session roots'. The fs walk-up returns a path built from the raw filePath, but resolveWorkspaceRoot (src/project/identity.ts:100-111) returns git's --show-toplevel or realpath, which are canonical. On macOS a tmp path (/var/... vs /private/var/...), a symlinked checkout (~/code -> /Volumes/...) or a case difference would make the session's OWN repo compare unequal. Every edit would then take the foreign path: it would spawn git, inject rules for the repo you are already in, and add TDD lookups. Most tests use tmpdirs, so this would show up immediately in tests and silently in the field.",
+      "suggested_fix": "Say in the master that the resolver realpath()s both the walk-up start (the nearest existing ancestor) and the session workspace before comparing. It should also compare against the session IDENTITY: a file in another linked worktree of the same repo, e.g. an Orca child worktree under .orca/worktrees/, is not foreign for keying. Add Phase 1 DoD tests for a symlinked checkout, macOS /var and a sibling linked worktree of the session repo."
+    },
+    {
+      "severity": "must_fix",
+      "category": "hidden_dependency",
+      "title": "Bulk TDD transitions are keyed on the test command's cwd, so B's rows never confirm RED/GREEN from an A session",
+      "description": "Risk row: 'Rows always written with the file's project, so every session agrees'. But the tracker's bulk path uses `const project = resolveProjectIdentity(cwd)` (src/hooks/tdd-tracker.ts:84) with `testRunScope({command, cwd})` (:79), and POST /tdd-state/transition filters rows by projectPath. If Phase 1 re-keys B's rows to B, then running `bun test ../B/x.test.ts` or `cd ../B && bun test` from an ops session transitions A's rows only. B's RED_CONFIRMED/TEST_WRITTEN rows are never promoted, and with the 'either project has an active plan' rule the guard keeps blocking. The master lists 'TDD guard + tracker' for Phase 1 without deciding this.",
+      "suggested_fix": "Decide in the master: the bulk transition derives its project from the named test files or dirs (resolveFileProject on each), and from a leading `cd <dir> &&` or the `--cwd` flag. It sends one transition per resolved project. A project-wide run (files: null) stays on the session project. Add a DoD bullet: 'a passing `bun test <B test file>` from an A session confirms GREEN on B's row'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Conflict-check keying across sessions is undecided",
+      "description": "DoD: 'the conflict check [is] keyed to B's identity'. src/session/conflict.ts:44,88 keys both the registered edit and the query on resolveProjectIdentity(projectPath), where projectPath is the session's. The important case is ops session A and a native session in B editing the same B file. That conflict is caught only if A's edit is recorded under B AND B's query reads B, and an old sidecar or old plugin in the B session still records under its own key. It is unclear whether 'keyed to B' means the edit record, the query, or both.",
+      "suggested_fix": "State in the master that the file-edit record is written under the file's project (identity B) and the query uses the file's project. Add a DoD test with two sessions (A editing B/x.ts, then B editing B/x.ts → warning) on both targets."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "'Once per session per project' rule injection: CC state location and compaction survival are undecided",
+      "description": "Decision 2 says to inject the foreign rules once per session per project. CC hooks are fresh processes (as the plan notes), so the 'already injected' marker must live on disk or in the sidecar, and the plan does not say where. More importantly, after compaction the injected additionalContext is gone, and the marker would stop a re-injection. The rules would then silently stop applying for the rest of the session, which is exactly the user's complaint ('not sure the correct ... project rules are followed').",
+      "suggested_fix": "Decide in the master: store the marker as `<session workspace>/.sentinal/foreign-rules-<session_id>.json` (workspace = filesystem write, per the identity rule) or in sidecar session state. Clear it on PreCompact/SessionStart(compact) so the next edit in B re-injects, or re-inject from post-compact-restore. Clean the marker up on SessionEnd."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "OpenCode system.transform re-pushes every turn, so 'once' becomes 'every turn, cumulative'",
+      "description": "Context: 'OC model-visible context must go through experimental.chat.system.transform (re-pushed every turn)'. Rules injected that way for N foreign projects cost (sum of capped sizes) on EVERY turn for the rest of the session, which is not 'once'. The risk row 'Rules injection floods context' sets only a per-project cap.",
+      "suggested_fix": "Set a TOTAL cap across all foreign projects in the master, plus a per-project cap, with LRU or most-recently-edited-first ordering and a pointer list for anything evicted. Alternatively, OC injects the full rules for one turn, then keeps only a short pointer line for that project. Put the chosen byte numbers in Phase 2's DoD."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "The audit's Parent: link matches the slug only, so cross-repo children risk ambiguity and false negatives",
+      "description": "src/spec/master-audit.ts:174,183 resolves children by `Parent:` == the master's slug, scanning only dirname(masterPlanPath). Phase 3 plans to place children in other repos ('audit reads the phase worktree path while unmerged, the repo's docs/plans after merge'). A slug is not unique across repos: B may have its own master with the same slug, or an old child with that Parent. The master also does not say what the Parent: value is for a cross-repo child, or how the audit finds B's directory after the worktree is removed.",
+      "suggested_fix": "Decide now: the master's phase table records `Repo:` (B's identity) and the child path. A cross-repo child carries `Parent: <master slug>` plus `Parent-Repo: <A identity or a name from related.json>`, and the audit checks exactly the child paths the master lists for that repo. Add a DoD case where B holds an unrelated plan with the same Parent slug and it must not count."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Orca `worktree create --repo` and `--no-parent` support is assumed but not verified",
+      "description": "The architecture and Phase 3 depend on 'orca_dispatch prepare-child + repo (orca worktree create --repo)' and '--no-parent for foreign repos'. src/orca/dispatch.ts never uses a repo flag (grep finds no '--repo'). It is unverified whether the installed Orca CLI accepts --repo for an unregistered repo, or for a repo it does not manage (it may require `orca repo add`), and where it puts the worktree (workspaceDir is per-repo, `.orca/worktrees` inside B).",
+      "suggested_fix": "Make a short spike the first task of Phase 3, gating the rest: check `orca worktree create --help` and do one live create into a second repo. Record the outcome in the sentinal-orca-cli skill. If --repo needs repo registration, the master decides whether orca_dispatch auto-registers it or refuses with a clear error, and the non-Orca worktree_create(project=B) path stays the fallback."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "The foreign path spawns git on every CC hook, so 'memoized in-process' does not help CC",
+      "description": "Context: 'foreign paths may spawn git once (memoized in-process)'. canonicalProjectKey's memo (src/sidecar/project-key.ts) lives in the process, and every CC hook is a fresh process. resolveProjectIdentity runs `git worktree list` and possibly --show-toplevel (identity.ts:73-81). So each foreign edit costs one or two git spawns in EACH of tdd-guard and pre-edit-guide (sync), and the same again in the async hooks. In an ops session that edits only foreign repos, that is every edit.",
+      "suggested_fix": "Have the resolver derive identity without git where it can: when `.git` is a directory, identity = realpath(repoTop). When `.git` is a file, read its `gitdir:`, then the `commondir` file, and take the parent of the common dir, which handles linked worktrees. Fall back to git only for unusual layouts. Alternatively, add a small on-disk cache. Keep the hyperfine DoD with an explicit budget (e.g. foreign-path p50 < 10 ms added)."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Edge cases the resolver must decide: submodules, nested ignored repos, a home-directory dotfiles repo, files outside any repo",
+      "description": "Step 1 stops at the nearest `.git`. The master should state the intended outcomes: (a) a submodule inside A (its `.git` file points into A/.git/modules) becomes a foreign project with its own identity, so is that wanted? (b) sibling repos cloned under ops/ (gitignored) are foreign, which is correct. (c) a `$HOME` dotfiles repo with `.git` at `~` makes every non-repo file under `~` foreign to the dotfiles repo. (d) 'no .git found → session roots' keys edits to /etc or /tmp under the ops project.",
+      "suggested_fix": "Add a decision list to the master's resolver section. For example: submodules are foreign (or are treated as the superproject when the gitdir is under the superproject's .git/modules). Never treat `$HOME` or a filesystem root as a repo top for foreign purposes. Files outside any repo get the session roots with `foreign: false` and are documented as such. Back each decision with a Phase 1 unit test."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "Back-compat with old sidecars and old OC plugin bundles is not specified for the new keying",
+      "description": "Context: 'New request fields are optional; an old sidecar ignores them.' The Phase 1 changes mostly send a different projectPath value rather than new fields, which old sidecars accept. But the guard rule 'either project has an active plan' needs two getCurrentSpec lookups, and memory_search scope:'related' sent to an old sidecar must not silently return session-only results labelled as related. Existing rows recorded under the ops key from earlier cross-repo edits stay under ops, and the plan does not say they are left there.",
+      "suggested_fix": "State that no migration is done and pre-existing cross-repo observations stay under the session key, then document this in sentinal-project.md's known limitations. Implement scope:'related' as N client-side per-project searches merged in the MCP tool rather than a new sidecar param, so it also works against old sidecars, or have it detect an old sidecar and say so in the output."
+    },
+    {
+      "severity": "suggestion",
+      "category": "requirement_coverage",
+      "title": "Memories from edits to repos not listed in related.json become invisible from ops",
+      "description": "User: 'I'm not sure the correct memory ... rules are followed for those associated projects'. With Decision 1 (any git repo is foreign), a free-flow edit to an unlisted repo C keys its memories to C. scope:'related' from ops only covers repos in related.json, so the ops user cannot find them.",
+      "suggested_fix": "Either have scope:'related' also include projects whose observations carry metadata.sessionProject == the current project, or have the restore index list 'recently touched foreign projects (not in related.json)' with a hint to add them."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "The OC apply_patch decision is deferred to Phase 1 but affects all phases",
+      "description": "Context: 'Phase 1 decides whether to extract paths from the patch header'. If apply_patch is left out, foreign edits made through it skip capture, TDD, rules injection and conflict checks on every phase. That is a cross-phase decision.",
+      "suggested_fix": "Decide in the master to parse the '*** Update/Add/Delete File: <path>' headers from patchText and resolve each path, treating a multi-file patch as N edits. Phase 1 implements it."
+    }
+  ]
+}

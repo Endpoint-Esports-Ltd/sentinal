@@ -1,0 +1,56 @@
+{
+  "review_summary": "The plan covers every Phase 2 requirement and clarification: related.json committed, rules injected once per session per project on edits only with caps and a pointer list, memory_search scope \"related\" opt-in, and a restore index with no related memories. Wave 2 files do not overlap. Five issues checked against code need fixing first. The post-compact clear sits behind an early return. The gitignore upgrade only reaches projects through limited call sites. memory_search results carry no score field for the merge. Task 6 treats embedded-assets.ts as committable when it is not. The OpenCode transform push gives a 'once per session' delivery that the plan never acknowledges as different from Claude Code.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "untested_assumption",
+      "title": "Compact-clear would never run: post-compact-restore returns early when compact-state.json is absent",
+      "description": "Plan Context step 4 says 'on SessionStart with source compact (src/hooks/post-compact-restore.ts) remove this session's entry'. hooks.json does route matcher 'compact' to this hook, but processPostCompactRestore does `if (!existsSync(stateFile)) return;` (post-compact-restore.ts:39) before doing anything. compact-state.json is only written by pre-compact when there is state to save. In an ops session with no active plan the clear may never happen. Truth 3 ('after SessionStart(compact) it does again') would then fail in the field while a test that seeds compact-state.json still passes.",
+      "suggested_fix": "In Task 3, call clearInjectedRules(workspace, input.session_id) as the first statement of processPostCompactRestore, before the existsSync early return, inside its own try/catch. Add a test in post-compact-restore.test.ts with NO compact-state.json present that asserts the marker entry is removed."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Gitignore upgrade only reaches projects through its existing call sites, so a new related.json can still be silently ignored",
+      "description": "The plan's mitigation for the High/High risk 'related.json silently ignored by .gitignore' is the allowlist plus a KNOWN_PRIOR_GITIGNORES entry. Code (shared.ts:315-345) shows ensureGitignore runs only from writeSharedMemory and the R9a install/update entry point. A user who writes .sentinal/related.json by hand, or through the new /sync step, in a project with a v1/v2/v3 .gitignore and no reinstall will have `git add` silently skip it. 'Committed' is a clarified requirement. Separately, the plan correctly says to append the current v3 content (the one with !runtime.json) verbatim. The DoD should pin that.",
+      "suggested_fix": "Task 1: append v3 (the current GITIGNORE_CONTENT, byte-exact) as '// v3' in KNOWN_PRIOR_GITIGNORES and test that a v3 file upgrades. Have loadRelatedProjects (or the /sync step in Task 6) run the R9a ensure entry point when it finds or drafts related.json, or return a warning when `git check-ignore -q .sentinal/related.json` succeeds. Add a DoD line: 'a v3 .gitignore upgrades; a related.json in a project with a v2 .gitignore is not ignored after /sync drafts it'."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "memory_search results expose no score, so the merged related results lose relevance order",
+      "description": "Plan says 'merge, de-duplicate by id, sort by score when present else timestamp desc'. Grep of src/memory/mcp-tools.ts finds no 'score' field in the memory_search path (client.memorySearch at :141). Every merged result would therefore fall back to timestamp order, which throws away the semantic ranking that is the point of the tool. The top `limit` results could be recent but irrelevant hits from whichever project is busiest.",
+      "suggested_fix": "Task 2: check what the sidecar /memory/search response actually returns. If there is no score, merge by round-robin over the per-project ranked lists (rank 1 of each project, then rank 2, and so on), de-duplicate by id, then truncate to limit. Add a test where project B's best match is older than A's weak matches and assert it is still in the results."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "embedded-assets.ts is generated and not committed, but Task 6 lists it as a possible committed change",
+      "description": "Task 6's Files list includes 'src/cli/embedded-assets.ts (only if the embed check requires it)', and the Gotchas tell the implementer to run the check to decide whether to regenerate and commit it. scripts/check-embed-assets.mjs:5 states '`src/cli/embedded-assets.ts` is generated and NOT committed'. Leaving the question open invites an implementer to commit a generated file of roughly 11k lines.",
+      "suggested_fix": "Remove embedded-assets.ts from Task 6's Files. Replace the Gotcha with: 'embedded-assets.ts is generated at build and never committed; run `bun scripts/check-embed-assets.mjs` only to confirm the new targets/* files embed cleanly.'"
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "OpenCode pushes rules every turn, which differs from the clarified 'once per session per project'",
+      "description": "Clarification: 'inject full foreign rules once per session per project on EDITS only, size-capped'. Task 4 instead pushes every cached block 'every turn' in system.transform. This is defensible, because the system prompt is rebuilt each turn so a one-time push would vanish, and it costs no conversation history. But it is a behaviour difference from Claude Code that the plan never calls out. The 24k total cap then sits permanently in every turn's system prompt.",
+      "suggested_fix": "Add a sentence in Context → OpenCode injection explaining why OpenCode delivers 'once per session' as 'persistent in the system prompt from the first edit on' (the system prompt is rebuilt per turn; this is not repeated history). Consider a lower per-turn total for OpenCode, or pointer-only blocks for projects not edited in the last N turns. Record the choice in README under Task 6."
+    },
+    {
+      "severity": "suggestion",
+      "category": "hidden_dependency",
+      "title": "Marker file location when the session cwd is not a git repo",
+      "description": "The marker is written to `<session workspace>/.sentinal/injected-rules.json`. Ops sessions are often started in a directory that is not a repo, such as ~/ops or $HOME. resolveWorkspaceRoot then returns cwd. If cwd is $HOME, the marker lands in ~/.sentinal/, Sentinal's global state directory (SENTINAL_HOME, which holds the DB and sidecar socket). Elsewhere it creates a stray .sentinal/ directory.",
+      "suggested_fix": "In src/hooks/foreign-context.ts, write the marker under the session workspace only when it is a git checkout. Otherwise use `${SENTINAL_HOME}/sessions/injected-rules-<session_id>.json`. Test the non-repo cwd case."
+    },
+    {
+      "severity": "suggestion",
+      "category": "task_completeness",
+      "title": "Spell out where runPreEditGuide gets its session roots for the Phase 1 resolver",
+      "description": "Context step 1 says only 'Resolve the file's project (Phase 1)'. runPreEditGuide (hook.ts:149-190) has `filePath` and `input.cwd`. The zero-context implementer must know to call `sessionRootsFromCwd(input.cwd)`, then `resolveFileProject(filePath, roots)`, and that a relative filePath must be resolved against input.cwd first. The rules file path for `rulesForFile` must be relative to the FOREIGN workspace, not the session workspace.",
+      "suggested_fix": "Add to Task 3 Key Decisions: 'const roots = sessionRootsFromCwd(input.cwd); const fp = resolveFileProject(resolve(input.cwd, filePath), roots); rulesForFile(rules, relative(fp.workspace, absFile))'. Add a test with a relative tool_input path."
+    }
+  ]
+}

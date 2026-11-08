@@ -1,0 +1,56 @@
+{
+  "review_summary": "The plan covers every Phase-1 per-file site from the request (capture, hints, TDD guard and tracker, framework detection, conflict check) on both targets, and its file:line claims hold up against the code (hook.ts:129-132/166-186, tdd-guard.ts:71, tdd-tracker.ts:79-169, sentinal.ts:287/327/715/768/879). The main risks: the tracker's per-group spec filter can strand rows written under a different spec; the guard's fast path could pick up git spawns on same-repo edits; and the Wave 2 file split depends on Task 3 not touching hook.ts, which the plan never says.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Per-group spec filter strands foreign rows written under the session's spec",
+      "description": "Context → TDD tracker rule: on a test-file edit, the row gets `specKey` = 'that project's current spec, else the session's'. On a Bash run, the group's rows are listed with `listActiveTddStates(groupSpecKey, identity)`, where groupSpecKey = 'that project's current spec key or null'. If a sibling-repo row was written while only the session project A had a plan (spec_id = SA), and repo B later gets its own plan SB, the B group filters `spec_id = SB` and never sees the row, so it can never go RED→IDLE. The same thing happens the other way round. This is the same bug class Pre-Mortem #2 names, but it only lists the 'session-only plan' trigger. The query is already scoped by project (tdd-tracker.ts:132/169 pass `project`), so for cross-project groups the spec filter adds nothing and only creates a way to lose rows.",
+      "suggested_fix": "In groupTestScopeByProject consumers (CC tdd-tracker and OC sidecarTddTrack), list rows with spec key `null` for any group whose identity !== session.identity. Keep `specKey` only for the session-project group, so same-repo behaviour stays byte-identical. Add a DoD test: write the B row while only A has a plan, then register a plan for B, then a passing B run clears it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "tdd-guard fast path must not compute session roots before the RED check",
+      "description": "Context says 'CC hooks … compute `sessionRootsFromCwd(input.cwd)` once per hook', and sessionRootsFromCwd runs resolveProjectIdentity plus resolveWorkspaceRoot, which is two git spawns. Today processTddGuard (tdd-guard.ts:59-72) spawns nothing on the RED_CONFIRMED fast path or for unguarded files, and spawns once only on the slow path. Computing the roots at the top of the hook would add ~2 spawns to every synchronous PreToolUse Write/Edit, including same-repo edits. That contradicts the Risks row 'Same-repo path regresses (extra spawn…)'. The hyperfine check in Task 6 runs after Wave 2, too late to steer the design.",
+      "suggested_fix": "In Task 3 Key Decisions, state that processTddGuard keeps the cheap checks first (tool filter, isGuardedFile, readTddState === RED_CONFIRMED) and resolves session roots and the file project only on the slow path. If possible it should get the workspace without a spawn (the fs walk-up already finds the repo top, so compare it with input.cwd's own walk-up before calling git). Add a test with a spy proving the RED_CONFIRMED path makes zero identity calls."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Wave 2 file split depends on Task 3 not touching hook.ts",
+      "description": "Task 4 owns `src/cli/commands/hook.ts`, but that file also holds `runTddGuard` (hook.ts:23-35, which calls processTddGuard({toolName, filePath, cwd})), `runTddTracker` (:37-42), `runMemoryObserver` (:67-72) and `runToolFailureObserver` (:74-80). If Task 3 changes processTddGuard's input (for example by adding `session`/`fileProject`), or Task 2 changes a process* signature, those tasks must edit hook.ts in the same wave as Task 4. That is a same-wave overlap on a shared working directory. processTddGuard is also part of the public API (`src/index.ts:104`), and tdd-guard.ts has its own `main` (:86-101).",
+      "suggested_fix": "Add an explicit constraint to Tasks 2 and 3: keep the existing `processTddGuard` / `processTddTracking` / `processMemoryObserver` / `processToolFailure` signatures (they already receive `cwd` or the full HookInput) and resolve the roots inside. Any new field must be optional, so hook.ts, tdd-guard.ts `main` and the `src/index.ts` export need no change. Name hook.ts as Task 4-only."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "processFileCheck / processPreEditGuide callers and the plugin's testRunScope consumer are not enumerated",
+      "description": "Task 4 changes the `cwd` meaning of processFileCheck. It has two callers: hook.ts:132 and the standalone file-checker.ts:76 `main`. The plan names both, which is good. But processPreEditGuide's input is to be 'renamed or given a `project`', and the plan does not list its callers: hook.ts:186, pre-edit-guide.ts's own main, and the tests. Task 1 also adds `cwd` to `TestRunScope`. testRunScope is consumed by tdd-tracker.ts:79 and sentinal.ts:340 (plugin), and through `toTestScopeInput` by the sidecar transition path. If Task 1 makes the field required in a type that other code builds by hand (for example PROJECT_WIDE constants or test fixtures), typecheck breaks in other files.",
+      "suggested_fix": "Task 4: add a field (`project?: string`) rather than renaming, and default it to the current behaviour so the pre-edit-guide main and its tests compile unchanged. Task 1: make `TestRunScope.cwd` optional, or update every literal constructor in the same task, and add `bun run typecheck && bun run typecheck:plugin` to Task 1's Verify line."
+    },
+    {
+      "severity": "should_fix",
+      "category": "definition_of_done",
+      "title": "Same-repo memory hint must keep the raw-vs-canonical behaviour verified",
+      "description": "Context → Pre-edit hints: 'the direct fallback `getRecentForProject` must get the canonical identity, not raw cwd'. That changes the same-repo fallback too, from raw cwd to canonical, which moves away from 'existing tests unchanged'. The same applies to the conflict check: hook.ts:174 passes raw `input.cwd` to detectFileConflict today, and swapping in `file.identity` changes the key for same-repo edits from a subdirectory or linked worktree. That is probably a fix, but the plan does not state it as an intended same-repo change and does not check how detectFileConflict compares the key against observation rows.",
+      "suggested_fix": "In Task 4, state the intended same-repo change explicitly (canonical key replaces raw cwd for the fallback and the conflict check). Add a DoD test that a same-repo edit from a subdirectory still finds the project's observations and conflicts. Have the implementer confirm in `src/session/conflict.ts:79` that both sides of the comparison use the canonical key."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "OC transition helper location `sentinal-helpers.ts:280-300` unverified",
+      "description": "Context cites the OC transition helper at `sentinal-helpers.ts:280-300`. A search for a transition function in the plugins directory did not confirm it, though `getPreEditGuide` (helpers:187) and the sentinal.ts sites (287, 327, 715, 768, 879-882) all match. If the bulk-transition call actually lives inline in sentinal.ts, Task 5's 'one transition call per group' has to be wired there.",
+      "suggested_fix": "Name the exported helper the per-group loop goes into (for example `postTddTransition(sidecar, {projectPath, testFiles, testDirs, ...})`), not a line range, so a zero-context implementer can find it with grep."
+    },
+    {
+      "severity": "suggestion",
+      "category": "scope_alignment",
+      "title": "apply_patch support is a scope expansion",
+      "description": "The user request lists capture, hints, TDD, framework detection and conflict check. 'OC `apply_patch`' path extraction (`patch-paths.ts`, treating `apply_patch`/`patch` as edit tools in before/after) is new behaviour for a tool the plugin ignores today. Same-repo apply_patch edits would start being TDD-guarded too. That is a behaviour change for existing users that the request does not ask for.",
+      "suggested_fix": "Either move apply_patch to its own small follow-up, or keep it and add an explicit note plus a test that a same-repo apply_patch on a guarded file now blocks when a plan is active. Users should see that change in the README note from Task 6."
+    }
+  ]
+}
