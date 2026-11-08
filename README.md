@@ -468,6 +468,31 @@ All feedback is returned as structured hints that the assistant acts on automati
 
 **Prettier, ESLint, and `tsc` do not run on edit.** The shipped rules tell the assistant to call the `quality_report` MCP tool with `file:` set to each file it edited — that call applies `eslint --fix` and `prettier --write` to that one file only. A project-wide call (no `file`) is report-only: it lists unformatted files and ESLint error/warning counts and never rewrites anything.
 
+### Working across repositories
+
+A session started in one repository (say, a central "ops" project) may edit files in other
+repositories. Sentinal handles each edited file under **its own** project: the nearest directory
+above it that holds a `.git` entry (linked worktrees and submodules count as their own checkout).
+
+- Auto-captured memories are stored under the file's project (with the session's project recorded
+  as `sessionProject`), and pre-edit hints and the "recently edited by another session" warning
+  search that project.
+- The TDD guard enforces when **either** the file's project or the session's project has an active
+  `/spec` plan; TDD rows are keyed by the file's project, and a test run (`cd ../other && bun test`)
+  updates the rows of the project it ran in.
+- Framework detection (`angular.json`, `ng build --dry-run`) runs in the file's own checkout.
+- Session-level state (sessions, the stop guard, plan discovery, restore) stays on the session's
+  project. Memories captured before this change keep their old key.
+
+On OpenCode, `apply_patch` edits now go through the same per-file TDD guard and checks, for every
+file the patch adds, updates, deletes or moves to — including files in the session's own repository,
+which were previously not guarded at all. Deleting a guarded implementation file while a plan is
+active therefore needs a confirmed failing test too, as any other edit of it does. A patch's
+auto-captured memory is keyed by its first target.
+
+A git submodule (or any nested repository) is a separate project, even inside the session's
+repository.
+
 ### Framework Detection
 
 Sentinal auto-detects your project setup:

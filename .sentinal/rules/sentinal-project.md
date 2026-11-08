@@ -133,6 +133,58 @@ Site 1 was **already worktree-scoped by accident**: `findGitRoot` ran
 It now says so explicitly, and additionally gains the non-empty-absolute
 guarantee that `?? input.cwd` did not provide.
 
+### The third resolver: the edited file's project (cross-project scope)
+
+A session in repo A may edit files in repo B
+(`docs/plans/2026-11-05-cross-project-scope.md`, Phase 1). Every **per-file**
+row is keyed by the **file's** project; **session-level** state stays on the
+session's. `src/project/file-project.ts` (free of `bun:sqlite`, bundled into
+the plugin):
+
+| Function                                | Answers                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| `resolveFileProject(path, session)`     | `{identity, workspace, foreign}` of the repo that owns a file (or directory)    |
+| `sessionRootsFromCwd(cwd)`              | the session's roots, each **lazy** and memoized (CC hooks: call once per hook)  |
+| `groupTestScopeByProject(run, session)` | `src/project/test-scope-projects.ts` — one TDD scope per project a test run hit |
+| `captureProject(event, session)`        | `src/project/capture-project.ts` — an observation's key + `sessionProject`      |
+
+⛔ **Never pass a file path to `resolveProjectIdentity`**: git fails with a file
+as cwd and the fallback returns the file's own realpath as the "project". The
+resolver walks up the **filesystem** to the nearest `.git` entry (file or
+directory — linked worktrees, submodules), compares its **realpath** with the
+session workspace (same → session roots, **no spawn**), and only for another
+repo calls the memoized `canonicalProjectKey` (one git spawn).
+`foreign = identity !== session.identity`, so another worktree of the session's
+repo is not foreign but has its own `workspace`, while a submodule or nested repo
+(own `.git` entry) **is** foreign even inside the session repo (master decision 1). `sessionRootsFromCwd` finds the
+workspace on the filesystem too (git fallback outside any checkout), so the
+same-repo path costs exactly what it did before (measured below).
+
+| Site                                                      | Key / root                                                                             |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| CC `memory-observer`, `tool-failure-observer`             | `captureProject` (file → Bash effective cwd → session); buffer stays at `cwd`          |
+| CC `tdd-guard`                                            | spec of the file's project, else (foreign only) the session's; fast paths first        |
+| CC `tdd-tracker`                                          | test edit: file's identity; runs: per group, spec filter only for the session group    |
+| CC `pre-edit-guide` + conflict (`preEditHookContext`)     | file's identity (direct fallback is now canonical — fixes subdirectory misses)         |
+| CC `file-checker` (`fileCheckForEdit`)                    | Angular files: `detectFramework`/`ng build` in the file's workspace                    |
+| OC guard / tracker / capture / thrown failures / pre-edit | same rules (`tddGuardLookup`, `transitionTddStateByProject`, `captureProject`)         |
+| OC quality checks                                         | `detectFramework(fileProject(path).workspace)` for Angular files                       |
+| OC `apply_patch` / `patch`                                | `toolFilePaths` → each patch target (`src/opencode/patch-paths.ts`) is guarded/checked |
+| OC compaction autocontinue                                | RED rows inside the workspace **or** of a `touchedProjects` foreign identity           |
+
+`apply_patch` `Delete File:` targets are guarded like any edit; a patch's capture
+is keyed by its first target, but every target's project is marked touched.
+`TestRunScope.cwd` is where the run ran (after `cd`, before the first test
+segment); `effectiveCwd(command, cwd)` is a command's final cwd (`null` when the
+shell must resolve it). A foreign TDD group is read **without** a spec filter —
+its rows may carry the session's spec id from before it had its own plan.
+Rows/memories written before this change keep their old (session) key; the
+first tracker write with the file's identity re-keys a TDD row (`store.ts:211`).
+
+Latency (`hyperfine`, slow path of `sentinal hook shared tdd-guard`, no spec,
+macOS, 30 runs, medians): same-repo file 113.7 ms before → 115.0 ms after;
+sibling-repo file 112.7 ms → 130.1 ms (one memoized git spawn for B's identity).
+
 ### Canonical keys at the sidecar and `SpecStore` boundary (D3)
 
 **Reads fail open, writes normalize** (D3 of

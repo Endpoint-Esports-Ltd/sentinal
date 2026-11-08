@@ -1,0 +1,75 @@
+{
+  "pass_summary": "All six tasks are implemented as planned on both targets. The resolver follows the master contract: filesystem walk-up, a realpath short-circuit with no spawn, and a memoized git spawn only for foreign repos. Every per-file site (capture, hints, conflict check, TDD guard and tracker, framework detection, apply_patch, autocontinue) is wired and has tests against real temp repos. Only minor suggestions remain.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "apply_patch `*** Delete File:` targets are TDD-guarded and quality-checked like edits",
+      "description": "src/opencode/patch-paths.ts HEADER includes `Delete File`, so targets/opencode/plugins/sentinal.ts tool.execute.before runs sidecarTddGuard on a deleted implementation file. Under an active spec, deleting a guarded .ts file with no RED test is therefore blocked. In tool.execute.after the quality loop then tries to read a file that no longer exists (the error is caught, so it does no harm). The plan lists Delete among the parsed headers but never says whether deletions should be guarded. The README note covers apply_patch in general but not deletions.",
+      "suggested_fix": "Either have patchFilePaths return the kind of each path and skip the TDD guard and quality checks for `Delete File` targets, or state in README.md 'Working across repositories' that deleting a guarded file via apply_patch also needs a RED test while a plan is active. Add a test either way."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "OC memory capture of a multi-file patch is keyed by its first target only",
+      "description": "targets/opencode/plugins/sentinal.ts tool.execute.after sets `filePath = filePaths[0]` and uses it for both captureKey and the ToolEvent. A patch whose targets span two repos is captured under the first file's project only, and the first file's project is the only one recorded in touchedProjects. Guard, tracker and quality checks do loop over every target.",
+      "suggested_fix": "Call captureKey once per distinct project in filePaths, or at least note every foreign target in touchedProjects (e.g. `filePaths.forEach(p => fileProject(p))`), so a RED row in a second repo still pauses compaction autocontinue."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "A submodule nested in the session repo is now a separate (foreign) project",
+      "description": "By the contract (nearest `.git` entry), editing A/vendor/lib/x.ts, where vendor/lib is a submodule with a `.git` file, now keys rows to the submodule's identity with foreign: true. Before, they were keyed to A. src/project/file-project.test.ts:89 asserts this, so it is deliberate. Still, it is a same-repo-session behaviour change, and neither the README nor .sentinal/rules/sentinal-project.md calls it out.",
+      "suggested_fix": "Add one line to the 'third resolver' section of .sentinal/rules/sentinal-project.md (and the README paragraph): files inside a submodule are keyed to the submodule's own project."
+    },
+    {
+      "severity": "suggestion",
+      "category": "definition_of_done",
+      "title": "Per-task DoD checkboxes left unchecked although Progress Tracking is all [x]",
+      "description": "docs/plans/2026-11-05-cross-project-scope-phase-1.md: every 'Definition of Done' list under Tasks 1-6 still shows `- [ ]`, while Progress Tracking marks all six tasks complete. The code satisfies them (see truths), but the plan contradicts itself.",
+      "suggested_fix": "Tick the DoD items that are met in the plan file, or remove the checkbox syntax from the DoD lists."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "src/project/file-project.ts exports resolveFileProject and sessionRootsFromCwd and pulls in nothing that reaches bun:sqlite",
+      "status": "verified",
+      "evidence": "file-project.ts imports only node:fs, node:path, ../sidecar/project-key.js (bun:sqlite-free by rule) and ./identity.js. capture-project.ts, test-scope-projects.ts and patch-paths.ts are also free of bun:sqlite. The orchestrator reports that typecheck:plugin passes. The target-assets bundle test result was not independently confirmed."
+    },
+    {
+      "truth": "From session A, B/src/x.ts resolves to B (foreign: true); A/src/x.ts resolves to A (foreign: false) with no git spawn",
+      "status": "verified",
+      "evidence": "file-project.test.ts:67 (spawn counter = 0) and :79. Also :193: the full sessionRootsFromCwd + resolver same-repo path makes no identity or workspace call until identity is read."
+    },
+    {
+      "truth": "memory-observer: an edit of B/src/x.ts from cwd A posts projectPath = B and metadata.sessionProject = A",
+      "status": "verified",
+      "evidence": "memory-observer.ts uses captureProject and spreads sessionProject only when it differs. Covered by tests at memory-observer.test.ts:796 and :802 (same repo: no sessionProject) and tool-failure-observer.test.ts:507/:517."
+    },
+    {
+      "truth": "tdd-guard blocks B/src/x.ts (no RED) when only B or only A has an active spec, and allows when neither does",
+      "status": "verified",
+      "evidence": "tdd-guard.ts: getCurrentSpec(file.identity) ?? (file.foreign ? getCurrentSpec(session.identity) : null). Tests at tdd-guard.test.ts:614/:619/:624. The no-spawn fast path is tested at :651 via injected sessionRoots."
+    },
+    {
+      "truth": "tdd-tracker: from cwd A, a failing `cd ../b && bun test src/x.test.ts` turns B's TEST_WRITTEN row RED and a passing run clears it",
+      "status": "verified",
+      "evidence": "tdd-tracker.ts loops over groupTestScopeByProject. Foreign groups are read with listActiveTddStates(null, identity). Tests at tdd-tracker.test.ts:878, plus the mixed run (:898) and the ordering case (:939)."
+    },
+    {
+      "truth": "Framework detection runs on the file's workspace in both targets",
+      "status": "verified",
+      "evidence": "CC: hook.ts runFileChecker → fileCheckForEdit → processFileCheck(abs, file.workspace) for Angular files. OC: detectFramework(fileProject(filePath).workspace). Test at file-checker.test.ts:134."
+    },
+    {
+      "truth": "bun test, typecheck, typecheck:plugin, lint and format:check pass",
+      "status": "uncertain",
+      "evidence": "The orchestrator reports all gates passing, but the full bun test run was still in progress at review time. Not verified independently: this review was read-only and could not run commands."
+    }
+  ]
+}

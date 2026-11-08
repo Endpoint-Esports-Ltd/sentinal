@@ -13,6 +13,7 @@ import {
   isScoped,
   filterRowsByTestScope,
   toTestScopeInput,
+  effectiveCwd,
 } from "./test-run-scope.js";
 
 let root: string;
@@ -46,6 +47,7 @@ describe("testRunScope — command parsing (D2)", () => {
       files: [join(root, "src/a.test.ts")],
       dirs: [],
       nameFiltered: false,
+      cwd: root,
     });
   });
 
@@ -62,6 +64,7 @@ describe("testRunScope — command parsing (D2)", () => {
       files: [],
       dirs: [join(root, "src/x")],
       nameFiltered: false,
+      cwd: root,
     });
   });
 
@@ -70,6 +73,7 @@ describe("testRunScope — command parsing (D2)", () => {
       files: null,
       dirs: [],
       nameFiltered: false,
+      cwd: root,
     });
     expect(scope("bun test --timeout 30000").files).toBeNull();
   });
@@ -91,6 +95,7 @@ describe("testRunScope — command parsing (D2)", () => {
       files: null,
       dirs: [],
       nameFiltered: false,
+      cwd: root,
     });
     expect(scope("bun test src/a.test.ts foo").files).toBeNull();
   });
@@ -151,7 +156,12 @@ describe("testRunScope — command parsing (D2)", () => {
 
   it("non-test commands → files null (project-wide, today's behaviour)", () => {
     for (const c of ["ls -la", "git status", "cat log.txt", "", "   "]) {
-      expect(scope(c)).toEqual({ files: null, dirs: [], nameFiltered: false });
+      expect(scope(c)).toEqual({
+        files: null,
+        dirs: [],
+        nameFiltered: false,
+        cwd: root,
+      });
     }
   });
 
@@ -175,6 +185,45 @@ describe("testRunScope — command parsing (D2)", () => {
     expect(isScoped({ testFiles: [], testDirs: [] })).toBe(false);
     expect(isScoped({ testFiles: ["/a.test.ts"] })).toBe(true);
     expect(isScoped({ testDirs: ["/src"] })).toBe(true);
+  });
+});
+
+describe("testRunScope — effective cwd (cross-project scope)", () => {
+  it("carries the cwd the test run ran in, after any cd", () => {
+    expect(scope("bun test src/a.test.ts").cwd).toBe(root);
+    expect(scope("cd sub && bun test src/x.test.ts").cwd).toBe(
+      join(root, "sub"),
+    );
+    expect(scope("cd sub && bun test").cwd).toBe(join(root, "sub"));
+    expect(scope("cd sub && bun test && cd ..").cwd).toBe(join(root, "sub"));
+  });
+
+  it("non-test and unresolvable commands carry a cwd too", () => {
+    expect(scope("ls").cwd).toBe(root);
+    expect(scope("").cwd).toBe(root);
+    expect(scope("cd sub && ls").cwd).toBe(join(root, "sub"));
+    // the shell resolves `cd ~`: fall back to the caller's cwd
+    expect(scope("cd ~/x && bun test").cwd).toBe(root);
+  });
+});
+
+describe("effectiveCwd", () => {
+  it("follows cd segments", () => {
+    expect(effectiveCwd("ls", root)).toBe(root);
+    expect(effectiveCwd("cd sub && ls", root)).toBe(join(root, "sub"));
+    expect(effectiveCwd("cd sub; cd src && ls", root)).toBe(
+      join(root, "sub/src"),
+    );
+    expect(effectiveCwd(`cd ${join(root, "src")} && ls`, "/elsewhere")).toBe(
+      join(root, "src"),
+    );
+    expect(effectiveCwd("", root)).toBe(root);
+    expect(effectiveCwd(undefined, root)).toBe(root);
+  });
+
+  it("returns null when the shell must resolve the target", () => {
+    for (const c of ["cd - && ls", "cd ~/x && ls", "cd $DIR && ls", "cd"])
+      expect(effectiveCwd(c, root)).toBeNull();
   });
 });
 

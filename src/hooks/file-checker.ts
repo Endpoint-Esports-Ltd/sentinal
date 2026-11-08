@@ -5,6 +5,11 @@ import { getExpectedTestPaths, isTestFile } from "../utils/tdd.js";
 import { detectFramework } from "../checkers/detect.js";
 import { isAngularFile, runAngularChecks } from "../checkers/angular.js";
 import { isNestFile, checkNestPatterns } from "../checkers/nestjs.js";
+import { resolve } from "node:path";
+import {
+  resolveFileProject,
+  sessionRootsFromCwd,
+} from "../project/file-project.js";
 
 const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"];
 const ALL_CODE_EXTENSIONS = [
@@ -67,13 +72,29 @@ export async function processFileCheck(
   return messages.length === 0 ? null : messages.join("\n");
 }
 
+/**
+ * `processFileCheck` for a hook edit: framework detection and `ng build` run
+ * in the EDITED FILE's checkout, not the session cwd (cross-project scope,
+ * Phase 1). The root only feeds the Angular checks, so it is resolved only for
+ * Angular files — every other edit spawns no git.
+ */
+export async function fileCheckForEdit(
+  filePath: string,
+  cwd: string,
+): Promise<string | null> {
+  const abs = resolve(cwd, filePath);
+  if (!isAngularFile(abs)) return processFileCheck(abs, cwd);
+  const file = resolveFileProject(abs, sessionRootsFromCwd(cwd));
+  return processFileCheck(abs, file.workspace);
+}
+
 async function main(): Promise<void> {
   const input = await readStdin();
   const toolInput = input.tool_input as Record<string, unknown> | undefined;
   const filePath =
     (toolInput?.file_path as string) ?? (toolInput?.path as string);
   if (!filePath) return;
-  const result = await processFileCheck(filePath, input.cwd);
+  const result = await fileCheckForEdit(filePath, input.cwd);
   if (result) blockExit(result);
 }
 

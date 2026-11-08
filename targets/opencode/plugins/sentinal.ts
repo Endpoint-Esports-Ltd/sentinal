@@ -80,10 +80,7 @@ import {
   type WorkspaceAdaptor,
 } from "../../../src/opencode/workspace-adaptor.js";
 import { logToFile, PLUGIN_LOG_FILE } from "../../../src/utils/file-log.js";
-import {
-  testRunScope,
-  toTestScopeInput,
-} from "../../../src/utils/test-run-scope.js";
+import { testRunScope } from "../../../src/utils/test-run-scope.js";
 import {
   existsSync,
   readFileSync,
@@ -204,9 +201,20 @@ import {
   getFetchHint,
   getPreEditGuide,
   checkSessionConflict,
-  transitionTddState,
   resolvePluginRoots,
+  tddGuardLookup,
+  transitionTddStateByProject,
 } from "./sentinal-helpers.js";
+import {
+  resolveFileProject,
+  type FileProject,
+  type SessionRoots,
+} from "../../../src/project/file-project.js";
+import {
+  captureProject,
+  type CaptureProject,
+} from "../../../src/project/capture-project.js";
+import { toolFilePaths } from "../../../src/opencode/patch-paths.js";
 
 interface CompactState {
   activePlan: string | null;
@@ -283,19 +291,32 @@ function stopSidecar(): void {
 
 // ─── TDD via sidecar ─────────────────────────────────────────────────────────
 
-/** TDD guard via sidecar: returns error message if blocked, null if allowed. */
+/** Edit tools the TDD guard and tracker watch (`apply_patch`: its patch's targets). */
+const TDD_EDIT_TOOLS = ["write", "edit", "multiedit", "patch", "apply_patch"];
+
+/**
+ * TDD guard via sidecar: returns error message if blocked, null if allowed.
+ * Enforced when the FILE's project or the SESSION's project has an active
+ * spec (cross-project scope); `fileProject` is resolved only past the cheap
+ * checks.
+ */
 async function sidecarTddGuard(
   sidecar: SidecarClient,
   toolName: string,
   filePath: string,
-  cwd: string,
+  fileProject: () => FileProject,
+  session: SessionRoots,
 ): Promise<string | null> {
-  if (!["write", "edit", "multiedit", "patch"].includes(toolName.toLowerCase()))
-    return null;
+  if (!TDD_EDIT_TOOLS.includes(toolName.toLowerCase())) return null;
   if (!isGuardedFile(filePath)) return null;
 
   try {
-    const { state, hasActiveSpec } = await sidecar.getTddState(filePath, cwd);
+    const { state, hasActiveSpec } = await tddGuardLookup(
+      sidecar,
+      filePath,
+      fileProject(),
+      session,
+    );
     if (!hasActiveSpec) return null;
     if (state === "RED_CONFIRMED") return null;
 
@@ -314,9 +335,11 @@ async function sidecarTddGuard(
 /**
  * TDD tracker via sidecar: fire-and-forget state updates.
  *
- * `projectPath` is the canonical project IDENTITY (a storage key). It scopes
- * the written row and both bulk transitions — the transition route rejects an
- * unscoped request, so omitting it would silently break TDD tracking.
+ * Rows are keyed by the FILE's project (cross-project scope): a test edit is
+ * written under its own project's identity, and a test run sends one bulk
+ * transition per project it touched (`transitionTddStateByProject`) — the
+ * transition route rejects an unscoped request, so every call carries one.
+ * `note` records each foreign project resolved (for compaction autocontinue).
  *
  * `command` + `cwd` (D1/D2 of 2026-09-28-deferred-items) scope both bulk
  * transitions to the tests the run named, so a parallel agent's
@@ -329,19 +352,21 @@ async function sidecarTddTrack(
   toolName: string,
   filePath: string | undefined,
   bashOutput: string | undefined,
-  projectPath: string,
+  session: SessionRoots,
   command: string | undefined,
   cwd: string,
+  note: (p: { identity: string; foreign: boolean }) => void,
 ): Promise<void> {
   try {
-    const isEdit = ["write", "edit", "multiedit", "patch"].includes(
-      toolName.toLowerCase(),
-    );
+    const isEdit = TDD_EDIT_TOOLS.includes(toolName.toLowerCase());
     const runScope = () => testRunScope({ command, cwd });
 
     // Case 1: Test file written → TEST_WRITTEN
     if (isEdit && filePath && isTestFile(filePath)) {
       const implPath = getImplPathForTest(filePath) ?? filePath;
+      const file = resolveFileProject(filePath, session);
+      note(file);
+      const projectPath = file.identity;
       // D3 — never downgrade: re-editing the test of a RED impl keeps it RED.
       const current = await sidecar
         .getTddState(implPath, projectPath)
@@ -362,13 +387,13 @@ async function sidecarTddTrack(
       bashOutput &&
       TEST_FAIL_INDICATORS.some((r) => r.test(bashOutput))
     ) {
-      await transitionTddState(
+      const groups = await transitionTddStateByProject(
         sidecar,
         "confirm_red",
-        projectPath,
-        undefined,
-        toTestScopeInput(runScope()),
+        runScope(),
+        session,
       );
+      groups.forEach(note);
       return;
     }
 
@@ -380,18 +405,18 @@ async function sidecarTddTrack(
     ) {
       const scope = runScope();
       if (scope.nameFiltered) return;
-      await transitionTddState(
+      const groups = await transitionTddStateByProject(
         sidecar,
         "confirm_green",
-        projectPath,
-        undefined,
-        toTestScopeInput(scope),
+        scope,
+        session,
       );
+      groups.forEach(note);
     }
   } catch (e) {
     // Non-fatal — never throw into OpenCode — but never silent either.
     log(
-      `tdd-track failed (tool=${toolName}, projectPath=${projectPath}): ${e instanceof Error ? e.message : String(e)}`,
+      `tdd-track failed (tool=${toolName}, session=${session.identity}): ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }
@@ -460,7 +485,7 @@ function failureInputFromPart(part: EventToolPart): ToolFailureInput | null {
 /** Build the `error` observation payload from a capturing classification. */
 function failureObservation(
   sessionId: string,
-  projectPath: string,
+  key: CaptureProject,
   failure: ToolFailureInput,
 ): {
   sessionId: string;
@@ -476,7 +501,7 @@ function failureObservation(
   if (!c.capture) return null;
   return {
     sessionId,
-    projectPath,
+    projectPath: key.projectPath,
     type: "error",
     title: c.title,
     content: c.content,
@@ -486,6 +511,9 @@ function failureObservation(
       source: "auto-capture-failure",
       signature: c.signature,
       toolName: failure.toolName,
+      ...(key.sessionProject !== undefined
+        ? { sessionProject: key.sessionProject }
+        : {}),
       ...(c.exitCode !== undefined ? { exitCode: c.exitCode } : {}),
     },
   };
@@ -510,6 +538,34 @@ export const SentinalPlugin: Plugin = async ({
     identity: projectIdentity,
     workspace: projectWorkspace,
   } = resolvePluginRoots(worktree, directory);
+
+  // Per-file rows (observations, TDD rows, hints) are keyed by the EDITED
+  // FILE's project (cross-project scope); session-level state stays on these.
+  const session: SessionRoots = {
+    identity: projectIdentity,
+    workspace: projectWorkspace,
+  };
+  // Foreign projects this session touched — their RED rows still pause
+  // compaction autocontinue (filled wherever the resolver says foreign).
+  const touchedProjects = new Set<string>();
+  const note = (p: { identity: string; foreign: boolean }): void => {
+    if (p.foreign) touchedProjects.add(p.identity);
+  };
+  const fileProject = (path: string): FileProject => {
+    const p = resolveFileProject(path, session);
+    note(p);
+    return p;
+  };
+  /** Storage key of an auto-captured observation (file → cwd → session). */
+  const captureKey = (event: {
+    filePath?: string;
+    command?: string;
+    cwd?: string;
+  }): CaptureProject => {
+    const key = captureProject(event, session);
+    note({ identity: key.projectPath, foreign: key.foreign });
+    return key;
+  };
 
   const eventBuffer = new EventBuffer(20);
   let sidecar: SidecarClient | null = null;
@@ -555,7 +611,7 @@ export const SentinalPlugin: Plugin = async ({
     if (!failure) return;
     const payload = failureObservation(
       sessionId ?? part.sessionID ?? `opencode-${Date.now()}`,
-      projectIdentity,
+      captureKey({ filePath: failure.filePath, command: failure.command }),
       failure,
     );
     if (payload) await sendObservation(payload);
@@ -684,16 +740,20 @@ export const SentinalPlugin: Plugin = async ({
       const { tool } = input;
       const args = output.args || {};
 
-      // TDD Guard via sidecar
-      const filePath = args.file_path ?? args.filePath ?? args.path;
-      if (sidecar && typeof filePath === "string") {
-        const guardMsg = await sidecarTddGuard(
-          sidecar,
-          tool,
-          filePath,
-          projectIdentity,
-        );
-        if (guardMsg) throw new Error(guardMsg);
+      // TDD Guard via sidecar — every file the call names (`apply_patch`:
+      // each target of its patch; blocked if any one is).
+      const filePaths = toolFilePaths(tool, args, projectWorkspace);
+      if (sidecar) {
+        for (const filePath of filePaths) {
+          const guardMsg = await sidecarTddGuard(
+            sidecar,
+            tool,
+            filePath,
+            () => fileProject(filePath),
+            session,
+          );
+          if (guardMsg) throw new Error(guardMsg);
+        }
       }
 
       // Tool redirect hints
@@ -710,22 +770,36 @@ export const SentinalPlugin: Plugin = async ({
         });
       }
 
-      // Pre-edit guidance: inject file-specific observations
-      if (sidecar && typeof filePath === "string") {
-        const guide = await getPreEditGuide(sidecar, filePath, projectIdentity);
-        if (guide)
-          await client.app.log({
-            body: { service: "sentinal", level: "info", message: guide },
-          });
+      // Pre-edit guidance: file-specific observations of the FILE's project
+      if (sidecar) {
+        for (const filePath of filePaths) {
+          // Not `fileProject`: a read of another repo does not "touch" it.
+          const guide = await getPreEditGuide(
+            sidecar,
+            filePath,
+            resolveFileProject(filePath, session).identity,
+          );
+          if (guide)
+            await client.app.log({
+              body: { service: "sentinal", level: "info", message: guide },
+            });
+        }
       }
     },
 
     "tool.execute.after": async (input, output) => {
-      const QUALITY_TOOLS = ["write", "edit", "multiedit", "patch"];
+      const QUALITY_TOOLS = [
+        "write",
+        "edit",
+        "multiedit",
+        "patch",
+        "apply_patch",
+      ];
       const MEMORY_TOOLS = [
         "write",
         "edit",
         "patch",
+        "apply_patch",
         "bash",
         "shell",
         "terminal",
@@ -737,15 +811,15 @@ export const SentinalPlugin: Plugin = async ({
       // metadata}). Reading `output.args` here was the C1 bug that left the
       // whole quality gate dead on OpenCode.
       const args = (input.args ?? {}) as Record<string, unknown>;
-      const filePath = args.filePath || args.file_path || args.path;
+      // Every file the call names (`apply_patch`: each target of its patch).
+      const filePaths = toolFilePaths(input.tool, args, projectWorkspace);
+      const filePath: string | undefined = filePaths[0];
       const issues: string[] = [];
       let shouldBlock = false;
 
-      if (
-        QUALITY_TOOLS.includes(input.tool) &&
-        filePath &&
-        typeof filePath === "string"
-      ) {
+      for (const filePath of QUALITY_TOOLS.includes(input.tool)
+        ? filePaths
+        : []) {
         const ext = filePath.slice(filePath.lastIndexOf("."));
         if (TS_EXTENSIONS.includes(ext)) {
           try {
@@ -764,9 +838,14 @@ export const SentinalPlugin: Plugin = async ({
               if (r.severity === "error") shouldBlock = true;
             }
 
-            // Filesystem probe (package.json) — must read the LOCAL checkout.
-            const frameworks = detectFramework(projectWorkspace);
-            if (frameworks.includes("angular") && isAngularFile(filePath)) {
+            // Filesystem probe — must read the FILE's own local checkout
+            // (resolved only for Angular files; nothing else needs it).
+            if (
+              isAngularFile(filePath) &&
+              detectFramework(fileProject(filePath).workspace).includes(
+                "angular",
+              )
+            ) {
               if (
                 content.includes("@Component") &&
                 !content.includes("standalone: true")
@@ -862,36 +941,48 @@ export const SentinalPlugin: Plugin = async ({
             }
           }
 
-          // TDD Tracker via sidecar
+          // The command scopes the transition (D2) and keys a bash capture;
+          // OpenCode's bash tool may run it in `workdir`, else the checkout.
+          const command =
+            typeof args.command === "string" ? args.command : undefined;
+          const workdir =
+            typeof args.workdir === "string" && args.workdir !== ""
+              ? resolve(projectWorkspace, args.workdir)
+              : projectWorkspace;
+
+          // TDD Tracker via sidecar — once per named file (a patch may name
+          // several), once for a bash run.
           if (sidecar) {
-            const trackerFilePath =
-              typeof filePath === "string" ? filePath : undefined;
             const bashOutput =
               ["bash", "shell", "terminal"].includes(input.tool) &&
               typeof output.output === "string"
                 ? output.output
                 : undefined;
-            // The command scopes the transition (D2); OpenCode's bash tool
-            // may run it in `workdir`, else the local checkout.
-            const command =
-              typeof args.command === "string" ? args.command : undefined;
-            const workdir =
-              typeof args.workdir === "string" && args.workdir !== ""
-                ? resolve(projectWorkspace, args.workdir)
-                : projectWorkspace;
-            await sidecarTddTrack(
-              sidecar,
-              input.tool,
-              trackerFilePath,
-              bashOutput,
-              projectIdentity,
-              command,
-              workdir,
-            );
+            for (const trackerFilePath of filePaths.length > 0
+              ? filePaths
+              : [undefined]) {
+              await sidecarTddTrack(
+                sidecar,
+                input.tool,
+                trackerFilePath,
+                bashOutput,
+                session,
+                command,
+                workdir,
+                note,
+              );
+            }
           }
 
           // Memory capture (runs even without sidecar — queues when unavailable)
+          // A patch may span repos: every target's project counts as touched
+          // (the capture below is keyed by the FIRST target only).
+          for (const p of filePaths.slice(1)) fileProject(p);
+
           if (sessionId) {
+            // STORAGE KEY: the file's project, else the project the command
+            // ran in, else the session's (cross-project scope).
+            const key = captureKey({ filePath, command, cwd: workdir });
             // Build output: prefer actual tool output for bash/shell (enables error→fix,
             // TDD cycle, and build-fix heuristics), fall back to quality-check issues
             let eventOutput: string | undefined;
@@ -936,19 +1027,13 @@ export const SentinalPlugin: Plugin = async ({
                 try {
                   const raw =
                     typeof output.output === "string" ? output.output : "";
-                  const command = args.command;
-                  failurePayload = failureObservation(
-                    sessionId,
-                    projectIdentity,
-                    {
-                      toolName: input.tool,
-                      command:
-                        typeof command === "string" ? command : undefined,
-                      error: raw.replace(SHELL_METADATA_RE, ""),
-                      exitCode,
-                      interrupted: SHELL_ABORT_RE.test(raw),
-                    },
-                  );
+                  failurePayload = failureObservation(sessionId, key, {
+                    toolName: input.tool,
+                    command,
+                    error: raw.replace(SHELL_METADATA_RE, ""),
+                    exitCode,
+                    interrupted: SHELL_ABORT_RE.test(raw),
+                  });
                 } catch (e) {
                   log(
                     `bash failure capture failed: ${e instanceof Error ? e.message : e}`,
@@ -959,7 +1044,7 @@ export const SentinalPlugin: Plugin = async ({
 
             const event: ToolEvent = {
               toolName: input.tool,
-              filePath: typeof filePath === "string" ? filePath : undefined,
+              filePath,
               success: eventSuccess,
               output: eventOutput,
               timestamp: Date.now(),
@@ -973,7 +1058,7 @@ export const SentinalPlugin: Plugin = async ({
             ) {
               const obsPayload = {
                 sessionId,
-                projectPath: projectIdentity,
+                projectPath: key.projectPath,
                 type: decision.type,
                 title: decision.title,
                 content: decision.content,
@@ -983,6 +1068,10 @@ export const SentinalPlugin: Plugin = async ({
                   source: "auto-capture",
                   confidence: decision.confidence,
                   toolName: input.tool,
+                  // Only when it differs from the key (same-repo unchanged).
+                  ...(key.sessionProject !== undefined && {
+                    sessionProject: key.sessionProject,
+                  }),
                 },
               };
               await sendObservation(obsPayload);
@@ -1532,6 +1621,7 @@ export const SentinalPlugin: Plugin = async ({
         const result = await handleCompactionAutocontinue(sidecar, {
           identity: projectIdentity,
           workspace: projectWorkspace,
+          touchedProjects,
         });
         if (!result.shouldContinue) output.continue = false;
         result.context.forEach((c) => output.context.push(c));

@@ -16,7 +16,8 @@ import {
 } from "../memory/capture.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { resolveProjectIdentity } from "../project/identity.js";
+import { sessionRootsFromCwd } from "../project/file-project.js";
+import { captureProject } from "../project/capture-project.js";
 import { bashOutputOf, type HookInput } from "../utils/hook-output.js";
 import type { CreateObservation } from "../memory/types.js";
 
@@ -78,13 +79,22 @@ export async function processMemoryObserver(
   if (!decision.shouldCapture || decision.confidence < MIN_CAPTURE_CONFIDENCE)
     return;
 
+  // STORAGE KEY — the canonical main checkout of the EDITED FILE's project
+  // (else the project a Bash command ran in, else the session's), never the
+  // raw cwd, or observations fragment across worktrees/subdirectories. The
+  // resolvers never throw and never return "", so no guard is needed here.
+  const key = captureProject(
+    {
+      filePath,
+      command:
+        typeof toolInput.command === "string" ? toolInput.command : undefined,
+      cwd: input.cwd,
+    },
+    sessionRootsFromCwd(input.cwd),
+  );
   const obsPayload: ObserverPayload = {
     sessionId: input.session_id,
-    // STORAGE KEY — must be the canonical main checkout, not the agent's raw
-    // cwd, or observations fragment across worktrees/subdirectories. The
-    // resolver never throws and never returns "", so no guard is needed here;
-    // wrapping it would reintroduce the empty-key rows it exists to prevent.
-    projectPath: resolveProjectIdentity(input.cwd),
+    projectPath: key.projectPath,
     type: decision.type,
     title: decision.title,
     content: decision.content,
@@ -94,6 +104,10 @@ export async function processMemoryObserver(
       source: "auto-capture",
       confidence: decision.confidence,
       toolName,
+      // Only when the key differs from the session's (same-repo unchanged).
+      ...(key.sessionProject !== undefined && {
+        sessionProject: key.sessionProject,
+      }),
       // Agent attribution (CC 2.1.47+ / 2.1.69+)
       ...(input.agent_id !== undefined && { agent_id: input.agent_id }),
       ...(input.agent_type !== undefined && { agent_type: input.agent_type }),

@@ -797,3 +797,167 @@ describe("processTddTracking — scoped to the tests that ran (D1/D2/D3)", () =>
     expect(stateOf(A)).toBe("RED_CONFIRMED");
   }, 30_000);
 });
+
+// ─── Cross-project: rows keyed and transitioned per file project (Phase 1) ──
+
+describe("processTddTracking — per-project rows (cross-project scope)", () => {
+  let tmp: string;
+  let savedHome: string | undefined;
+  let a: string;
+  let b: string;
+  let c: string;
+  const PASS = " 1 pass\n 0 fail\nRan 1 tests across 1 file. [10.00ms]\n";
+  const FAIL = " 0 pass\n 1 fail\n";
+
+  const openStore = (): MemoryStore =>
+    new MemoryStore(join(tmp, "home", "memory.db"));
+
+  function initRepo(dir: string): void {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: dir });
+    for (const f of ["x.test.ts", "y.test.ts"])
+      writeFileSync(join(dir, "src", f), "");
+  }
+
+  function seed(file: string, project: string, state: string): void {
+    const store = openStore();
+    store.setTddState({
+      filePath: file,
+      state: state as "TEST_WRITTEN",
+      testFilePath: file.replace(/\.ts$/, ".test.ts"),
+      projectPath: project,
+    });
+    store.close();
+  }
+
+  function row(file: string) {
+    const store = openStore();
+    const r = store.getTddState(file);
+    store.close();
+    return r;
+  }
+
+  function activate(project: string, slug: string): string {
+    const store = openStore();
+    const ss = new SpecStore(store);
+    ss.syncFromPlanFile(
+      writePlan(project, `${slug}.md`, activePlanContent),
+      project,
+    );
+    const spec = ss.getCurrentSpec(project)!;
+    store.close();
+    return spec.key ?? spec.id;
+  }
+
+  const bash = (command: string, out: string) =>
+    processTddTracking({
+      toolName: "Bash",
+      command,
+      bashOutput: out,
+      cwd: a,
+      sessionId: "s",
+    });
+
+  beforeEach(() => {
+    tmp = realpathSync(makeTmpDir("tdd-tracker-cross"));
+    mkdirSync(join(tmp, "home"), { recursive: true });
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    c = join(tmp, "c");
+    for (const d of [a, b, c]) initRepo(d);
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = join(tmp, "home");
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("cd ../b && bun test src/x.test.ts: failing → B's row RED, passing → cleared", async () => {
+    const bx = join(b, "src", "x.ts");
+    seed(bx, b, "TEST_WRITTEN");
+    await bash("cd ../b && bun test src/x.test.ts", FAIL);
+    expect(row(bx)?.state).toBe("RED_CONFIRMED");
+    expect(row(bx)?.projectPath).toBe(b);
+    await bash("cd ../b && bun test src/x.test.ts", PASS);
+    expect(row(bx)).toBeNull();
+  }, 30_000);
+
+  it("a project-wide run after cd covers the cd target's project only", async () => {
+    const ax = join(a, "src", "x.ts");
+    const bx = join(b, "src", "x.ts");
+    seed(ax, a, "RED_CONFIRMED");
+    seed(bx, b, "RED_CONFIRMED");
+    await bash("cd ../b && bun test", PASS);
+    expect(row(bx)).toBeNull();
+    expect(row(ax)?.state).toBe("RED_CONFIRMED");
+  }, 30_000);
+
+  it("a mixed run transitions each project's row under its own key; others untouched", async () => {
+    const ax = join(a, "src", "x.ts");
+    const by = join(b, "src", "y.ts");
+    const cz = join(c, "src", "x.ts");
+    seed(ax, a, "TEST_WRITTEN");
+    seed(by, b, "TEST_WRITTEN");
+    seed(cz, c, "RED_CONFIRMED");
+    await bash("bun test src/x.test.ts ../b/src/y.test.ts", FAIL);
+    expect(row(ax)).toMatchObject({ state: "RED_CONFIRMED", projectPath: a });
+    expect(row(by)).toMatchObject({ state: "RED_CONFIRMED", projectPath: b });
+    await bash("bun test src/x.test.ts ../b/src/y.test.ts", PASS);
+    expect(row(ax)).toBeNull();
+    expect(row(by)).toBeNull();
+    expect(row(cz)).toMatchObject({ state: "RED_CONFIRMED", projectPath: c });
+  }, 30_000);
+
+  it("editing B's test from session A keys the row to B (spec: A's when B has none)", async () => {
+    const aKey = activate(a, "a-plan");
+    await processTddTracking({
+      toolName: "Write",
+      filePath: join(b, "src", "x.test.ts"),
+      cwd: a,
+    });
+    expect(row(join(b, "src", "x.ts"))).toMatchObject({
+      state: "TEST_WRITTEN",
+      projectPath: b,
+      specId: aKey,
+    });
+  }, 30_000);
+
+  it("editing B's test uses B's own spec when it has one", async () => {
+    activate(a, "a-plan");
+    const bKey = activate(b, "b-plan");
+    await processTddTracking({
+      toolName: "Write",
+      filePath: join(b, "src", "x.test.ts"),
+      cwd: a,
+    });
+    expect(row(join(b, "src", "x.ts"))?.specId).toBe(bKey);
+  }, 30_000);
+
+  it("ordering: a B row written under A's plan still clears after B gets its own plan", async () => {
+    activate(a, "a-plan");
+    await processTddTracking({
+      toolName: "Write",
+      filePath: join(b, "src", "x.test.ts"),
+      cwd: a,
+    });
+    activate(b, "b-plan");
+    const bx = join(b, "src", "x.ts");
+    await bash("bun test ../b/src/x.test.ts", FAIL);
+    expect(row(bx)?.state).toBe("RED_CONFIRMED");
+    await bash("bun test ../b/src/x.test.ts", PASS);
+    expect(row(bx)).toBeNull();
+  }, 30_000);
+
+  it("a -t filtered passing run confirms GREEN in no group", async () => {
+    const ax = join(a, "src", "x.ts");
+    const by = join(b, "src", "y.ts");
+    seed(ax, a, "RED_CONFIRMED");
+    seed(by, b, "RED_CONFIRMED");
+    await bash("bun test -t foo src/x.test.ts ../b/src/y.test.ts", PASS);
+    expect(row(ax)?.state).toBe("RED_CONFIRMED");
+    expect(row(by)?.state).toBe("RED_CONFIRMED");
+  }, 30_000);
+});

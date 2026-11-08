@@ -722,3 +722,92 @@ describe("observation projectPath keying", () => {
     expect(obs.projectPath).toBe(resolveRealPath(dir));
   }, 30_000);
 });
+
+// ─── Cross-project keying (docs/plans/2026-11-05-cross-project-scope-phase-1.md) ─
+
+describe("observation keyed by the edited file's project", () => {
+  let tmp: string;
+  let a: string;
+  let b: string;
+  let origConnect: typeof SidecarClient.connect;
+
+  function initRepo(dir: string): void {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    for (const args of [
+      ["init", "-b", "main"],
+      ["config", "user.email", "t@t.com"],
+      ["config", "user.name", "T"],
+      ["commit", "--allow-empty", "-m", "init"],
+    ])
+      Bun.spawnSync(["git", ...args], { cwd: dir });
+  }
+
+  async function capture(
+    toolInput: Record<string, unknown>,
+    toolName = "Edit",
+  ): Promise<Record<string, unknown>> {
+    mkdirSync(join(a, ".sentinal"), { recursive: true });
+    writeFileSync(
+      join(a, ".sentinal", "event-buffer.json"),
+      JSON.stringify([
+        {
+          toolName: "Bash",
+          success: false,
+          output: "error TS1234: Type mismatch",
+          filePath: "src/x.ts",
+          timestamp: Date.now() - 5000,
+        },
+      ]),
+    );
+    const sent: Record<string, unknown>[] = [];
+    SidecarClient.connect = (async () => ({
+      addObservation: async (obs: Record<string, unknown>) => {
+        sent.push(obs);
+        return { id: 1 };
+      },
+    })) as unknown as typeof SidecarClient.connect;
+    await processMemoryObserver({
+      session_id: "cross-session",
+      transcript_path: "",
+      cwd: a,
+      permission_mode: "auto",
+      hook_event_name: "PostToolUse",
+      tool_name: toolName,
+      tool_input: toolInput,
+    } as never);
+    expect(sent).toHaveLength(1);
+    return sent[0];
+  }
+
+  beforeEach(() => {
+    origConnect = SidecarClient.connect;
+    tmp = resolveRealPath(makeTmpDir("sentinal-obs-cross"));
+    a = join(tmp, "a");
+    b = join(tmp, "b");
+    initRepo(a);
+    initRepo(b);
+  });
+
+  afterEach(() => {
+    SidecarClient.connect = origConnect;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("an edit of B/src/x.ts from cwd A is keyed to B with sessionProject A", async () => {
+    const obs = await capture({ file_path: join(b, "src", "x.ts") });
+    expect(obs.projectPath).toBe(b);
+    expect((obs.metadata as Record<string, unknown>).sessionProject).toBe(a);
+  }, 30_000);
+
+  it("a same-repo edit carries no sessionProject", async () => {
+    const obs = await capture({ file_path: join(a, "src", "x.ts") });
+    expect(obs.projectPath).toBe(a);
+    expect("sessionProject" in (obs.metadata as object)).toBe(false);
+  }, 30_000);
+
+  it("the event buffer stays under the session cwd", async () => {
+    await capture({ file_path: join(b, "src", "x.ts") });
+    expect(existsSync(join(a, ".sentinal", "event-buffer.json"))).toBe(true);
+    expect(existsSync(join(b, ".sentinal"))).toBe(false);
+  }, 30_000);
+});

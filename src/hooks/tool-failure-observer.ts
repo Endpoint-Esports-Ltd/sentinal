@@ -34,7 +34,8 @@ import {
   type ToolFailureSkipReason,
 } from "../memory/tool-failure.js";
 import type { CreateObservation } from "../memory/types.js";
-import { resolveProjectIdentity } from "../project/identity.js";
+import { sessionRootsFromCwd } from "../project/file-project.js";
+import { captureProject } from "../project/capture-project.js";
 import type { HookInput } from "../utils/hook-output.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -176,10 +177,16 @@ export async function processToolFailure(
       };
     }
 
+    // STORAGE KEY — the canonical main checkout of the failing file's project
+    // (else the project the command ran in, else the session's; raw command:
+    // only `cd` targets are read, nothing is stored).
+    const key = captureProject(
+      { filePath: raw.filePath, command: raw.command, cwd: input.cwd },
+      sessionRootsFromCwd(input.cwd),
+    );
     const payload: ObservationPayload = {
       sessionId: input.session_id,
-      // STORAGE KEY — the canonical main checkout (never the raw cwd).
-      projectPath: resolveProjectIdentity(input.cwd),
+      projectPath: key.projectPath,
       type: "error",
       title: result.title,
       content: result.content,
@@ -190,6 +197,9 @@ export async function processToolFailure(
         source: "auto-capture-failure",
         signature: result.signature,
         toolName: failureInput.toolName,
+        ...(key.sessionProject !== undefined && {
+          sessionProject: key.sessionProject,
+        }),
         ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
         ...(input.duration_ms !== undefined && {
           duration_ms: input.duration_ms,
