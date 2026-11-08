@@ -9,6 +9,10 @@
  * into stdout when streams are joined — so the parser takes the LAST JSON
  * document that is not a keepalive, from stdout first, then stderr.
  *
+ * Orca 1.4.253: `orchestration` commands print a concise view unless `--full`
+ * is passed (`runOrca` adds it; see NO_FULL_SUBCOMMANDS). The 1.4.215 fixtures
+ * are the `--full` shape; `*-concise-1.4.253.json` documents the default.
+ *
  * Kept free of `bun:sqlite`/zod: it may become reachable from the plugin.
  */
 
@@ -238,13 +242,61 @@ export function createOrcaRunner(config: OrcaRunnerConfig = {}): OrcaRunner {
 export const defaultOrcaRunner: OrcaRunner = createOrcaRunner();
 
 /**
+ * Orca 1.4.253 prints a CONCISE view for every `orca orchestration` command
+ * unless `--full` is given ("Print the full record Orca returned instead of the
+ * concise view"); every caller here reads the full record (`result.run`,
+ * `result.task`, …). `ack` has no `--full`; non-orchestration commands
+ * (`worktree`, `terminal`, `status`, …) have none and are unchanged.
+ */
+const NO_FULL_SUBCOMMANDS: ReadonlySet<string> = new Set(["ack"]);
+
+/** Set once an older Orca rejects `--full` (flag validation precedes any mutation). */
+let fullUnsupported = false;
+
+/** Test-only: forget a previously detected lack of `--full` support. */
+export function __resetOrcaFullSupportForTests(): void {
+  fullUnsupported = false;
+}
+
+function wantsFull(args: string[]): boolean {
+  return (
+    !fullUnsupported &&
+    args[0] === "orchestration" &&
+    typeof args[1] === "string" &&
+    !NO_FULL_SUBCOMMANDS.has(args[1]) &&
+    !args.includes("--full")
+  );
+}
+
+function rejectedFullFlag(r: OrcaResult<unknown>): boolean {
+  return (
+    !r.ok &&
+    r.error.code === "invalid_argument" &&
+    /Unknown flag --full\b/.test(r.error.message)
+  );
+}
+
+/**
  * Run `orca <args> --json` (appended when absent) and parse its envelope.
+ * Orchestration commands also get `--full` (see above); an Orca that rejects
+ * it is retried once without and never sent it again in this process.
  * Never throws: spawn failure → `orca_unavailable`, deadline → `orca_timeout`,
  * no envelope → `orca_bad_output`; Orca's own errors keep their code.
  */
 export async function runOrca<T = unknown>(
   args: string[],
   opts: RunOrcaOptions = {},
+): Promise<OrcaResult<T>> {
+  if (!wantsFull(args)) return runOrcaOnce<T>(args, opts);
+  const first = await runOrcaOnce<T>([...args, "--full"], opts);
+  if (!rejectedFullFlag(first)) return first;
+  fullUnsupported = true;
+  return runOrcaOnce<T>(args, opts);
+}
+
+async function runOrcaOnce<T>(
+  args: string[],
+  opts: RunOrcaOptions,
 ): Promise<OrcaResult<T>> {
   const runner = opts.runner ?? defaultOrcaRunner;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_ORCA_TIMEOUT_MS;

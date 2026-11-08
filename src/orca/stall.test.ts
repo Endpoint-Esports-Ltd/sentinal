@@ -271,6 +271,7 @@ describe("collectStalls", () => {
       "worker-list",
       "--run",
       "run_1",
+      "--full",
       "--json",
     ]);
     expect(calls.some((c) => c.includes("ctx_done"))).toBe(false);
@@ -284,6 +285,7 @@ describe("collectStalls", () => {
       "auto",
       "--limit",
       "20",
+      "--full",
       "--json",
     ]);
   });
@@ -531,6 +533,7 @@ describe("collectStalls — never-started", () => {
       "worker-show",
       "--dispatch",
       HOME_ID,
+      "--full",
       "--json",
     ]);
   });

@@ -79,7 +79,37 @@ describe("ensureRun", () => {
     });
     expect(r).toMatchObject({ ok: true, reused: true });
     expect(r.ok && r.run.id).toBe("run_93672f816e9f");
-    expect(calls).toEqual([["orchestration", "run-current", "--json"]]);
+    expect(calls).toEqual([
+      ["orchestration", "run-current", "--full", "--json"],
+    ]);
+  });
+
+  // Regression (Orca 1.4.253): without --full, orchestration commands print a
+  // concise view (`{runId, objective}`), so ensureRun saw "no run".
+  it("should create the Run on Orca 1.4.253 by requesting the full record", async () => {
+    const concise = fixture("run-current-concise-1.4.253.json");
+    const full = json("run-current-full-1.4.253.json");
+    const handle = full.result.run.coordinator_handle as string;
+    const runner: OrcaRunner = async (args) => {
+      const line = args.join(" ");
+      const wantsFull = args.includes("--full");
+      if (line.startsWith("orchestration run-current")) {
+        return wantsFull ? ok({}) : out(concise);
+      }
+      if (line.startsWith("orchestration run-create")) {
+        return wantsFull
+          ? ok({ run: full.result.run })
+          : ok({ runId: full.result.run.id, objective: "o" });
+      }
+      throw new Error(`unexpected orca call: ${line}`);
+    };
+    const r = await ensureRun({
+      objective: "o",
+      env: { ORCA_TERMINAL_HANDLE: handle },
+      runner,
+    });
+    expect(r).toMatchObject({ ok: true, reused: false });
+    expect(r.ok && r.run.id).toBe("run_9efdbab4d99f");
   });
 
   it("refuses a bound Run owned by another terminal and never creates one", async () => {
@@ -302,6 +332,7 @@ describe("waitForSettlement", () => {
       "worker_done,escalation,question,heartbeat",
       "--timeout-ms",
       "35000",
+      "--full",
       "--json",
     ]);
   });
