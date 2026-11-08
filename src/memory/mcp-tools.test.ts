@@ -425,3 +425,128 @@ describe("memory read-tool project identity", () => {
     expect(result.content[0].text).toContain("Neighbour obs");
   }, 30_000);
 });
+
+// --- memory_search scope: "related" (cross-project scope, Phase 2) ---
+
+describe("memory_search scope", () => {
+  let tmpDir: string;
+  let a: string;
+  let b: string;
+  let c: string;
+  let store: MemoryStore;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    a = join(tmpDir, "a");
+    b = join(tmpDir, "b");
+    c = join(tmpDir, "c");
+    for (const d of [a, b, c]) mkdirSync(d, { recursive: true });
+    mkdirSync(join(a, ".sentinal"), { recursive: true });
+    writeFileSync(
+      join(a, ".sentinal", "related.json"),
+      JSON.stringify({
+        projects: [{ name: "bee", path: "../b" }, { path: "../gone" }],
+      }),
+    );
+    store = new MemoryStore(join(tmpDir, "scope.db"));
+    service = new MemoryService(store);
+    for (const [p, t] of [
+      [a, "Alpha widget retry"],
+      [b, "Beta widget retry"],
+      [c, "Gamma widget retry"],
+    ] as const) {
+      service.addObservation(
+        makeObservation({
+          projectPath: p,
+          title: t,
+          content: "widget retry logic",
+        }),
+      );
+    }
+  });
+
+  afterEach(() => {
+    service.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("should search the project and its declared related projects only", async () => {
+    const tools = captureTools(registerMemoryTools, { store });
+    const result = await tools.get("memory_search")!({
+      query: "widget retry",
+      project: a,
+      scope: "related",
+    });
+    const text = result.content[0].text;
+    expect(text).toContain("Alpha widget retry");
+    expect(text).toContain("Beta widget retry");
+    expect(text).not.toContain("Gamma widget retry");
+    expect(text).toContain("| bee |");
+    expect(text).toContain("Project");
+  }, 30_000);
+
+  it("should keep the default behaviour without scope", async () => {
+    const tools = captureTools(registerMemoryTools, { store });
+    const scoped = await tools.get("memory_search")!({
+      query: "widget retry",
+      project: a,
+    });
+    expect(scoped.content[0].text).toContain("Alpha widget retry");
+    expect(scoped.content[0].text).not.toContain("Beta widget retry");
+    expect(scoped.content[0].text).not.toContain("Project");
+    const all = await tools.get("memory_search")!({ query: "widget retry" });
+    expect(all.content[0].text).toContain("Gamma widget retry");
+  }, 30_000);
+
+  it("should fan out one sidecar call per project, round-robin merge, dedupe and limit", async () => {
+    const calls: Array<{ project?: string; limit?: number }> = [];
+    const row = (id: number, title: string) => ({
+      id,
+      title,
+      type: "discovery",
+      timestamp: Date.now(),
+      score: 1,
+      estimatedTokens: 10,
+      snippet: "",
+      tags: [],
+      filePaths: [],
+    });
+    const client = {
+      memorySearch: async (opts: { project?: string; limit?: number }) => {
+        calls.push(opts);
+        if (opts.project === a)
+          return [row(1, "A1"), row(2, "A2"), row(3, "A3")];
+        return [row(2, "A2"), row(4, "B1")];
+      },
+    };
+    const tools = captureTools(registerMemoryTools, {
+      client: client as never,
+    });
+    const result = await tools.get("memory_search")!({
+      query: "q",
+      project: a,
+      scope: "related",
+      limit: 3,
+    });
+    expect(calls.map((x) => x.project)).toEqual([a, b]);
+    const text = result.content[0].text;
+    expect(text).toContain("Found 3 observation(s)");
+    // Round-robin: a[0]=1, b[0]=2, a[1]=2 (duplicate, skipped), b[1]=4 → limit 3.
+    const ids = [...text.matchAll(/^\| (\d+) \|/gm)].map((m) => Number(m[1]));
+    expect(ids).toEqual([1, 2, 4]);
+  }, 30_000);
+
+  it("should describe the three scopes", () => {
+    const descriptions: string[] = [];
+    const server = {
+      tool: (name: string, desc: string) => {
+        if (name === "memory_search") descriptions.push(desc);
+      },
+    };
+    registerMemoryTools(server as never, { store });
+    expect(descriptions[0]).toContain('"project"');
+    expect(descriptions[0]).toContain('"related"');
+    expect(descriptions[0]).toContain('"all"');
+  });
+});

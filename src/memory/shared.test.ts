@@ -331,6 +331,59 @@ describe(".sentinal/.gitignore", () => {
     expect(isIgnored(".sentinal/runtime.json.bak")).toBe(true);
   });
 
+  // Cross-project scope Phase 2: `.sentinal/related.json` is committed.
+  // V3 is the content generated before `!related.json` existed — byte-for-byte.
+  const V3_CONTENT =
+    "# Ignore everything in .sentinal/ except shared project memory, the runtime\n" +
+    "# contract, rules, and skills\n" +
+    "*\n" +
+    "!.gitignore\n" +
+    "!project-memory.json\n" +
+    "!runtime.json\n" +
+    "!rules\n" +
+    "!rules/\n" +
+    "!rules/**\n" +
+    "!skills\n" +
+    "!skills/\n" +
+    "!skills/**\n";
+
+  it("upgrades a v3 .gitignore so .sentinal/related.json becomes trackable", () => {
+    mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
+    writeFileSync(gitignoreOf(projectDir), V3_CONTENT);
+
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+
+    const content = readFileSync(gitignoreOf(projectDir), "utf-8");
+    expect(content).not.toBe(V3_CONTENT);
+    expect(content).toContain("!related.json");
+    expect(content).toContain("!runtime.json");
+    expect(content).toContain("!rules/**");
+  });
+
+  it("tracks .sentinal/related.json in a real git repo", () => {
+    const { execFileSync } = require("node:child_process");
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+    };
+    execFileSync("git", ["init", "-q"], { cwd: projectDir, env });
+    writeSharedMemory(projectDir, [makeSharedObs()]);
+    const ignored = (rel: string): boolean => {
+      try {
+        execFileSync("git", ["check-ignore", "-q", rel], {
+          cwd: projectDir,
+          env,
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(ignored(".sentinal/related.json")).toBe(false);
+    expect(ignored(".sentinal/injected-rules.json")).toBe(true);
+  });
+
   it("preserves a user-customized .gitignore (no known-prior match)", () => {
     mkdirSync(join(projectDir, ".sentinal"), { recursive: true });
     writeFileSync(gitignoreOf(projectDir), "custom content\n");
@@ -485,6 +538,10 @@ describe("this repo's own .sentinal/.gitignore (R9)", () => {
 
   it("does not ignore .sentinal/runtime.json", () => {
     expect(isIgnoredHere(".sentinal/runtime.json")).toBe(false);
+  });
+
+  it("does not ignore .sentinal/related.json", () => {
+    expect(isIgnoredHere(".sentinal/related.json")).toBe(false);
   });
 
   it("still ignores unrelated .sentinal/ scratch files", () => {

@@ -123,3 +123,33 @@ describe("processSessionEnd (M10c)", () => {
     }
   }, 30_000);
 });
+
+describe("processSessionEnd — clears injected foreign rules (cross-project Phase 2)", () => {
+  let tmpDir: string;
+  let homeDir: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    homeDir = makeTmpDir();
+    savedHome = process.env.SENTINAL_HOME;
+    process.env.SENTINAL_HOME = homeDir;
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    mkdirSync(join(tmpDir, ".sentinal"), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.SENTINAL_HOME;
+    else process.env.SENTINAL_HOME = savedHome;
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it("deletes the marker when this session was its only entry", async () => {
+    const marker = join(tmpDir, ".sentinal", "injected-rules.json");
+    writeFileSync(marker, JSON.stringify({ "session-end-test": ["/b"] }));
+    const { processSessionEnd } = await import("./session-end.js");
+    await processSessionEnd(makeInput(tmpDir));
+    expect(existsSync(marker)).toBe(false);
+  }, 30_000);
+});

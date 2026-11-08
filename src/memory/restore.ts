@@ -16,6 +16,7 @@ import type { Observation } from "./types.js";
 import { findActivePlan } from "../spec/detect.js";
 import { readSharedMemory, toObservation } from "./shared.js";
 import { buildRestoreMarkdown, DEFAULTS } from "./restore-format.js";
+import { loadRelatedProjects } from "../project/related.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,12 +122,7 @@ async function restoreContextAsync(
   }
 
   const merged = mergeSharedObservations(recent, options);
-
-  if (merged.length === 0) {
-    return { markdown: "", observationCount: 0, hasMemory: false };
-  }
-
-  return buildRestoreMarkdown(service, options, merged);
+  return finish(service, options, merged);
 }
 
 function restoreContextSync(
@@ -137,12 +133,81 @@ function restoreContextSync(
 
   const recent = service.getRecentForProject(options.projectPath, recentLimit);
   const merged = mergeSharedObservations(recent, options);
+  return finish(service, options, merged);
+}
 
+/** Markdown for the merged observations plus the "Related projects" index. */
+function finish(
+  service: MemoryService,
+  options: RestoreOptions,
+  merged: Observation[],
+): RestoredContext {
+  const index = buildRelatedIndex(service, options);
   if (merged.length === 0) {
-    return { markdown: "", observationCount: 0, hasMemory: false };
+    if (index === "")
+      return { markdown: "", observationCount: 0, hasMemory: false };
+    // Nothing of its own yet, but related projects to point at.
+    return {
+      markdown: `## Sentinal Memory Context\n\n**Project:** ${options.projectPath}\n\n${index}`,
+      observationCount: 0,
+      hasMemory: true,
+    };
   }
+  const restored = buildRestoreMarkdown(service, options, merged);
+  if (index !== "") restored.markdown += `\n\n${index}`;
+  return restored;
+}
 
-  return buildRestoreMarkdown(service, options, merged);
+const MAX_RELATED_LINES = 10;
+
+/**
+ * `### Related projects` — declared (`.sentinal/related.json`) and undeclared
+ * (foreign projects this project's sessions captured memories for). Index
+ * only: no related memories are restored. "" when there is nothing to list.
+ * Never throws.
+ */
+function buildRelatedIndex(
+  service: MemoryService,
+  options: RestoreOptions,
+): string {
+  try {
+    const identity = options.projectPath;
+    const related = loadRelatedProjects(options.workspacePath ?? identity);
+    const plural = (n: number) => `${n} ${n === 1 ? "memory" : "memories"}`;
+    const lines: string[] = [];
+    const declared = new Set<string>();
+    for (const p of related.projects) {
+      declared.add(p.identity);
+      if (!p.exists) {
+        lines.push(`- ${p.name} — ${p.path} (missing)`);
+        continue;
+      }
+      const rules = p.hasRules ? " (rules)" : "";
+      lines.push(
+        `- ${p.name} — ${p.path}${rules} — ${plural(service.countByProject(p.identity))}`,
+      );
+    }
+    const undeclared = service
+      .foreignProjectsCapturedFrom(identity)
+      .filter((f) => !declared.has(f.projectPath));
+    for (const f of undeclared)
+      lines.push(`- ${f.projectPath} — ${plural(f.count)} (undeclared)`);
+    if (lines.length === 0 && related.warnings.length === 0) return "";
+
+    const out = ["### Related projects"];
+    const shown = lines.slice(0, MAX_RELATED_LINES);
+    out.push(...shown);
+    if (lines.length > shown.length)
+      out.push(`  … ${lines.length - shown.length} more`);
+    if (undeclared.length > 0)
+      out.push(
+        'Add undeclared projects to `.sentinal/related.json` to search them with `memory_search({scope: "related"})`.',
+      );
+    for (const w of related.warnings) out.push(`⚠️ ${w}`);
+    return out.join("\n");
+  } catch {
+    return "";
+  }
 }
 
 const MAX_SHARED_OBSERVATIONS = 15;

@@ -28,7 +28,7 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 
 | Tool              | Purpose                                                     |
 | ----------------- | ----------------------------------------------------------- |
-| `memory_search`   | Semantic + keyword search over SQLite-vec vector store      |
+| `memory_search`   | Semantic + keyword search; `scope` project / related / all  |
 | `memory_timeline` | Chronological context around an anchor observation          |
 | `memory_get`      | Fetch full observation details by ID                        |
 | `memory_save`     | Save a decision/discovery/error/fix/pattern observation     |
@@ -37,6 +37,13 @@ Equivalent to running `sentinal mcp-server` or `bun run mcp` locally.
 | `memory_share`    | Promote observations to `.sentinal/project-memory.json`     |
 | `memory_maintain` | Maintenance ops (prune, reindex)                            |
 | `memory_stats`    | Database statistics (observation counts, project breakdown) |
+
+`memory_search` `scope` (cross-project scope, Phase 2): `project` (default with `project`) and
+`all` (default without) are the old behaviour. `related` = base (`project ?? cwd`) identity plus
+every existing `.sentinal/related.json` entry (`loadRelatedProjects(resolveWorkspaceRoot(base))`),
+one search per identity through the EXISTING `client.memorySearch` / `service.search` — no sidecar
+route, so it works with old sidecars — merged round-robin (`src/memory/related-search.ts`; scores
+are not comparable across searches), deduped by id, truncated to `limit`, with a `Project` column.
 
 ### Spec Workflow Domain (`src/spec/mcp-tools.ts`) — 10 tools
 

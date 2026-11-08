@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { readStdin, type HookInput } from "../utils/hook-output.js";
 import { SidecarClient } from "../sidecar/client.js";
 import { stopServer } from "../dashboard/lifecycle.js";
+import { clearInjectedRules } from "./foreign-context.js";
 
 export async function processSessionEnd(input: HookInput): Promise<void> {
   try {
@@ -61,6 +62,9 @@ export async function processSessionEnd(input: HookInput): Promise<void> {
   } catch {
     // Non-fatal cleanup (including empty input with no cwd)
   }
+
+  // Forget which foreign projects' rules this session was shown.
+  clearInjectedRules({ cwd: input.cwd, sessionId: input.session_id });
 }
 
 async function main(): Promise<void> {

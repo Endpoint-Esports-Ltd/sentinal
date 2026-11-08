@@ -359,3 +359,76 @@ describe("sentinal hook shared tdd-tracker on PostToolUseFailure (real bun test)
     expect(row?.state).toBe("RED_CONFIRMED");
   }, 60_000);
 });
+
+/**
+ * Cross-project scope Phase 2, Truth 3 — the first edit of a file in another
+ * repo emits that repo's rules in `additionalContext`; a second edit in the
+ * same session does not; after SessionStart(compact) it does again.
+ */
+describe("sentinal hook shared pre-edit-guide — foreign rules (CLI wiring)", () => {
+  let root: string;
+  let a: string;
+  let b: string;
+  let home: string;
+
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+  };
+
+  beforeAll(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-hook-foreign-")));
+    a = join(root, "a");
+    b = join(root, "b");
+    home = join(root, "home");
+    for (const d of [a, b, home]) mkdirSync(d, { recursive: true });
+    for (const d of [a, b])
+      Bun.spawnSync(["git", "init", "-q"], { cwd: d, env: gitEnv });
+    mkdirSync(join(b, ".sentinal", "rules"), { recursive: true });
+    writeFileSync(
+      join(b, ".sentinal", "rules", "b.md"),
+      "# B conventions\nAlways use zod in B.\n",
+    );
+    writeFileSync(join(b, "x.ts"), "export {};\n");
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function run(scopeName: string, payload: Record<string, unknown>) {
+    const input = JSON.stringify({
+      session_id: "foreign-s1",
+      transcript_path: "/tmp/t",
+      cwd: a,
+      permission_mode: "default",
+      ...payload,
+    });
+    return Bun.spawnSync(["bun", CLI, "hook", "shared", scopeName], {
+      stdin: Buffer.from(input),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, SENTINAL_HOME: home },
+    });
+  }
+
+  const edit = () =>
+    run("pre-edit-guide", {
+      hook_event_name: "PreToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: join(b, "x.ts") },
+    }).stdout.toString();
+
+  it("injects once, then again after compaction", () => {
+    const first = edit();
+    expect(first).toContain("additionalContext");
+    expect(first).toContain("Always use zod in B.");
+    expect(edit()).not.toContain("Always use zod in B.");
+    run("post-compact-restore", {
+      hook_event_name: "SessionStart",
+      source: "compact",
+    });
+    expect(edit()).toContain("Always use zod in B.");
+  }, 60_000);
+});

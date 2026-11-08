@@ -12,6 +12,7 @@
 !.gitignore
 !project-memory.json
 !runtime.json
+!related.json
 !continue-here.md
 !rules
 !rules/

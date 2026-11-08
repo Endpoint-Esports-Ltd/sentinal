@@ -130,6 +130,41 @@ export class MemoryStore extends MemoryStoreObservations {
     };
   }
 
+  // ─── Cross-project index (restore "Related projects") ─────────────────
+
+  /** Number of observations keyed to `projectPath`. */
+  countByProject(projectPath: string): number {
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) as count FROM observations WHERE project_path = ?",
+      )
+      .get(projectPath) as { count: number } | null;
+    return row?.count ?? 0;
+  }
+
+  /**
+   * Projects whose observations were captured by sessions of `identity`
+   * (`metadata.sessionProject`, set for foreign-file captures), most first.
+   */
+  foreignProjectsCapturedFrom(
+    identity: string,
+    limit = 20,
+  ): { projectPath: string; count: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT project_path, COUNT(*) as count FROM observations
+         WHERE json_valid(metadata)
+           AND json_extract(metadata, '$.sessionProject') = ?
+           AND project_path != ?
+         GROUP BY project_path ORDER BY count DESC, project_path ASC LIMIT ?`,
+      )
+      .all(identity, identity, limit) as {
+      project_path: string;
+      count: number;
+    }[];
+    return rows.map((r) => ({ projectPath: r.project_path, count: r.count }));
+  }
+
   // ─── Maintenance ──────────────────────────────────────────────────────
 
   prune(olderThanMs: number): number {
