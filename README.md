@@ -531,6 +531,35 @@ what does not fit is listed as file pointers to read. Reads never inject.
   later ones degrade to pointer lists). The pre-edit memory hint, which used to reach only the TUI
   log, is now pushed into the next turn's system prompt once.
 
+#### Cross-repo master plans
+
+A master plan in one repository can run a phase in **another** repository. Give that phase's child
+plan a `Repo:` header (a `related.json` name, a path relative to the master's repository, or an
+absolute path) and optionally `Base:` (its base branch; default: the branch checked out in that
+repository's main checkout). That child plan stays in the master's `docs/plans/` as a **seed**, so
+it is planned and approved like any other phase.
+
+When the phase runs, `/spec` creates a worktree of the other repository, copies the seed into its
+`docs/plans/` (adding `Master:`), commits it there, and records the copy in the seed's
+`Location:` header. The worker verifies the copy. After it reads `VERIFIED`, the phase is merged
+into the other repository and the seed is updated (`Location:` relative to `Repo:`, the final
+`Status:`). `spec_master_audit` follows `Location:` to read the real status, and fails a seed that
+claims VERIFIED without one, a copy whose `Parent:` names another master, or a seed whose status
+differs from its copy's.
+
+- **With Orca** (recommended): `orca_dispatch` creates the worktree in that repository
+  (`repo: <path>`, no lineage), and the worker runs inside it with that repository's rules,
+  memory and TDD scoping. The repository must be registered in Orca: Sentinal reports
+  `orca repo add --path <repo>` and never runs it (Orca has no command to unregister a repository).
+- **Without Orca:** `worktree_create({ plan_slug, project: <repo> })` creates the worktree, and a
+  subagent works in it by absolute path. Editing outside the session's directory prompts for
+  permission. To allow it for good — Claude Code: `--add-dir <repo>` or
+  `permissions.additionalDirectories`; OpenCode: in the project's `opencode.json`,
+  `"permission": {"external_directory": {"<repo>/**": "allow"}}`.
+- ⚠️ **The merge lands in your checkout of that repository**: in the checkout that has the base
+  branch, else its main checkout, which must have no uncommitted tracked changes. Commit or stash
+  your work there before the wave starts.
+
 ### Framework Detection
 
 Sentinal auto-detects your project setup:

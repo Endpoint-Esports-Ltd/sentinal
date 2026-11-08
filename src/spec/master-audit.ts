@@ -1,34 +1,30 @@
 /**
  * Master-plan ↔ child-plan reconciliation.
  *
- * A master plan carries two independent records of the same fact, written by
- * different mechanisms, and until now nothing compared them:
- *
- *   - a child's `Status:`               — written by spec-verify, running on that child
- *   - the master's `- [x] … VERIFIED`   — written by spec-master-execute Step 4,
- *                                          from what a subagent *reported*
- *
- * So "master says VERIFIED, child says PENDING" — and equally "child says
- * VERIFIED, master checkbox still `[ ]`", which is the drift actually observed
- * in this repo — are both representable states that nothing looked for.
+ * Two records of the same fact, written by different mechanisms: a child's
+ * `Status:` (spec-verify, on that child) and the master's `- [x] … VERIFIED`
+ * (spec-master-execute, from what a worker *reported*). Drift in either
+ * direction is a finding.
  *
  * ⛔ Children are resolved by the `Parent:` back-link, NOT by globbing
- * `<master-slug>-phase-*.md`. The back-link is authoritative (parsed at
- * parser.ts:63-64, persisted at store.ts:161-162). The glob is used only as a
- * SECOND pass, to surface phase-named files that carry no link — otherwise a
- * file like `…-phase-1-spike.md`, whose metadata line is prose rather than a
- * status, is silently skipped by the very check meant to catch it.
+ * `<master-slug>-phase-*.md`; the glob is only a SECOND pass that surfaces
+ * phase-named files carrying no link (e.g. `…-phase-1-spike.md`).
  *
- * ⛔ Direct-fs only. Do not route this through the sidecar and do not derive it
- * from `store`: MCP tools receive `store: null` in production whenever the
- * sidecar is running, which would make this audit pass every test and do
- * nothing in the field — the same defect class it exists to detect.
+ * ⛔ Direct-fs only. Never route this through the sidecar or derive it from
+ * `store`: MCP tools receive `store: null` in production whenever the sidecar
+ * runs, so the audit would pass every test and do nothing in the field.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parsePlanFile, slugFromFilename } from "./parser.js";
 import { markFencedLines } from "./parser-fences.js";
+import {
+  findMasterWorkspace,
+  readRawStatus,
+  resolveForeignChild,
+  type ForeignFindingKind,
+} from "./master-audit-foreign.js";
 import type { SpecStatus } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -53,6 +49,10 @@ export interface ChildPlan {
   wave?: number;
   /** Phase number derived from the slug suffix, when it has one. */
   phase?: number;
+  /** Foreign child (`Repo:`): the resolved repo directory. */
+  repo?: string;
+  /** Foreign child: the resolved `Location:` plan its status was read from. */
+  location?: string;
 }
 
 export interface OrphanPlan {
@@ -66,7 +66,8 @@ export type FindingKind =
   | "checkbox-disagrees"
   | "orphan"
   | "missing-child"
-  | "no-children";
+  | "no-children"
+  | ForeignFindingKind;
 
 export interface MasterAuditFinding {
   kind: FindingKind;
@@ -151,18 +152,6 @@ export function parsePhaseCheckboxes(content: string): MasterCheckbox[] {
 
 // ── Child resolution ─────────────────────────────────────────────────────────
 
-/** Raw `Status:` value, read before `normalizeStatus` collapses unknowns. */
-function readRawStatus(planFile: string): string | undefined {
-  const lines = readFileSync(planFile, "utf-8").split("\n").slice(0, 20);
-  const fenced = markFencedLines(lines);
-  for (let i = 0; i < lines.length; i++) {
-    if (fenced[i]) continue;
-    const m = lines[i].trim().match(/^(?:\*\*)?Status:?(?:\*\*)?\s*(.+)$/i);
-    if (m) return m[1].trim();
-  }
-  return undefined;
-}
-
 function phaseFromSlug(slug: string, masterSlug: string): number | undefined {
   const m = slug.slice(masterSlug.length).match(/^-phase-(\d+)$/);
   return m ? parseInt(m[1], 10) : undefined;
@@ -174,11 +163,13 @@ function phaseFromSlug(slug: string, masterSlug: string): number | undefined {
  * Primary pass: any plan whose `Parent:` matches the master's slug.
  * Second pass: any `<master-slug>-phase-*.md` NOT claimed by the first pass is
  * returned as an orphan, so a missing or misspelled link becomes a finding
- * rather than a silent omission.
+ * rather than a silent omission. A child with `Repo:` is a seed: its status
+ * comes from its `Location:` (`master-audit-foreign.ts`), with any finding.
  */
 export function resolveChildPlans(masterPlanPath: string): {
   children: ChildPlan[];
   orphans: OrphanPlan[];
+  findings: MasterAuditFinding[];
 } {
   const dir = dirname(masterPlanPath);
   const masterSlug = slugFromFilename(masterPlanPath);
@@ -190,6 +181,8 @@ export function resolveChildPlans(masterPlanPath: string): {
 
   const children: ChildPlan[] = [];
   const claimed = new Set<string>();
+  const findings: MasterAuditFinding[] = [];
+  let workspace: string | undefined;
 
   for (const f of files) {
     const planFile = join(dir, f);
@@ -203,13 +196,23 @@ export function resolveChildPlans(masterPlanPath: string): {
 
     const slug = slugFromFilename(planFile);
     claimed.add(slug);
+    const foreign = spec.repo
+      ? resolveForeignChild({
+          planFile,
+          spec,
+          masterSlug,
+          masterWorkspace: (workspace ??= findMasterWorkspace(masterPlanPath)),
+        })
+      : undefined;
+    for (const f of foreign?.findings ?? []) findings.push({ ...f, slug });
+    const rawStatus = foreign ? foreign.rawStatus : readRawStatus(planFile);
     children.push({
       slug,
       planFile,
-      status: spec.status,
-      ...(readRawStatus(planFile)
-        ? { rawStatus: readRawStatus(planFile) }
-        : {}),
+      status: foreign?.status ?? spec.status,
+      ...(rawStatus ? { rawStatus } : {}),
+      ...(foreign ? { repo: foreign.repo } : {}),
+      ...(foreign?.location ? { location: foreign.location } : {}),
       ...(spec.wave !== undefined ? { wave: spec.wave } : {}),
       ...(phaseFromSlug(slug, masterSlug) !== undefined
         ? { phase: phaseFromSlug(slug, masterSlug) }
@@ -223,16 +226,11 @@ export function resolveChildPlans(masterPlanPath: string): {
     if (claimed.has(slug)) continue;
     if (!slug.startsWith(`${masterSlug}-phase-`)) continue;
     const planFile = join(dir, f);
-    orphans.push({
-      slug,
-      planFile,
-      ...(readRawStatus(planFile)
-        ? { rawStatus: readRawStatus(planFile) }
-        : {}),
-    });
+    const rawStatus = readRawStatus(planFile);
+    orphans.push({ slug, planFile, ...(rawStatus ? { rawStatus } : {}) });
   }
 
-  return { children, orphans };
+  return { children, orphans, findings };
 }
 
 // ── Audit ────────────────────────────────────────────────────────────────────
@@ -251,10 +249,9 @@ function matchCheckbox(
 /**
  * Reconcile a master plan against its children.
  *
- * ⛔ Only `VERIFIED` passes. `src/spec/types.ts` defines 11 statuses, and
- * `COMPLETE` means "implemented, awaiting verification" — it routes back INTO
- * spec-verify. A fail-list naming only PENDING/IN_PROGRESS/DRAFT would let
- * COMPLETE and FAILED children through, which is the bug, not the fix.
+ * ⛔ Only `VERIFIED` passes: `COMPLETE` means "implemented, awaiting
+ * verification", and a fail-list of PENDING/IN_PROGRESS/DRAFT would let
+ * COMPLETE and FAILED children through.
  */
 export function auditMasterPlan(masterPlanPath: string): MasterAuditResult {
   if (!existsSync(masterPlanPath)) {
@@ -270,11 +267,12 @@ export function auditMasterPlan(masterPlanPath: string): MasterAuditResult {
 
   const content = readFileSync(masterPlanPath, "utf-8");
   const checkboxes = parsePhaseCheckboxes(content);
-  const { children: all, orphans } = resolveChildPlans(masterPlanPath);
+  const resolved = resolveChildPlans(masterPlanPath);
+  const { children: all, orphans } = resolved;
 
   const excluded = all.filter((c) => c.status === "CANCELLED");
   const children = all.filter((c) => c.status !== "CANCELLED");
-  const findings: MasterAuditFinding[] = [];
+  const findings: MasterAuditFinding[] = [...resolved.findings];
 
   if (all.length === 0) {
     findings.push({
@@ -363,13 +361,16 @@ export function auditMasterPlan(masterPlanPath: string): MasterAuditResult {
         .filter(
           (c) =>
             c.status === "VERIFIED" &&
-            !existsSync(c.planFile.replace(/\.md$/, ".spec-review.json")),
+            !existsSync(
+              (c.location ?? c.planFile).replace(/\.md$/, ".spec-review.json"),
+            ),
         )
         .map((c) => ({
           kind: "no-review-evidence" as const,
           slug: c.slug,
           message:
-            `Child reads VERIFIED but has no ${c.slug}.spec-review.json beside it, ` +
+            `Child reads VERIFIED but has no ${c.slug}.spec-review.json beside ` +
+            `${c.location ? `its Location (${c.location})` : "it"}, ` +
             `so /spec's code review probably did not run. Re-run verification for ` +
             `it, or confirm the review was intentionally skipped.`,
         }))

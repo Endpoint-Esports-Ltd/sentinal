@@ -1,0 +1,31 @@
+{
+  "id": "b9cf7233-bede-485f-828d-7e2d6189c0c8",
+  "ok": true,
+  "result": {
+    "repo": {
+      "id": "f08c2590-2c60-4cc3-8168-d32dfc15e0c4",
+      "path": "/private/var/folders/4k/tpqrs7ss4xdc2002kpv4njzh0000gn/T/orca-repo-probe/repoB",
+      "displayName": "repoB",
+      "badgeColor": "#737373",
+      "addedAt": 1794172499463,
+      "kind": "git",
+      "externalWorktreeVisibilityLegacy": false,
+      "upstream": null,
+      "gitRemoteIdentity": null,
+      "gitUsername": "",
+      "hookSettings": {
+        "mode": "auto",
+        "setupRunPolicy": "run-by-default",
+        "setupAgentStartupPolicy": "start-immediately",
+        "scripts": {
+          "setup": "",
+          "archive": ""
+        }
+      },
+      "externalWorktreeVisibility": "hide"
+    }
+  },
+  "_meta": {
+    "runtimeId": "43cd8768-d2f7-4774-8a48-8b203bf0a515"
+  }
+}

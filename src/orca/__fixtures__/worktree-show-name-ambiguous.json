@@ -1,0 +1,23 @@
+{
+  "id": "b84d4fa1-a110-497a-847c-cf564015a83d",
+  "ok": false,
+  "error": {
+    "code": "selector_ambiguous",
+    "message": "selector_ambiguous",
+    "data": {
+      "ambiguousSelectors": [
+        {
+          "flag": "--worktree",
+          "selector": "name:sentinal-repo-probe"
+        }
+      ],
+      "nextSteps": [
+        "More than one workspace matches --worktree \"name:sentinal-repo-probe\". Pass an exact selector: identity:<identity.key> (host-qualified), or id:<repo-id>::<absolute-path> when only one host has that checkout.",
+        "List the exact values with `orca worktree list --json`."
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "43cd8768-d2f7-4774-8a48-8b203bf0a515"
+  }
+}

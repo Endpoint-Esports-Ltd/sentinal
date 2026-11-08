@@ -30,7 +30,12 @@ import {
   type OrchestrationMode,
 } from "../spec/orchestration-mode.js";
 import { agentAuth, detectOrca } from "./detect.js";
-import { createTask, ensureRun, prepareChildWorktree } from "./dispatch.js";
+import {
+  createTask,
+  ensureRun,
+  prepareChildWorktree,
+  resolveRepoDir,
+} from "./dispatch.js";
 import { registerOrcaAbandonTool } from "./mcp-tools-abandon.js";
 import { registerOrcaCoordTools } from "./mcp-tools-coord.js";
 import { registerOrcaSettleTools } from "./mcp-tools-settle.js";
@@ -157,6 +162,12 @@ const dispatchTaskSchema = z.object({
   worktree: placementSchema,
   name: z.string().optional().describe("prepare-child: worktree name"),
   base_branch: z.string().optional().describe("prepare-child: base branch"),
+  repo: z
+    .string()
+    .optional()
+    .describe(
+      "prepare-child: absolute path of another repo to create the worktree in (must be registered in Orca)",
+    ),
 });
 
 type DispatchTask = z.infer<typeof dispatchTaskSchema>;
@@ -177,17 +188,33 @@ export function orderDispatchTasks(
         message: `task ${t.key}: prepare-child needs name and base_branch`,
       };
     }
+    if (t.repo !== undefined) {
+      if (t.worktree !== "prepare-child") {
+        return {
+          ok: false,
+          message: `task ${t.key}: repo is only valid with worktree "prepare-child"`,
+        };
+      }
+      const dir = resolveRepoDir(t.repo);
+      if ("ok" in dir) {
+        return { ok: false, message: `task ${t.key}: ${dir.error.message}` };
+      }
+      byKey.set(t.key, { ...t, repo: dir.dir });
+    }
   }
   const order: DispatchTask[] = [];
   const placed = new Set<string>();
+  const normalized = [...byKey.values()];
   while (order.length < tasks.length) {
-    const next = tasks.find(
+    const next = normalized.find(
       (t) =>
         !placed.has(t.key) &&
         (t.deps ?? []).every((d) => !byKey.has(d) || placed.has(d)),
     );
     if (!next) {
-      const stuck = tasks.filter((t) => !placed.has(t.key)).map((t) => t.key);
+      const stuck = normalized
+        .filter((t) => !placed.has(t.key))
+        .map((t) => t.key);
       return {
         ok: false,
         message: `dependency cycle among ${stuck.join(", ")}`,
@@ -207,6 +234,8 @@ interface DispatchedTask {
   placement: "current" | { path: string };
   status: "awaiting_start";
   worktree?: { path: string; branch?: string; worktree_id: string | null };
+  /** Realpath of the foreign repo the worktree was created in. */
+  repo?: string;
   next: string;
 }
 
@@ -216,7 +245,8 @@ function nextStep(t: DispatchTask, d: DispatchedTask): string {
     ? " once its dependencies reported worker_done"
     : "";
   if (d.worktree) {
-    return `worktree_ensure(path=${d.worktree.path}, owner=external, base=${t.base_branch}) then ${start}${after}`;
+    const project = t.repo ? `, project=${t.repo}` : "";
+    return `worktree_ensure(path=${d.worktree.path}, owner=external, base=${t.base_branch}${project}) then ${start}${after}`;
   }
   return `${start}${after}`;
 }
@@ -224,7 +254,7 @@ function nextStep(t: DispatchTask, d: DispatchedTask): string {
 function registerDispatchTool(server: McpServer, deps: OrcaToolsDeps): void {
   server.tool(
     "orca_dispatch",
-    `Create Orca Tasks for a wave/phase set: binds (or reuses) this coordinator's Run — refusing a Run bound to another terminal — creates every task with its dependencies (keys resolved to task ids), and for worktree "prepare-child" creates the child worktree WITHOUT an agent. Starts no worker: call worktree_ensure for prepared worktrees, then orca_start per task. ${DIRECT}`,
+    `Create Orca Tasks for a wave/phase set: binds (or reuses) this coordinator's Run — refusing a Run bound to another terminal — creates every task with its dependencies (keys resolved to task ids), and for worktree "prepare-child" creates the child worktree WITHOUT an agent (with \`repo\`, in that other Orca-registered repo, no lineage; an unregistered repo is reported with the \`orca repo add\` command, never run). Starts no worker: call worktree_ensure for prepared worktrees, then orca_start per task. ${DIRECT}`,
     {
       objective: z.string().min(1),
       tasks: z.array(dispatchTaskSchema).min(1),
@@ -308,6 +338,7 @@ function registerDispatchTool(server: McpServer, deps: OrcaToolsDeps): void {
           const wt = await prepareChildWorktree({
             name: t.name!,
             baseBranch: t.base_branch!,
+            ...(t.repo ? { repo: t.repo } : {}),
             runner: deps.runner,
           });
           if (!wt.ok) return partial(wt.error);
@@ -317,6 +348,7 @@ function registerDispatchTool(server: McpServer, deps: OrcaToolsDeps): void {
             ...(wt.branch ? { branch: wt.branch } : {}),
             worktree_id: wt.worktreeId,
           };
+          if (t.repo) entry.repo = t.repo;
         }
         entry.next = nextStep(t, entry);
       }

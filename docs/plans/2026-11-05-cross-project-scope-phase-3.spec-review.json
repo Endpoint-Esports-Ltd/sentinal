@@ -1,0 +1,94 @@
+{
+  "pass_summary": "All five tasks are implemented as planned: the new headers are parsed and printed, orca_dispatch passes `repo` through to a `--repo path:<realpath> --no-parent` create (with a repo_not_registered hint and a list-based fallback instead of a lookup by name), and the audit follows Location with all three foreign findings and checks review evidence beside the Location file. The prose in both targets uses the real worktree_* schemas (worktree_create base_branch/project, worktree_abandon project, worktree_ensure project/base). The review found no blocking issues, only edge cases.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 6,
+  "issues": [
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "A relative Location after the merge is resolved against Repo's main checkout, but the merge may land in a linked worktree",
+      "description": "src/spec/master-audit-foreign.ts resolveForeignChild: a relative `Location: docs/plans/<file>` is resolved with resolve(repo, location), where repo is the resolved `Repo:` (normally the main checkout). worktree_sync merges in the checkout that holds the base branch when one exists. If that is a linked worktree and the main checkout is on another branch, the merged copy is not at <Repo>/docs/plans/<file>, so the audit raises a false foreign-location-missing (or reads a stale copy). The prose F4 step (both targets) does not mention this case.",
+      "suggested_fix": "In the F4 step of targets/*/spec-master-execute, say that a relative Location is valid only once the base branch's checkout at `Repo:` contains the merge. Otherwise keep the absolute Location of the checkout where the merge landed (worktree_sync reports `Merged in:`). Or document this limitation in master-audit-foreign.ts."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "A relative Repo: resolves against the nearest .git, which is a linked/Orca worktree root when the coordinator runs in one",
+      "description": "src/spec/master-audit-foreign.ts findMasterWorkspace stops at the first ancestor with a `.git` entry, including a linked worktree's `.git` file. With Orca's workspaceDir `.orca/worktrees` (nested in the repo), `Repo: ../api` resolves to `<main>/.orca/worktrees/api` instead of the sibling of the main checkout. The prose pre-flight ('against this repo's root') has the same ambiguity. This matches the plan as written ('relative to the master's workspace'), so it is not a deviation, but a teammate running the audit in the main checkout and a coordinator in a worktree get different answers.",
+      "suggested_fix": "Prefer related.json names or absolute paths in the spec-master-plan prose (it already suggests related.json), and note that a relative Repo: is resolved from the checkout the audit runs in. Optionally resolve it against the main checkout by reading the `.git` file's gitdir/commondir without spawning git."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Two exported `resolveRepoDir` functions have different semantics",
+      "description": "src/orca/dispatch-worktree.ts exports resolveRepoDir(repo) (absolute + realpath + must exist → {dir} | Failure), re-exported by dispatch.ts. src/spec/master-audit-foreign.ts exports resolveRepoDir(repo, masterWorkspace) (absolute / related.json name / relative → string, no existence check). The same name with different contracts invites the wrong import later.",
+      "suggested_fix": "Rename one of them, e.g. `resolveOrcaRepoDir` in dispatch-worktree.ts or `resolveSeedRepo` in master-audit-foreign.ts."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "The audit does not report a Repo: that resolves to no existing directory",
+      "description": "src/spec/master-audit-foreign.ts: when `Repo:` resolves to nothing (a misspelled related.json name falls through to a relative path), a seed without Location is reported as 'not started' with no finding. With a relative Location the only message is 'does not resolve to a readable plan', which does not say that the repo itself is missing.",
+      "suggested_fix": "When existsSync(repo) is false, add a foreign-location-missing message (or a warning) that names the unresolved `Repo:` value."
+    }
+  ],
+  "must_fix": [],
+  "should_fix": [],
+  "suggestions": [
+    {
+      "title": "A relative Location after the merge may point at the wrong checkout",
+      "file": "src/spec/master-audit-foreign.ts; targets/*/spec-master-execute (F4)",
+      "detail": "resolve(repo, location) assumes the merge landed in Repo's main checkout. worktree_sync merges in the checkout that holds the base branch, so the audit can raise a false foreign-location-missing. Document this, or keep the absolute `Merged in:` path in that case."
+    },
+    {
+      "title": "A relative Repo: resolves from the nearest .git (a linked/Orca worktree root)",
+      "file": "src/spec/master-audit-foreign.ts (findMasterWorkspace)",
+      "detail": "With `.orca/worktrees` nested in the repo, `../api` resolves differently from a worktree than from the main checkout. Prefer related.json names in the prose, or resolve against the main checkout via the gitdir in the `.git` file."
+    },
+    {
+      "title": "Two exported resolveRepoDir functions with different contracts",
+      "file": "src/orca/dispatch-worktree.ts, src/spec/master-audit-foreign.ts",
+      "detail": "Rename one of them to avoid importing the wrong one."
+    },
+    {
+      "title": "No finding when Repo: does not exist",
+      "file": "src/spec/master-audit-foreign.ts",
+      "detail": "Name the unresolved Repo: value in the finding instead of a generic Location message."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "Fixtures include the recorded worktree-create-foreign-repo JSON, and the sentinal-orca-cli skill documents --repo path: / --no-parent",
+      "status": "verified",
+      "evidence": "src/orca/__fixtures__/worktree-create-foreign-repo.json (plus unregistered-repo, parent-conflict, repo-show, worktree-list-foreign-repos, worktree-show-name-ambiguous). .claude/skills/sentinal-orca-cli/SKILL.md:99-119 documents the live 1.4.253 results."
+    },
+    {
+      "truth": "A prepareChildWorktree test with repo asserts --repo path:<repo> and --no-parent and no --parent-worktree; without repo the argv is unchanged",
+      "status": "verified",
+      "evidence": "dispatch-worktree.test.ts:54 and :148. The implementation passes the realpath selector and never --parent-worktree on the foreign branch."
+    },
+    {
+      "truth": "spec_plan_parse returns Repo/Base/Master/Location",
+      "status": "verified",
+      "evidence": "parser-header.ts regex and RawMetadata; parser.ts spreads them conditionally; types.ts SpecSchema; mcp-tools.ts:322-326 prints them; mcp-tools.test.ts:581-597 tests both the present and the absent case."
+    },
+    {
+      "truth": "Audit: a seed with a valid Location reads the Location status and reports the repo; a VERIFIED seed without Location fails; a copy whose Parent differs fails",
+      "status": "verified",
+      "evidence": "master-audit-foreign.test.ts:73,103,121 and master-audit.test.ts:404,431,442. It also covers status disagreement, the CANCELLED seed, related.json names, and the review evidence beside the Location file (:421)."
+    },
+    {
+      "truth": "Both spec-master-execute targets show the foreign-repo dispatch (`repo:`), and spec-master-plan.diff is 0 bytes",
+      "status": "verified",
+      "evidence": "CC spec-master-execute.md:160,296 and OC SKILL.md:157,293. The orchestrator reports that spec-master-plan.diff is 0 bytes and that only spec-master-execute.diff line numbers moved."
+    },
+    {
+      "truth": "All gates pass",
+      "status": "verified",
+      "evidence": "Reported by the orchestrator: bun test 4805 pass / 0 fail, typecheck, typecheck:plugin, lint and format:check all green. This review did not re-run them."
+    }
+  ]
+}

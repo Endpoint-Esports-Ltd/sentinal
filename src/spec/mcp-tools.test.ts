@@ -571,6 +571,31 @@ describe("spec_plan_parse MCP tool", () => {
     expect(text).toContain("plan-review.json");
     expect(text).toContain("spec-review.json");
   });
+
+  it("should return the cross-repo headers when the plan declares them", async () => {
+    const plansDir = join(tmpDir, "docs", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    const planFile = join(plansDir, "2026-11-05-x-phase-1.md");
+    writeFileSync(
+      planFile,
+      "# Seed\n\nStatus: PENDING\nType: Feature\nParent: 2026-11-05-x\nRepo: api\nBase: main\nMaster: docs/plans/2026-11-05-x.md\nLocation: docs/plans/2026-11-05-x-phase-1.md\n",
+    );
+    const result = await tools.get("spec_plan_parse")!({ plan_path: planFile });
+    const text = result.content[0].text;
+    expect(text).toContain("- **Repo:** api");
+    expect(text).toContain("- **Base:** main");
+    expect(text).toContain("- **Master:** docs/plans/2026-11-05-x.md");
+    expect(text).toContain(
+      "- **Location:** docs/plans/2026-11-05-x-phase-1.md",
+    );
+  });
+
+  it("should not print cross-repo lines for a plan without them", async () => {
+    const planFile = makePlanFile(tmpDir, "2026-03-01-plain");
+    const result = await tools.get("spec_plan_parse")!({ plan_path: planFile });
+    expect(result.content[0].text).not.toContain("**Repo:**");
+    expect(result.content[0].text).not.toContain("**Location:**");
+  });
 });
 
 // --- spec_notify tests ---

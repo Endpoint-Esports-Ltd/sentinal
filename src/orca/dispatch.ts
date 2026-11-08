@@ -17,7 +17,6 @@ import { runOrca, type OrcaError, type OrcaRunner } from "./cli.js";
 import {
   err,
   mutate,
-  pathFromId,
   type Base,
   type Failure,
   type Ok,
@@ -39,7 +38,6 @@ import type {
   OrcaWorkerDonePayload,
   OrcaWorkerReleaseResult,
   OrcaWorkerStopResult,
-  OrcaWorktreeResult,
 } from "./types.js";
 
 export {
@@ -155,70 +153,11 @@ export async function createTask(
 
 // ---------------------------------------------------------------- Worktrees
 
-function worktreeOf(result: unknown) {
-  const wt = (result as OrcaWorktreeResult | undefined)?.worktree;
-  const path = wt?.path ?? pathFromId(wt?.id);
-  if (!path) return null;
-  return {
-    path,
-    worktreeId: wt?.id ?? null,
-    ...(wt?.branch ? { branch: wt.branch } : {}),
-  };
-}
-
-/**
- * `orca worktree create --setup skip` with NO agent (D8): Sentinal adopts and
- * sets it up before any worker starts. Falls back to `worktree show` by name
- * when the create result carries no path.
- */
-export async function prepareChildWorktree(o: {
-  name: string;
-  baseBranch: string;
-  parent?: string;
-  runner?: OrcaRunner;
-}): Promise<
-  Ok<{ path: string; worktreeId: string | null; branch?: string }> | Failure
-> {
-  const created = await runOrca(
-    [
-      "worktree",
-      "create",
-      "--name",
-      o.name,
-      "--base-branch",
-      o.baseBranch,
-      "--parent-worktree",
-      o.parent ?? "current",
-      "--setup",
-      "skip",
-    ],
-    { runner: o.runner },
-  );
-  if (!created.ok) return { ok: false, error: created.error };
-  const wt = worktreeOf(created.result);
-  if (wt) return { ok: true, ...wt };
-
-  const shown = await runOrca(
-    ["worktree", "show", "--worktree", `name:${o.name}`],
-    { runner: o.runner },
-  );
-  const again = shown.ok ? worktreeOf(shown.result) : null;
-  if (again) return { ok: true, ...again };
-  return err(
-    "orca_bad_output",
-    `worktree create for ${o.name} returned no path, and worktree show could not resolve it`,
-  );
-}
-
-export async function removeChildWorktree(
-  path: string,
-  o: { force?: boolean; runner?: OrcaRunner } = {},
-): Promise<Ok<{ result: unknown }> | Failure> {
-  const args = ["worktree", "rm", "--worktree", `path:${path}`];
-  if (o.force) args.push("--force");
-  const r = await runOrca(args, { runner: o.runner });
-  return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
-}
+export {
+  prepareChildWorktree,
+  removeChildWorktree,
+  resolveRepoDir,
+} from "./dispatch-worktree.js";
 
 // ------------------------------------------------------------- Settlement
 

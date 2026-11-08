@@ -84,6 +84,11 @@ export const SpecSchema = z.object({
   tasks: z.array(SpecTaskSchema).default([]),
   parent: z.string().optional(),
   wave: z.number().int().optional(),
+  /** Cross-repo phase headers (raw strings; omitted when absent). */
+  repo: z.string().optional(),
+  base: z.string().optional(),
+  master: z.string().optional(),
+  location: z.string().optional(),
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
   metadata: z

@@ -642,6 +642,58 @@ Type: Feature
   });
 });
 
+describe("parsePlanContent — cross-repo headers (Repo/Base/Master/Location)", () => {
+  const seed = `# Ops API change
+
+Status: PENDING
+Approved: Yes
+Type: Feature
+Parent: 2026-11-05-ops-master
+Wave: 1
+Repo: ../api
+Base: develop
+Master: docs/plans/2026-11-05-ops-master.md
+Location: /tmp/api/.orca/worktrees/x/docs/plans/2026-11-05-ops-master-phase-1.md
+
+## Progress Tracking
+
+- [ ] Task 1: Something
+`;
+
+  it("should return Repo, Base, Master and Location when the headers are present", () => {
+    const spec = parsePlanContent(
+      seed,
+      "/plans/2026-11-05-ops-master-phase-1.md",
+    );
+    expect(spec.repo).toBe("../api");
+    expect(spec.base).toBe("develop");
+    expect(spec.master).toBe("docs/plans/2026-11-05-ops-master.md");
+    expect(spec.location).toBe(
+      "/tmp/api/.orca/worktrees/x/docs/plans/2026-11-05-ops-master-phase-1.md",
+    );
+    expect(spec.parent).toBe("2026-11-05-ops-master");
+  });
+
+  it("should omit the keys entirely when the headers are absent", () => {
+    const spec = parsePlanContent(
+      "# P\n\nStatus: PENDING\nType: Feature\n",
+      "/plans/p.md",
+    );
+    expect("repo" in spec).toBe(false);
+    expect("base" in spec).toBe(false);
+    expect("master" in spec).toBe(false);
+    expect("location" in spec).toBe(false);
+  });
+
+  it("should ignore the headers inside a code fence", () => {
+    const spec = parsePlanContent(
+      "# P\n\nStatus: PENDING\n```\nRepo: /x\n```\n",
+      "/plans/p.md",
+    );
+    expect(spec.repo).toBeUndefined();
+  });
+});
+
 describe("parsePlanContent — Orchestration header (D6)", () => {
   const plan = (header: string) => `# Orca Plan
 

@@ -374,3 +374,91 @@ describe("auditMasterPlan — verification evidence warnings", () => {
     expect(r.warnings.length).toBe(1);
   });
 });
+
+// ── Foreign (cross-repo) children ────────────────────────────────────────────
+
+describe("auditMasterPlan — foreign children follow Location", () => {
+  let api: string;
+  const C = `${M}-phase-1`;
+
+  beforeEach(() => {
+    mkdirSync(join(dir, ".git"));
+    api = join(dir, "..", `${dir.split("/").pop()}-api`);
+    mkdirSync(join(api, "docs", "plans"), { recursive: true });
+    mkdirSync(join(api, ".git"));
+  });
+  afterEach(() => rmSync(api, { recursive: true, force: true }));
+
+  function writeSeed(status: string, extra: string) {
+    writeFileSync(
+      join(plansDir, `${C}.md`),
+      `# Seed\n\nStatus: ${status}\nType: Feature\nParent: ${M}\nWave: 1\nRepo: ${api}\n${extra}\n`,
+    );
+  }
+  function writeCopy(status: string, parent = M) {
+    const p = join(api, "docs", "plans", `${C}.md`);
+    writeFileSync(p, `# Copy\n\nStatus: ${status}\nParent: ${parent}\n`);
+    return p;
+  }
+
+  it("should read the Location status and report the repo", () => {
+    writeMaster(M, "- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    const copy = writeCopy("VERIFIED");
+    writeFileSync(copy.replace(/\.md$/, ".spec-review.json"), "{}");
+    writeSeed("VERIFIED", `Location: docs/plans/${C}.md`);
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.findings).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(r.children[0]).toMatchObject({
+      slug: C,
+      status: "VERIFIED",
+      repo: api,
+      location: copy,
+    });
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("should look for the review evidence beside the Location file", () => {
+    writeMaster(M, "- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    writeCopy("VERIFIED");
+    writeSeed("VERIFIED", `Location: docs/plans/${C}.md`);
+    // Evidence beside the SEED does not count for a foreign child.
+    writeFileSync(join(plansDir, `${C}.spec-review.json`), "{}");
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.warnings.map((w) => w.kind)).toEqual(["no-review-evidence"]);
+  });
+
+  it("should fail a VERIFIED seed without Location", () => {
+    writeMaster(M, "- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    writeSeed("VERIFIED", "");
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.ok).toBe(false);
+    expect(r.findings.map((f) => f.kind)).toContain("foreign-location-missing");
+  });
+
+  it("should fail when the copy's Parent differs", () => {
+    writeMaster(M, "- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    writeCopy("VERIFIED", "another-master");
+    writeSeed("VERIFIED", `Location: docs/plans/${C}.md`);
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.ok).toBe(false);
+    expect(r.findings.map((f) => f.kind)).toContain("foreign-link-mismatch");
+  });
+
+  it("should flag a seed whose status disagrees with the Location", () => {
+    writeMaster(M, "- [x] Phase 1: API (Wave 1) — **VERIFIED**");
+    writeCopy("VERIFIED");
+    writeSeed("IN_PROGRESS", `Location: docs/plans/${C}.md`);
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.findings.map((f) => f.kind)).toEqual(["foreign-status-disagrees"]);
+  });
+
+  it("should report a CANCELLED seed as excluded", () => {
+    writeMaster(M, "- [ ] Phase 1: API (Wave 1)");
+    writeCopy("IN_PROGRESS");
+    writeSeed("CANCELLED", `Location: docs/plans/${C}.md`);
+    const r = auditMasterPlan(join(plansDir, `${M}.md`));
+    expect(r.excluded.map((c) => c.slug)).toEqual([C]);
+    expect(r.children).toEqual([]);
+  });
+});

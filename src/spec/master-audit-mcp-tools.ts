@@ -54,16 +54,24 @@ function render(r: MasterAuditResult): string {
   lines.push("");
 
   if (r.children.length > 0 || r.excluded.length > 0) {
-    lines.push("| Child | Status | Master checkbox |");
-    lines.push("|---|---|---|");
-    for (const c of [...r.children, ...r.excluded]) {
+    const rows = [...r.children, ...r.excluded];
+    // A Repo column only when some child is foreign (cross-repo master plans).
+    const foreign = rows.some((c) => c.repo);
+    lines.push(
+      `| Child | Status | Master checkbox |${foreign ? " Repo |" : ""}`,
+    );
+    lines.push(`|---|---|---|${foreign ? "---|" : ""}`);
+    for (const c of rows) {
       const box = checkboxCell(r, c.slug);
       const disagrees = r.findings.some(
         (f) => f.kind === "checkbox-disagrees" && f.slug === c.slug,
       );
       const status = c.status === "VERIFIED" ? "VERIFIED" : `⛔ ${c.status}`;
+      const repo = foreign
+        ? ` ${c.repo ? `${c.repo}${c.location ? ` (${c.location})` : ""}` : "—"} |`
+        : "";
       lines.push(
-        `| ${c.slug} | ${status} | ${box}${disagrees ? " — DISAGREES" : ""} |`,
+        `| ${c.slug} | ${status} | ${box}${disagrees ? " — DISAGREES" : ""} |${repo}`,
       );
     }
     lines.push("");
@@ -111,7 +119,9 @@ export function registerSpecMasterAuditTool(server: McpServer): void {
     "Reconcile a master plan against its child plans. Resolves children via " +
       "their `Parent:` back-link (NOT by filename), fails on any child that is " +
       "not VERIFIED, and reports any disagreement between a child's Status and " +
-      "the master's Progress Tracking checkbox in either direction. Read-only.",
+      "the master's Progress Tracking checkbox in either direction. A child " +
+      "with `Repo:` (cross-repo seed) is read from its `Location:` plan, whose " +
+      "`Parent:` must match. Read-only.",
     {
       plan_path: z
         .string()
