@@ -38,6 +38,14 @@ orca orchestration check --wait --timeout-ms 20000 --json 2>&1 | .sentinal/skill
 orca status --json | .sentinal/skills/sentinal-orca-cli/scripts/orca-json.py runtime.state
 ```
 
+**⛔ Orca 1.4.253+: pass `--full` to `orca orchestration …`.** Every orchestration command
+except `ack` prints a **concise view** by default (e.g. `run-create` →
+`{"result":{"runId","objective"}}`); the full record (`result.run{id, coordinator_handle, …}`)
+needs `--full`. `runOrca` (`src/orca/cli.ts`) adds it automatically and falls back once if an
+older Orca rejects the flag. When running commands by hand, add `--full` too. `run-show` takes
+`--id`, not `--run`. Non-orchestration commands (`worktree`, `terminal`, `status`, `repo`) have
+no `--full`.
+
 **Facts that shaped the design:**
 
 | Behaviour                                                                                                                                                                                                                                                                       | Consequence                                                                                                                                                                                                              |

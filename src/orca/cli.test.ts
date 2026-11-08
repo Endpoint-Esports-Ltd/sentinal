@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
   mkdtempSync,
@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  __resetOrcaFullSupportForTests,
   createOrcaRunner,
   parseLastJsonDocument,
   parseOrcaOutput,
@@ -220,7 +221,12 @@ describe("runOrca", () => {
       timeoutMs: 1234,
     });
     await runOrca(["status", "--json"], { runner });
-    expect(calls[0].args).toEqual(["orchestration", "run-current", "--json"]);
+    expect(calls[0].args).toEqual([
+      "orchestration",
+      "run-current",
+      "--full",
+      "--json",
+    ]);
     expect(calls[0].timeoutMs).toBe(1234);
     expect(calls[1].args).toEqual(["status", "--json"]);
   });
@@ -264,6 +270,111 @@ describe("runOrca", () => {
     });
     const r = await runOrca(["orchestration", "check"], { runner });
     expect(r.ok).toBe(true);
+  });
+});
+
+// Orca 1.4.253: every `orca orchestration` command except `ack` prints a
+// concise view unless `--full` is given (fixtures recorded live 2026-11-08).
+describe("runOrca --full (Orca 1.4.253 concise output)", () => {
+  beforeEach(() => __resetOrcaFullSupportForTests());
+
+  it("should add --full to orchestration commands", async () => {
+    const { runner, calls } = fakeRunner(
+      out(fixture("run-current-full-1.4.253.json")),
+    );
+    const r = await runOrca<OrcaRunCreateResult>(
+      ["orchestration", "run-current"],
+      { runner },
+    );
+    expect(calls[0].args).toEqual([
+      "orchestration",
+      "run-current",
+      "--full",
+      "--json",
+    ]);
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.result.run?.id).toBe("run_9efdbab4d99f");
+  });
+
+  it("should not add --full to ack or non-orchestration commands", async () => {
+    const { runner, calls } = fakeRunner(out(fixture("run-create.json")));
+    await runOrca(["orchestration", "ack", "--delivery", "d1"], { runner });
+    await runOrca(["worktree", "list"], { runner });
+    await runOrca(["terminal", "read", "--terminal", "t"], { runner });
+    await runOrca(["status"], { runner });
+    expect(calls.map((c) => c.args)).toEqual([
+      ["orchestration", "ack", "--delivery", "d1", "--json"],
+      ["worktree", "list", "--json"],
+      ["terminal", "read", "--terminal", "t", "--json"],
+      ["status", "--json"],
+    ]);
+  });
+
+  it("should not duplicate --full or --json", async () => {
+    const { runner, calls } = fakeRunner(out(fixture("run-create.json")));
+    await runOrca(
+      ["orchestration", "run-show", "--id", "r", "--full", "--json"],
+      {
+        runner,
+      },
+    );
+    expect(calls[0].args).toEqual([
+      "orchestration",
+      "run-show",
+      "--id",
+      "r",
+      "--full",
+      "--json",
+    ]);
+  });
+
+  it("should retry once without --full when an older Orca rejects it, and remember", async () => {
+    const unknown = JSON.stringify({
+      ok: false,
+      error: {
+        code: "invalid_argument",
+        message: "Unknown flag --full for command: orchestration run-current",
+      },
+    });
+    const calls: string[][] = [];
+    const runner: OrcaRunner = async (args) => {
+      calls.push(args);
+      return args.includes("--full")
+        ? { exitCode: 1, stdout: unknown, stderr: "" }
+        : out(fixture("run-create.json"));
+    };
+    const first = await runOrca(["orchestration", "run-current"], { runner });
+    const second = await runOrca(
+      ["orchestration", "task-create", "--retry-request", "rq-1"],
+      { runner },
+    );
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(calls).toEqual([
+      ["orchestration", "run-current", "--full", "--json"],
+      ["orchestration", "run-current", "--json"],
+      ["orchestration", "task-create", "--retry-request", "rq-1", "--json"],
+    ]);
+  });
+
+  it("should not retry on an unrelated invalid_argument", async () => {
+    const other = JSON.stringify({
+      ok: false,
+      error: {
+        code: "invalid_argument",
+        message: "Unknown flag --run for command: orchestration run-show",
+      },
+    });
+    const calls: string[][] = [];
+    const runner: OrcaRunner = async (args) => {
+      calls.push(args);
+      return { exitCode: 1, stdout: other, stderr: "" };
+    };
+    const r = await runOrca(["orchestration", "run-show", "--run", "x"], {
+      runner,
+    });
+    expect(r.ok).toBe(false);
+    expect(calls.length).toBe(1);
   });
 });
 
