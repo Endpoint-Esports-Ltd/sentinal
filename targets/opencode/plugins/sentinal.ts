@@ -215,6 +215,10 @@ import {
   type CaptureProject,
 } from "../../../src/project/capture-project.js";
 import { toolFilePaths } from "../../../src/opencode/patch-paths.js";
+import { createForeignContext } from "../../../src/opencode/foreign-context.js";
+
+/** Tools whose file targets count as an EDIT (foreign rules injection). */
+const EDIT_TOOLS = ["write", "edit", "multiedit", "patch", "apply_patch"];
 
 interface CompactState {
   activePlan: string | null;
@@ -556,6 +560,10 @@ export const SentinalPlugin: Plugin = async ({
     note(p);
     return p;
   };
+  // Foreign projects' rules (kept in the system prompt for the rest of the
+  // session once edited) + pre-edit memory hints (pushed once). Keyed by
+  // identity with each project's workspace — Phase 2 of cross-project scope.
+  const foreignContext = createForeignContext();
   /** Storage key of an auto-captured observation (file → cwd → session). */
   const captureKey = (event: {
     filePath?: string;
@@ -756,6 +764,16 @@ export const SentinalPlugin: Plugin = async ({
         }
       }
 
+      // First edit in a foreign project: its .sentinal/rules join the system
+      // prompt (every later turn; see src/opencode/foreign-context.ts).
+      if (EDIT_TOOLS.includes(tool.toLowerCase())) {
+        for (const filePath of filePaths)
+          foreignContext.noteEdit(
+            fileProject(filePath),
+            resolve(projectWorkspace, filePath),
+          );
+      }
+
       // Tool redirect hints
       if (tool === "grep" && typeof args.pattern === "string") {
         const grepHint = getGrepHint(args.pattern as string);
@@ -779,10 +797,14 @@ export const SentinalPlugin: Plugin = async ({
             filePath,
             resolveFileProject(filePath, session).identity,
           );
-          if (guide)
+          if (guide) {
+            // The TUI log never reaches the model — queue it for the next
+            // system prompt too (pushed once, then dropped).
+            foreignContext.queueHint(guide);
             await client.app.log({
               body: { service: "sentinal", level: "info", message: guide },
             });
+          }
         }
       }
     },
@@ -1232,6 +1254,11 @@ export const SentinalPlugin: Plugin = async ({
           );
         }
         if (notificationDigest?.text) systemArr.push(notificationDigest.text);
+
+        // Foreign projects' rules (every turn, under the total cap) and the
+        // queued pre-edit memory hints (once).
+        for (const block of foreignContext.systemBlocks())
+          systemArr.push(block);
 
         // Inject active spec context (plan discovery — worktree-local)
         const active = findActivePlan(projectWorkspace);

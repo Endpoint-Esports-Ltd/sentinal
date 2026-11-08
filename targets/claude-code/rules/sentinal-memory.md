@@ -29,6 +29,16 @@ Use `<private>` tags to exclude content from storage. Web viewer at the Sentinal
 
 ---
 
+### Working in another repository
+
+A session may edit files in other git repositories. Sentinal keys each file's memories, TDD state and hints by **that file's** repository, and the first time you edit a file in another repository its `.sentinal/rules` are added to your context (once per session; again after compaction).
+
+- Pass that repository's path as `project` to `memory_save`, `memory_search`, `quality_report` and `spec_register` when the work is about it.
+- `memory_search({query, scope: "related"})` searches this project plus the projects declared in its `.sentinal/related.json`; `scope: "all"` searches every project.
+- Declare related repositories in `.sentinal/related.json` (committed): `{ "projects": [{ "name": "api", "path": "../api" }] }` — `path` relative to this checkout or absolute. Session start lists them, plus undeclared repositories this project's sessions saved memories for.
+
+---
+
 ### Keeping memory fresh
 
 Observations lose quality with age so stale facts sink in search. This happens automatically — you rarely need to touch it.

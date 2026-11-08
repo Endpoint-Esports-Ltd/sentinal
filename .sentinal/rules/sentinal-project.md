@@ -185,6 +185,26 @@ Latency (`hyperfine`, slow path of `sentinal hook shared tdd-guard`, no spec,
 macOS, 30 runs, medians): same-repo file 113.7 ms before → 115.0 ms after;
 sibling-repo file 112.7 ms → 130.1 ms (one memoized git spawn for B's identity).
 
+### Related projects and foreign rules (cross-project scope, Phase 2)
+
+| Module                            | Role                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `src/project/related.ts`          | `loadRelatedProjects(workspace)` — `.sentinal/related.json`; one git spawn per entry (MCP/sidecar only) |
+| `src/project/foreign-rules.ts`    | `readProjectRules` / `rulesForFile` (`paths:` globs) / `formatForeignRules` (12k per project, pointers) |
+| `src/hooks/foreign-context.ts`    | CC: `foreignRulesHint` (PreToolUse, once per session+project), `clearInjectedRules` (compact, end)      |
+| `src/opencode/foreign-context.ts` | OC: `createForeignContext` — rules kept in `system.transform` every turn (24k total), hints pushed once |
+| `src/memory/related-search.ts`    | `memory_search({scope: "related"})` fan-out, round-robin merge                                          |
+| `src/memory/restore.ts`           | `### Related projects` index (declared + undeclared via `metadata.sessionProject`)                      |
+
+- `related.json` is allowlisted in `GITIGNORE_CONTENT` (v4); v3 is a `KNOWN_PRIOR_GITIGNORES`
+  entry. ⛔ This repo's own `.sentinal/.gitignore` is hand-maintained (`!continue-here.md`) and
+  never auto-upgrades — mirror generator changes by hand (`shared.test.ts` R9 tests catch drift).
+- CC marker: `<session workspace>/.sentinal/injected-rules.json` only when the session workspace
+  has a `.git`; otherwise `$SENTINAL_HOME/injected-rules/<session>.json` — never the home dir root.
+  Shape `{ "<session_id>": ["<abs rule file>", …] }` — per RULE, so a `paths:` rule still arrives
+  on the first edit it matches. `post-compact-restore` clears **before** its `compact-state.json` early return.
+- Rule globs match `relative(file.workspace, file)` — the **foreign** checkout. Reads never inject.
+
 ### Canonical keys at the sidecar and `SpecStore` boundary (D3)
 
 **Reads fail open, writes normalize** (D3 of

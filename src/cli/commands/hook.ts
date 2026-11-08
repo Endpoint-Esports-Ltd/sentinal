@@ -168,7 +168,18 @@ async function runPreEditGuide(): Promise<void> {
     sessionId: input.session_id,
     client,
   });
-  if (context) output(hintFn("PreToolUse", context));
+  // First edit of a file in ANOTHER project: that project's .sentinal/rules,
+  // once per session (marker cleared on compaction and session end).
+  const { foreignRulesHint } = await import("../../hooks/foreign-context.js");
+  const rules = foreignRulesHint({
+    filePath,
+    cwd: input.cwd,
+    sessionId: input.session_id,
+  });
+  const parts = [context, rules].filter(
+    (p): p is string => typeof p === "string" && p !== "",
+  );
+  if (parts.length > 0) output(hintFn("PreToolUse", parts.join("\n\n")));
 }
 
 async function runPromptContext(): Promise<void> {

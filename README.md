@@ -493,6 +493,44 @@ auto-captured memory is keyed by its first target.
 A git submodule (or any nested repository) is a separate project, even inside the session's
 repository.
 
+#### Related projects — `.sentinal/related.json`
+
+A project can declare the repositories it works with. The file is committed (Sentinal's
+`.sentinal/.gitignore` allowlists it, and upgrades a Sentinal-generated `.gitignore` the first time
+it reads the file):
+
+```json
+{ "projects": [{ "name": "api", "path": "../api" }, { "path": "/abs/web" }] }
+```
+
+`path` is relative to the checkout holding the file, or absolute; `name` defaults to the directory
+name. A missing directory is reported, never searched.
+
+- **Search:** `memory_search({query, scope: "related"})` searches this project plus every declared
+  project that exists, and labels each row with its project. `scope: "project"` (the default when
+  `project` is given) and `scope: "all"` (the default without it) behave as before.
+- **Session start** lists a `### Related projects` index: each declared project with its memory
+  count (`(rules)` when it has `.sentinal/rules`, `(missing)` when the path does not exist), plus
+  undeclared repositories this project's sessions captured memories for. No related memories are
+  restored — it is an index.
+
+#### Foreign rules on the first edit
+
+The first time a session **edits** a file in another repository (declared or not), that
+repository's `.sentinal/rules/*.md` reach the agent. A rule's `paths:` frontmatter is honoured
+(globs relative to that repository) on both platforms. Each project is capped at 12,000 characters;
+what does not fit is listed as file pointers to read. Reads never inject.
+
+- **Claude Code:** each rule is added to the PreToolUse hint once per session (a `paths:` rule on the first edit
+  it matches). A
+  marker (`.sentinal/injected-rules.json` in the session's repository, or
+  `~/.sentinal/injected-rules/<session>.json` when the session did not start in a repository) is
+  cleared on compaction and at session end, so the rules come back after a compaction.
+- **OpenCode:** the system prompt is rebuilt every turn, so an edited project's rules are kept in
+  it for the rest of the session (all foreign projects together are capped at 24,000 characters;
+  later ones degrade to pointer lists). The pre-edit memory hint, which used to reach only the TUI
+  log, is now pushed into the next turn's system prompt once.
+
 ### Framework Detection
 
 Sentinal auto-detects your project setup:

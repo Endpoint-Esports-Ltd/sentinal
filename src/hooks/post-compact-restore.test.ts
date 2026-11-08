@@ -272,3 +272,32 @@ describe("post-compact-restore — worktree-local state file (Task 11)", () => {
     expect(out).not.toContain("/plans/STRAY-SUBDIR.md");
   }, 30_000);
 });
+
+describe("post-compact-restore — clears injected foreign rules (cross-project Phase 2)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = realpathSync(makeTmpDir());
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    mkdirSync(join(tmpDir, ".sentinal"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".sentinal", "injected-rules.json"),
+      JSON.stringify({ "post-compact-test": ["/b"], other: ["/c"] }),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("removes this session's entry even when no compact-state.json exists", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { processPostCompactRestore } =
+      await import("./post-compact-restore.js");
+    await processPostCompactRestore(makeInput(tmpDir));
+    const marker = JSON.parse(
+      readFileSync(join(tmpDir, ".sentinal", "injected-rules.json"), "utf-8"),
+    );
+    expect(marker).toEqual({ other: ["/c"] });
+  }, 30_000);
+});

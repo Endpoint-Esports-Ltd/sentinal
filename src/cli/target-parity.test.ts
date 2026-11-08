@@ -164,6 +164,9 @@ const IDENTICAL_RULES: string[] = [
   // there is nothing here that could legitimately need to differ.
   "development-practices.md",
   "code-review-reception.md",
+  // Added when "Working in another repository" (cross-project scope, Phase 2)
+  // was written into both copies identically. Byte-identical before and after.
+  "sentinal-memory.md",
 ];
 
 /**

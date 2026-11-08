@@ -975,3 +975,65 @@ describe("MemoryStore — generalized signature dedupe", () => {
     });
   });
 });
+
+describe("MemoryStore — cross-project index helpers", () => {
+  let store: MemoryStore;
+  beforeEach(() => {
+    store = new MemoryStore(":memory:");
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  it("should count observations by project", () => {
+    store.insertObservation(makeObservation({ projectPath: "/b", title: "1" }));
+    store.insertObservation(makeObservation({ projectPath: "/b", title: "2" }));
+    store.insertObservation(makeObservation({ projectPath: "/c", title: "3" }));
+    expect(store.countByProject("/b")).toBe(2);
+    expect(store.countByProject("/none")).toBe(0);
+  });
+
+  it("should list foreign projects captured from a session project, most first", () => {
+    const from = (p: string, sp?: string) =>
+      store.insertObservation(
+        makeObservation({
+          projectPath: p,
+          title: `${p}-${Math.random()}`,
+          metadata: sp ? { sessionProject: sp } : {},
+        }),
+      );
+    from("/d", "/a");
+    from("/e", "/a");
+    from("/e", "/a");
+    from("/f", "/other");
+    from("/a");
+    expect(store.foreignProjectsCapturedFrom("/a")).toEqual([
+      { projectPath: "/e", count: 2 },
+      { projectPath: "/d", count: 1 },
+    ]);
+    expect(store.foreignProjectsCapturedFrom("/zzz")).toEqual([]);
+  });
+
+  it("should ignore rows with malformed metadata instead of failing", () => {
+    store.insertObservation(
+      makeObservation({
+        projectPath: "/d",
+        title: "ok",
+        metadata: { sessionProject: "/a" },
+      }),
+    );
+    const bad = store.insertObservation(
+      makeObservation({ projectPath: "/x", title: "bad" }),
+    );
+    (
+      store as unknown as {
+        db: { prepare(s: string): { run(...a: unknown[]): void } };
+      }
+    ).db
+      .prepare("UPDATE observations SET metadata = ? WHERE id = ?")
+      .run("{not json", bad.id);
+    expect(store.foreignProjectsCapturedFrom("/a")).toEqual([
+      { projectPath: "/d", count: 1 },
+    ]);
+  });
+});

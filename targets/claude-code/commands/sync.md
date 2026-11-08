@@ -466,6 +466,24 @@ Use this framing:
 
 Omission is fail-safe: unstated means **unknown**, and unknown never blocks. This is the one moment the user is asked to think about isolation; after that the decision is theirs to record.
 
+## Phase 6.6: Related Projects — OPTIONAL
+
+**Offer to draft `.sentinal/related.json`** when the project works alongside other git repositories — an ops repo that edits services, a frontend that pairs with an API. Skip this phase silently when nothing suggests sibling repos.
+
+### Step 6.6.1: Check
+
+If `.sentinal/related.json` already exists, do not regenerate it — report it as "present" in the Phase 12 summary. If `git check-ignore -q .sentinal/related.json` succeeds, also report: "`.sentinal/related.json` is gitignored — add `!related.json` to `.sentinal/.gitignore`" (a customised `.gitignore` that Sentinal does not upgrade).
+
+### Step 6.6.2: Draft
+
+Look for sibling git repositories the project's rules, README or scripts mention (paths like `../api`, repo names in `.sentinal/rules/*.md`). If there are any, show a draft and offer to save it — **never write it without confirmation**:
+
+```json
+{ "projects": [{ "name": "api", "path": "../api" }] }
+```
+
+`path` is relative to this checkout (or absolute); `name` is optional (defaults to the directory name). Declared projects are listed at session start, searchable with `memory_search({scope: "related"})`, and their `.sentinal/rules` reach the agent on the first edit of one of their files (that last part works for undeclared repos too).
+
 ## Phase 7: Sync MCP Rules
 
 **Document user-configured MCP servers.** Skip Sentinal core servers (sentinal, context7, web-search, web-fetch, grep-mcp) — only document servers the user added themselves.

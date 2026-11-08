@@ -269,11 +269,12 @@ export function registerSharedTools(
  * rather than ignored like the rest of `.sentinal/`'s runtime state.
  */
 const GITIGNORE_CONTENT = `# Ignore everything in .sentinal/ except shared project memory, the runtime
-# contract, rules, and skills
+# contract, related projects, rules, and skills
 *
 !.gitignore
 !project-memory.json
 !runtime.json
+!related.json
 !rules
 !rules/
 !rules/**
@@ -303,6 +304,21 @@ const KNOWN_PRIOR_GITIGNORES: readonly string[] = [
 *
 !.gitignore
 !project-memory.json
+!rules
+!rules/
+!rules/**
+!skills
+!skills/
+!skills/**
+`,
+  // v3 — adds `!runtime.json` (Phase 3 runtime contract). Superseded by v4,
+  // which adds `!related.json` (cross-project scope, Phase 2).
+  `# Ignore everything in .sentinal/ except shared project memory, the runtime
+# contract, rules, and skills
+*
+!.gitignore
+!project-memory.json
+!runtime.json
 !rules
 !rules/
 !rules/**

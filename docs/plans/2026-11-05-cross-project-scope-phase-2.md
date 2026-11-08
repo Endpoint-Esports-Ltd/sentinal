@@ -1,7 +1,7 @@
 # Related Projects + Foreign Context
 
 Created: 2026-11-05
-Status: PENDING
+Status: VERIFIED
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -256,14 +256,47 @@ index), Task 3 (CC injection), Task 4 (OC injection + hint).
 
 ## Progress Tracking
 
-- [ ] Task 1: related.json loader, rules reader, gitignore allowlist (Wave 1)
-- [ ] Task 2: memory_search scope (Wave 2)
-- [ ] Task 2b: Restore related-projects index (Wave 2)
-- [ ] Task 3: Claude Code foreign rules injection (Wave 2)
-- [ ] Task 4: OpenCode foreign rules + model-visible pre-edit hints (Wave 2)
-- [ ] Task 6: Shipped prose, /sync, parity, README, dev rules (Wave 3)
+- [x] Task 1: related.json loader, rules reader, gitignore allowlist (Wave 1)
+- [x] Task 2: memory_search scope (Wave 2)
+- [x] Task 2b: Restore related-projects index (Wave 2)
+- [x] Task 3: Claude Code foreign rules injection (Wave 2)
+- [x] Task 4: OpenCode foreign rules + model-visible pre-edit hints (Wave 2)
+- [x] Task 6: Shipped prose, /sync, parity, README, dev rules (Wave 3)
 
-**Total Tasks:** 6 | **Completed:** 0 | **Remaining:** 6
+**Total Tasks:** 6 | **Completed:** 6 | **Remaining:** 0
+
+## Implementation Notes
+
+- **Task 1 — this repo's `.sentinal/.gitignore` is hand-maintained** (`!continue-here.md`), so it
+  matches no `KNOWN_PRIOR_GITIGNORES` entry and never auto-upgrades (pre-mortem 2 is expected,
+  not a bug): `!related.json` was added to it by hand and `src/memory/shared.test.ts` ("this repo's
+  own .sentinal/.gitignore (R9)") now asserts `related.json` is not ignored. The byte-for-byte
+  upgrade test uses the generated v3 content. The loader itself calls `ensureSentinalGitignore`
+  when it finds a `related.json` and reports `gitignored` (via `git check-ignore`) + a warning.
+- **Task 2** — fan-out lives in `src/memory/related-search.ts` (`searchRelated`,
+  `mergeRoundRobin`). Explicit `scope: "project"` without `project` uses the cwd's identity.
+  The `Project` column appears only for `scope: "related"`.
+- **Task 2b** — the helpers live in `src/memory/store.ts` (not `store-observations.ts`, which is at
+  400 lines) and `MemoryService` (restore receives a service). When the project has no memories of
+  its own but related projects exist, restore returns just the index (`hasMemory: true`).
+- **Task 3** — live check (`./dist/sentinal hook shared pre-edit-guide`, sibling repo `b` with one
+  rule file, `SENTINAL_HOME` temp):
+  `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"[Sentinal] Rules for b (/private/var/…/x/b) — you are editing files in this project:\n\n<!-- …/b/.sentinal/rules/b.md -->\n# B conventions\nAlways use zod in B.\n"}}`.
+  The home marker uses `getSentinalHome()` (honours `SENTINAL_HOME`), i.e.
+  `~/.sentinal/injected-rules/<session>.json` by default. `post-compact-restore` clears for
+  `source` absent or `compact`.
+- **Task 4** — `touchedProjects` stays a `Set` (its consumer `handleCompactionAutocontinue` is
+  unchanged); the identity → workspace map lives in `createForeignContext().touched()`. Path-scoped
+  rules join a project's block once a matching file is edited. Edits = `write`, `edit`,
+  `multiedit`, `patch`, `apply_patch`; reads never inject.
+- **Review fixes (spec-reviewer, iteration 1)** — should_fix: the CC marker now records injected
+  **rule-file paths** per session (`{ "<session_id>": ["<abs rule path>", …] }`) instead of
+  identities, so a later edit matching another rule's `paths:` gets that rule (and only it) —
+  same behaviour as OpenCode. Suggestions: `foreignProjectsCapturedFrom` guards with
+  `json_valid(metadata)` (a malformed row no longer empties the index); `SearchRow` moved below
+  the imports. Not changed: restore calls `loadRelatedProjects` uncached — one `existsSync`
+  without a `related.json`, else one `git check-ignore` + one spawn per entry, once per session
+  start/compaction.
 
 ## Implementation Tasks
 
@@ -419,3 +452,14 @@ carry the workspace.
 **Verify:**
 
 - `bun test src/cli/target-parity.test.ts && bun test && bun run typecheck && bun run typecheck:plugin && bun run lint && bun run format:check`
+
+## Verification Report
+
+- Runtime profile: Minimal (library, hooks, plugin). Build: `bun run build:cli`, `bun run build:opencode` OK.
+- Gates (final code): `bun test` 4770 pass / 0 fail; `bun run typecheck`, `bun run typecheck:plugin`,
+  `bun run lint`, `bun run format:check` clean.
+- Code review (`spec-reviewer`): 0 must_fix, 1 should_fix (fixed: per-rule CC marker), 3 suggestions
+  (2 applied, 1 documented). Truths 1–7 verified (Truth 7 by the gate run above).
+- Parity: one regeneration; only `sync.diff` changed (1 hunk, header offset); `spec-verify.diff` 0 bytes.
+- Not verified: OpenCode behaviour in a real OpenCode session (covered by plugin tests with SDK-shaped
+  calls only).

@@ -452,3 +452,102 @@ describe("restoreContext", () => {
     expect(result.markdown).not.toContain("Project B decision");
   });
 });
+
+describe("restoreContext — Related projects index", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } =
+    require("node:fs") as typeof import("node:fs");
+  const { join } = require("node:path") as typeof import("node:path");
+  const { tmpdir } = require("node:os") as typeof import("node:os");
+  let store: MemoryStore;
+  let service: MemoryService;
+  let root: string;
+  let a: string;
+  let b: string;
+
+  beforeEach(() => {
+    store = new MemoryStore(":memory:");
+    service = new MemoryService(store);
+    root = realpathSync(mkdtempSync(join(tmpdir(), "sentinal-restore-rel-")));
+    a = join(root, "a");
+    b = join(root, "b");
+    mkdirSync(join(a, ".sentinal"), { recursive: true });
+    mkdirSync(join(b, ".sentinal", "rules"), { recursive: true });
+  });
+  afterEach(() => {
+    service.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const declareRelated = (projects: unknown[]) =>
+    writeFileSync(
+      join(a, ".sentinal", "related.json"),
+      JSON.stringify({ projects }),
+    );
+
+  it("should list declared projects with counts and undeclared captured projects", async () => {
+    declareRelated([{ name: "bee", path: "../b" }, { path: "../gone" }]);
+    store.insertObservation(
+      makeObservation({ projectPath: a, title: "A obs" }),
+    );
+    store.insertObservation(makeObservation({ projectPath: b, title: "B1" }));
+    store.insertObservation(makeObservation({ projectPath: b, title: "B2" }));
+    store.insertObservation(
+      makeObservation({
+        projectPath: "/elsewhere/d",
+        title: "D obs",
+        metadata: { sessionProject: a },
+      }),
+    );
+
+    const r = await restoreContext(service, {
+      projectPath: a,
+      workspacePath: a,
+    });
+    expect(r.markdown).toContain("### Related projects");
+    expect(r.markdown).toContain(`- bee — ${b} (rules) — 2 memories`);
+    expect(r.markdown).toContain("(missing)");
+    expect(r.markdown).toContain("- /elsewhere/d — 1 memory (undeclared)");
+    expect(r.markdown).toContain('memory_search({scope: "related"})');
+  });
+
+  it("should show the index even when the project itself has no memories", async () => {
+    declareRelated([{ path: "../b" }]);
+    store.insertObservation(makeObservation({ projectPath: b, title: "B1" }));
+    const r = await restoreContext(service, {
+      projectPath: a,
+      workspacePath: a,
+    });
+    expect(r.markdown).toContain("### Related projects");
+    expect(r.markdown).toContain("1 memory");
+  });
+
+  it("should cap the index at 10 lines", async () => {
+    const many = Array.from({ length: 15 }, (_, i) => {
+      mkdirSync(join(root, `p${i}`));
+      return { path: `../p${i}` };
+    });
+    declareRelated(many);
+    store.insertObservation(
+      makeObservation({ projectPath: a, title: "A obs" }),
+    );
+    const r = await restoreContext(service, {
+      projectPath: a,
+      workspacePath: a,
+    });
+    const section = r.markdown.split("### Related projects")[1]!;
+    const items = section.split("\n").filter((l) => l.startsWith("- "));
+    expect(items.length).toBeLessThanOrEqual(10);
+    expect(section).toContain("more");
+  });
+
+  it("should add no section when there is nothing to list", async () => {
+    store.insertObservation(
+      makeObservation({ projectPath: a, title: "A obs" }),
+    );
+    const r = await restoreContext(service, {
+      projectPath: a,
+      workspacePath: a,
+    });
+    expect(r.markdown).not.toContain("Related projects");
+  });
+});

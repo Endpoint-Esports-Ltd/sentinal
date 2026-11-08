@@ -17,10 +17,17 @@ import {
   type HookInput,
 } from "../utils/hook-output.js";
 import { resolveWorkspaceRoot } from "../project/identity.js";
+import { clearInjectedRules } from "./foreign-context.js";
 
 export async function processPostCompactRestore(
   input: HookInput,
 ): Promise<void> {
+  // Registered on SessionStart(compact) only. Compaction dropped the foreign
+  // rules this session was shown, so forget them — BEFORE the early return
+  // below, which fires on every compaction without an active plan.
+  if (input.source === undefined || input.source === "compact")
+    clearInjectedRules({ cwd: input.cwd, sessionId: input.session_id });
+
   // ⛔ WORKSPACE, never identity. `compact-state.json` is
   // per-session-per-checkout: resolving it through `resolveProjectIdentity`
   // would point every linked worktree at the MAIN checkout's file and leak one

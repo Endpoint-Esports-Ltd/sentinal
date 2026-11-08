@@ -1,0 +1,75 @@
+{
+  "pass_summary": "All six tasks are implemented: loader, rules reader, gitignore v4 allowlist, memory_search related fan-out, the restore index, CC once-per-session injection with compact/end clearing, and OC per-turn rules plus one-shot hints. Each has focused tests. Only minor issues remain: Claude Code ignores path-scoped rules after a project's first injection, and session start now does sync git/fs work in the sidecar.",
+  "compliance_score": "high",
+  "quality_score": "high",
+  "goal_score": "achieved",
+  "truths_verified": 6,
+  "truths_total": 7,
+  "issues": [
+    {
+      "severity": "should_fix",
+      "category": "bugs",
+      "title": "CC: path-scoped rules for later files in an already-injected project are never shown",
+      "description": "src/hooks/foreign-context.ts foreignRulesHint marks the whole project identity as injected after the first edit, using only the rules that matched THAT file (rulesForFile). Take a later edit in the same project of a file that matches a different `paths:` rule (e.g. first edit B/README.ts, later B/src/x.component.ts with an Angular-scoped rule). It returns null because `done.includes(file.identity)`, so that rule never reaches the agent until compaction. The OpenCode side (createForeignContext.applied) handles this correctly, so the two targets behave differently. This follows the plan's literal wording ('identity listed → skip'), but it defeats the paths: filtering the plan asks for.",
+      "suggested_fix": "Record injected rule file paths per identity in the marker (e.g. {sessionId: {identity: [rulePath,…]}}, or entries `identity::rulePath`). Inject only the rules for this file that are not already listed, and return null when none are new. Add a test to src/hooks/foreign-context.test.ts: two edits matching different path-scoped rules each inject their own rule once."
+    },
+    {
+      "severity": "suggestion",
+      "category": "bugs",
+      "title": "Restore index runs git spawns and a .gitignore write on every session start",
+      "description": "src/memory/restore.ts buildRelatedIndex calls loadRelatedProjects on every restore. When related.json exists, that runs ensureSentinalGitignore (a possible write), `git check-ignore`, and one resolveProjectIdentity git spawn per entry, all synchronously in the sidecar request (and in restoreContextSync on the direct fallback). The plan allows it ('callers are the MCP server and the sidecar'), but the cost grows with the number of entries and is not documented next to the restore latency.",
+      "suggested_fix": "Memoize loadRelatedProjects per workspace by related.json mtime (or use the existing canonicalProjectKey memo for identities), or document the per-entry cost in the restore.ts header and in sentinal-project.md."
+    },
+    {
+      "severity": "suggestion",
+      "category": "error_handling",
+      "title": "foreignProjectsCapturedFrom has no json_valid guard",
+      "description": "src/memory/store.ts foreignProjectsCapturedFrom calls json_extract(metadata, …) with no json_valid(metadata) guard. Writers always JSON.stringify today. However, one malformed row (a hand edit, or a legacy import) makes SQLite raise 'malformed JSON' for the whole query. buildRelatedIndex's catch would then drop the entire index, including the declared projects. migrations-legacy.ts:273 already uses the `json_valid(metadata) AND` pattern.",
+      "suggested_fix": "Add `json_valid(metadata) AND` before the json_extract predicate."
+    },
+    {
+      "severity": "suggestion",
+      "category": "spec_compliance",
+      "title": "Type alias declared between import statements in mcp-tools.ts",
+      "description": "src/memory/mcp-tools.ts declares `type SearchRow = …` between the related-search import and the later `import { mcpText }` / registerSharedTools imports. It is legal, but it breaks the import block and is easy to miss.",
+      "suggested_fix": "Move the SearchRow alias below the last import."
+    }
+  ],
+  "truths": [
+    {
+      "truth": "related.ts exports loadRelatedProjects; foreign-rules.ts exports readProjectRules, rulesForFile, formatForeignRules; neither imports bun:sqlite",
+      "status": "verified",
+      "evidence": "New files in the diff. foreign-rules.ts imports only node:fs/path. related.ts imports zod, ../memory/shared.js and ./identity.js and is not bundled into the plugin (the plugin imports only src/opencode/foreign-context.ts → foreign-rules.ts)."
+    },
+    {
+      "truth": "!related.json is in GITIGNORE_CONTENT",
+      "status": "verified",
+      "evidence": "src/memory/shared.ts adds !related.json and records v3 as a KNOWN_PRIOR_GITIGNORES entry. This repo's hand-maintained .sentinal/.gitignore was also updated."
+    },
+    {
+      "truth": "First CC edit of B/x.ts injects B's rules; a second edit does not; they inject again after SessionStart(compact)",
+      "status": "verified",
+      "evidence": "foreign-context.test.ts: 'inject … on the first edit only' and 'clear only this session's entry'. post-compact-restore clears before the compact-state early return. hook.ts joins the rules into the PreToolUse hint. A live check is recorded in Implementation Notes."
+    },
+    {
+      "truth": "OC transform output contains B's rules block on two consecutive turns after a B edit",
+      "status": "verified",
+      "evidence": "sentinal.test.ts:1982 'system.transform carries B's rules on every turn after an edit in B'. The plugin calls foreignContext.noteEdit for EDIT_TOOLS and pushes systemBlocks() in system.transform."
+    },
+    {
+      "truth": "memory_search scope:'related' returns A and declared-B observations, not undeclared C",
+      "status": "verified",
+      "evidence": "related-search.ts does a round-robin fan-out over the base project plus existing related.json entries. mcp-tools.test.ts:429+ covers scope 'related' on both the client and store paths."
+    },
+    {
+      "truth": "Restore markdown lists declared B with memory count and undeclared D",
+      "status": "verified",
+      "evidence": "restore.ts buildRelatedIndex uses countByProject and foreignProjectsCapturedFrom, capped at 10 lines. restore.test.ts:456+ covers declared, undeclared and the 'no section when empty' case."
+    },
+    {
+      "truth": "All gates pass (bun test, typecheck, typecheck:plugin, lint, format:check)",
+      "status": "uncertain",
+      "evidence": "Cannot run the gates in this review. No static problems found in the diff."
+    }
+  ]
+}

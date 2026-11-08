@@ -1742,6 +1742,7 @@ describe("per-file project wiring (session A, file in repo B)", () => {
   async function setup(
     activeSpec: Record<string, boolean>,
     tddStates: unknown[] = [],
+    searchResults: unknown[] = [],
   ) {
     const calls: Calls = {
       getTddState: [],
@@ -1773,7 +1774,7 @@ describe("per-file project wiring (session A, file in repo B)", () => {
       },
       memorySearch: async (q: Record<string, unknown>) => {
         calls.searches.push(q);
-        return [];
+        return searchResults;
       },
       listActiveTddStates: async () => tddStates,
       getCurrentSpec: async () => null,
@@ -1963,5 +1964,67 @@ describe("per-file project wiring (session A, file in repo B)", () => {
     const out2 = { continue: true, context: [] as string[] };
     await touched.hooks["compaction.autocontinue"]!({} as never, out2 as never);
     expect(out2.continue).toBe(false);
+  }, 30_000);
+
+  // ── Phase 2: foreign rules + model-visible pre-edit hints ────────────────
+
+  async function transform(
+    hooks: Awaited<ReturnType<typeof SentinalPlugin>>,
+  ): Promise<string> {
+    const output = { system: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!(
+      {} as never,
+      output as never,
+    );
+    return output.system.join("\n");
+  }
+
+  it("system.transform carries B's rules on every turn after an edit in B", async () => {
+    mkdirSync(join(b, ".sentinal", "rules"), { recursive: true });
+    writeFileSync(
+      join(b, ".sentinal", "rules", "b.md"),
+      "# B conventions\nAlways use zod in B.\n",
+    );
+    try {
+      const { hooks, before } = await setup({});
+      expect(await transform(hooks)).not.toContain("Always use zod in B.");
+      await before("edit", { filePath: join(b, "src", "x.ts") });
+      expect(await transform(hooks)).toContain("Always use zod in B.");
+      expect(await transform(hooks)).toContain("Always use zod in B.");
+    } finally {
+      rmSync(join(b, ".sentinal"), { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("a READ of B does not inject B's rules", async () => {
+    mkdirSync(join(b, ".sentinal", "rules"), { recursive: true });
+    writeFileSync(join(b, ".sentinal", "rules", "b.md"), "# B\nRead-only.\n");
+    try {
+      const { hooks, before } = await setup({});
+      await before("read", { filePath: join(b, "src", "x.ts") });
+      expect(await transform(hooks)).not.toContain("Read-only.");
+    } finally {
+      rmSync(join(b, ".sentinal"), { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("the pre-edit memory hint reaches the system prompt once, then is dropped", async () => {
+    const file = join(b, "src", "x.ts");
+    const { hooks, before } = await setup(
+      {},
+      [],
+      [
+        {
+          id: 1,
+          type: "error",
+          title: "x.ts broke the build",
+          timestamp: Date.now(),
+          filePaths: [file],
+        },
+      ],
+    );
+    await before("edit", { filePath: file });
+    expect(await transform(hooks)).toContain("x.ts broke the build");
+    expect(await transform(hooks)).not.toContain("x.ts broke the build");
   }, 30_000);
 });

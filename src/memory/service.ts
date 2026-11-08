@@ -216,6 +216,17 @@ export class MemoryService {
     return this.store.getRecentForProject(projectPath, limit);
   }
 
+  countByProject(projectPath: string): number {
+    return this.store.countByProject(projectPath);
+  }
+
+  foreignProjectsCapturedFrom(
+    identity: string,
+    limit?: number,
+  ): { projectPath: string; count: number }[] {
+    return this.store.foreignProjectsCapturedFrom(identity, limit);
+  }
+
   // ─── Search (Layer 1: compact index) ──────────────────────────────────
 
   /**

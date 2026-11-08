@@ -32,7 +32,13 @@ import { MemoryService } from "./service.js";
 import { OBSERVATION_TYPES } from "./types.js";
 import type { ObservationType } from "./types.js";
 import type { SidecarClient } from "../sidecar/client.js";
-import { resolveProjectIdentity } from "../project/identity.js";
+import {
+  resolveProjectIdentity,
+  resolveWorkspaceRoot,
+} from "../project/identity.js";
+import { loadRelatedProjects } from "../project/related.js";
+import { searchRelated } from "./related-search.js";
+import type { SearchResult } from "./types.js";
 import { mcpText } from "../mcp/helpers.js";
 import { registerSharedTools } from "./shared.js";
 import {
@@ -43,6 +49,12 @@ import { registerMaintainTool } from "./maintain-mcp-tools.js";
 import { registerStatsTool } from "./stats-mcp-tools.js";
 
 export { formatMemoryStats } from "./stats-mcp-tools.js";
+
+/** The fields `memory_search` renders — the store and sidecar shapes both have them. */
+type SearchRow = Pick<
+  SearchResult,
+  "id" | "title" | "type" | "timestamp" | "estimatedTokens"
+>;
 
 export interface MemoryToolsDeps {
   client?: SidecarClient | null;
@@ -116,10 +128,16 @@ function registerSearchTool(
 ): void {
   server.tool(
     "memory_search",
-    "Search memory observations. Returns a compact index with IDs and titles. Use memory_get for full details of specific results.",
+    'Search memory observations. Returns a compact index with IDs and titles. Use memory_get for full details of specific results. `scope`: "project" (default when `project` is given) searches that project; "all" (default without `project`) searches every project; "related" searches `project` (default: the current directory) plus the projects declared in its `.sentinal/related.json`, labelling each row with its project.',
     {
       query: z.string().describe("Search query (semantic + keyword)"),
       project: z.string().optional().describe("Filter by project path"),
+      scope: z
+        .enum(["project", "related", "all"])
+        .optional()
+        .describe(
+          'project | related (this project + .sentinal/related.json) | all. Default: "project" with `project`, else "all"',
+        ),
       type: z
         .enum(OBSERVATION_TYPES)
         .optional()
@@ -131,39 +149,71 @@ function registerSearchTool(
         .optional()
         .describe("Max results (default 20)"),
     },
-    async ({ query, project: rawProject, type, limit }, extra) => {
-      const project = normalizeProjectFilter(rawProject);
+    async ({ query, project: rawProject, scope, type, limit }, extra) => {
+      const effectiveScope =
+        scope ?? (rawProject && rawProject.trim() !== "" ? "project" : "all");
       const progressExtra = extra as ProgressExtra | undefined;
+      const max = limit ?? 20;
+      const searchOne = (project: string | undefined): Promise<SearchRow[]> =>
+        client
+          ? client.memorySearch({ query, project, type, limit: max })
+          : Promise.resolve(
+              service!.search(query, {
+                project,
+                type: type as ObservationType | undefined,
+                limit: max,
+              }),
+            );
       // Embedding cold-start can be slow; emit an initial progress ping and
       // honor client cancellation via extra.signal.
       await emitProgress(progressExtra, { progress: 0, message: "searching" });
-      const searchPromise = client
-        ? client.memorySearch({
-            query,
-            project,
-            type,
-            limit: limit ?? 20,
-          })
-        : service!.search(query, {
-            project,
-            type: type as ObservationType | undefined,
-            limit: limit ?? 20,
-          });
+      let warnings: string[] = [];
+      let searchPromise: Promise<Array<SearchRow & { project?: string }>>;
+      if (effectiveScope === "related") {
+        searchPromise = searchRelated({
+          base:
+            rawProject && rawProject.trim() !== "" ? rawProject : process.cwd(),
+          limit: max,
+          search: searchOne,
+          identityOf: resolveProjectIdentity,
+          workspaceOf: resolveWorkspaceRoot,
+          loadRelated: (ws) => loadRelatedProjects(ws),
+        }).then((r) => {
+          warnings = r.warnings;
+          return r.results;
+        });
+      } else if (effectiveScope === "project") {
+        searchPromise = searchOne(
+          normalizeProjectFilter(rawProject) ??
+            resolveProjectIdentity(process.cwd()),
+        );
+      } else {
+        searchPromise = searchOne(undefined);
+      }
       const results = await withAbort(
         (extra as { signal?: AbortSignal } | undefined)?.signal,
         searchPromise,
       );
       await emitProgress(progressExtra, { progress: 1, message: "done" });
+      const notes = warnings.map((w) => `⚠️ ${w}`);
 
       if (results.length === 0) {
-        return mcpText("No matching observations found.");
+        return mcpText(
+          ["No matching observations found.", ...notes].join("\n"),
+        );
       }
 
-      const header = "| ID | Date | Type | Title | ~Tokens |";
-      const separator = "|---:|------|------|-------|--------:|";
+      const labelled = effectiveScope === "related";
+      const header = labelled
+        ? "| ID | Project | Date | Type | Title | ~Tokens |"
+        : "| ID | Date | Type | Title | ~Tokens |";
+      const separator = labelled
+        ? "|---:|---------|------|------|-------|--------:|"
+        : "|---:|------|------|-------|--------:|";
       const rows = results.map((r) => {
         const date = new Date(r.timestamp).toISOString().split("T")[0];
-        return `| ${r.id} | ${date} | ${r.type} | ${r.title} | ${r.estimatedTokens} |`;
+        const project = labelled ? ` ${r.project ?? ""} |` : "";
+        return `| ${r.id} |${project} ${date} | ${r.type} | ${r.title} | ${r.estimatedTokens} |`;
       });
 
       const text = [
@@ -174,6 +224,7 @@ function registerSearchTool(
         ...rows,
         "",
         "Use `memory_get` with specific IDs to retrieve full details.",
+        ...(notes.length > 0 ? ["", ...notes] : []),
       ].join("\n");
 
       return mcpText(text);
