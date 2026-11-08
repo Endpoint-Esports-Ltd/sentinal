@@ -1,0 +1,70 @@
+{
+  "review_summary": "The plan covers every clarified requirement: child plans live in the target repo, linkage is explicit through Location:/Master: and is never slug-scanned, Task 1 verifies Orca live first, and there is a non-Orca fallback. The seed+Location design fits the Parent: back-link audit and the no-deps rule. The main risks are in the execution details: the copied child plan must be committed so it survives the merge, the Master: path is stored as an absolute path, subagents writing outside the coordinator's checkout hit permission prompts, and Task 1 changes the user's real Orca repo list.",
+  "alignment_score": "high",
+  "risk_level": "medium",
+  "issues": [
+    {
+      "severity": "must_fix",
+      "category": "task_completeness",
+      "title": "The copied child plan is never committed in the foreign worktree, so Location breaks after the merge",
+      "description": "Context → Execution, Orca: 'copy the seed into <path>/docs/plans/ adding Master: …' then later 'set the seed's Location: to <repo>/docs/plans/<file>'. worktree_sync squash-merges only committed changes. If the coordinator only copies the file and the worker never commits that exact file (it may only commit code, or the file may stay untracked), the copy never reaches <repo>/docs/plans/ and the audit reports foreign-location-missing for a VERIFIED phase. The same applies to <slug>.spec-review.json, which Task 4 now looks for beside the Location file. That rule raises a no-review-evidence warning in master-audit.ts:366 whenever the review file is absent after the merge.",
+      "suggested_fix": "Add a step to the execute prose (both targets) and to the README: the coordinator commits the copy in the phase worktree before it starts the worker (for example `git -C <path> add docs/plans/<file> && git -C <path> commit -m 'plan: seed <slug>'`), and the worker brief says to commit the final plan and its .spec-review.json. In Task 4, add an audit test where Location points at a merged file that has no review JSON (it warns), and confirm the warning names the foreign repo."
+    },
+    {
+      "severity": "should_fix",
+      "category": "untested_assumption",
+      "title": "Master: realpath equality is fragile when the coordinator runs in an Orca or linked worktree",
+      "description": "The audit check is 'its Master: realpath equals the master's realpath'. The coordinator often runs in a linked worktree (this session runs in .orca/worktrees/readme). The Master: path written into the copy, which is then committed into repo B, points into that worktree. If the audit is later run from the main ops checkout, or after the coordinator worktree is removed, the paths differ and the result is a false foreign-link-mismatch. The plan also commits a machine-specific absolute path into another repo's history.",
+      "suggested_fix": "Compare by project identity plus slug instead of the raw path. Either record `Master: <slug>` together with a repo identity (the main-checkout path from resolveProjectIdentity) and compare against resolveProjectIdentity(dirname(master)), or accept the link when Parent: matches and basename(Master:) equals the master's filename. Add a test where the master is audited from a different checkout of the same repo."
+    },
+    {
+      "severity": "should_fix",
+      "category": "hidden_dependency",
+      "title": "The non-Orca subagent fallback edits files outside the coordinator's workspace, which causes permission prompts and conflicts with isolation=\"worktree\"",
+      "description": "'a spec-task subagent whose brief … says to run every command with that directory as its working directory'. On OpenCode, external_directory defaults to ask and 'Allow always' lasts one session only (sentinal-mcp-servers.md § Worker directory access). Edits to repo B from a session rooted in ops will therefore prompt, and the prompts stall the wave, the same failure orca worker-access fixed for Orca workers. On Claude Code, waves use Agent(isolation=\"worktree\"), which creates an ops worktree, not one in repo B. Both are unaddressed.",
+      "suggested_fix": "In the execute prose: for a foreign phase, Claude Code must not use isolation=\"worktree\" (the worktree already exists in repo B). For OpenCode, tell the user up front that foreign phases need external_directory allowed for <repo>/** (or run that phase sequentially in the coordinator), and add this to the README section. Alternatively, ship an additive opencode.json note. Add a Truth that greps for this guidance in both targets."
+    },
+    {
+      "severity": "should_fix",
+      "category": "risk_quality",
+      "title": "Task 1's live test changes the user's real Orca configuration, which contradicts Out of Scope",
+      "description": "Out of Scope says 'orca repo add is reported, not run, since it changes the user's Orca setup', yet Task 1 runs `orca repo add` on two $TMPDIR repos in the user's real Orca app and only removes them 'if the CLI allows'. The command runs from inside a live Orca session (ORCA_TERMINAL_HANDLE belongs to the user's real run). A create that is missing --no-parent or --repo would fall back to 'infers the repo from the current Orca-managed worktree' and create a worktree in this real repo. The $TMPDIR repos may also lack a `main` branch (git's default may be master).",
+      "suggested_fix": "Before running anything, ask the user for consent. Snapshot `orca repo list --json` and `orca worktree list --json`, and diff them afterwards. Initialise the throwaway repos with `git init -b main` and one commit. Always pass both --repo and --no-parent. Never run create without --repo. Check `orca repo --help` for removal before adding. Record the cleanup result and anything that could not be cleaned in the skill file."
+    },
+    {
+      "severity": "should_fix",
+      "category": "requirement_coverage",
+      "title": "Clarification 'master records Repo per phase' is only an optional table column that nothing checks",
+      "description": "The clarification says the master records Repo per phase, but the plan makes the Repo column optional and has the audit read only the seed's Repo: header. A seed and master table that disagree (or a foreign phase recorded in only one place) go undetected.",
+      "suggested_fix": "Make the Repo column required for foreign phases in spec-master-plan prose. In Task 4, parse the master's phase table (or a `Repo:` line per phase) and add a `foreign-repo-disagrees` finding when it differs from the seed's Repo:. Add a test for it."
+    },
+    {
+      "severity": "should_fix",
+      "category": "task_completeness",
+      "title": "Seed edits mid-run can dirty the checkout that same-repo merges need",
+      "description": "The coordinator writes Location: into the seed twice (at dispatch and after the merge) and mirrors Status:. Same-repo phases in the same wave merge with worktree_sync into the checkout holding the base branch, which refuses a dirty tracked tree (DIRTY_MAIN_CHECKOUT). The plan says to commit the first seed change but not the post-merge Location/Status rewrite. In Orca Mode the coordinator checkout may itself be the one holding the base branch.",
+      "suggested_fix": "In the prose, say every seed rewrite (Location at dispatch, Location+Status after merge) is committed immediately in the master's repo, before any further worktree_sync. Batch them so it is one commit per phase event."
+    },
+    {
+      "severity": "suggestion",
+      "category": "risk_quality",
+      "title": "A lingering PENDING seed is harmless only if abandoned phases are mirrored too",
+      "description": "PENDING is in ACTIVE_STATUSES (types.ts:41), so a foreign seed stays 'active' for getCurrentSpec, the tdd-guard and tdd-tracker in the master repo. Same-repo children have the same property today, so the incremental harm is low, and the risk row is accurate. However, the plan only mirrors the final status after VERIFIED. A foreign phase that is skipped or abandoned leaves its seed PENDING forever, and getCurrentSpec(ops) may keep selecting it after the master finishes. isSlugInProgress being project-blind only errs on the safe side (it skips a cleanup).",
+      "suggested_fix": "In the execute prose: when a foreign phase is skipped or abandoned, set the seed's Status: to CANCELLED (or FAILED) and commit. Add a single sentence to the risk row noting this."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "The worker read-access assumption only holds for pre-warmed starts",
+      "description": "orcaWorkerDirs (server.ts:100-107) allows the coordinator workspace and the ops main checkout, so a pre-warmed OpenCode worker in repo B can read the master plan without a prompt. The --agent fallback, new-child starts and SENTINAL_ORCA_PREWARM_AGENTS=none get no allow rule and will prompt. prepare-child plus a {path} start does pre-warm, so the common path works.",
+      "suggested_fix": "Have the worker brief quote everything it needs from the master, or rely on the copy's own content and not on reading the master. Note in the prose that agent-fallback starts may prompt."
+    },
+    {
+      "severity": "suggestion",
+      "category": "untested_assumption",
+      "title": "Disambiguating the worktree show fallback should not depend on Orca support for --repo",
+      "description": "dispatch.ts:201-204 runs `worktree show --worktree name:<name>` without a repo. For a foreign repo this can resolve to a same-named worktree in the coordinator's repo. The plan defers the fix to Task 1's findings.",
+      "suggested_fix": "Commit to a fallback that works whatever Task 1 finds: when `repo` is set, list worktrees as JSON and select the entry whose path is inside realpath(repo) and whose name matches, else fail. Do not trust an unscoped `show`. Add a test where a fixture returns two worktrees with the same name in different repos."
+    }
+  ]
+}
