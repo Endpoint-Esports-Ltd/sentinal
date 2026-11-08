@@ -1,7 +1,7 @@
 # Cross-Project Scope Master Plan
 
 Created: 2026-11-05
-Status: IN_PROGRESS
+Status: VERIFIED
 Approved: Yes
 Iterations: 1
 Worktree: No
@@ -187,22 +187,36 @@ Child plans:
 
 ## Definition of Done (master)
 
-- [ ] All three child plans VERIFIED (`spec_master_audit` PASS)
-- [ ] From a session in repo A, editing a file in sibling repo B: captured memories, TDD rows and
+- [x] All three child plans VERIFIED (`spec_master_audit` PASS)
+- [x] From a session in repo A, editing a file in sibling repo B: captured memories, TDD rows and
       the conflict check are keyed to B's identity (test on both targets)
-- [ ] TDD guard blocks an edit in B when only B has an active plan, and when only A has one
-- [ ] First edit in B injects B's `.sentinal/rules` once (CC additionalContext, OC system prompt)
-- [ ] `memory_search({scope: "related"})` from A returns B's observations when B is in A's
+- [x] TDD guard blocks an edit in B when only B has an active plan, and when only A has one
+- [x] First edit in B injects B's `.sentinal/rules` once (CC additionalContext, OC system prompt)
+- [x] `memory_search({scope: "related"})` from A returns B's observations when B is in A's
       `.sentinal/related.json`
-- [ ] A cross-repo master plan places a phase's worktree and child plan in B (Orca and non-Orca),
+- [x] A cross-repo master plan places a phase's worktree and child plan in B (Orca and non-Orca),
       merges into B's base branch, and `spec_master_audit` finds the child
-- [ ] Full suite, typecheck, plugin typecheck, lint, format:check green; README and
+- [x] Full suite, typecheck, plugin typecheck, lint, format:check green; README and
       `.sentinal/rules/sentinal-*.md` updated
 
 ## Progress Tracking
 
 - [x] Phase 1: File-project resolver + per-edit wiring (Wave 1) — VERIFIED
 - [x] Phase 2: Related projects + foreign context (Wave 2) — VERIFIED
-- [ ] Phase 3: Cross-repo master plans (Wave 3) — PENDING
+- [x] Phase 3: Cross-repo master plans (Wave 3) — VERIFIED
 
-**Total Phases:** 3 | **Completed:** 2 | **Remaining:** 1
+**Total Phases:** 3 | **Completed:** 3 | **Remaining:** 0
+
+## Verification Notes (master)
+
+- `spec_master_audit`: PASS, 3/3 children VERIFIED, checkboxes agree.
+- Merged result (readme @ 1d5b038): `bun test` 4806 pass / 0 fail; typecheck, plugin typecheck,
+  lint, format:check clean; `spec-master-plan.diff` 0 bytes.
+- Ran through Orca 1.4.253 workers (Run run_9efdbab4d99f); required the adapter fix
+  `docs/plans/2026-11-08-orca-concise-output.md` first.
+- Left for the user: two throwaway repos registered in Orca by Phase 3's live probe
+  (`$TMPDIR/orca-repo-probe/repoA`, `repoB`) — Orca has no repo-removal command; remove in the UI.
+- Deferred (Phase 3 plan, spec-review suggestions): relative `Location:` after a merge into a
+  base checked out in a linked worktree; relative `Repo:` resolution root.
+- Not verified live: a real end-to-end cross-repo master run, and OpenCode foreign-rules
+  injection in a real session (covered by SDK-shaped plugin tests only).
