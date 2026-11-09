@@ -256,7 +256,7 @@ From the spec review (suggestions, non-blocking):
   repo's main checkout. If the base branch is checked out in a linked worktree, the merge lands
   there and the audit reports `foreign-location-missing` until that branch reaches the main
   checkout.
-- A relative `Repo:` resolves against the master's repo root found by walking up to `.git`; from a
+- ✅ **Resolved 2026-11-09** (`docs/plans/2026-11-09-related-main-checkout.md`): a relative `Repo:` now resolves against the master repo's main checkout. Was: it resolved against the master's repo root found by walking up to `.git`; from a
   linked/Orca worktree nested inside the repo (`.orca/worktrees/…`), `../api` points elsewhere
   than from the main checkout. The prose recommends a `related.json` name for this reason.
 

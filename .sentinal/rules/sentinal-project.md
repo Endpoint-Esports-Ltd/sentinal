@@ -187,14 +187,14 @@ sibling-repo file 112.7 ms → 130.1 ms (one memoized git spawn for B's identity
 
 ### Related projects and foreign rules (cross-project scope, Phase 2)
 
-| Module                            | Role                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `src/project/related.ts`          | `loadRelatedProjects(workspace)` — `.sentinal/related.json`; one git spawn per entry (MCP/sidecar only) |
-| `src/project/foreign-rules.ts`    | `readProjectRules` / `rulesForFile` (`paths:` globs) / `formatForeignRules` (12k per project, pointers) |
-| `src/hooks/foreign-context.ts`    | CC: `foreignRulesHint` (PreToolUse, once per session+project), `clearInjectedRules` (compact, end)      |
-| `src/opencode/foreign-context.ts` | OC: `createForeignContext` — rules kept in `system.transform` every turn (24k total), hints pushed once |
-| `src/memory/related-search.ts`    | `memory_search({scope: "related"})` fan-out, round-robin merge                                          |
-| `src/memory/restore.ts`           | `### Related projects` index (declared + undeclared via `metadata.sessionProject`)                      |
+| Module                            | Role                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `src/project/related.ts`          | `loadRelatedProjects(workspace)` — `.sentinal/related.json`; relative paths vs the MAIN checkout (`relativeBase`) |
+| `src/project/foreign-rules.ts`    | `readProjectRules` / `rulesForFile` (`paths:` globs) / `formatForeignRules` (12k per project, pointers)           |
+| `src/hooks/foreign-context.ts`    | CC: `foreignRulesHint` (PreToolUse, once per session+project), `clearInjectedRules` (compact, end)                |
+| `src/opencode/foreign-context.ts` | OC: `createForeignContext` — rules kept in `system.transform` every turn (24k total), hints pushed once           |
+| `src/memory/related-search.ts`    | `memory_search({scope: "related"})` fan-out, round-robin merge                                                    |
+| `src/memory/restore.ts`           | `### Related projects` index (declared + undeclared via `metadata.sessionProject`)                                |
 
 - `related.json` is allowlisted in `GITIGNORE_CONTENT` (v4); v3 is a `KNOWN_PRIOR_GITIGNORES`
   entry. ⛔ This repo's own `.sentinal/.gitignore` is hand-maintained (`!continue-here.md`) and

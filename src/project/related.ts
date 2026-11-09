@@ -45,6 +45,30 @@ export interface RelatedProjectsResult {
 export interface RelatedDeps {
   /** Directory → storage key. Default `resolveProjectIdentity`. */
   identity?: (path: string) => string;
+  /** Linked worktree → its main checkout. Default `resolveProjectIdentity`. */
+  mainCheckout?: (workspace: string) => string;
+}
+
+/**
+ * The directory a RELATIVE related path (or `Repo:`) is resolved against: the
+ * repo's MAIN checkout, where sibling repos actually live. From a linked
+ * worktree nested in the repo (Orca `.orca/worktrees/x`, Sentinal
+ * `.sentinal/worktrees/spec-*`) `../api` would otherwise point inside the repo.
+ * A `.git` DIRECTORY means the workspace already is the main checkout — no git
+ * spawn. Only a `.git` file (linked worktree) asks git. Never throws.
+ */
+export function relativeBase(
+  workspace: string,
+  deps: Pick<RelatedDeps, "mainCheckout"> = {},
+): string {
+  try {
+    const dotGit = join(workspace, ".git");
+    if (!existsSync(dotGit) || statSync(dotGit).isDirectory()) return workspace;
+    const main = (deps.mainCheckout ?? resolveProjectIdentity)(workspace);
+    return typeof main === "string" && main.trim() !== "" ? main : workspace;
+  } catch {
+    return workspace;
+  }
 }
 
 const RelatedSchema = z.object({
@@ -142,13 +166,14 @@ export function loadRelatedProjects(
     }
 
     const self = safeIdentity(toIdentity, workspace);
+    const base = relativeBase(workspace, deps);
     const projects: RelatedProject[] = [];
     const seen = new Set<string>();
     for (const entry of parsed.projects) {
       try {
         const abs = isAbsolute(entry.path)
           ? resolve(entry.path)
-          : resolve(workspace, entry.path);
+          : resolve(base, entry.path);
         const exists = isDir(abs);
         const path = exists ? realOr(abs) : abs;
         const identity = exists ? safeIdentity(toIdentity, path) : path;
