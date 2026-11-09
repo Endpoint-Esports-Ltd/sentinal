@@ -23,9 +23,13 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { prewarmAgents } from "./dispatch-prewarm.js";
-import { opencodeLaunch, workerAllowDirs } from "./worker-access.js";
+import {
+  opencodeLaunch,
+  workerAllowDirs,
+  workerScratchDirs,
+} from "./worker-access.js";
 import { startTask, type StartTaskResult } from "./dispatch.js";
 import {
   orcaFailure,
@@ -250,6 +254,7 @@ export function registerOrcaStartTool(
                 ? args.worktree.path
                 : wd.coordinator,
             dirs: workerAllowDirs(env, [wd.coordinator, wd.main], homedir()),
+            scratch: workerScratchDirs(env, tmpdir()),
             env,
           })
         : undefined;
@@ -324,15 +329,26 @@ function withAccess(
   if (!launch || agent !== "opencode") return res;
   const a = launch.access;
   const extra = {
-    ...(a ? { worker_access: { dirs: a.dirs, read_only: true } } : {}),
+    ...(a
+      ? {
+          worker_access: {
+            dirs: a.dirs,
+            read_only: true,
+            ...(a.scratch ? { scratch: a.scratch } : {}),
+          },
+        }
+      : {}),
     ...(launch.skipped ? { worker_access_skipped: launch.skipped } : {}),
     ...(launch.skippedDirs?.length
       ? { worker_access_skipped_dirs: launch.skippedDirs }
       : {}),
   };
   if (Object.keys(extra).length === 0) return res;
+  const scratchNote = a?.scratch?.length
+    ? ` Scratch (read-write): ${a.scratch.join(", ")}.`
+    : "";
   const line = a
-    ? `- The worker can read ${a.dirs.join(", ")} without a permission prompt (read-only).`
+    ? `- The worker can read ${a.dirs.join(", ") || "no checkout dirs"} without a permission prompt (read-only).${scratchNote}`
     : `- No directory access was granted (${launch.skipped ?? "no directories"}); the worker may still prompt.`;
   const block = res.content[0]!;
   const m = /```json\n([\s\S]*?)\n```/.exec(block.text);

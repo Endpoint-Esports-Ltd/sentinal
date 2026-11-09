@@ -179,7 +179,8 @@ In Orca Mode, per wave:
    `spec` follows Orca's Task-spec contract — **Target** (plan path, task N, its files),
    **Change** (the full task section; TDD), **Constraints** (`quality_report` with `file`; "do NOT
    update the plan file checkboxes"; "do NOT run `build:opencode` / `embed-assets` if the plan
-   says the orchestrator does"; questions go through your preamble's `ask` command),
+   says the orchestrator does"; questions go through your preamble's `ask` command; "run long
+   commands in the foreground — never end your turn waiting for a background exit notice"),
    **Ownership** (only the task's files), **Observable acceptance** (its Definition of Done) —
    ending with: "Report completion through your Orca preamble: succeeded or failed, and list the
    files you changed."
@@ -188,12 +189,15 @@ In Orca Mode, per wave:
    handing Orca the brief only once the agent's input box is drawn, which avoids the known
    cold-start drop (Orca #22580); `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off. A
    pre-warmed worker reads the coordinator's and main checkouts without a prompt (read-only;
-   `SENTINAL_ORCA_WORKER_ALLOW_DIRS` adds paths, `none` disables); any other worker (`--agent`
+   `SENTINAL_ORCA_WORKER_ALLOW_DIRS` adds paths, `none` disables) and writes `/tmp` and the OS
+   temp dir freely (`SENTINAL_ORCA_WORKER_SCRATCH_DIRS` adds paths, `none` disables); any other worker (`--agent`
    fallback, other agents, prewarm off, Windows) may still ask, approved in its own tab.
 3. Loop `orca_wait({ run_id })` until every task has a `worker_done`; `orca_ack` each delivery and
    `orca_release({ dispatch_id })` each settled worker, until nothing is `reclaimable`. Answer a
    `question` message with `orca_reply({ run_id, message_id, body })` (ask the user if you
-   cannot) before the worker's `ask` times out. A
+   cannot) before the worker's `ask` times out. An `escalation` with `stopReason: needs-input`
+   → ask the user to answer the prompt in that worker's tab; `stopReason: finished` → check
+   the worker, then `orca_reply({ run_id, dispatch_id, body })` with what to do next. A
    `never-started` stall (the brief never reached the agent) → `orca_stop({ dispatch_id,
 evidence_id })`, then `orca_start({ task_id, worktree: "current", agent, retry_of: <stopped
 dispatch_id> })`, once per task, without asking. Any other stall, or a second never-started

@@ -49,6 +49,34 @@ function messageRow(m: SettledMessage) {
   };
 }
 
+/**
+ * Orca's worker-stop escalations carry `payload.stopReason` (verified on
+ * 1.4.253, 2026-11-09): `needs-input` — the worker is at a prompt only a
+ * person can answer (e.g. OpenCode "Access external directory") in its own
+ * terminal tab; `finished` — it ended its turn without `worker_done` (seen:
+ * waiting on a background run's exit notice that was already missed).
+ */
+function escalationHints(messages: ReturnType<typeof messageRow>[]): string[] {
+  const out: string[] = [];
+  for (const m of messages) {
+    if (m.type !== "escalation" || !m.payload) continue;
+    const reason = m.payload.stopReason;
+    const dispatch = m.payload.dispatchId;
+    const handle = m.payload.handle;
+    if (typeof dispatch !== "string") continue;
+    if (reason === "needs-input") {
+      out.push(
+        `escalation needs-input on dispatch_id: ${dispatch}: the worker is at a prompt only a person can answer — ask the user to answer it in that worker's Orca terminal tab${typeof handle === "string" ? ` (${handle})` : ""}, then call orca_wait again`,
+      );
+    } else if (reason === "finished") {
+      out.push(
+        `escalation finished on dispatch_id: ${dispatch}: the worker ended its turn without worker_done — inspect it (git log/status in its worktree; is any process it waits on still running?), then nudge it with orca_reply({ run_id, dispatch_id: ${dispatch}, body }) telling it what to do next`,
+      );
+    }
+  }
+  return out;
+}
+
 export function registerOrcaWaitTool(
   server: McpServer,
   deps: OrcaToolsDeps,
@@ -220,6 +248,7 @@ export function registerOrcaWaitTool(
           "answer each question with orca_reply({ run_id, message_id, body })",
         );
       }
+      next.push(...escalationHints(other));
       if (stalls.some((s) => s.reason === "never-started")) {
         next.push(
           "for a never-started stall (the brief never reached the agent): orca_stop(dispatch_id, evidence_id), then orca_start({task_id, worktree, agent, retry_of: dispatch_id}) for a fresh capability; never resend the brief by hand (dispatch-show --preamble omits the capability)",

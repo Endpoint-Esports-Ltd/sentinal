@@ -550,7 +550,8 @@ differs from its copy's.
 - **With Orca** (recommended): `orca_dispatch` creates the worktree in that repository
   (`repo: <path>`, no lineage), and the worker runs inside it with that repository's rules,
   memory and TDD scoping. The repository must be registered in Orca: Sentinal reports
-  `orca repo add --path <repo>` and never runs it (Orca has no command to unregister a repository).
+  `orca repo add --path <repo>` and never runs it. Removing a repository from Orca later:
+  `orca project setup-delete --setup <repo-id>` (`--force` if Orca kept a saved workspace for it).
 - **Without Orca:** `worktree_create({ plan_slug, project: <repo> })` creates the worktree, and a
   subagent works in it by absolute path. Editing outside the session's directory prompts for
   permission. To allow it for good — Claude Code: `--add-dir <repo>` or

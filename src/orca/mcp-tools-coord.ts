@@ -56,32 +56,51 @@ function registerReplyTool(
 ): void {
   server.tool(
     "orca_reply",
-    `Answer a worker's question (from orca_wait) before its ask times out. ${DIRECT}`,
+    `Answer a worker's question (message_id, from orca_wait) before its ask times out — or send guidance to a worker that stopped without reporting or is stuck (dispatch_id, e.g. from an orca_wait escalation; sent with \`orchestration send --to dispatch:<id>\`). Exactly one of message_id / dispatch_id. ${DIRECT}`,
     {
       run_id: z.string().min(1),
       message_id: z
         .string()
         .min(1)
+        .optional()
         .describe("Id of the worker's question message, from orca_wait"),
+      dispatch_id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Dispatch to send guidance to (a worker that stopped without reporting or is stuck)",
+        ),
+      subject: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "dispatch_id only: message subject (default: Coordinator guidance)",
+        ),
       body: z.string().min(1),
     },
     async (args) => {
       const title = "Orca reply";
+      if (Boolean(args.message_id) === Boolean(args.dispatch_id)) {
+        return orcaFailure(
+          title,
+          {
+            code: "invalid_arguments",
+            message: "pass exactly one of message_id or dispatch_id",
+          },
+          { run_id: args.run_id },
+        );
+      }
+      if (args.dispatch_id) return sendGuidance(args, deps);
+      const messageId = args.message_id!;
       const r = await mutate<unknown>(
-        [
-          "reply",
-          "--run",
-          args.run_id,
-          "--id",
-          args.message_id,
-          "--body",
-          args.body,
-        ],
+        ["reply", "--run", args.run_id, "--id", messageId, "--body", args.body],
         { runner: deps.runner },
       );
       if (!r.ok) return orcaFailure(title, r.error, { run_id: args.run_id });
       for (const [d, open] of state?.openQuestions ?? []) {
-        if (open.delete(args.message_id) && open.size === 0) {
+        if (open.delete(messageId) && open.size === 0) {
           state?.openQuestions.delete(d);
         }
       }
@@ -89,16 +108,65 @@ function registerReplyTool(
       return orcaResponse(
         title,
         [
-          `- **Replied to:** ${args.message_id} (run ${args.run_id})`,
+          `- **Replied to:** ${messageId} (run ${args.run_id})`,
           ...(replyId ? [`- **Reply message:** ${replyId}`] : []),
         ],
         {
           ok: true,
           run_id: args.run_id,
-          message_id: args.message_id,
+          message_id: messageId,
           ...(replyId ? { reply_message_id: replyId } : {}),
         },
       );
+    },
+  );
+}
+
+/** `orchestration send --to dispatch:<id>`: guidance to a stopped or stuck worker. */
+async function sendGuidance(
+  args: {
+    run_id: string;
+    dispatch_id?: string;
+    subject?: string;
+    body: string;
+  },
+  deps: OrcaToolsDeps,
+) {
+  const title = "Orca reply";
+  const dispatchId = args.dispatch_id!;
+  const r = await mutate<unknown>(
+    [
+      "send",
+      "--to",
+      `dispatch:${dispatchId}`,
+      "--run",
+      args.run_id,
+      "--subject",
+      args.subject ?? "Coordinator guidance",
+      "--body",
+      args.body,
+    ],
+    { runner: deps.runner },
+  );
+  if (!r.ok) {
+    return orcaFailure(title, r.error, {
+      run_id: args.run_id,
+      dispatch_id: dispatchId,
+    });
+  }
+  const sentId = replyMessageId(r.result);
+  return orcaResponse(
+    title,
+    [
+      `- **Sent guidance to:** dispatch ${dispatchId} (run ${args.run_id})`,
+      ...(sentId ? [`- **Message:** ${sentId}`] : []),
+      "- Next: call orca_wait again for its worker_done.",
+    ],
+    {
+      ok: true,
+      run_id: args.run_id,
+      dispatch_id: dispatchId,
+      ...(sentId ? { reply_message_id: sentId } : {}),
     },
   );
 }

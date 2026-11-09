@@ -171,7 +171,8 @@ checked out in its main checkout>`: the worktree is created in that repo, with n
    file together with its `.spec-review.json`.
    Constraints: work only in this worktree; commit your work on this branch; do not merge,
    push, or edit the master plan. Questions: use your preamble's `ask` command, never a local
-   question prompt.
+   question prompt. Run long commands (the full test suite) in the foreground with a long
+   timeout; never end your turn waiting for a background process's exit notice.
    Ownership: this worktree and its branch.
    Observable acceptance: the child plan file reads Status: VERIFIED and its
    `.spec-review.json` exists. Report completion through
@@ -198,8 +199,9 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    avoids the known cold-start drop (Orca #22580, OpenCode #42915).
    `SENTINAL_ORCA_PREWARM_AGENTS=none` turns this off. Pre-warmed OpenCode workers can read the
    coordinator's checkout and the main checkout without a permission prompt (read-only: edits
-   there are denied; extra paths via `SENTINAL_ORCA_WORKER_ALLOW_DIRS`, `none` to turn it off). A
-   worker that wasn't pre-warmed (the `--agent` fallback, `new-child`, other agents,
+   there are denied; extra paths via `SENTINAL_ORCA_WORKER_ALLOW_DIRS`, `none` to turn it off),
+   and can write `/tmp` and the OS temp dir (`SENTINAL_ORCA_WORKER_SCRATCH_DIRS` adds paths,
+   `none` turns it off). A worker that wasn't pre-warmed (the `--agent` fallback, `new-child`, other agents,
    `SENTINAL_ORCA_PREWARM_AGENTS=none`, Windows) may still ask; the user approves it in that
    worker's tab.
 5. **Wait.** Loop `orca_wait({ run_id })` (it returns within ~50 s; a timeout is a checkpoint, not
@@ -218,6 +220,11 @@ path, base: <this session's branch>, owner: "external" })`. This gives it a slot
    - Otherwise treat it as a failed phase (below).
    - A `question` message: answer it with `orca_reply({ run_id, message_id, body })` (ask the user
      if you cannot answer), before the worker's `ask` times out.
+   - An `escalation` with `stopReason: needs-input`: the worker is at a prompt only a person can
+     answer (e.g. OpenCode "Access external directory") — ask the user to answer it in that
+     worker's Orca terminal tab. With `stopReason: finished` (it ended its turn without
+     `worker_done`): check its worktree and whether anything it waits on still runs, then send
+     guidance with `orca_reply({ run_id, dispatch_id, body })`. Neither is a stall.
      Then `orca_ack({ delivery_id })` before the next `orca_wait` (an un-acked batch is re-sent). Start
      any task that has become ready.
 6. **Stalls.** `orca_wait` reports a stall only on positive evidence, each with an `evidence_id`:

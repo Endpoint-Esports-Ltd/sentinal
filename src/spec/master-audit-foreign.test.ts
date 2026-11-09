@@ -192,3 +192,63 @@ describe("resolveForeignChild", () => {
     expect(r.findings).toEqual([]);
   });
 });
+
+// Phase 3 deferred issue (2026-11-09): after the merge, the base branch may be
+// checked out in a LINKED worktree of the foreign repo, so the relative
+// Location exists there, not in Repo:'s main checkout.
+describe("resolveForeignChild — merged into a linked worktree", () => {
+  it("should find a relative Location in the repo's linked worktree that holds it", () => {
+    const linked = join(root, "api-wt");
+    mkdirSync(join(linked, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      join(linked, "docs", "plans", "x-phase-2.md"),
+      "# X\n\nStatus: VERIFIED\nType: Feature\nParent: x\n",
+    );
+    const seedFile = join(masterRepo, "docs", "plans", "x-phase-2.md");
+    mkdirSync(join(masterRepo, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      seedFile,
+      `# X\n\nStatus: VERIFIED\nType: Feature\nParent: x\nRepo: ${apiRepo}\nBase: main\nLocation: docs/plans/x-phase-2.md\n`,
+    );
+    const r = resolveForeignChild({
+      planFile: seedFile,
+      spec: parsePlanFile(seedFile),
+      masterSlug: "x",
+      masterWorkspace: masterRepo,
+      worktreesOf: () => [
+        { path: apiRepo, branch: "other" },
+        { path: linked, branch: "main" },
+      ],
+    });
+    expect(r.findings).toEqual([]);
+    expect(r.status).toBe("VERIFIED");
+    expect(r.location).toBe(join(linked, "docs", "plans", "x-phase-2.md"));
+  });
+
+  it("should not consult worktrees when the Location exists under Repo", () => {
+    mkdirSync(join(apiRepo, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      join(apiRepo, "docs", "plans", "x-phase-3.md"),
+      "# X\n\nStatus: VERIFIED\nType: Feature\nParent: x\n",
+    );
+    const seedFile = join(masterRepo, "docs", "plans", "x-phase-3.md");
+    mkdirSync(join(masterRepo, "docs", "plans"), { recursive: true });
+    writeFileSync(
+      seedFile,
+      `# X\n\nStatus: VERIFIED\nType: Feature\nParent: x\nRepo: ${apiRepo}\nLocation: docs/plans/x-phase-3.md\n`,
+    );
+    let consulted = 0;
+    const r = resolveForeignChild({
+      planFile: seedFile,
+      spec: parsePlanFile(seedFile),
+      masterSlug: "x",
+      masterWorkspace: masterRepo,
+      worktreesOf: () => {
+        consulted++;
+        return [];
+      },
+    });
+    expect(consulted).toBe(0);
+    expect(r.findings).toEqual([]);
+  });
+});

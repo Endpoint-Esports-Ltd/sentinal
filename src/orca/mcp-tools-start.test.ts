@@ -523,11 +523,40 @@ describe("orca_start — worker access (prompt-free, read-only)", () => {
     expect(cmd.startsWith("env OPENCODE_CONFIG_CONTENT='")).toBe(true);
     expect(cmd).toContain("/p/sentinal/**");
     expect(cmd).toContain("/co/orca-support/**");
+    expect(r.data.worker_access).toMatchObject({
+      dirs: ["/co/orca-support", "/p/sentinal"],
+      read_only: true,
+    });
+    // Scratch dirs (2026-11-09): /tmp is allowed read-write by default.
+    expect(r.data.worker_access.scratch).toContain("/tmp");
+    expect(cmd).toContain("/tmp/**");
+    expect(r.text).toContain("without a permission prompt");
+    expect(r.text).toContain("Scratch (read-write)");
+  });
+
+  it("grants no scratch dirs with SENTINAL_ORCA_WORKER_SCRATCH_DIRS=none", async () => {
+    const f = routes();
+    const { call } = capture({
+      runner: f.runner,
+      env: {
+        ORCA_TERMINAL_HANDLE: COORD,
+        SENTINAL_ORCA_WORKER_SCRATCH_DIRS: "none",
+      },
+      prewarmClock: instant,
+      workerDirs: dirs,
+    });
+    const r = await call("orca_start", {
+      task_id: "task_1",
+      worktree: { path: "/p/sentinal/.orca/worktrees/w" },
+      agent: "opencode",
+    });
     expect(r.data.worker_access).toEqual({
       dirs: ["/co/orca-support", "/p/sentinal"],
       read_only: true,
     });
-    expect(r.text).toContain("without a permission prompt");
+    expect(flag(f.called("terminal create")[0]!, "--command")).not.toContain(
+      "/tmp/**",
+    );
   });
 
   it("uses the plain command with SENTINAL_ORCA_WORKER_ALLOW_DIRS=none", async () => {

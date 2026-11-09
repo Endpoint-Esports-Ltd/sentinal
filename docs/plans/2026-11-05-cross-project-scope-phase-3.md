@@ -252,7 +252,7 @@ Task 3). Disjoint files.
 
 From the spec review (suggestions, non-blocking):
 
-- A relative `Location:` (after a merge) resolves against `Repo:` as written — normally the
+- ✅ **Resolved 2026-11-09** (`docs/plans/2026-11-09-orca-worker-followups.md`): when the file is missing under `Repo:`, the audit now looks in the repo's linked worktrees (the one with `Base:` checked out first). Was: a relative `Location:` (after a merge) resolves against `Repo:` as written — normally the
   repo's main checkout. If the base branch is checked out in a linked worktree, the merge lands
   there and the audit reports `foreign-location-missing` until that branch reaches the main
   checkout.
