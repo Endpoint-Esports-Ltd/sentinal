@@ -59,6 +59,17 @@ describe("resolveSeedRepo", () => {
     );
     expect(resolveSeedRepo("backend", masterRepo)).toContain("api");
   });
+
+  // Regression (2026-11-09): from a linked worktree nested in the master repo
+  // (`.orca/worktrees/x`), a relative Repo is still relative to the main checkout.
+  it("should resolve a relative Repo against the main checkout from a nested linked worktree", () => {
+    const wt = join(masterRepo, ".orca", "worktrees", "x");
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(join(wt, ".git"), "gitdir: elsewhere\n");
+    expect(
+      resolveSeedRepo("../api", wt, { mainCheckout: () => masterRepo }),
+    ).toBe(apiRepo);
+  });
 });
 
 describe("findMasterWorkspace", () => {

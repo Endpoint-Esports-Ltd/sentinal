@@ -480,7 +480,7 @@ Look for sibling git repositories the project's rules, README or scripts mention
 { "projects": [{ "name": "api", "path": "../api" }] }
 ```
 
-`path` is relative to this checkout (or absolute); `name` is optional (defaults to the directory name). Declared projects are listed at session start, searchable with `memory_search({scope: "related"})`, and their `.sentinal/rules` reach the agent on the first edit of one of their files (that last part works for undeclared repos too).
+`path` is relative to the repository's main checkout — also from a linked worktree — (or absolute); `name` is optional (defaults to the directory name). Declared projects are listed at session start, searchable with `memory_search({scope: "related"})`, and their `.sentinal/rules` reach the agent on the first edit of one of their files (that last part works for undeclared repos too).
 
 ## Phase 7: Sync MCP Rules
 

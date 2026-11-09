@@ -503,7 +503,7 @@ it reads the file):
 { "projects": [{ "name": "api", "path": "../api" }, { "path": "/abs/web" }] }
 ```
 
-`path` is relative to the checkout holding the file, or absolute; `name` defaults to the directory
+`path` is relative to the repository's **main checkout** (so `../api` also works from a linked worktree such as `.orca/worktrees/x`), or absolute; `name` defaults to the directory
 name. A missing directory is reported, never searched.
 
 - **Search:** `memory_search({query, scope: "related"})` searches this project plus every declared
@@ -534,7 +534,7 @@ what does not fit is listed as file pointers to read. Reads never inject.
 #### Cross-repo master plans
 
 A master plan in one repository can run a phase in **another** repository. Give that phase's child
-plan a `Repo:` header (a `related.json` name, a path relative to the master's repository, or an
+plan a `Repo:` header (a `related.json` name, a path relative to the master repository's main checkout, or an
 absolute path) and optionally `Base:` (its base branch; default: the branch checked out in that
 repository's main checkout). That child plan stays in the master's `docs/plans/` as a **seed**, so
 it is planned and approved like any other phase.

@@ -15,7 +15,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { loadRelatedProjects } from "../project/related.js";
+import {
+  loadRelatedProjects,
+  relativeBase,
+  type RelatedDeps,
+} from "../project/related.js";
 import { parsePlanFile } from "./parser.js";
 import { markFencedLines } from "./parser-fences.js";
 import type { Spec, SpecStatus } from "./types.js";
@@ -69,13 +73,24 @@ export function findMasterWorkspace(masterPlanPath: string): string {
     : planDir;
 }
 
-/** `Repo:` → directory: absolute as is; a `related.json` name; else relative to the master. */
-export function resolveSeedRepo(repo: string, masterWorkspace: string): string {
+/**
+ * `Repo:` → directory: absolute as is; a `related.json` name; else relative to
+ * the master repo's MAIN checkout (`relativeBase`), so a master audited from a
+ * linked worktree nested in the repo still finds `../api`.
+ */
+export function resolveSeedRepo(
+  repo: string,
+  masterWorkspace: string,
+  deps: Pick<RelatedDeps, "mainCheckout"> = {},
+): string {
   if (isAbsolute(repo)) return resolve(repo);
   const named = loadRelatedProjects(masterWorkspace, {
     identity: (p) => p, // only the path is needed — no git spawn
+    ...deps,
   }).projects.find((p) => p.name === repo);
-  return named ? named.path : resolve(masterWorkspace, repo);
+  return named
+    ? named.path
+    : resolve(relativeBase(masterWorkspace, deps), repo);
 }
 
 /** Resolve a seed (a child plan with `Repo:`) to the status that counts. */

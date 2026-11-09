@@ -10,7 +10,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { loadRelatedProjects, relatedJsonPath } from "./related.js";
+import {
+  loadRelatedProjects,
+  relatedJsonPath,
+  relativeBase,
+} from "./related.js";
 
 let root: string;
 let a: string;
@@ -142,5 +146,59 @@ describe("loadRelatedProjects", () => {
     const r = loadRelatedProjects(a, deps);
     expect(r.gitignored).toBe(true);
     expect(r.warnings.join("\n")).toContain("add `!related.json`");
+  });
+});
+
+// Regression (2026-11-09): relative paths are relative to the MAIN checkout,
+// so they work from a linked worktree nested in the repo (`.orca/worktrees/x`).
+describe("loadRelatedProjects from a linked worktree", () => {
+  function git(cwd: string, ...args: string[]): void {
+    execFileSync("git", args, { cwd, env: gitEnv, stdio: "ignore" });
+  }
+  function repoWithWorktree(): { main: string; wt: string; sibling: string } {
+    const main = join(root, "ops");
+    const sibling = join(root, "api");
+    mkdirSync(main);
+    mkdirSync(sibling);
+    git(main, "init", "-q", "-b", "main");
+    writeRelated(main, JSON.stringify({ projects: [{ path: "../api" }] }));
+    git(main, "add", "-A");
+    git(
+      main,
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-qm",
+      "init",
+    );
+    const wt = join(main, ".orca", "worktrees", "x");
+    git(main, "worktree", "add", "-q", "-b", "x", wt);
+    return { main, wt: realpathSync(wt), sibling };
+  }
+
+  it("should resolve ../sibling against the main checkout, not the worktree", () => {
+    const { wt, sibling } = repoWithWorktree();
+    const { projects } = loadRelatedProjects(wt, deps);
+    expect(projects.map((p) => [p.path, p.exists])).toEqual([[sibling, true]]);
+  });
+
+  it("should not look up the main checkout when the workspace is the main checkout", () => {
+    const { main, sibling } = repoWithWorktree();
+    let lookups = 0;
+    const { projects } = loadRelatedProjects(main, {
+      ...deps,
+      mainCheckout: () => {
+        lookups++;
+        return "/nowhere";
+      },
+    });
+    expect(lookups).toBe(0);
+    expect(projects.map((p) => p.path)).toEqual([sibling]);
+  });
+
+  it("relativeBase should return the workspace outside any linked worktree", () => {
+    expect(relativeBase(a)).toBe(a);
   });
 });
