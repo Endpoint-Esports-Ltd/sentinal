@@ -1,7 +1,7 @@
 # Relative related.json / Repo: Paths Break in Linked Worktrees Fix Plan
 
 Created: 2026-11-09
-Status: IN_PROGRESS
+Status: VERIFIED
 Approved: Yes
 Iterations: 0
 Worktree: No
