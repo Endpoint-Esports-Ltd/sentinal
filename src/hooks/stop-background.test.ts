@@ -1,11 +1,10 @@
 /**
- * stop-background — bounded background-work awareness for the stop-guard.
+ * stop-background — background-work awareness for the stop-guard.
  *
- * RED phase: fails until src/hooks/stop-background.ts exists.
- *
- * Contract: background work may suppress a stop-guard block ONLY when the block
- * is a WEAKER class (orphaned / stale-owner). It must NEVER suppress a block on
- * the session's OWN in-progress plan (block class "self").
+ * Contract: background work in flight means the stop is a yield (Claude Code
+ * re-invokes the session when the task completes), so it suppresses the block
+ * for every known ownership class — including the session's OWN in-progress
+ * plan. Only an unknown ownership class still blocks (fail toward blocking).
  */
 
 import { describe, it, expect } from "bun:test";
@@ -59,14 +58,16 @@ describe("hasActiveBackgroundWork", () => {
 });
 
 describe("shouldSuppressForBackground", () => {
-  it("does NOT suppress a self-owned block even with background work", () => {
-    // The critical safety rule: never abandon the session's OWN in-progress plan.
+  it("suppresses a self-owned block when background work is present (the watcher loop)", () => {
+    // The main thread waiting on a Monitor / background agent for its OWN plan
+    // must be allowed to yield: the task notification brings it back. Nudging
+    // here produced "Watching." → nudge → "Still watching." → nudge … per wait.
     expect(
       shouldSuppressForBackground({
         hasBackground: true,
         ownership: "self",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("suppresses an orphaned block when background work is present", () => {

@@ -24,9 +24,11 @@ import {
  * restore the legacy hard `denyExit` (exit 2).
  *
  * Background-work aware (CC 2.1.145): when `background_tasks`/`session_crons`
- * report real work in flight, a WEAKER block (orphaned / stale-owner) is
- * suppressed so the stop proceeds — but a self-owned in-progress plan is NEVER
- * suppressed (would abandon the session's own plan).
+ * report real work in flight, the block is suppressed for every ownership
+ * class — including the session's own in-progress plan. The stop is a yield:
+ * Claude Code re-invokes the session when the task completes, so nudging it
+ * ("Do NOT stop") only burns a model turn per nudge while it waits on its own
+ * watcher. See stop-background.ts.
  *
  * Subagent bypass: if `input.agent_type` is present and not "main",
  * this is a subagent completing — do NOT block it.
@@ -79,9 +81,9 @@ export async function processSpecStopGuard(input: HookInput): Promise<void> {
 
   if (!decision.block) return;
 
-  // Background-work awareness: if real background work is in flight, suppress a
-  // WEAKER block (orphaned/stale-owner) so the stop proceeds — but never a
-  // self-owned in-progress plan.
+  // Background-work awareness: if real background work is in flight, the stop
+  // is a yield (the task notification re-invokes this session), so let it
+  // through for any ownership class — self included.
   if (
     hasActiveBackgroundWork(input) &&
     shouldSuppressForBackground({
