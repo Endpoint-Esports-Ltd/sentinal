@@ -1,3 +1,10 @@
+## [1.47.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.47.0...v1.47.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **project:** resolve relative related.json and Repo: paths against the main checkout ([7a63f91](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/7a63f91a87a51a7f88ddab095091c7dfdab67e30))
+
 # [1.47.0](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.46.1...v1.47.0) (2026-11-08)
 
 
