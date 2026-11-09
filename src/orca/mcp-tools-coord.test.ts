@@ -109,6 +109,46 @@ describe("orca_reply", () => {
   });
 });
 
+// Nudge (2026-11-09): a worker that stopped without reporting gets guidance
+// through a Sentinal tool instead of a raw `orchestration send`.
+describe("orca_reply to a dispatch", () => {
+  it("sends guidance to dispatch:<id> when given dispatch_id instead of message_id", async () => {
+    const orca = fakeOrca([
+      ["orchestration send", ok({ message: { id: "msg_nudge" } })],
+    ]);
+    const call = capture({ runner: orca.runner, env: {} });
+    const r = await call("orca_reply", {
+      run_id: RUN,
+      dispatch_id: "ctx_abc",
+      body: "Your test run already finished; read its output and report.",
+    });
+    const [args] = orca.called("orchestration send");
+    expect(flag(args!, "--to")).toBe("dispatch:ctx_abc");
+    expect(flag(args!, "--run")).toBe(RUN);
+    expect(flag(args!, "--subject")).toBeTruthy();
+    expect(flag(args!, "--body")).toContain("already finished");
+    expect(flag(args!, "--retry-request")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(orca.called("orchestration reply")).toEqual([]);
+    expect(r.data.ok).toBe(true);
+    expect(r.data.dispatch_id).toBe("ctx_abc");
+  });
+
+  it("refuses when neither or both of message_id and dispatch_id are given", async () => {
+    const orca = fakeOrca([]);
+    const call = capture({ runner: orca.runner, env: {} });
+    const none = await call("orca_reply", { run_id: RUN, body: "x" });
+    const both = await call("orca_reply", {
+      run_id: RUN,
+      message_id: "m",
+      dispatch_id: "d",
+      body: "x",
+    });
+    expect(none.data.ok).toBe(false);
+    expect(both.data.ok).toBe(false);
+    expect(orca.calls).toEqual([]);
+  });
+});
+
 // -------------------------------------------------------------- orca_rebind
 
 function rebindRoutes(terminal: Reply) {

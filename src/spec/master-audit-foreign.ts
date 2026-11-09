@@ -9,8 +9,11 @@
  * seed → `Location:` direction is the link: the copy's `Parent:` must equal
  * the master slug; its `Master:` header is informational and never checked.
  *
- * ⛔ Direct-fs, no git and no store (see `master-audit.ts`). Never scan another
- * repo's `docs/plans` by slug — only `Location:` is followed.
+ * ⛔ Direct-fs and no store (see `master-audit.ts`). Git is consulted only on
+ * two fallback paths: a relative `Repo:` from a linked worktree
+ * (`relativeBase`) and a relative `Location:` missing under `Repo:`
+ * (`git worktree list`). Never scan another repo's `docs/plans` by slug —
+ * only `Location:` is followed.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -20,6 +23,7 @@ import {
   relativeBase,
   type RelatedDeps,
 } from "../project/related.js";
+import { listGitWorktrees } from "../worktree/disk-scan.js";
 import { parsePlanFile } from "./parser.js";
 import { markFencedLines } from "./parser-fences.js";
 import type { Spec, SpecStatus } from "./types.js";
@@ -93,12 +97,48 @@ export function resolveSeedRepo(
     : resolve(relativeBase(masterWorkspace, deps), repo);
 }
 
+/**
+ * A relative `Location:` is relative to `Repo:`. After the merge it normally
+ * exists in that repo's main checkout; but when the base branch is checked out
+ * in a LINKED worktree of the repo, `worktree_sync` merges there and the file
+ * reaches the main checkout only later. Only when the file is missing under
+ * `Repo:`, ask git for the repo's worktrees (one spawn) and take the one with
+ * `Base:` checked out, else any that holds the file. Falls back to the
+ * `Repo:`-relative path (reported missing as before).
+ */
+function locateRelative(
+  repo: string,
+  location: string,
+  base: string | undefined,
+  worktreesOf?: (
+    repo: string,
+  ) => Array<{ path: string; branch: string | null }>,
+): string {
+  const direct = resolve(repo, location);
+  if (existsSync(direct)) return direct;
+  let trees: Array<{ path: string; branch: string | null }>;
+  try {
+    trees = (worktreesOf ?? listGitWorktrees)(repo);
+  } catch {
+    return direct;
+  }
+  const holding = trees
+    .map((t) => ({ ...t, file: resolve(t.path, location) }))
+    .filter((t) => existsSync(t.file));
+  const onBase = base ? holding.find((t) => t.branch === base) : undefined;
+  return (onBase ?? holding[0])?.file ?? direct;
+}
+
 /** Resolve a seed (a child plan with `Repo:`) to the status that counts. */
 export function resolveForeignChild(o: {
   planFile: string;
   spec: Spec;
   masterSlug: string;
   masterWorkspace: string;
+  /** Linked worktrees of `Repo:` (tests inject; default `listGitWorktrees`). */
+  worktreesOf?: (
+    repo: string,
+  ) => Array<{ path: string; branch: string | null }>;
 }): ForeignChild {
   const repo = resolveSeedRepo(o.spec.repo ?? "", o.masterWorkspace);
   const seedRaw = readRawStatus(o.planFile);
@@ -129,7 +169,7 @@ export function resolveForeignChild(o: {
 
   const location = isAbsolute(o.spec.location)
     ? resolve(o.spec.location)
-    : resolve(repo, o.spec.location);
+    : locateRelative(repo, o.spec.location, o.spec.base, o.worktreesOf);
   let copy: Spec;
   try {
     copy = parsePlanFile(location);

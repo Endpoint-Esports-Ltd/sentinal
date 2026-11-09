@@ -214,7 +214,7 @@ returns only the commit; `squashMergeDetailed` returns `{commit, mergedIn, outco
 | `orca_start`           | Start ONE worker (≤45 s budget; `pending` + same `request_id` joins/replays); pre-warms listed agents (`start_path`: `prewarmed` / `agent` / `agent-fallback` / `replayed`); `retry_of` replaces a stopped/failed attempt (`retry_of_skipped: true` when the task is already `ready`); reports `delivery_confirmed`; `worker_access` (read-only dirs) when `prewarmed` |
 | `orca_wait`            | One bounded wait (≤40 s + ≤10 s stall checks): `worker_done` + stalls (incl. `never-started`) + `attention` entries (no `evidence_id`) + `reclaimable` terminals; auto-acks heartbeat-only deliveries (≤3 rounds), otherwise no ack                                                                                                                                    |
 | `orca_ack`             | Acknowledge a delivery                                                                                                                                                                                                                                                                                                                                                 |
-| `orca_reply`           | Answer a worker's question: `orchestration reply` (`run_id`, `message_id`, `body`)                                                                                                                                                                                                                                                                                     |
+| `orca_reply`           | Answer a worker's question: `orchestration reply` (`run_id`, `message_id`, `body`); or, with `dispatch_id` instead of `message_id`, send guidance to a stopped/stuck worker: `orchestration send --to dispatch:<id>` (exactly one of the two)                                                                                                                          |
 | `orca_rebind`          | Rebind a Run to this coordinator terminal (`run-use`) after `consumer_fenced`; refuses `rebind_refused` while the old coordinator terminal is `connected: true`, unless `force`                                                                                                                                                                                        |
 | `orca_stop`            | **DESTRUCTIVE** — stop a worker; needs a one-shot `evidence_id` from `orca_wait`                                                                                                                                                                                                                                                                                       |
 | `orca_abandon`         | **DESTRUCTIVE** — `worker-abandon`, only when `worker-show` reports `stop_unknown` (a stop Orca could not prove); then `retry_of`                                                                                                                                                                                                                                      |
@@ -342,6 +342,15 @@ until `showsHomeScreen` (splash logo AND the framed `Ask anything…`), then 1 s
   bind to the wrong pane (14/600 `worker_done` rejected in one report). **Off switch:
   `SENTINAL_ORCA_PREWARM_AGENTS=none`** (every start goes back to `--agent`).
 
+**Worker-stop escalations** (verified on 1.4.253, 2026-11-09). Orca sends an `escalation` message
+whose `payload.stopReason` is `needs-input` (the worker sits at a prompt only a person can answer —
+e.g. OpenCode's "Access external directory" — in its own terminal tab) or `finished` (it ended its
+turn without `worker_done`; seen when a worker waited on a background run's already-missed exit
+notice). `orca_wait` (`escalationHints`, `src/orca/mcp-tools-wait.ts`) adds a Next hint for each:
+ask the user to answer in that tab, or inspect and nudge with `orca_reply({run_id, dispatch_id,
+body})`. Neither is a stall and neither authorizes `orca_stop`. Worker briefs now tell workers to
+run long commands in the foreground.
+
 **Open questions and limits** (`docs/plans/2026-10-02-orca-polish.md`). A worker's `ask` also
 raises an `orca-attention` entry with categories `["input"]`; `orca_wait` hides it while that
 dispatch has an open question (`state.openQuestions`, filled from `question` messages, cleared by
@@ -379,7 +388,13 @@ written to the user's config.
   that is not a JSON object means the feature is skipped (plain `opencode`). A value set only in
   the user's shell startup files is invisible to the MCP server and is **replaced** for workers;
   opt out with `SENTINAL_ORCA_WORKER_ALLOW_DIRS=none`.
-- **Reporting.** `orca_start` adds `worker_access: {dirs, read_only: true}` (and a text line) only
+- **Scratch dirs (2026-11-09).** `workerScratchDirs` adds `/tmp` and `os.tmpdir()` — each in its
+  **literal and realpath** form, because OpenCode matches the path the agent typed (`/tmp/x`), not
+  `/private/tmp/x` — plus absolute entries of `SENTINAL_ORCA_WORKER_SCRATCH_DIRS` (`none` → none).
+  They are **allowed and never denied** (read-write), and on their own still trigger the inline
+  config. Before this, Phase 2/3 workers of the cross-project master stalled on
+  "Access external directory /tmp".
+- **Reporting.** `orca_start` adds `worker_access: {dirs, read_only: true, scratch?}` (and a text line) only
   when `start_path` is `prewarmed` — never for `agent`, `agent-fallback` or `replayed`.
 - **Limits.** Bash writes are not covered (edit rules cover edit/write/patch only). Workers that
   were not pre-warmed may still prompt: the `--agent` fallback, `new-child`, other agents,

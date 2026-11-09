@@ -11,6 +11,7 @@ import {
   WORKER_AGENTS,
   opencodeLaunch,
   workerAllowDirs,
+  workerScratchDirs,
 } from "./worker-access.js";
 
 /** Undo POSIX single quoting of `env OPENCODE_CONFIG_CONTENT='…' opencode`. */
@@ -221,5 +222,68 @@ describe("opencodeLaunch — review fixes", () => {
     expect(c.agent.build.model).toBe("m");
     expect(c.agent.build.permission["*"]).toBe("allow");
     expect(c.agent.build.permission.edit).toEqual({ "../*": "deny" });
+  });
+});
+
+// Scratch dirs (2026-11-09): workers stalled on "Access external directory /tmp".
+describe("workerScratchDirs + opencodeLaunch scratch", () => {
+  it("defaults to /tmp and the OS temp dir, literal and real forms, deduped", () => {
+    const real = (p: string) => (p === "/tmp" ? "/private/tmp" : p);
+    expect(workerScratchDirs({}, "/var/folders/T", real)).toEqual([
+      "/tmp",
+      "/private/tmp",
+      "/var/folders/T",
+    ]);
+  });
+
+  it("adds SENTINAL_ORCA_WORKER_SCRATCH_DIRS entries and is [] when none", () => {
+    const id = (p: string) => p;
+    expect(
+      workerScratchDirs(
+        { SENTINAL_ORCA_WORKER_SCRATCH_DIRS: "/scratch, rel" },
+        "/t",
+        id,
+      ),
+    ).toEqual(["/tmp", "/t", "/scratch"]);
+    expect(
+      workerScratchDirs(
+        { SENTINAL_ORCA_WORKER_SCRATCH_DIRS: "none" },
+        "/t",
+        id,
+      ),
+    ).toEqual([]);
+  });
+
+  it("allows scratch dirs without a prompt and never denies edits there", () => {
+    const r = opencodeLaunch({
+      ...base,
+      worktree: "/r/.orca/worktrees/w",
+      dirs: ["/r"],
+      scratch: ["/tmp", "/private/tmp"],
+      realpath: (p) => p,
+    });
+    const c = configOf(r.command);
+    expect(c.permission.external_directory["/tmp/**"]).toBe("allow");
+    expect(c.permission.external_directory["/private/tmp/**"]).toBe("allow");
+    const denies = Object.keys(c.permission.edit);
+    expect(denies.some((k) => k.includes("tmp"))).toBe(false);
+    expect(r.access).toEqual({
+      dirs: ["/r"],
+      readOnly: true,
+      scratch: ["/tmp", "/private/tmp"],
+    });
+  });
+
+  it("uses the inline config for scratch dirs even with no checkout dirs to grant", () => {
+    const r = opencodeLaunch({
+      ...base,
+      worktree: "/co",
+      dirs: ["/co"],
+      scratch: ["/tmp"],
+      realpath: (p) => p,
+    });
+    expect(configOf(r.command).permission.external_directory).toEqual({
+      "/tmp/**": "allow",
+    });
   });
 });

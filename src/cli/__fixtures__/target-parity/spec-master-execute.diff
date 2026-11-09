@@ -23,7 +23,7 @@
  
  ### Orca Mode
  
-@@ -390,7 +389,7 @@
+@@ -397,7 +396,7 @@
  - **Never use when a human is actively reviewing** — the flag suppresses all permission dialogs
  - **Document in commit messages** — note when a run used `--dangerously-skip-permissions`
  

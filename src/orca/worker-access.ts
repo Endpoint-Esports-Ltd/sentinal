@@ -55,10 +55,40 @@ export function workerAllowDirs(
   return out;
 }
 
+/**
+ * Scratch directories a worker may READ AND WRITE without a prompt: `/tmp` and
+ * the OS temp dir (`os.tmpdir()`), each in its literal and real form — OpenCode
+ * matches the path the agent typed (`/tmp/x`), not its realpath
+ * (`/private/tmp/x` on macOS) — plus absolute entries of
+ * `SENTINAL_ORCA_WORKER_SCRATCH_DIRS` (comma list). `none` → `[]`. Workers
+ * stalled on "Access external directory /tmp" without this (2026-11-09).
+ */
+export function workerScratchDirs(
+  env: Record<string, string | undefined>,
+  tmp: string,
+  realpath: (p: string) => string = realOrRaw,
+): string[] {
+  const raw = env.SENTINAL_ORCA_WORKER_SCRATCH_DIRS?.trim();
+  if (raw?.toLowerCase() === "none") return [];
+  const extra = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => isAbsolute(s));
+  const out: string[] = [];
+  for (const d of ["/tmp", tmp, ...extra]) {
+    if (!d || !isAbsolute(d)) continue;
+    const clean = d.length > 1 ? d.replace(/\/+$/, "") : d;
+    for (const form of [clean, realpath(clean)]) {
+      if (form && !out.includes(form)) out.push(form);
+    }
+  }
+  return out;
+}
+
 export interface OpencodeLaunch {
   /** The `--command` for `orca terminal create`. */
   command: string;
-  access?: { dirs: string[]; readOnly: true };
+  access?: { dirs: string[]; readOnly: true; scratch?: string[] };
   /** Directories left out because their name contains glob characters. */
   skippedDirs?: string[];
   /** Why the inline config was not used. */
@@ -99,6 +129,8 @@ export function opencodeLaunch(o: {
   /** The worker's own worktree (its OpenCode `instance.worktree`). */
   worktree: string;
   dirs: readonly string[] | null;
+  /** Read-WRITE scratch dirs (`workerScratchDirs`): allowed, never denied. */
+  scratch?: readonly string[];
   env: Record<string, string | undefined>;
   platform?: string;
   /** Tests: identity instead of realpath. */
@@ -133,7 +165,19 @@ export function opencodeLaunch(o: {
     allow[`${abs}/**`] = "allow";
     deny[`${rel}/*`] = "deny";
   }
-  if (dirs.length === 0) {
+  const scratch: string[] = [];
+  for (const d of o.scratch ?? []) {
+    if (GLOB.test(d)) {
+      skippedDirs.push(d);
+      continue;
+    }
+    const abs = resolve(d);
+    const rel = relative(wt, abs);
+    if (rel === "" || !(rel === ".." || rel.startsWith(`..${sep}`))) continue;
+    if (!scratch.includes(abs)) scratch.push(abs);
+    allow[`${abs}/**`] = "allow";
+  }
+  if (dirs.length === 0 && scratch.length === 0) {
     return { ...plain(), ...(skippedDirs.length ? { skippedDirs } : {}) };
   }
 
@@ -163,7 +207,7 @@ export function opencodeLaunch(o: {
   const json = JSON.stringify({ ...config, permission, agent: agents });
   return {
     command: `env OPENCODE_CONFIG_CONTENT=${shellQuote(json)} ${o.agent}`,
-    access: { dirs, readOnly: true },
+    access: { dirs, readOnly: true, ...(scratch.length ? { scratch } : {}) },
     ...(skippedDirs.length ? { skippedDirs } : {}),
   };
 }

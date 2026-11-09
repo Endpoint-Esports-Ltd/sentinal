@@ -455,3 +455,45 @@ describe("orca_wait — a worker's open question is not repeated as `input` atte
     ).toEqual([Q]);
   });
 });
+
+// Escalations (2026-11-09): Orca's "Worker is waiting on a prompt" /
+// "Worker stopped without reporting" got no Next guidance.
+describe("orca_wait — worker-stop escalations", () => {
+  const esc = (stopReason: string, subject: string) => ({
+    id: `msg_stop_${stopReason}`,
+    run_id: "run_hb",
+    subject,
+    body: "…",
+    type: "escalation",
+    payload: JSON.stringify({
+      taskId: "task_e",
+      dispatchId: "ctx_esc1",
+      handle: "term_esc1",
+      stopReason,
+    }),
+    created_at: "2026-11-08 20:57:00",
+  });
+  const delivery = (m: Record<string, unknown>) =>
+    ok({ runId: "run_hb", deliveryId: "delivery_e1", messages: [m] });
+
+  it("tells the coordinator to have the user answer a needs-input prompt in that worker's tab", async () => {
+    const s = checkSeq([
+      delivery(esc("needs-input", "Worker is waiting on a prompt")),
+    ]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb", timeout_ms: 5_000 });
+    expect(r.text).toContain("term_esc1");
+    expect(r.text).toMatch(/tab/i);
+    expect(r.text).toMatch(/needs-input/);
+  });
+
+  it("tells the coordinator to inspect, then nudge a worker that finished without reporting", async () => {
+    const s = checkSeq([
+      delivery(esc("finished", "Worker stopped without reporting")),
+    ]);
+    const { call } = capture({ runner: s.runner, env: {} });
+    const r = await call("orca_wait", { run_id: "run_hb", timeout_ms: 5_000 });
+    expect(r.text).toContain("dispatch_id: ctx_esc1");
+    expect(r.text).toContain("orca_reply");
+  });
+});
