@@ -1,3 +1,10 @@
+## [1.47.2](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.47.1...v1.47.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **stop-guard:** let a session yield to its own background work ([4046c73](https://github.com/Endpoint-Esports-Ltd/sentinal/commit/4046c732b7f0be47eda6fc0004a3969b86581021))
+
 ## [1.47.1](https://github.com/Endpoint-Esports-Ltd/sentinal/compare/v1.47.0...v1.47.1) (2026-11-09)
 
 
